@@ -6224,3 +6224,92 @@ IPC 请求无法关闭。
 - **里程碑**：M6+
 - **状态**：由 `apps/desktop/test/mcp-control.test.mjs` 覆盖 MCP 协议/单元；完整 Electron
   旅程已记录，仍按策略延后
+
+#### E2E-231：工作区安全拒绝名单与忽略层
+
+- **前提条件**：一个项目包含 `.env`、`.env.example`、`server.pem`、`keys/id_rsa`、
+  `notes.txt`、`node_modules/pkg/index.js`、`generated/out.txt`、`debug.log`，以及
+  根目录下写有 `generated/` 的 `.pi-desktopignore`。每个文件都包含单词 `needle`。
+  会话为 Agent 模式，权限模式 `auto`。
+- **步骤**：1）请求 `Read` `.env`，再请求 `Read` `.env.example`。2）请求 `Write`
+  到 `keys/id_rsa`。3）对 `needle` 运行无范围的 `Grep` 和 `Glob`。4）以
+  `path: node_modules/pkg` 和 `path: generated` 运行 `Grep`。5）分别在安装了系统 `rg`
+  和设置 `PI_DESKTOP_DISABLE_RG=1` 的情况下重复步骤 1。
+- **预期**：步骤 1 和 2 以 `WORKSPACE_PATH_DENIED` 失败，`.env.example` 的读取成功，
+  且不会创建 `keys/id_rsa` 文件。无范围搜索只列出 `notes.txt` 和 `.env.example`：
+  `.env`、`server.pem`、`node_modules`、`generated` 和 `debug.log` 都不出现。显式路径
+  搜索各返回一条命中。进程内遍历器与 `rg` 快速路径产生相同的文件集。
+- **链接规格**：`03-runtime/15-workspace-ignore-rules.md`、
+  `03-runtime/08-error-codes.md` §3.3、D032
+- **验收**：B（工作区工具）、安全
+- **里程碑**：M3+
+- **状态**：由 `crates/host-core/src/tools/mod.rs`
+  （`security_denylist_blocks_read_write_edit_and_hides_search_results`、
+  `default_ignores_and_workspace_ignore_file_hide_unscoped_walks_only`）和
+  `tools/ignore_rules.rs` 单元覆盖；Electron 旅程已记录，并按无本地 E2E 策略延后
+
+#### E2E-232：悬空软链无法写到工作区之外
+
+- **前提条件**：一个项目包含 `dangling -> /tmp/outside/planted.txt`（目标不存在）
+  和 `inner -> ./not-yet.txt`。Agent 模式，`auto` 权限。
+- **步骤**：1）请求 `Write` 到 `dangling`。2）请求 `Write` 到 `dangling-dir/new.txt`，
+  其中 `dangling-dir -> /tmp/outside/dir`。3）请求 `Write` 到 `inner`。
+- **预期**：步骤 1 和 2 以 `PATH_OUTSIDE_WORKSPACE` 失败，`/tmp/outside` 下没有任何
+  东西出现。步骤 3 在项目内创建 `not-yet.txt`。软链环路以 canonicalize 错误失败，
+  而不是挂起。
+- **链接规格**：`03-runtime/03-tools-and-permissions.md`、
+  `03-runtime/15-workspace-ignore-rules.md` §3
+- **验收**：B、安全
+- **里程碑**：M3+
+- **状态**：由 `crates/host-core/src/workspace.rs`
+  （`blocks_dangling_symlink_escape`、
+  `dangling_symlink_inside_workspace_resolves_to_its_target`、
+  `dangling_symlink_loop_is_rejected`）单元覆盖
+
+#### E2E-233：插件桌面控制需要用户的原生同意
+
+- **前提条件**：一个被授予 `desktop.control` 的开发插件，其面板调用
+  `pi.desktop.invoke({ operation: "session/delete", args: [id], confirm })`。
+  存在一个可丢弃的会话。
+- **步骤**：1）以 `confirm: false` 调用。2）以 `confirm: true` 调用并在对话框上按
+  Escape。3）以 `confirm: true` 调用并点击拒绝。4）以 `confirm: true` 调用并点击一次
+  允许。5）调用一个 `read` 操作。
+- **预期**：步骤 1 以 `CONFIRMATION_REQUIRED` 失败且不出现对话框。步骤 2 和 3 以
+  `PERMISSION_DENIED` 失败；会话仍然存在。对话框点名 `session/delete` 和目录描述，
+  绝不显示面板撰写的文本。步骤 4 删除会话且侧边栏刷新。步骤 5 不显示对话框。
+  每次调用都连同插件 id、操作和风险等级记入审计。
+- **链接规格**：`07-plugins/03-plugin-api.md`（桌面控制）、
+  `07-plugins/04-plugin-security.md` §8.2、
+  `07-plugins/13-plugin-permissions-matrix.md`、ADR 0203、D370、D372
+- **验收**：D（插件）、安全
+- **里程碑**：M6+
+- **状态**：由 `apps/desktop/test/plugin-desktop-control.test.mjs` 运行时覆盖；
+  原生对话框旅程已记录，并按无本地 E2E 策略延后
+
+#### E2E-234：插件 fetch 在每次重定向时重新检查出网
+
+- **前提条件**：一个声明 `net.domains: ["allowed.test"]` 和 `net.fetch` 的开发插件。
+  `allowed.test` 上的本地服务器对 `/hop` 返回 302 到 `http://undeclared.test/leak`，
+  对 `/ok` 返回 200。
+- **步骤**：1）调用 `pi.net.fetch({ url: "https://allowed.test/ok" })`。2）调用
+  `pi.net.fetch({ url: "https://allowed.test/hop" })`。
+- **预期**：步骤 1 返回 200。步骤 2 以点名 `undeclared.test` 的 `PERMISSION_DENIED`
+  失败，未声明的服务器没有记录到任何请求。审计日志显示被拒绝的那一跳。
+- **链接规格**：`07-plugins/04-plugin-security.md` §8.0
+- **验收**：D、安全
+- **里程碑**：M4+
+- **状态**：由 `apps/desktop/test/plugin-egress.test.mjs` 运行时覆盖
+
+#### E2E-235：未知会话的工具请求不会回退
+
+- **前提条件**：host-core 运行中；一个 JSON-RPC 探针接到其 stdio 上。
+- **步骤**：1）发送 `sessionId: "missing"` 的 `tools.execute`，请求 `Read`
+  `README.md`。2）以同一个 id 发送 `plans.enter`。
+- **预期**：两者都以 `SESSION_NOT_FOUND` 失败（分别对应数字码 `1007` 和
+  `PLAN_SESSION_NOT_FOUND`）；最近打开的工作区下没有任何文件被读取。
+- **链接规格**：`03-runtime/06-host-rpc-protocol.md` §7、
+  `03-runtime/08-error-codes.md` §3.1
+- **验收**：B、安全
+- **里程碑**：M3+
+- **状态**：由 `crates/host-core/src/rpc/mod.rs`
+  （`temporary_session_uses_its_own_scratch_workspace`）单元覆盖

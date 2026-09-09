@@ -417,6 +417,49 @@ pi.net.fetch(input: {
 }): Promise<{ status: number; headers: Record<string, string>; bodyText: string }>
 ```
 
+### 桌面控制（需要 `desktop.control`）
+
+```ts
+pi.desktop.listOperations(): Promise<Array<{
+  id: string
+  description: string
+  risk: "read" | "write" | "dangerous"
+}>>
+
+pi.desktop.invoke(input: {
+  operation: string
+  args?: unknown[]
+  confirm?: boolean
+}): Promise<unknown>
+```
+
+这是第一方插件通往同一份已审查操作目录的网关，该目录也被可选启用的本地
+MCP 控制平面使用（ADR 0203 / D370）。返回的目录省略 Electron 通道名，插件也
+永远拿不到 MCP bearer token。调用复用控制器、IPC 处理器、生命周期检查、完成
+事件和审计边界；插件无法触达任意 Electron IPC。
+
+`dangerous` 操作（删除会话、更改权限模式、批准工具）需要两次答复。
+`confirm: true` 是插件的知会，必须先给出（否则返回
+`CONFIRMATION_REQUIRED`）。随后宿主在原生对话框中询问用户，对话框点名目录中
+的操作 id、目录描述和一段参数预览；对话框绝不显示插件或模型撰写的文本，
+因此一份被提示注入的转录本无法把 `session/delete` 重新包装成无害的东西。
+对话框被关闭、被拒绝，或宿主没有对话框服务，都会在触达控制器之前以
+`PERMISSION_DENIED` 失败。调用会连同插件 id、操作、风险等级和结果状态一起
+记入日志；参数值不会复制进审计条目。
+
+### 麦克风面板（需要 `ui.microphone`）
+
+只有当清单声明且用户授予了 `ui.microphone` 时，隔离面板才可以通过浏览器
+媒体 API 请求麦克风音频：
+
+```ts
+navigator.mediaDevices.getUserMedia({ audio: true })
+```
+
+宿主的权限处理器为该面板放行 `media` 权限，并继续拒绝摄像头和其他所有
+设备权限。插件拿不到原生麦克风句柄或宿主密钥；浏览器的语音识别和语音合成
+仍由页面持有。面板应提供文本回退，并通过其无障碍状态播报权限或识别失败。
+
 ## 4. 错误模型
 
 ```ts
@@ -429,6 +472,7 @@ type PluginApiError = {
  | "UNSUPPORTED"
  | "LIMIT_EXCEEDED" // a per-plugin cap is full (e.g. bus subscriptions)
  | "RATE_LIMITED" // a rolling window is exhausted (e.g. bus publishes)
+ | "CONFIRMATION_REQUIRED" // a dangerous desktop operation without confirm: true
  | "INTERNAL"
  message: string
 }
