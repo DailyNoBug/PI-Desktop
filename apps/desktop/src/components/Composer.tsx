@@ -408,9 +408,9 @@ function paintEditorValue(
   };
   for (const char of Array.from(value)) {
     if (isChipTokenChar(char)) {
-      flush();
       const reference = referenceByToken.get(char);
       if (reference) {
+        flush();
         el.appendChild(
           buildChipElement(
             reference,
@@ -419,8 +419,10 @@ function paintEditorValue(
             onRemove,
           ),
         );
+        continue;
       }
-      continue;
+      // A private-use code point with no chip behind it is user text (Nerd
+      // Font glyphs pasted from a terminal, icon fonts); keep it verbatim.
     }
     textBuffer += char;
   }

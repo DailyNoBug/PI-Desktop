@@ -3461,7 +3461,7 @@ export class PluginRuntime {
             });
             throw apiError("INVALID_ARGUMENT", "only files can be previewed");
           }
-          const preview = previewFile(full, rel);
+          const preview = await previewFile(full, rel);
           this.services.audit?.({
             pluginId,
             api: "fs.readPreview",

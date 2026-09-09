@@ -18,6 +18,12 @@ declare const pi: PiPluginHostApi;
 
 ## 3. API overview (MVP)
 
+> Status legend: every section below is **shipped** and enforced by
+> `PluginRuntime` unless its heading or text says **Planned**. A planned
+> surface is documented ahead of implementation so plugin authors can see the
+> direction; it throws `UNSUPPORTED` until it lands (see §9 for the
+> per-surface list).
+
 ### app
 ```ts
 pi.app.getVersion(): Promise<string>
@@ -558,7 +564,11 @@ pi.events.on(event, handler)
 pi.events.off(event, handler)
 ```
 
-The host pushes events to the plugin process as one-way frames. Delivered today:
+The host pushes events to the plugin process as one-way frames. `pi.events`
+is not a separate channel: it is an alias over the same per-plugin bus stream
+that `pi.bus.subscribe` consumes (`plugin-host-process.mjs`), so an `on`
+handler sees every frame the host delivers to this plugin and nothing else.
+Delivered today:
 
 - `bus.message` — a bus delivery, with the `PluginBusMessage` as the single
   argument. `pi.bus.subscribe` is the normal way to receive these; `events.on`
