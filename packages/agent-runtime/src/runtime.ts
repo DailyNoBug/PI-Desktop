@@ -512,6 +512,21 @@ const SILENT_TURN_NUDGE = [
 ].join("\n");
 
 /**
+ * Autonomous plan/goal execution: collaboration prompts ask the model to
+ * narrate progress ("Writing it now.") then call a tool. Models often emit
+ * that narration as a finished assistant message with `finish_reason: stop`
+ * and no toolCall, so the runtime treats it as the final answer and ends the
+ * run mid-task (#43). One automatic continue with this nudge, then stop.
+ */
+const PROGRESS_TURN_NUDGE = [
+  "<progress_only_recovery>",
+  "Your last message announced next steps but contained no tool call, so the autonomous run would have stopped mid-task.",
+  "Continue the approved plan now: either call the tools for the work you just described, or write the final self-contained completion report.",
+  "Do not announce intent without a tool call in the same message.",
+  "</progress_only_recovery>",
+].join("\n");
+
+/**
  * Some OpenAI-style models emit their internal parallel-call wrapper as
  * assistant text (`to=multi_tool_use.parallel code:{"tool_uses":[…]}`) instead
  * of real tool calls. PI-Desktop has no such tool, so the whole batch lands as
@@ -714,6 +729,19 @@ function messageRequestsTools(message: unknown): boolean {
     Array.isArray(content) &&
     content.some((part) => isRecord(part) && part.type === "toolCall")
   );
+}
+
+/** Visible assistant text without any toolCall in an autonomous run. */
+export function isProgressOnlyAssistantTurn(message: unknown): boolean {
+  if (messageRequestsTools(message)) return false;
+  const content = isRecord(message) ? message.content : undefined;
+  if (typeof content === "string") return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  const text = content
+    .filter((part) => isRecord(part) && part.type === "text")
+    .map((part) => String((part as { text?: unknown }).text ?? ""))
+    .join("");
+  return text.trim().length > 0;
 }
 
 function boundedText(value: string, maxChars: number): string {
@@ -1295,6 +1323,12 @@ export class DesktopAgentRuntime {
   private silentTurnRerunAttempted = false;
   private silentTurnRerunInProgress = false;
   private suppressSilentTurnRunEnd = false;
+  /** Autonomous plan/goal execution: one progress-only continue (#43). */
+  private autonomousExecution = false;
+  private pendingProgressTurnRerun = false;
+  private progressTurnRerunAttempted = false;
+  private progressTurnRerunInProgress = false;
+  private suppressProgressTurnRunEnd = false;
   private activeToolCalls = new Map<
     string,
     { toolName: string; args: unknown }
@@ -4070,6 +4104,10 @@ Delegation rules:
     this.silentTurnRerunAttempted = false;
     this.silentTurnRerunInProgress = false;
     this.suppressSilentTurnRunEnd = false;
+    this.pendingProgressTurnRerun = false;
+    this.progressTurnRerunAttempted = false;
+    this.progressTurnRerunInProgress = false;
+    this.suppressProgressTurnRunEnd = false;
     this.providerRetryAbort?.abort();
     this.providerRetryAbort = undefined;
     this.mutationFailureCounts.clear();
@@ -4230,7 +4268,40 @@ Delegation rules:
     if (this.pendingSilentTurnRerun) {
       await this.rerunSilentTurn();
     }
+    if (this.pendingProgressTurnRerun) {
+      await this.rerunProgressOnlyTurn();
+    }
     return true;
+  }
+
+  /**
+   * Continue once after an autonomous progress-only assistant message
+   * (text, no toolCall). Mirrors `rerunSilentTurn` but keeps the visible
+   * text and only appends PROGRESS_TURN_NUDGE (#43).
+   */
+  private async rerunProgressOnlyTurn(): Promise<void> {
+    if (!this.pendingProgressTurnRerun) return;
+    this.pendingProgressTurnRerun = false;
+    this.suppressProgressTurnRunEnd = false;
+
+    const promptBefore = this.agent.state.systemPrompt;
+    const promptWithNudge = `${promptBefore}\n\n${PROGRESS_TURN_NUDGE}`;
+    this.agent.state.systemPrompt = promptWithNudge;
+    this.progressTurnRerunInProgress = true;
+    this.requestStartedAt = Date.now();
+    this.setAgentActivity({ phase: "recovering", since: Date.now() });
+    try {
+      if (this.disposed) throw new Error("runtime disposed");
+      this.suppressProgressTurnRunEnd = false;
+      await this.agent.continue();
+      await this.agent.waitForIdle();
+    } finally {
+      if (this.agent.state.systemPrompt === promptWithNudge) {
+        this.agent.state.systemPrompt = promptBefore;
+      }
+      this.progressTurnRerunInProgress = false;
+      this.suppressProgressTurnRunEnd = false;
+    }
   }
 
   private cleanupActiveToolProgress(): void {
@@ -5317,6 +5388,46 @@ Delegation rules:
               streamMs,
             );
           }
+          // Autonomous plan/goal: progress text without a tool call is not a
+          // final answer. Nudge continue once (#43).
+          const progressOnlyTurn =
+            !failed &&
+            !aborted &&
+            !silentTurn &&
+            this.autonomousExecution &&
+            !this.progressTurnRerunAttempted &&
+            isProgressOnlyAssistantTurn(event.message);
+          if (progressOnlyTurn) {
+            this.progressTurnRerunAttempted = true;
+            this.pendingProgressTurnRerun = true;
+            this.suppressProgressTurnRunEnd = true;
+            this.currentAssistant = {
+              ...this.currentAssistant,
+              content: nextText,
+              ...(nextThinking
+                ? { thinking: nextThinking }
+                : content.hasThinking
+                  ? { thinking: undefined }
+                  : {}),
+              status: "streaming",
+              modelId: this.provider.modelId,
+              providerId: this.provider.id,
+              ...(usage ? { usage } : {}),
+            };
+            this.emit({ type: "message_update", message: this.currentAssistant });
+            logTiming("model", {
+              model: this.provider.modelId,
+              providerId: this.provider.id,
+              sessionId: this.sessionId,
+              turnId: this.turnId,
+              providerWaitMs,
+              streamMs,
+              thinkingLevel: this.thinkingLevel,
+              outcome: "progress_only",
+            });
+            this.streamStartedAt = undefined;
+            break;
+          }
           const emptyResponse = silentTurn;
           const diagnosticError = classifiedError;
           const retryProviderAttempt =
@@ -5500,6 +5611,7 @@ Delegation rules:
           this.suppressOverflowRunEnd ||
           this.suppressProviderRetryRunEnd ||
           this.suppressSilentTurnRunEnd ||
+          this.suppressProgressTurnRunEnd ||
           this.keepTurnOpenForDelegates()
         )
           break;
@@ -5515,9 +5627,11 @@ Delegation rules:
           this.suppressOverflowRunEnd ||
           this.suppressProviderRetryRunEnd ||
           this.suppressSilentTurnRunEnd ||
+          this.suppressProgressTurnRunEnd ||
           this.keepTurnOpenForDelegates()
         )
           break;
+        this.autonomousExecution = false;
         this.clearAgentActivity();
         this.reportMutationTermination();
         this.emit({
@@ -5674,6 +5788,7 @@ Delegation rules:
     this.currentAssistant = undefined;
     this.requestStartedAt = Date.now();
     this.setMode("agent");
+    this.autonomousExecution = true;
 
     const kind = execution.kind === "goal" ? "goal" : "plan";
     const instruction =
@@ -5744,6 +5859,7 @@ Delegation rules:
     this.pathInstructionClaims.clear();
     this.pendingUserMessageId = userMessageId;
     this.resetRunRecoveryState();
+    this.autonomousExecution = false;
     this.turnEpoch += 1;
     this.abortDelegationsFromPreviousTurns();
     this.requestStartedAt = Date.now();
