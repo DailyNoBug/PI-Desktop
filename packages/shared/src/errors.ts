@@ -128,4 +128,18 @@ export const ErrorCodes = {
   PLAN_EXECUTION_INTERRUPTED: "PLAN_EXECUTION_INTERRUPTED",
   PLUGIN_INVALID: "PLUGIN_INVALID",
   PLUGIN_LOAD_FAILED: "PLUGIN_LOAD_FAILED",
+  /**
+   * Remote Agent Control Protocol codes (spec 19-remote-agent-control-protocol
+   * §13, D374/D375). They share this registry so a remote error means the
+   * same thing as its local counterpart.
+   */
+  FORBIDDEN: "FORBIDDEN",
+  METHOD_NOT_FOUND: "METHOD_NOT_FOUND",
+  IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
+  CURSOR_EXPIRED: "CURSOR_EXPIRED",
+  CLIENT_TOO_SLOW: "CLIENT_TOO_SLOW",
+  APPROVAL_EXPIRED: "APPROVAL_EXPIRED",
+  APPROVAL_STALE: "APPROVAL_STALE",
+  PAYLOAD_TOO_LARGE: "PAYLOAD_TOO_LARGE",
+  RATE_LIMITED: "RATE_LIMITED",
 } as const;
