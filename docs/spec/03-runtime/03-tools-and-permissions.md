@@ -286,13 +286,13 @@ keeps only the ordering and loop-guard rules. The agent mutation workflow is:
    (a complete `EDIT_LINES_UNSEEN` reveal may be retried unchanged). For a
    deterministic syntax or range error such as `EDIT_PARSE_FAILED`, correct the
    operation payload directly; another `Read` does not repair malformed syntax.
-   A body-bearing replacement must use a header such as `PUT 48.=48:`. Once a
-   path has spent its recovery budget (18-line-anchored-edit-contract §9.3), the
-   next failed `Edit` for that path in the prompt — or a second failed shell
-   patch command (`apply_patch`, `git apply`, or `patch`) — returns a terminating
-   tool result with an error-specific recovery hint, so the agent stops after
-   reporting the exact mismatch. Do not hand-edit old unified-diff hunk headers
-   or continue a repair loop.
+   A body-bearing replacement must use a header such as `PUT 48.=48:`. After three
+   counted failures on one path in a prompt (18-line-anchored-edit-contract §9.3),
+   the third counted failed `Edit` for that path — or the third failed shell patch
+   command (`apply_patch`, `git apply`, or `patch`) — returns a terminating tool
+   result with an error-specific recovery hint, so the agent stops after reporting
+   the exact mismatch. Do not hand-edit old unified-diff hunk headers or continue a
+   repair loop.
 4. Keep mutations to one path sequential, even when read/search calls are
    issued in parallel.
 

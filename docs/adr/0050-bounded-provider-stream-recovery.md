@@ -36,14 +36,15 @@ PI-Desktop applies the following bounded recovery strategy:
    remain redacted and bounded and never contain credentials or raw provider
    bodies beyond the existing capped summary.
 5. Mutation instructions select `Edit` for one small unique replacement and
-   `Write` for a coherent whole-file rewrite. After an edit mismatch, the
-   agent gets one fresh read/regeneration attempt. A second failed `Edit` for
-   the same path, or a second failed shell patch command, in one prompt returns
-   pi-agent-core's terminating tool hint, so the agent stops with the exact
-   mismatch. Shell `apply_patch`, `git apply`, and `patch` are explicitly
-   treated as patch commands; the prompt directs the agent to use `Edit` or
-   `Write` instead. It must not hand-edit unified-diff artifacts or issue
-   concurrent mutations for one path.
+   `Write` for a coherent whole-file rewrite. After an edit mismatch, the agent
+   follows the line-anchored contract's fresh-read or complete-reveal recovery
+   and may have three counted failures per path in one prompt. The third counted
+   failed `Edit`, or the third failed shell patch command, returns pi-agent-core's
+   terminating tool hint, so the agent stops with the exact mismatch. Shell
+   `apply_patch`, `git apply`, and `patch` are explicitly treated as patch
+   commands; the prompt directs the agent to use `Edit` or `Write` instead. It
+   must not hand-edit unified-diff artifacts or issue concurrent mutations for
+   one path.
 
 ## Consequences
 

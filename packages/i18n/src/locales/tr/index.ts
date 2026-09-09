@@ -1864,7 +1864,7 @@ export const tr = {
     EMPTY_MODEL_RESPONSE:
       "Model iki tur üst üste hiçbir şey söylemeden bitirdi. Yeniden deneyin veya isteği başka türlü sorun.",
     MUTATION_RETRY_BUDGET_EXHAUSTED:
-      "Aynı düzenleme iki kez başarısız oldu, bu yüzden körü körüne yeniden denemek yerine tur durdu. Devam etmek için yeniden sorun.",
+      "Aynı düzenleme üç kez başarısız oldu, bu yüzden körü körüne yeniden denemek yerine tur durdu. Devam etmek için yeniden sorun.",
     CONTEXT_TOO_LARGE: "Bağlam kurtarmadan sonra bu sohbet hâlâ çok uzun. İletinizi kısaltın veya yeni sohbet açın.",
     CONTEXT_COMPACTION_FAILED: "Bu sohbetin model bağlamı sıkıştırılamadı.",
     AGENT_BUSY: "Bu sohbet zaten çalışıyor. Bitmesini bekleyin veya önce durdurun.",

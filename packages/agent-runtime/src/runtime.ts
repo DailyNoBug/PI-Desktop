@@ -217,7 +217,7 @@ function runtimeAttachmentFromMessage(
 // pi-ai's adapter retry is disabled here so setup and mid-stream 429s share
 // one runtime-owned budget instead of multiplying nested retry loops.
 const PROVIDER_REQUEST_MAX_RETRIES = 0;
-const MAX_MUTATION_RECOVERY_FAILURES = 2;
+const MAX_MUTATION_RECOVERY_FAILURES = 3;
 const BASH_PATCH_FAILURE_KEY = "__bash_patch_command__";
 /**
  * Edit failures the line-anchored contract expects and already answers: each
@@ -1452,7 +1452,7 @@ Delegation rules:
       // `multi_tool_use.parallel` wrapper as assistant text. PI-Desktop has no
       // such tool, so the whole batch is silently lost as prose.
       "Call tools through the native tool-call interface only. Never write a tool call as text, and never emit a `multi_tool_use.parallel` / `{\"tool_uses\": [...]}` wrapper — there is no such tool here, and a call written as prose does not run. To run several tools at once, emit several real tool calls in one assistant message.",
-      "Editing workflow: use the built-in Edit or Write tool directly on the deliverable file whenever it is inside the advertised workspace. Use Edit for one small unique line-anchored change (path + tag + ops) and Write for a coherent whole-file rewrite. Do not invoke shell apply_patch, git apply, or patch commands; do not create or hand-edit unified-diff files in scratch or repeatedly repair their hunk headers. Treat an edit or shell patch failure as stale state: perform one fresh Read, regenerate the change from that current tag once, then stop and report the exact mismatch instead of looping. Never issue concurrent Write/Edit calls for the same path. When a dedicated worktree is outside the advertised workspace, make one guarded, deterministic edit inside that worktree with Bash, then verify it with git diff or an equivalent check.",
+      "Editing workflow: use the built-in Edit or Write tool directly on the deliverable file whenever it is inside the advertised workspace. Use Edit for one small unique line-anchored change (path + tag + ops) and Write for a coherent whole-file rewrite. Do not invoke shell apply_patch, git apply, or patch commands; do not create or hand-edit unified-diff files in scratch or repeatedly repair their hunk headers. Treat an edit or shell patch failure as recoverable state: classify the error, perform the required fresh Read or use a complete reveal, regenerate the change, and retry with a corrected payload. A path may have three counted failures per prompt; stop after the third and report the exact mismatch instead of looping. Never issue concurrent Write/Edit calls for the same path. When a dedicated worktree is outside the advertised workspace, make one guarded, deterministic edit inside that worktree with Bash, then verify it with git diff or an equivalent check.",
       // Work panel browser preview (D100): workspace HTML files render
       // in the embedded browser with live reload on file changes.
       `For user-visible HTML pages, call the BrowserPreview tool once after creating the page or making the first meaningful visual edit, using its workspace-relative path (e.g. \`index.html\` or \`demo/index.html\`) to show it in PI-Desktop's built-in browser panel. Reuse that preview while iterating: it live-reloads as you edit, so no repeat call or manual refresh is needed. Skip generated, test-only, and non-visual HTML files. If BrowserPreview is not in the current tool list, load it first with ${TOOL_SEARCH_NAME}.`,

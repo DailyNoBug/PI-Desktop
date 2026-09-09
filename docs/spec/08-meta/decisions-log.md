@@ -4181,3 +4181,16 @@ D193, and D194.
   `Retrying in 0s · attempt 9/10`. No host protocol, storage schema, provider
   configuration, or unrelated recovery policy changes. See ADR 0206 and
   E2E-096 / E2E-149.
+
+## 2026-09-10 — Allow three same-path mutation recovery failures (D379)
+
+- The previous repeat guard ended a prompt after two counted failures on one
+  `Edit` path or recognized shell patch key. That boundary could stop the model
+  while it was still applying a distinct recovery hint from the prior failure.
+- Decision D379 amends D186 and ADR 0087 / ADR 0207: the same-path mutation
+  guard allows three counted failures per prompt. Recoverable error codes keep
+  their one-code grace, successful mutations clear the path history, and the
+  third counted failure returns `terminate: true` with
+  `MUTATION_RETRY_BUDGET_EXHAUSTED`. The same limit applies to recognized shell
+  patch commands. No IPC, storage, host-protocol, or tool-result shape changes.
+  See E2E-140 / E2E-141.

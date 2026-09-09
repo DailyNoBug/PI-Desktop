@@ -293,7 +293,7 @@ describe("DesktopAgentRuntime configuration matching", () => {
     expect(prompt).toContain("do not create or hand-edit unified-diff files");
     expect(prompt).toContain("Do not invoke shell apply_patch, git apply, or patch commands");
     expect(prompt).toContain("Never issue concurrent Write/Edit calls for the same path");
-    expect(prompt).toContain("regenerate the change from that current tag");
+    expect(prompt).toContain("A path may have three counted failures per prompt");
 
     const edit = (runtime as any).agent.state.tools.find(
       (tool: any) => tool.name === "Edit",
@@ -452,7 +452,7 @@ describe("DesktopAgentRuntime configuration matching", () => {
     await runtime.dispose();
   });
 
-  it("terminates a repeated Edit mismatch after one recovery attempt", async () => {
+  it("terminates a repeated Edit mismatch on the third failed attempt", async () => {
     const host = {
       call: vi
         .fn()
@@ -480,9 +480,15 @@ describe("DesktopAgentRuntime configuration matching", () => {
     expect(first.terminate).toBeUndefined();
 
     const second = await edit.execute("edit-2", args);
-    expect(second.terminate).toBe(true);
+    expect(second.terminate).toBeUndefined();
     await expect(
       agent.afterToolCall({ toolCall: { id: "edit-2" } }),
+    ).resolves.toEqual({ isError: true });
+
+    const third = await edit.execute("edit-3", args);
+    expect(third.terminate).toBe(true);
+    await expect(
+      agent.afterToolCall({ toolCall: { id: "edit-3" } }),
     ).resolves.toEqual({ isError: true, terminate: true });
 
     await runtime.dispose();
@@ -512,9 +518,15 @@ describe("DesktopAgentRuntime configuration matching", () => {
     expect(first.terminate).toBeUndefined();
 
     const second = await bash.execute("patch-2", secondArgs);
-    expect(second.terminate).toBe(true);
+    expect(second.terminate).toBeUndefined();
     await expect(
       agent.afterToolCall({ toolCall: { id: "patch-2" } }),
+    ).resolves.toEqual({ isError: true });
+
+    const third = await bash.execute("patch-3", secondArgs);
+    expect(third.terminate).toBe(true);
+    await expect(
+      agent.afterToolCall({ toolCall: { id: "patch-3" } }),
     ).resolves.toEqual({ isError: true, terminate: true });
 
     await runtime.dispose();
@@ -523,7 +535,9 @@ describe("DesktopAgentRuntime configuration matching", () => {
   it("spends one grace per recoverable Edit code before counting failures", async () => {
     const errorCodes = [
       "EDIT_TAG_MISMATCH",
+      "EDIT_TAG_UNKNOWN",
       "EDIT_LINES_UNSEEN",
+      "EDIT_TAG_MISMATCH",
       "EDIT_TAG_MISMATCH",
       "EDIT_TAG_MISMATCH",
     ];
@@ -548,13 +562,17 @@ describe("DesktopAgentRuntime configuration matching", () => {
     // the unseen content, so one honest retry per code is the designed path.
     const mismatch = await edit.execute("edit-1", args);
     expect(mismatch.terminate).toBeUndefined();
-    const unseen = await edit.execute("edit-2", args);
+    const unknown = await edit.execute("edit-2", args);
+    expect(unknown.terminate).toBeUndefined();
+    const unseen = await edit.execute("edit-3", args);
     expect(unseen.terminate).toBeUndefined();
 
     // The same code twice is the model ignoring what the first error said.
-    const repeat = await edit.execute("edit-3", args);
+    const repeat = await edit.execute("edit-4", args);
     expect(repeat.terminate).toBeUndefined();
-    const exhausted = await edit.execute("edit-4", args);
+    const stillRecovering = await edit.execute("edit-5", args);
+    expect(stillRecovering.terminate).toBeUndefined();
+    const exhausted = await edit.execute("edit-6", args);
     expect(exhausted.terminate).toBe(true);
 
     await runtime.dispose();
@@ -583,7 +601,7 @@ describe("DesktopAgentRuntime configuration matching", () => {
     const landed = await edit.execute("edit-2", args);
     expect(landed.isError).toBe(false);
 
-    // Without the reset this failure would be strike two and end the turn.
+    // Without the reset this failure would be strike three and end the turn.
     const afterSuccess = await edit.execute("edit-3", args);
     expect(afterSuccess.terminate).toBeUndefined();
     expect((runtime as any).mutationFailureCounts.get("src/example.ts")).toBe(1);
@@ -612,8 +630,9 @@ describe("DesktopAgentRuntime configuration matching", () => {
 
     await edit.execute("edit-1", args);
     const second = await edit.execute("edit-2", args);
-    expect(second.terminate).toBe(true);
-
+    expect(second.terminate).toBeUndefined();
+    const third = await edit.execute("edit-3", args);
+    expect(third.terminate).toBe(true);
     // pi-agent-core stops the loop on a terminating batch, so agent_end is the
     // last chance to say why instead of completing the turn in silence.
     await handleAgentEvent({ type: "agent_end", messages: [] });
