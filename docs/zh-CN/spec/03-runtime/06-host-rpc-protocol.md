@@ -383,6 +383,7 @@ off | minimal | low | medium | high | xhigh | max
 ### 权限
 - `permissions.evaluate`
 - `permissions.resolve`
+- `permissions.pending`（D374：待处理请求作为 Host 状态）
 - `permissions.listSessionGrants`
 - `permissions.clearSessionGrants`
 
@@ -777,6 +778,12 @@ params: {
 ```
 
 超时行为 (**D005**)：120 秒后未解决 → 拒绝。
+
+`permissions.pending` 把待处理请求作为 Host 状态返回（D374/D375）：
+`{ requests: PendingPermission[] }`，最早的在前，可按 `sessionId` 过滤。每一项包含与
+`permissions.request` 通知相同的字段，外加 `createdAt`、`expiresAt` 和 `remainingMs`；
+已超时的请求不会出现。在通知发出之后才接入的客户端读取此列表，并通过不变的
+`permissions.resolve` 作答；通知路径本身不变。
 
 ## 7. 错误代码
 

@@ -3076,6 +3076,14 @@ async fn handle_request(
             st.session_grants.remove(session_id);
             Ok(json!({ "ok": true }))
         }
+        "permissions.pending" => {
+            // Pending requests are Host state (D374/D375): a client that
+            // attaches after `permissions.request` was emitted reads the open
+            // set here and answers through the unchanged `permissions.resolve`.
+            let session_id = params.get("sessionId").and_then(|v| v.as_str());
+            let st = state.lock().await;
+            Ok(json!({ "requests": st.permissions.pending_requests(session_id) }))
+        }
 
         "plugins.list" => {
             let st = state.lock().await;
@@ -4784,6 +4792,119 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(second["found"], false);
+    }
+
+    #[tokio::test]
+    async fn permissions_pending_lists_the_open_request_until_resolved() {
+        let Some(shell_id) = available_test_shell_id() else {
+            return;
+        };
+        let data_dir = tempfile::tempdir().unwrap();
+        let project = data_dir.path().join("project");
+        fs::create_dir_all(&project).unwrap();
+        let mut app_state = AppState::open(data_dir.path()).unwrap();
+        app_state.handshook = true;
+        let session = sessions::create_session(
+            &app_state.db,
+            Some("Pending permission read".into()),
+            Some("agent".into()),
+            None,
+            None,
+            Some(project.to_string_lossy().into_owned()),
+        )
+        .unwrap();
+        sessions::configure_session_with_thinking(
+            &app_state.db,
+            &session.id,
+            "agent",
+            None,
+            None,
+            None,
+            Some("ask"),
+        )
+        .unwrap();
+        let state = Arc::new(Mutex::new(app_state));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let session_id = session.id.clone();
+        let pending_state = state.clone();
+        let pending_task = tokio::spawn(async move {
+            handle_request(
+                pending_state,
+                "tools.execute",
+                json!({
+                    "sessionId": session_id,
+                    "toolCallId": "pending-read",
+                    "toolName": "Bash",
+                    "args": { "command": sleeping_bash_command() },
+                    "expectedCommandShellId": shell_id,
+                    "expectedCommandShellDialect": crate::tools::shell::dialect_for_id(&shell_id),
+                    "mode": "agent"
+                }),
+                tx,
+            )
+            .await
+        });
+        let permission = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let permission: Value = serde_json::from_str(&permission).unwrap();
+        assert_eq!(permission["method"], "permissions.request");
+        let request_id = permission["params"]["requestId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let listed = handle_request(
+            state.clone(),
+            "permissions.pending",
+            json!({ "sessionId": session.id }),
+            mpsc::unbounded_channel().0,
+        )
+        .await
+        .unwrap();
+        let requests = listed["requests"].as_array().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["requestId"], request_id);
+        assert_eq!(requests[0]["sessionId"], session.id);
+        assert_eq!(requests[0]["toolName"], "Bash");
+        assert_eq!(requests[0]["timeoutMs"], 120000);
+        assert!(
+            requests[0]["expiresAt"].as_str().unwrap() > requests[0]["createdAt"].as_str().unwrap()
+        );
+        assert!(requests[0]["remainingMs"].as_u64().unwrap() <= 120000);
+
+        let other = handle_request(
+            state.clone(),
+            "permissions.pending",
+            json!({ "sessionId": "another-session" }),
+            mpsc::unbounded_channel().0,
+        )
+        .await
+        .unwrap();
+        assert!(other["requests"].as_array().unwrap().is_empty());
+
+        handle_request(
+            state.clone(),
+            "permissions.resolve",
+            json!({ "requestId": request_id, "decision": "deny" }),
+            mpsc::unbounded_channel().0,
+        )
+        .await
+        .unwrap();
+        let result = pending_task.await.unwrap().unwrap();
+        assert_eq!(result["errorCode"], "TOOL_DENIED");
+
+        let after = handle_request(
+            state.clone(),
+            "permissions.pending",
+            json!({}),
+            mpsc::unbounded_channel().0,
+        )
+        .await
+        .unwrap();
+        assert!(after["requests"].as_array().unwrap().is_empty());
+        assert_bash_registry_empty(&state).await;
     }
 
     #[tokio::test]

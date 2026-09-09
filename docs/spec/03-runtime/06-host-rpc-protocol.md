@@ -443,6 +443,7 @@ one after the final row would be wrong.
 ### Permissions
 - `permissions.evaluate`
 - `permissions.resolve`
+- `permissions.pending` (D374: open requests as Host state)
 - `permissions.listSessionGrants`
 - `permissions.clearSessionGrants`
 
@@ -837,6 +838,14 @@ params: {
 ```
 
 Timeout behavior (**D005**): after 120s unresolved → deny.
+
+`permissions.pending` returns the open requests as Host state (D374/D375):
+`{ requests: PendingPermission[] }`, oldest first, optionally scoped by
+`sessionId`. Each entry carries the same fields as the `permissions.request`
+notification plus `createdAt`, `expiresAt`, and `remainingMs`. Requests past
+the timeout are omitted. A client that attaches after the notification was
+emitted reads this list and answers through the unchanged
+`permissions.resolve`; the notification path itself does not change.
 
 ## 7. Error codes
 

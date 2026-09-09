@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+use crate::db::{ms_to_ts, now_ms};
+
 pub const PERMISSION_TIMEOUT_MS: u64 = 120_000;
 
 /// Longest string leaf kept in a permission request's args preview. Full args
@@ -79,9 +81,27 @@ pub struct PermissionRequestParams<'a> {
 #[derive(Debug)]
 struct Pending {
     created_at: Instant,
+    /// Wall-clock twin of `created_at` for the `permissions.pending` read.
+    created_at_ms: i64,
     session_id: String,
     tool_call_id: String,
+    /// The request as it was emitted, already preview-bounded, so a client
+    /// that attaches after the notification can render the same card.
+    request: PermissionRequest,
     tx: Option<tokio::sync::oneshot::Sender<PermissionDecision>>,
+}
+
+/// One open permission request as returned by `permissions.pending`
+/// (D374/D375). Pending requests are Host state, not connection state: a
+/// late-attaching client reads them here instead of missing the notification.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPermission {
+    #[serde(flatten)]
+    pub request: PermissionRequest,
+    pub created_at: String,
+    pub expires_at: String,
+    pub remaining_ms: u64,
 }
 
 #[derive(Default)]
@@ -278,12 +298,39 @@ impl PermissionManager {
             request_id,
             Pending {
                 created_at: Instant::now(),
+                created_at_ms: now_ms(),
                 session_id: session_id.to_string(),
                 tool_call_id: tool_call_id.to_string(),
+                request: request.clone(),
                 tx: Some(tx),
             },
         );
         (request, rx)
+    }
+
+    /// Open requests, oldest first, optionally scoped to one session. Requests
+    /// past the timeout are omitted even before `expire_stale` sweeps them,
+    /// so a reader never sees a request that can no longer be answered.
+    pub fn pending_requests(&self, session_id: Option<&str>) -> Vec<PendingPermission> {
+        let timeout = Duration::from_millis(PERMISSION_TIMEOUT_MS);
+        let mut open: Vec<&Pending> = self
+            .pending
+            .values()
+            .filter(|pending| pending.created_at.elapsed() <= timeout)
+            .filter(|pending| session_id.is_none_or(|id| pending.session_id == id))
+            .collect();
+        open.sort_by_key(|pending| (pending.created_at_ms, pending.request.request_id.clone()));
+        open.into_iter()
+            .map(|pending| {
+                let elapsed = pending.created_at.elapsed();
+                PendingPermission {
+                    request: pending.request.clone(),
+                    created_at: ms_to_ts(pending.created_at_ms),
+                    expires_at: ms_to_ts(pending.created_at_ms + PERMISSION_TIMEOUT_MS as i64),
+                    remaining_ms: timeout.saturating_sub(elapsed).as_millis() as u64,
+                }
+            })
+            .collect()
     }
 
     pub fn resolve(
@@ -355,6 +402,38 @@ mod tests {
 
     fn no_grants() -> HashMap<String, Vec<String>> {
         HashMap::new()
+    }
+
+    #[test]
+    fn pending_requests_lists_open_requests_until_resolved() {
+        let mut pm = PermissionManager::default();
+        let (first, _rx1) = pm.create_request(
+            "session-a",
+            "call-1",
+            "Bash",
+            serde_json::json!({ "command": "ls" }),
+            "high risk",
+        );
+        let (second, _rx2) = pm.create_request(
+            "session-b",
+            "call-2",
+            "Write",
+            serde_json::json!({ "path": "x" }),
+            "high risk",
+        );
+        let all = pm.pending_requests(None);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].request.request_id, first.request_id);
+        assert_eq!(all[0].request.tool_name, "Bash");
+        assert!(all[0].remaining_ms <= PERMISSION_TIMEOUT_MS);
+        assert!(all[0].expires_at > all[0].created_at);
+        let scoped = pm.pending_requests(Some("session-b"));
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].request.request_id, second.request_id);
+        pm.resolve(&first.request_id, PermissionDecision::Deny).unwrap();
+        assert_eq!(pm.pending_requests(None).len(), 1);
+        pm.cancel(&second.request_id);
+        assert!(pm.pending_requests(None).is_empty());
     }
 
     #[test]
