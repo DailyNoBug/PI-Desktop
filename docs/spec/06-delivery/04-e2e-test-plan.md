@@ -9108,6 +9108,109 @@ are withdrawn with ADR 0165.
   full Electron journey documented and remains deferred by the no-local-E2E
   policy
 
+#### E2E-221: Workspace security denylist and ignore layers
+
+- **Preconditions**: A project containing `.env`, `.env.example`,
+  `server.pem`, `keys/id_rsa`, `notes.txt`, `node_modules/pkg/index.js`,
+  `generated/out.txt`, `debug.log`, and a root `.pi-desktopignore` with
+  `generated/`. Every file contains the word `needle`. The session is Agent
+  in `auto` permission mode.
+- **Steps**: 1) Ask for `Read` of `.env`, then of `.env.example`. 2) Ask for
+  `Write` to `keys/id_rsa`. 3) Run an unscoped `Grep` and `Glob` for `needle`.
+  4) Run `Grep` with `path: node_modules/pkg` and with `path: generated`.
+  5) Repeat step 1 with a system `rg` installed and with
+  `PI_DESKTOP_DISABLE_RG=1`.
+- **Expected**: Steps 1 and 2 fail with `WORKSPACE_PATH_DENIED`, the
+  `.env.example` read succeeds, and no `keys/id_rsa` file is created. The
+  unscoped search lists `notes.txt` and `.env.example` only: `.env`,
+  `server.pem`, `node_modules`, `generated`, and `debug.log` are absent. The
+  explicit-path searches return one hit each. The in-process walker and the
+  `rg` fast path produce the same file set.
+- **Specs linked**: `03-runtime/15-workspace-ignore-rules.md`,
+  `03-runtime/08-error-codes.md` §3.3, D032
+- **Acceptance**: B (workspace tools), Security
+- **Milestone**: M3+
+- **Status**: unit-covered by `crates/host-core/src/tools/mod.rs`
+  (`security_denylist_blocks_read_write_edit_and_hides_search_results`,
+  `default_ignores_and_workspace_ignore_file_hide_unscoped_walks_only`) and
+  `tools/ignore_rules.rs`; the Electron journey is documented and deferred by
+  the no-local-E2E policy
+
+#### E2E-222: Dangling symlinks cannot write outside the workspace
+
+- **Preconditions**: A project containing `dangling -> /tmp/outside/planted.txt`
+  where the target does not exist, and `inner -> ./not-yet.txt`. Agent mode,
+  `auto` permission.
+- **Steps**: 1) Ask for `Write` to `dangling`. 2) Ask for `Write` to
+  `dangling-dir/new.txt` where `dangling-dir -> /tmp/outside/dir`. 3) Ask for
+  `Write` to `inner`.
+- **Expected**: Steps 1 and 2 fail with `PATH_OUTSIDE_WORKSPACE` and nothing
+  appears under `/tmp/outside`. Step 3 creates `not-yet.txt` inside the
+  project. A symlink loop fails with a canonicalize error rather than hanging.
+- **Specs linked**: `03-runtime/03-tools-and-permissions.md`,
+  `03-runtime/15-workspace-ignore-rules.md` §3
+- **Acceptance**: B, Security
+- **Milestone**: M3+
+- **Status**: unit-covered by `crates/host-core/src/workspace.rs`
+  (`blocks_dangling_symlink_escape`,
+  `dangling_symlink_inside_workspace_resolves_to_its_target`,
+  `dangling_symlink_loop_is_rejected`)
+
+#### E2E-223: Plugin desktop control needs the user's native consent
+
+- **Preconditions**: A dev plugin granted `desktop.control` whose panel calls
+  `pi.desktop.invoke({ operation: "session/delete", args: [id], confirm })`.
+  One disposable session exists.
+- **Steps**: 1) Invoke with `confirm: false`. 2) Invoke with `confirm: true`
+  and press Escape on the dialog. 3) Invoke with `confirm: true` and click
+  Deny. 4) Invoke with `confirm: true` and click Allow once. 5) Invoke a
+  `read` operation.
+- **Expected**: Step 1 fails with `CONFIRMATION_REQUIRED` and no dialog
+  appears. Steps 2 and 3 fail with `PERMISSION_DENIED`; the session still
+  exists. The dialog names `session/delete` and the catalog description, never
+  panel-authored text. Step 4 deletes the session and the sidebar refreshes.
+  Step 5 shows no dialog. Every invocation is audited with plugin id,
+  operation, and risk.
+- **Specs linked**: `07-plugins/03-plugin-api.md` (desktop control),
+  `07-plugins/04-plugin-security.md` §8.2,
+  `07-plugins/13-plugin-permissions-matrix.md`, ADR 0203, D370, D372
+- **Acceptance**: D (plugins), Security
+- **Milestone**: M6+
+- **Status**: runtime-covered by
+  `apps/desktop/test/plugin-desktop-control.test.mjs`; the native dialog
+  journey is documented and deferred by the no-local-E2E policy
+
+#### E2E-224: Plugin fetch re-checks egress on every redirect
+
+- **Preconditions**: A dev plugin with `net.domains: ["allowed.test"]` and
+  `net.fetch`. A local server on `allowed.test` answers `/hop` with a 302 to
+  `http://undeclared.test/leak` and `/ok` with 200.
+- **Steps**: 1) Call `pi.net.fetch({ url: "https://allowed.test/ok" })`. 2)
+  Call `pi.net.fetch({ url: "https://allowed.test/hop" })`.
+- **Expected**: Step 1 returns 200. Step 2 fails with `PERMISSION_DENIED`
+  naming `undeclared.test`, and the undeclared server records no request. The
+  audit log shows the denied hop.
+- **Specs linked**: `07-plugins/04-plugin-security.md` §8.0
+- **Acceptance**: D, Security
+- **Milestone**: M4+
+- **Status**: runtime-covered by `apps/desktop/test/plugin-egress.test.mjs`
+
+#### E2E-225: Tool requests for an unknown session do not fall back
+
+- **Preconditions**: host-core running; a JSON-RPC probe attached to its
+  stdio.
+- **Steps**: 1) Send `tools.execute` with `sessionId: "missing"` and a `Read`
+  of `README.md`. 2) Send `plans.enter` with the same id.
+- **Expected**: Both fail with `SESSION_NOT_FOUND` (numeric `1007` and
+  `PLAN_SESSION_NOT_FOUND` respectively); no file under the last-opened
+  workspace is read.
+- **Specs linked**: `03-runtime/06-host-rpc-protocol.md` §7,
+  `03-runtime/08-error-codes.md` §3.1
+- **Acceptance**: B, Security
+- **Milestone**: M3+
+- **Status**: unit-covered by `crates/host-core/src/rpc/mod.rs`
+  (`temporary_session_uses_its_own_scratch_workspace`)
+
 ## Remote Agent Control target scenarios (post-MVP)
 
 The following scenarios require the approved remote harness. They are
