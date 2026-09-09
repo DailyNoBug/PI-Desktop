@@ -22,6 +22,7 @@ mod state;
 mod tool_budget;
 mod tools;
 mod transcripts;
+mod turn_queue;
 mod user_skills;
 mod user_subagents;
 mod workspace;

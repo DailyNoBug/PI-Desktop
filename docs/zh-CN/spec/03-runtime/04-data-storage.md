@@ -1,4 +1,4 @@
-# 04. 数据存储（架构 v14）
+# 04. 数据存储（架构 v15）
 
 > **翻译说明：** 本页是与 [英文源规格](/spec/03-runtime/04-data-storage) 一一对应的机器辅助翻译。代码、协议字段和标识符保持原文；如翻译与英文源事实有歧义，以英文版本为准。
 
@@ -42,9 +42,9 @@
 ~/.pi-desktop/
  ├── pi.sqlite            # index database (WAL: + -wal/-shm) — host-core only
  ├── pi.sqlite.v6.bak     # archived pre-v7 database (D119 breaking reset)
- ├── pi.sqlite.v8.bak     # exact readable backup before v8→v14 destructive work
- ├── pi.sqlite.v9.bak     # exact readable backup before v9→v14 destructive work
- ├── pi.sqlite.v10.bak    # exact readable backup before v10→v14 destructive work
+ ├── pi.sqlite.v8.bak     # exact readable backup before v8→v15 destructive work
+ ├── pi.sqlite.v9.bak     # exact readable backup before v9→v15 destructive work
+ ├── pi.sqlite.v10.bak    # exact readable backup before v10→v15 destructive work
  ├── sessions/            # transcript file store (D119) — host-core only
  │    ├── <sessionId>.jsonl           # live transcript (header + messages)
  │    ├── <sessionId>.revisions.jsonl # regenerate branches, append-only
@@ -166,7 +166,7 @@ PRAGMA trusted_schema = ON;       -- required by the FTS triggers (§4.8); the D
 PRAGMA auto_vacuum = INCREMENTAL; -- set at creation, before any table
 ```
 
-- 架构版本位于 `PRAGMA user_version` (v14 = `14`) 中。 v1 `meta`
+- 架构版本位于 `PRAGMA user_version` (v15 = `15`) 中。 v1 `meta`
   桌子不见了。
 - host-core 是**单一作者**；语句使用 `prepare_cached`；每个
   多行写入在一个事务中运行。
@@ -529,6 +529,38 @@ Renderer 重新加载
 服务：中间会话模型开关（“仅下一回合”，规范 13 §4），
 每条消息成本芯片的会话汇总（基准§3.2），failed/aborted 徽章
 （§3.8），并重试谱系。
+
+### 4.6b turn_queue —— Host 拥有的回合队列（架构 v15）
+
+```sql
+CREATE TABLE turn_queue (
+  id               TEXT PRIMARY KEY,
+  session_id       TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  principal        TEXT NOT NULL,
+  idempotency_key  TEXT,
+  input_hash       TEXT NOT NULL,
+  content          TEXT NOT NULL,
+  attachments_json TEXT,
+  permission_mode  TEXT NOT NULL,
+  position         INTEGER NOT NULL,
+  created_at       INTEGER NOT NULL
+);
+CREATE INDEX idx_turn_queue_session ON turn_queue(session_id, position);
+CREATE UNIQUE INDEX idx_turn_queue_idempotency
+  ON turn_queue(session_id, principal, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+```
+
+- 每条在活动回合之后准入的 prompt 一行（D375 / ADR 0206）。无头 Agent Host 模块是唯一
+  写入方，经 `session.queuePush`、`session.queueList`、`session.queueRemove` 操作；存储
+  本身绝不启动回合。
+- `position` 按会话只增不减，删除一条不会重排其余条目。`principal` 加 `idempotency_key`
+  使重试的 push 返回同一行；同一 key 配不同 `input_hash` 则以 `IDEMPOTENCY_CONFLICT`
+  失败。每个会话最多八条。
+- `attachments_json` 保存 prompt 的附件引用；字节和其他 prompt 附件一样留在会话 scratch
+  或项目根下。
+- 重启后模块列出全部条目，把每个会话的队列挂起到 controller 接入，并在活动回合终止事件
+  之后释放一条。删除会话会级联删除其条目。
 
 ### 4.7 messages — 转录索引
 
@@ -966,7 +998,7 @@ outbox 排空。渲染器侧的停止绝不重写已有已开始回复的转录
 - JSON 列在热路径上盲读（按原样发送到渲染器）；
   任何过滤或求和的内容都是按规则提升的列。
 
-## 7. 版本控制、v7 重置和 v8 到 v14 迁移
+## 7. 版本控制、v7 重置和 v8 到 v15 迁移
 
 - `PRAGMA user_version` 保留模式权限；未来的结构性变化
   再次添加有序的 Rust 迁移 fns，每个都在一个事务中，并带有一个
@@ -977,9 +1009,11 @@ outbox 排空。渲染器侧的停止绝不重写已有已开始回复的转录
   旧文件中的会话、提供程序和设置不会保留；
   存档仍保留以供手动恢复。所有 v7 之前的迁移代码
   （v1 `settings.sqlite` 导入，v2→v6 链）被删除。
-- 全新安装直接运行完整的 v14 DDL。
+- 全新安装直接运行完整的 v15 DDL。
+- **架构 v15 是增量的。** 它增加 `turn_queue` 表及其两个索引（D377 / ADR 0206），使 Host
+  拥有的回合队列在重启后存活；不改动任何已有行，迁移前保留 `pi.sqlite.v14.bak`。
 - **架构 v7 首先到达 v8，然后使用受保护的路径。** v7→v8
-  迁移之后是相同的受保护的 v8→v14 迁移；架构-v9 和
+  迁移之后是相同的受保护的 v8→v15 迁移；架构-v9 和
   schema-v10 数据库采用相同的受保护路径并接收精确的可读数据
   破坏性工作之前的 `pi.sqlite.v9.bak` / `pi.sqlite.v10.bak`。
 - **v8-to-v11 是就地事务迁移。** 在迁移之前，

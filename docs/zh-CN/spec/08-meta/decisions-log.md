@@ -2997,3 +2997,14 @@ D193 和 D194。
   pi-backend 账号服务不在远程控制范围内。Host 的出站连接只有用户的 SSH 主机、用户
   自己的消息渠道、用户配置的模型 provider，以及只读的 GitHub Releases `pi-host`
   下载。SSH 隧道拓扑、设备配对和消息集成本已满足该规则。
+
+## 2026-09-10 —— 在 host-core 中持久化 Host 拥有的回合队列（D377）
+
+- D375 把排队的 prompt 移入 Host 并选择持久化；无头 Agent Host 模块需要一个能在重启后
+  存活且绝不自行启动工作的存储，而 host-core 独占 SQLite。
+- 决策 D377 / ADR 0206 增加 schema v15 的 `turn_queue` 表以及增量的
+  `session.queuePush` / `session.queueList` / `session.queueRemove` 方法。push 按主体与
+  幂等 key 幂等，每会话最多八条，随会话删除级联。模块在 host-core 就绪后恢复条目，把每个
+  恢复的会话挂起到 controller 接入，并且只在活动回合终止事件之后释放一条。协议保持 v11；
+  renderer 的内存队列在 R1 最后一步退役。
+

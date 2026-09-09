@@ -4180,3 +4180,18 @@ D193, and D194.
   the model providers the user configured, and the read-only GitHub Releases
   download of `pi-host`. The SSH-tunnel topology, device pairing, and the
   messaging integration already satisfy the rule.
+
+## 2026-09-10 — Persist the Host-owned turn queue in host-core (D377)
+
+- D375 moved queued prompts into the Host and chose persistence; the
+  headless Agent Host module needs a store that survives a restart and never
+  starts work by itself, and host-core owns SQLite exclusively.
+- Decision D377 / ADR 0206 adds schema v15 with the `turn_queue` table and
+  the additive `session.queuePush` / `session.queueList` /
+  `session.queueRemove` methods. Push is idempotent per principal and key,
+  bounded at eight entries per session, and cascades with session deletion.
+  The module restores entries when host-core answers, holds every restored
+  session until a controller attaches, and drains one entry only after the
+  active turn's terminal event. Protocol stays v11; the renderer's in-memory
+  queue is retired in the last R1 step.
+

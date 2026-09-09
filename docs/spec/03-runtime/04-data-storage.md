@@ -1,4 +1,4 @@
-# 04. Data Storage (Schema v14)
+# 04. Data Storage (Schema v15)
 
 ## 0. Ownership decision
 
@@ -41,9 +41,9 @@ schema v7, v8, v11, and v14:
 ~/.pi-desktop/
  ├── pi.sqlite            # index database (WAL: + -wal/-shm) — host-core only
  ├── pi.sqlite.v6.bak     # archived pre-v7 database (D119 breaking reset)
- ├── pi.sqlite.v8.bak     # exact readable backup before v8→v14 destructive work
- ├── pi.sqlite.v9.bak     # exact readable backup before v9→v14 destructive work
- ├── pi.sqlite.v10.bak    # exact readable backup before v10→v14 destructive work
+ ├── pi.sqlite.v8.bak     # exact readable backup before v8→v15 destructive work
+ ├── pi.sqlite.v9.bak     # exact readable backup before v9→v15 destructive work
+ ├── pi.sqlite.v10.bak    # exact readable backup before v10→v15 destructive work
  ├── sessions/            # transcript file store (D119) — host-core only
  │    ├── <sessionId>.jsonl           # live transcript (header + messages)
  │    ├── <sessionId>.revisions.jsonl # regenerate branches, append-only
@@ -174,7 +174,7 @@ PRAGMA trusted_schema = ON;       -- required by the FTS triggers (§4.8); the D
 PRAGMA auto_vacuum = INCREMENTAL; -- set at creation, before any table
 ```
 
-- Schema version lives in `PRAGMA user_version` (v14 = `14`). The v1 `meta`
+- Schema version lives in `PRAGMA user_version` (v15 = `15`). The v1 `meta`
   table is gone.
 - host-core is the **single writer**; statements use `prepare_cached`; every
   multi-row write runs in one transaction.
@@ -549,6 +549,41 @@ completed, and interrupted cards are not rehydrated.
 Serves: mid-session model switches ("next turn only", spec 13 §4), the
 per-message cost chip's session rollup (benchmark §3.2), failed/aborted badges
 (§3.8), and retry lineage.
+
+### 4.6b turn_queue — Host-owned turn queue (schema v15)
+
+```sql
+CREATE TABLE turn_queue (
+  id               TEXT PRIMARY KEY,
+  session_id       TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  principal        TEXT NOT NULL,
+  idempotency_key  TEXT,
+  input_hash       TEXT NOT NULL,
+  content          TEXT NOT NULL,
+  attachments_json TEXT,
+  permission_mode  TEXT NOT NULL,
+  position         INTEGER NOT NULL,
+  created_at       INTEGER NOT NULL
+);
+CREATE INDEX idx_turn_queue_session ON turn_queue(session_id, position);
+CREATE UNIQUE INDEX idx_turn_queue_idempotency
+  ON turn_queue(session_id, principal, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+```
+
+- One row per prompt admitted behind an active turn (D375 / ADR 0206). The
+  headless Agent Host module is the only writer through `session.queuePush`,
+  `session.queueList`, and `session.queueRemove`; the store never starts a
+  turn.
+- `position` is per session and only grows, so a removed entry never
+  reorders the rest. `principal` plus `idempotency_key` make a retried push
+  return the same row; a reused key with a different `input_hash` fails with
+  `IDEMPOTENCY_CONFLICT`. A session holds at most eight entries.
+- `attachments_json` keeps the prompt's attachment references; bytes stay in
+  the session scratch or project root like any other prompt attachment.
+- After a restart the module lists every entry, holds each session's queue
+  until a controller attaches, and drains one entry after the active turn's
+  terminal event. Deleting the session cascades to its entries.
 
 ### 4.7 messages — transcript index
 
@@ -1016,7 +1051,7 @@ truncating at a guessed position.
 - JSON columns are read blind on hot paths (shipped to the renderer as-is);
   anything filtered or summed is a promoted column by rule.
 
-## 7. Versioning, v7 reset, and v8-to-v14 migration
+## 7. Versioning, v7 reset, and v8-to-v15 migration
 
 - `PRAGMA user_version` stays the schema authority; future structural changes
   add ordered Rust migration fns again, each in one transaction, with a
@@ -1027,9 +1062,9 @@ truncating at a guessed position.
   Sessions, providers, and settings from the old file are not carried over;
   the archive remains for manual recovery. All pre-v7 migration code
   (v1 `settings.sqlite` import, v2→v6 chain) is deleted.
-- Fresh installs run the full v14 DDL directly.
+- Fresh installs run the full v15 DDL directly.
 - **Schema v7 first reaches v8, then uses the guarded path.** The v7→v8
-  migration is followed by the same guarded v8→v14 migration; schema-v9 and
+  migration is followed by the same guarded v8→v15 migration; schema-v9 and
   schema-v10 databases take the same guarded path and receive an exact readable
   `pi.sqlite.v9.bak` / `pi.sqlite.v10.bak` before destructive work.
 - **The historical v8-to-v11 core migration is in-place and transactional.** Before migration,
@@ -1065,6 +1100,9 @@ truncating at a guessed position.
   Legacy `planApprovalPermissionMode` is removed from the app settings JSON
   during migration; all unrelated settings remain intact.
 
+- **Schema v15 is additive.** It adds the `turn_queue` table and its two
+  indexes (D377 / ADR 0206) so the Host-owned turn queue survives a restart;
+  no existing row changes, and a `pi.sqlite.v14.bak` copy precedes the step.
 - **Schema v14 is additive.** It adds nullable `sessions.deleted_at`, the
   partial deletion index, and `session_import_origins`. Existing sessions stay
   active and have no origin rows. The migration runs in the same guarded

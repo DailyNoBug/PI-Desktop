@@ -125,7 +125,21 @@ checksum 发布到 GitHub Releases 的 `pi-host` 包且版本不匹配与篡改�
 runbook 写明 feature flag、配对撤销路径、远端机器上的数据保留和事件负责人之后，
 才可进入生产。绑定 parity 与 E2E-227 / E2E-228 在其里程碑排期后成为门槛。
 
-## 7. 修订记录
+## 7. 实现状态
+
+记录于 `feat/remote-agent-host` 分支，2026-09-10：
+
+- R0 已交付：`packages/shared` 中以 typebox 定义的 RACP 契约（`racp.ts`）、生成的
+  JSON Schema fixture、本地到 RACP 的事件映射、远程权限上限和共享错误码。
+- R1 已交付：host-core 的 `permissions.pending`；无头 `packages/agent-host` 模块（epoch
+  事件日志、有界扇出、审批代理、回合队列、快照构建）；在现有 IPC handler 之上承载该
+  模块并把每个 agent 事件送入它的 Electron 桥接层；以及 schema v15 的持久化
+  `turn_queue` 与其 RPC 方法（D377 / ADR 0206）。
+- R1 未完成：用 Host 队列替换 renderer 的内存 prompt 队列，以及运行时级别的逐回合权限
+  上限（当前被限制的回合在桥接层直接拒绝）。
+- R2 及之后：尚未开始。
+
+## 8. 修订记录
 
 D374（2026-09-10）用无头 Agent Host 模块替换 Electron facade 里程碑，加入
 Host 队列与 `permissions.pending`，将 `RACP-WS` 定为 v1 唯一规范绑定并加入

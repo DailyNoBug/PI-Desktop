@@ -80,6 +80,9 @@ accept_prompt
 
 1. 每个会话只有一个有效回合
 2. 新提示被 `AGENT_BUSY` 拒绝，而 running/waiting_permission
+   Host 拥有的回合队列（架构 v15，D377 / ADR 0206）是 Agent Host 模块在 `agent_end`
+   之后释放的持久队列，重启后挂起到 controller 接入；在 D375 的切换退役它之前，
+   renderer 的内存队列仍是本地 composer 路径。
 3. 允许中止运行或 waiting_permission。 Renderer 智能停止
    删除未应答的 root 用户行并恢复其 session/turn-scoped
    预序列化输入框快照；曾经助理文字、思考或任何

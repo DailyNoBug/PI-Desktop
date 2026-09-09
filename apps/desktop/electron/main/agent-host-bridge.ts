@@ -2,10 +2,11 @@ import { basename } from "node:path";
 
 import {
   AgentHost,
-  MemoryQueueStore,
   RacpError,
   type ApprovalPort,
   type PendingToolRequest,
+  type QueueStore,
+  type QueuedTurnRecord,
   type RuntimePort,
   type SessionPort,
   type SessionSummary,
@@ -177,11 +178,37 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
     return result.session ?? null;
   }
 
+  /** The Host-owned turn queue persisted by host-core (schema v15, ADR 0206). */
+  const queueStore: QueueStore = {
+    async listAll() {
+      const host = options.getHost();
+      if (!host) return [];
+      const result = await host.call<{ entries?: HostQueueEntry[] }>("session.queueList", {});
+      return (result.entries ?? []).map(fromHostQueueEntry);
+    },
+    async push(record) {
+      await requireHost().call("session.queuePush", {
+        id: record.id,
+        sessionId: record.sessionId,
+        principal: record.principalSubject,
+        ...(record.idempotencyKey ? { idempotencyKey: record.idempotencyKey } : {}),
+        inputHash: record.inputHash,
+        content: record.content,
+        ...(record.attachments ? { attachments: record.attachments } : {}),
+        permissionMode: record.effectivePermissionMode,
+      });
+    },
+    async remove(id) {
+      const result = await requireHost().call<{ removed?: boolean }>("session.queueRemove", { id });
+      return result.removed === true;
+    },
+  };
+
   const agentHost = new AgentHost({
     runtime,
     sessions,
     approvals,
-    queueStore: new MemoryQueueStore(),
+    queueStore,
   });
 
   return {
@@ -228,6 +255,35 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
 }
 
 export type AgentHostBridge = ReturnType<typeof createAgentHostBridge>;
+
+type HostQueueEntry = {
+  id: string;
+  sessionId: string;
+  principal: string;
+  idempotencyKey?: string;
+  inputHash: string;
+  content: string;
+  attachments?: unknown;
+  permissionMode: string;
+  position: number;
+  createdAt: string;
+};
+
+function fromHostQueueEntry(entry: HostQueueEntry): QueuedTurnRecord {
+  const permissionMode: RacpPermissionMode =
+    entry.permissionMode === "accept-edits" || entry.permissionMode === "auto" ? entry.permissionMode : "ask";
+  return {
+    id: entry.id,
+    sessionId: entry.sessionId,
+    principalSubject: entry.principal,
+    content: entry.content,
+    ...(Array.isArray(entry.attachments) ? { attachments: entry.attachments as QueuedTurnRecord["attachments"] } : {}),
+    effectivePermissionMode: permissionMode,
+    ...(entry.idempotencyKey ? { idempotencyKey: entry.idempotencyKey } : {}),
+    inputHash: entry.inputHash,
+    createdAt: Date.parse(entry.createdAt) || 0,
+  };
+}
 
 function toSummary(record: HostSessionRecord): SessionSummary {
   const mode = record.mode === "plan" || record.mode === "goal" ? record.mode : "agent";

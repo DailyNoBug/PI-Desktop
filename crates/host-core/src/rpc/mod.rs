@@ -21,6 +21,7 @@ use crate::review;
 use crate::scheduled;
 use crate::scratch;
 use crate::sessions::{self, UiMessage};
+use crate::turn_queue;
 use crate::state::{AppState, HOST_VERSION, PROTOCOL_VERSION};
 use crate::tools::{self, ToolsExecuteParams};
 use crate::transcripts::CompactionRecord;
@@ -1814,6 +1815,45 @@ async fn handle_request(
                 response["recovered"] = json!(recovered);
             }
             Ok(response)
+        }
+
+        // The Host-owned turn queue (D375 / ADR 0206). Entries are durable so
+        // a restart restores them in order; the Agent Host decides when one
+        // starts, never the store.
+        "session.queuePush" => {
+            let input: turn_queue::QueuedTurnInput = serde_json::from_value(params.clone())
+                .map_err(|e| rpc_err(1002, e.to_string(), "INVALID_PARAMS"))?;
+            let st = state.lock().await;
+            let entry = turn_queue::push(&st.db, input).map_err(|e| {
+                let message = e.to_string();
+                if message == "QUEUE_FULL" {
+                    rpc_err(1008, message, "AGENT_BUSY")
+                } else if message == "IDEMPOTENCY_CONFLICT" {
+                    rpc_err(1008, message, "IDEMPOTENCY_CONFLICT")
+                } else if message.starts_with("session not found") {
+                    rpc_err(1007, message, "SESSION_NOT_FOUND")
+                } else {
+                    rpc_err(1000, message, "INTERNAL")
+                }
+            })?;
+            Ok(json!({ "entry": entry }))
+        }
+        "session.queueList" => {
+            let session_id = params.get("sessionId").and_then(|v| v.as_str());
+            let st = state.lock().await;
+            let entries = turn_queue::list(&st.db, session_id)
+                .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?;
+            Ok(json!({ "entries": entries }))
+        }
+        "session.queueRemove" => {
+            let id = params
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| rpc_err(1002, "id required", "INVALID_PARAMS"))?;
+            let st = state.lock().await;
+            let removed = turn_queue::remove(&st.db, id)
+                .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?;
+            Ok(json!({ "removed": removed }))
         }
 
         "notification.list" => {

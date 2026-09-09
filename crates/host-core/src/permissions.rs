@@ -83,6 +83,8 @@ struct Pending {
     created_at: Instant,
     /// Wall-clock twin of `created_at` for the `permissions.pending` read.
     created_at_ms: i64,
+    /// Arrival order; two requests can share a millisecond.
+    sequence: u64,
     session_id: String,
     tool_call_id: String,
     /// The request as it was emitted, already preview-bounded, so a client
@@ -107,6 +109,7 @@ pub struct PendingPermission {
 #[derive(Default)]
 pub struct PermissionManager {
     pending: HashMap<String, Pending>,
+    next_sequence: u64,
 }
 
 impl PermissionManager {
@@ -294,11 +297,13 @@ impl PermissionManager {
             command_shell_id: command_shell_id.map(str::to_string),
         };
         let (tx, rx) = tokio::sync::oneshot::channel();
+        self.next_sequence += 1;
         self.pending.insert(
             request_id,
             Pending {
                 created_at: Instant::now(),
                 created_at_ms: now_ms(),
+                sequence: self.next_sequence,
                 session_id: session_id.to_string(),
                 tool_call_id: tool_call_id.to_string(),
                 request: request.clone(),
@@ -319,7 +324,7 @@ impl PermissionManager {
             .filter(|pending| pending.created_at.elapsed() <= timeout)
             .filter(|pending| session_id.is_none_or(|id| pending.session_id == id))
             .collect();
-        open.sort_by_key(|pending| (pending.created_at_ms, pending.request.request_id.clone()));
+        open.sort_by_key(|pending| (pending.created_at_ms, pending.sequence));
         open.into_iter()
             .map(|pending| {
                 let elapsed = pending.created_at.elapsed();

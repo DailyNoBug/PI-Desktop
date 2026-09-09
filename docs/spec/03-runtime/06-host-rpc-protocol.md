@@ -317,6 +317,9 @@ to later refresh and inference; the vendor picker does not collect them.
   the prefix in front of the restored branch is taken from there rather than
   from the caller. Surviving messages keep their owning `turn_id`
 - `session.beginTurn`
+- `session.queuePush` / `session.queueList` / `session.queueRemove` — the
+  Host-owned turn queue (D377 / ADR 0206, schema v15); push is idempotent per
+  principal and key, bounded at eight entries per session
 - `session.endTurn` — atomically moves a running turn to its terminal state and
   conditionally returns the newly created notification for `completed`/`error`;
   returns no notification when `createNotification=false`, for `aborted`, or

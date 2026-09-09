@@ -383,7 +383,25 @@ The scheduled feature set is not production-ready until:
 Binding parity and E2E-227 / E2E-228 become gates when their milestones are
 scheduled.
 
-## 7. Amendment history
+## 7. Implementation status
+
+Recorded on the `feat/remote-agent-host` branch, 2026-09-10:
+
+- R0 shipped: the RACP contract as typebox schemas in `packages/shared`
+  (`racp.ts`), the generated JSON Schema fixture, the local-to-RACP event
+  mapping, the remote permission ceiling, and the shared error codes.
+- R1 shipped: host-core `permissions.pending`; the headless
+  `packages/agent-host` module with the epoch event log, bounded fan-out,
+  the approval broker, the turn queue, and the snapshot builder; the
+  Electron bridge that hosts the module over the existing IPC handlers and
+  feeds every agent event through it; and schema v15 with the persisted
+  `turn_queue` and its RPC methods (D377 / ADR 0206).
+- R1 open: retiring the renderer's in-memory prompt queue in favor of the
+  Host queue, and a runtime-level per-turn permission ceiling (a capped turn
+  currently fails closed in the bridge).
+- R2 and later: not started.
+
+## 8. Amendment history
 
 D374 (2026-09-10) replaced the Electron facade milestone with the headless
 Agent Host module, added the Host queue and `permissions.pending` changes,

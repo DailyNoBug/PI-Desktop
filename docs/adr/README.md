@@ -216,4 +216,5 @@ Each ADR includes:
 | 0202 | Expose effective subagent thinking metadata | Accepted |
 | 0203 | Local MCP control plane for desktop operations | Accepted (amended by D372) |
 | 0204 | Explicit unsigned macOS first-launch helper | Accepted |
-| 0205 | Remote Agent Control uses a dedicated Host boundary | Accepted for implementation (post-MVP; amended by D374 and D375) |
+| 0205 | Remote Agent Control uses a dedicated Host boundary | Accepted for implementation (post-MVP; amended by D374, D375, and D376) |
+| 0206 | Persist the Host-owned turn queue in host-core | Accepted |

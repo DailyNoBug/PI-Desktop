@@ -80,6 +80,10 @@ accept_prompt
    running/waiting_permission. The renderer's Send-while-running path stores
    the next prompt in its per-session in-memory queue instead and releases it
    only after `agent_end`, so normal user sends do not surface `AGENT_BUSY`.
+   The Host-owned turn queue (schema v15, D377 / ADR 0206) is the durable
+   queue the Agent Host module drains after `agent_end`, held after a restart
+   until a controller attaches; the renderer's in-memory queue remains the
+   local composer path until the D375 switch retires it.
 3. A graceful stop completes the current assistant/tool boundary as a normal
    `completed` turn before the renderer releases a queued prompt.
 4. Abort from running or waiting_permission is allowed. Renderer smart Stop

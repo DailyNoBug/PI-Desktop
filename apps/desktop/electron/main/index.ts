@@ -9041,7 +9041,6 @@ app.whenReady().then(async () => {
     getHost: () => host,
     log: (level, message, data) => logger.app("runtime", level, message, { data }),
   });
-  void agentHostBridge.agentHost.start();
   const control = createMcpControlController({
     invoke: invokeIpc,
     channels: IPC.invoke,
@@ -9067,6 +9066,13 @@ app.whenReady().then(async () => {
     });
   }
   if (!bootError) planUiProbe.install();
+  if (!bootError && agentHostBridge) {
+    // Restore the persisted turn queue now that host-core answers. Restored
+    // entries stay held until a controller attaches (D375).
+    agentHostBridge.agentHost.start().catch((error) => {
+      logger.app("runtime", "warn", "agent host queue restore failed", { data: String(error) });
+    });
+  }
   if (host) {
     try {
       const stored = (await host.call("settings.get")) as {
