@@ -179,6 +179,18 @@ export type PluginFsConsentRequest = {
  */
 export type PluginFsConsentAnswer = "once" | "session" | "deny";
 
+/** One dangerous desktop operation a plugin asked the host to run. */
+export type PluginDesktopConsentRequest = {
+  pluginId: string;
+  pluginName: string;
+  /** Operation id from the shared controller catalog, e.g. `session/delete`. */
+  operation: string;
+  /** Catalog description of the operation, for the dialog. */
+  description: string;
+  /** Positional arguments as the plugin supplied them (secret-stripped later). */
+  args: unknown[];
+};
+
 export type PluginHostServices = {
   getWorkspacePath: () => string | null;
   getLocale?: () => string;
@@ -216,6 +228,14 @@ export type PluginHostServices = {
   }) => Promise<{ status: number; headers: Record<string, string>; bodyText: string }>;
   /** The reviewed desktop operation controller shared with MCP. */
   desktopControl?: McpControlController;
+  /**
+   * Blocking, native consent for a plugin-originated dangerous desktop
+   * operation (session delete, permission-mode change, tool approval). The
+   * controller's `confirm` flag is only the caller's acknowledgement; the
+   * user decides here. Without this service every dangerous operation from a
+   * plugin is refused, which is the safe default for a headless host.
+   */
+  confirmDesktopControl?: (request: PluginDesktopConsentRequest) => Promise<boolean>;
   audit?: (entry: Record<string, unknown>) => void;
   /**
    * Blocking, native consent for a file access the manifest did not declare.
@@ -700,7 +720,7 @@ function realpathOrSelf(path: string): string {
  * directory. Manifest validation already rejects `..`, so this is defense in
  * depth against symlinked or oddly-cased contributions.
  */
-function resolveInsidePlugin(pluginPath: string, relative: string): string | null {
+export function resolveInsidePlugin(pluginPath: string, relative: string): string | null {
   const root = resolve(pluginPath);
   const target = resolve(root, relative);
   const prefix = root.endsWith(sep) ? root : root + sep;
@@ -1048,7 +1068,10 @@ export class PluginRuntime {
     const manifest = validated.manifest;
     await this.unload(manifest.id);
 
-    const mainPath = join(pluginPath, manifest.main);
+    const mainPath = resolveInsidePlugin(pluginPath, manifest.main);
+    if (!mainPath) {
+      throw new Error("PLUGIN_INVALID: main entry must stay inside the plugin directory");
+    }
     if (!existsSync(mainPath)) {
       throw new Error("PLUGIN_LOAD_FAILED: main entry missing");
     }
@@ -3167,7 +3190,10 @@ export class PluginRuntime {
           this.assertPermission(loaded, "ui.panel");
           const panel = loaded.manifest.ui?.panel;
           if (!panel) throw apiError("NOT_FOUND", "plugin does not declare ui.panel");
-          const htmlPath = join(pluginPath, panel);
+          const htmlPath = resolveInsidePlugin(pluginPath, panel);
+          if (!htmlPath) {
+            throw apiError("INVALID_PARAMS", `panel html must stay inside the plugin: ${panel}`);
+          }
           if (!existsSync(htmlPath)) {
             throw apiError("NOT_FOUND", `panel html missing: ${panel}`);
           }
@@ -3258,6 +3284,49 @@ export class PluginRuntime {
           const operationInfo = this.services.desktopControl.operations.find(
             (candidate) => candidate.id === operation,
           );
+          // The controller's `confirm` flag is an acknowledgement by the
+          // caller, not a decision by the user. A plugin can set it at will,
+          // so a dangerous operation additionally needs the host's native
+          // consent; a host without that service refuses outright.
+          if (operationInfo?.risk === "dangerous") {
+            if (input.confirm !== true) {
+              throw apiError(
+                "CONFIRMATION_REQUIRED",
+                `confirm=true is required for ${operation}`,
+              );
+            }
+            const consent = this.services.confirmDesktopControl;
+            const granted = consent
+              ? await consent({
+                  pluginId,
+                  pluginName: resolvePluginLocalizedString(
+                    loaded.manifest.name,
+                    this.services.getLocale?.(),
+                    pluginId,
+                  ),
+                  operation,
+                  description: operationInfo.description,
+                  args,
+                })
+              : false;
+            if (!granted) {
+              this.services.audit?.({
+                pluginId,
+                api: "desktop.invoke",
+                operation,
+                risk: operationInfo.risk,
+                ok: false,
+                errorCode: "PERMISSION_DENIED",
+                ts: Date.now(),
+              });
+              throw apiError(
+                "PERMISSION_DENIED",
+                consent
+                  ? `user declined ${operation}`
+                  : `${operation} needs a user confirmation this host cannot show`,
+              );
+            }
+          }
           try {
             const result = await this.services.desktopControl.invoke({
               operation,

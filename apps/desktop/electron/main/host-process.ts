@@ -138,7 +138,15 @@ export class HostProcess {
         `host-core process error: ${error.message}`,
       );
       this.closeTransport(failure);
+      // A spawn failure never produces an `exit` event, so without settling the
+      // exit promise here `dispose()` would wait the full grace period, send a
+      // SIGKILL to a process that never started, and wait again.
+      if (this.child.pid === undefined || this.child.exitCode !== null) {
+        this.exitObserved = true;
+        this.resolveExit();
+      }
       this.notifyExit({ code: null, signal: null, intentional: this.disposed });
+      if (this.exitObserved) this.cleanupProcessListeners();
     });
 
     const rl = createInterface({ input: this.child.stdout });

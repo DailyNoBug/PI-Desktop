@@ -132,10 +132,17 @@ export class PluginPanelHost {
    * plugin's detached panel window.
    */
   private senderResolvers: Array<(senderId: number) => string | null> = [];
+  /** Observer for failures of the fire-and-forget legacy sync bridge. */
+  private onBridgeError?: (pluginId: string, channel: string, error: unknown) => void;
 
-  constructor(bridge: BridgeHandler, onBlockedRequest?: PluginPanelBlockedRequest) {
+  constructor(
+    bridge: BridgeHandler,
+    onBlockedRequest?: PluginPanelBlockedRequest,
+    onBridgeError?: (pluginId: string, channel: string, error: unknown) => void,
+  ) {
     this.bridge = bridge;
     this.onBlockedRequest = onBlockedRequest;
+    this.onBridgeError = onBridgeError;
     this.ensureHandlers();
   }
 
@@ -192,8 +199,13 @@ export class PluginPanelHost {
           rawPayload && typeof rawPayload === "object"
             ? (rawPayload as Record<string, unknown>)
             : undefined;
-        // Sync IPC cannot await; kick async work and return ack.
-        void this.bridge(pluginId, channel, payload);
+        // Sync IPC cannot await; kick async work and return ack. The bridge
+        // rejects when the plugin is unloaded or times out, and a panel page
+        // can call this at will, so the rejection must be observed here
+        // rather than surfacing as an unhandled rejection in main.
+        this.bridge(pluginId, channel, payload).catch((error) => {
+          this.onBridgeError?.(pluginId, channel, error);
+        });
         event.returnValue = { ok: true, accepted: true };
       },
     );

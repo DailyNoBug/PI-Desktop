@@ -149,9 +149,10 @@ import {
 import { PersistenceOutbox } from "./persistence-outbox";
 import { InflightCheckpointer } from "./inflight-checkpoint";
 import { AgentSidecar } from "./agent-sidecar";
-import { PluginRuntime } from "./plugin-runtime";
+import { PluginRuntime, resolveInsidePlugin as resolveInsidePluginRoot } from "./plugin-runtime";
 import { ClipboardHistory } from "./clipboard-history";
 import { createFsConsentService } from "./plugin-fs-consent";
+import { createDesktopConsentService } from "./plugin-desktop-consent";
 import { UserMcpRuntime } from "./user-mcp";
 import {
   MCP_CALL_TIMEOUT_MS,
@@ -561,7 +562,13 @@ const pluginPanels = new PluginPanelHost(
       data: { api: "panel.egress", ok: false, url, ts: Date.now() },
     });
   },
-
+  (pluginId, channel, error) => {
+    logger.app("plugin", "warn", "plugin.panel.bridge", {
+      pluginId,
+      code: (error as { code?: string })?.code ?? "PANEL_BRIDGE_FAILED",
+      data: { channel, error: String(error) },
+    });
+  },
 );
 const callPluginSessionHost = async (
   method: string,
@@ -647,29 +654,10 @@ const plugins: PluginRuntime = new PluginRuntime({
   closePanel: async (pluginId) => {
     await pluginPanels.close(pluginId);
   },
-  fetch: async (input) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 15000);
-    try {
-      const res = await fetch(input.url, {
-        method: input.method ?? "GET",
-        headers: input.headers,
-        body: input.body,
-        signal: controller.signal,
-      });
-      const headers: Record<string, string> = {};
-      res.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
-      return {
-        status: res.status,
-        headers,
-        bodyText: await res.text(),
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  },
+  // `net.fetch` is deliberately not overridden here: the runtime's own
+  // implementation follows redirects by hand and re-checks the manifest
+  // egress allowlist before every hop. A plain `fetch` service would let an
+  // allowlisted host 30x the request straight out to an undeclared one.
   audit: (entry) => {
     logger.app("plugin", "info", "plugin.api", entry);
   },
@@ -677,6 +665,13 @@ const plugins: PluginRuntime = new PluginRuntime({
   // and synchronously: the plugin's call is still waiting on the answer, so
   // there is no window in which the access happens before consent.
   confirmFsAccess: createFsConsentService({
+    getWindow: () => mainWindow,
+    getLocale: () => updaterLocale,
+  }),
+  // A dangerous desktop operation (session delete, permission-mode change,
+  // tool approval) requested by a plugin is decided by the user in a native
+  // dialog that names the catalog operation, never plugin-authored text.
+  confirmDesktopControl: createDesktopConsentService({
     getWindow: () => mainWindow,
     getLocale: () => updaterLocale,
   }),
@@ -8664,20 +8659,18 @@ function registerIpc() {
   );
 
   /**
-   * Show a definition document in the OS file manager. Registry entries resolve
-   * through the registry; project documents pass their own path, since main
-   * never records them.
+   * Show a definition document in the OS file manager. The path always comes
+   * from the host registry: a renderer-supplied path is never handed to the
+   * shell, so this channel cannot be used to reveal arbitrary locations.
    */
   handle(IPC.invoke.subagentReveal, async (payload: { id?: string; path?: string }) => {
-    let path = payload.path;
-    if (!path) {
-      if (!host) throw new Error("host unavailable");
-      const res = await host.call<{ subagent: UserSubagentRecord | null }>(
-        "agents.read",
-        { id: payload.id },
-      );
-      path = res.subagent?.path;
-    }
+    if (!host) throw new Error("host unavailable");
+    if (!payload.id) throw new Error("subagent id required");
+    const res = await host.call<{ subagent: UserSubagentRecord | null }>(
+      "agents.read",
+      { id: payload.id },
+    );
+    const path = res.subagent?.path;
     if (!path) throw new Error("subagent not found");
     shell.showItemInFolder(stripWinLongPrefix(path));
     return { ok: true };
@@ -8691,6 +8684,8 @@ function registerIpc() {
     if (!(loaded.permissions.has("ui.panel"))) {
       throw new Error("PERMISSION_DENIED: ui.panel");
     }
+    const htmlPath = resolveInsidePluginRoot(loaded.path, manifest.ui.panel);
+    if (!htmlPath) throw new Error("plugin panel must stay inside the plugin");
     await pluginPanels.open({
       pluginId: id,
       title: resolvePluginLocalizedString(manifest.ui.title, updaterLocale, manifest.name),
@@ -8698,7 +8693,7 @@ function registerIpc() {
       theme: pluginPanelTheme,
       width: manifest.ui.width ?? 480,
       height: manifest.ui.height ?? 360,
-      htmlPath: join(loaded.path, manifest.ui.panel),
+      htmlPath,
     });
     return { ok: true };
   });
@@ -8985,6 +8980,27 @@ function registerIpc() {
     return handler(...args);
   };
 }
+
+// A rejected promise nobody awaited must land in the log with its stack, not
+// in Electron's default handler. Main must keep running: the renderer, the
+// host, and the sidecar are supervised separately and a stray rejection from
+// one plugin bridge or IPC handler is not a reason to lose all of them.
+process.on("unhandledRejection", (reason) => {
+  logger.app("runtime", "error", "unhandled promise rejection in main", {
+    data: reason instanceof Error ? `${reason.stack ?? reason.message}` : String(reason),
+  });
+});
+
+// Default hardening for every web contents Electron creates, applied before
+// the owning surface can wire its own handlers (which replace these). A new
+// window that forgets to set a window-open handler therefore denies popups
+// and cannot attach a <webview> instead of inheriting Chromium's defaults.
+app.on("web-contents-created", (_event, contents) => {
+  contents.setWindowOpenHandler(() => ({ action: "deny" }));
+  contents.on("will-attach-webview", (event) => {
+    event.preventDefault();
+  });
+});
 
 app.whenReady().then(async () => {
   // A launch that lost the single-instance lock is already quitting. Never
