@@ -49,7 +49,7 @@ Linux 或 WSL 机器上的项目，即 SSH 隧道远端 Host 拓扑；#100 要�
   指令词汇从已关联的聊天映射到 `turn/start`、`turn/stop`、`turn/interrupt`、
   `approval/respond`，以关联主体的角色和同一 Host 策略执行，未关联聊天忽略并审计；
   投递失败有界重试，绝不阻塞回合。
-- 不排期：Gateway 与 Host link（原 R3），身份源已由 D375 定为 pi-backend 规格中的第一方 PI 账号服务；浏览器 profile
+- 不排期：Gateway 与 Host link（原 R3），PI 不运营 Gateway，用户自托管并以 Host 签发的设备凭据准入，没有 Host 之外的身份源（D376）；浏览器 profile
   （原 R4），Gateway-less 场景的 Host 自签 cookie 仍需补规格条款；保留的 gRPC
   绑定（原 R5）仅在有明确消费者时交付，`.proto` 由 typebox 来源生成。
 
@@ -138,3 +138,6 @@ D375（2026-09-10）按已记录的需求重排里程碑：R2 为桌面作为客
 决定把反向工具中继与终端放进 R2 并整体交付，`pi-host` 从 GitHub Releases 下载，
 回合队列持久化到 host-core，远程审批默认寿命 30 分钟，配对设备豁免改为 Host 策略，
 Gateway 身份源定为 PI 账号服务。
+
+D376（2026-09-10）撤回身份源条款：远程控制从结构上就是用户本地的，Gateway 只能由
+用户自托管并以 Host 签发的设备凭据准入。

@@ -67,6 +67,11 @@ demand signal or product decision schedules them.
    workspace, permissions, and provider secrets are on the machine that runs
    the Host. The desktop displays and controls it; it never executes remote
    tools locally or stores the remote transcript beyond display state.
+10. **User-local by construction.** No project-operated service is in the
+    control path. Every credential is issued by the user's own Host, and the
+    only outbound connections are to the user's SSH hosts, the messaging
+    channels the user configured, the model providers the user configured,
+    and the read-only GitHub Releases download of `pi-host` (D376).
 
 ## 3. Reference implementations and design inputs
 
@@ -105,7 +110,7 @@ continues to govern subagent coordination.
 | Headless Agent Host module (`packages/agent-host`) | Own session/turn admission, the turn queue, the approval broker, the in-memory event log, and the snapshot builder; expose one typed API to desktop IPC, local MCP, RACP, and integrations | Electron, renderer, or transport dependencies; a second permission or persistence implementation |
 | `pi-host` headless bundle | Run the module, the Node pi sidecar, and Rust host-core on a remote machine, bound to loopback, at the same version as the desktop, downloaded from GitHub Releases by the bootstrap script | A desktop UI, plugin panels, another Host's secrets |
 | Messaging integration adapter | Subscribe to host-scope events in the Host process and relay redacted summaries to outbound channels; map a fixed command vocabulary to turn and approval operations | Its own permission policy, an inbound listener, raw transcript content |
-| Gateway (unscheduled) | Authenticate users, authorize routing, maintain Host links, rate-limit, audit, buffer attachment uploads transiently, and (reserved) push redacted summaries | Provider secrets, durable transcript truth, arbitrary host-core access, attachment bytes beyond the upload window |
+| Self-hosted Gateway (unscheduled) | Admit Host-issued device credentials, authorize routing, maintain Host links, rate-limit, audit, buffer attachment uploads transiently, and (reserved) push redacted summaries | Provider secrets, durable transcript truth, arbitrary host-core access, attachment bytes beyond the upload window |
 | Node pi sidecar | Run the pi Agent loop and provider streams | Remote authentication, workspace policy, secret storage |
 | Rust host-core | Own SQLite, tools, workspace boundaries, permissions and the pending permission table, secrets, and durable local records | Public network listeners |
 
@@ -170,7 +175,7 @@ device token is presented, because the SSH channel provides confidentiality
 and the SSH login already proves shell access to the machine. A non-loopback
 bind requires TLS and a device token exactly as before.
 
-### 5.3 Production Gateway (unscheduled)
+### 5.3 Self-hosted Gateway (unscheduled)
 
 ```text
 Browser / Native Client ── HTTPS or WSS ── Remote Gateway
@@ -191,8 +196,11 @@ logical client connections so that server-initiated approval requests reach
 the right client and attachment bytes reach the Host without an inbound port.
 The Gateway keeps a short-lived route from a host identity to a live
 connection and may queue control-plane metadata, but it does not queue
-non-idempotent turn commands while the Agent Host is offline. This topology
-is specified so the contract does not drift; it is not scheduled.
+non-idempotent turn commands while the Agent Host is offline. PI does not
+operate a Gateway: if this topology is ever scheduled, the user runs it on
+their own infrastructure and it admits clients with Host-issued device
+credentials (D376). It is specified so the contract does not drift; it is not
+scheduled.
 
 ## 6. Ownership and authority
 
@@ -282,10 +290,10 @@ It must not persist provider API keys, raw tool arguments, raw tool results, or
 full transcripts unless a separate product decision explicitly grants that
 retention.
 
-The Gateway's identity source is the first-party PI account service
-specified in the pi-backend repository (D375); see
-`05-security/02-remote-control-security.md` §3.1. OIDC federation is not
-planned.
+A Gateway is self-hosted and has no identity source of its own: it admits
+clients with device credentials issued by the user's Host (D376); see
+`05-security/02-remote-control-security.md` §3.1. OIDC federation and the
+pi-backend account service are out of scope.
 
 ## 7. Transport profiles
 
@@ -489,3 +497,7 @@ reverse tool relay and the terminal in R2, download `pi-host` from GitHub
 Releases, persist the turn queue in host-core, default the remote approval
 lifetime to 30 minutes, make the paired-device exemption a Host policy, and
 fix the Gateway identity source to the PI account service.
+
+D376 (2026-09-10) made remote control user-local by construction: no
+project-operated identity or account service, Host-issued device credentials
+everywhere, and a Gateway only as a self-hosted relay.

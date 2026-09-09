@@ -246,3 +246,27 @@ answers below were chosen by the maintainer the same day.
 12. **Acceptance.** E2E-231 and E2E-232 are the acceptance targets of the
     scheduled milestones; E2E-227 and E2E-228 apply when their milestones are
     scheduled.
+
+## Amendment (D376)
+
+Date: 2026-09-10. The maintainer requires remote control to be user-local by
+construction: no project-operated identity, account, or relay service may be
+in the path, and a user's client must never authenticate through a service
+the project runs.
+
+1. **No first-party identity.** D375 item 10 is withdrawn. The only
+   credential a client holds is a device token issued by the user's own Host
+   at pairing. OIDC federation and the pi-backend account service are out of
+   scope for remote control.
+2. **Gateway only as a self-hosted relay.** PI does not operate a Gateway.
+   If the Gateway topology is ever scheduled, the user runs it on their own
+   infrastructure and it admits clients with Host-issued device credentials;
+   its route context carries the Host id, not a tenant of the project's.
+3. **Outbound connections are the user's own.** The Host connects only to
+   the user's SSH hosts, the messaging channels the user configured with
+   their own bot tokens or webhooks, the model providers the user configured,
+   and the read-only, checksum-verified GitHub Releases download of
+   `pi-host`.
+4. **Unchanged.** The SSH-tunnel topology, device pairing, the messaging
+   integration, and every RACP shape already satisfy this rule; the
+   specifications change wording, not structure.

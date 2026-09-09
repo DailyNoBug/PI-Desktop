@@ -25,7 +25,7 @@ Remote Client ── HTTPS/WSS ── Gateway
 | Zone | Trust assumption | Required boundary |
 |---|---|---|
 | Remote Client | 已认证但 UI 和 prompt 不可信 | 有范围的 session 或 bearer 凭据，不默认给 secret 权限 |
-| Gateway | 受信产品服务，但暴露在网络边界 | auth、授权、限流、审计、仅瞬态缓冲，不访问 raw host RPC |
+| Gateway | 用户自托管的中继，暴露在网络边界 | auth、授权、限流、审计、仅瞬态缓冲，不访问 raw host RPC |
 | Agent Host | 工作区旁的本地权威 | mTLS/device identity、签名 route context、Host policy、远程权限上限 |
 | Node sidecar | Agent runtime，不拥有 policy | Main/Host proxy allowlist |
 | Rust host-core | 工作区、存储、工具、权限、secret 权威 | 仅 stdio，无公网监听 |
@@ -36,8 +36,10 @@ type HostRouteContext = { tenantId: string; hostId: string; subject: string; cli
 
 ## 3. 身份、授权与边界
 
-D375 把 Gateway 的身份源定为 pi-backend 仓库规格中的第一方 PI 账号服务（其
-PocketBase `users` 集合），Gateway 将其用户 token 作为第一方 JWT 校验；不计划 OIDC 联合。
+D376 使远程控制从结构上就是用户本地的：链路中没有任何项目方运营的身份或账号服务，
+客户端持有的唯一凭据是用户自己的 Host 在配对时签发的设备 token；Gateway 若由用户
+自托管，也只以这些 Host 签发的设备凭据准入，并在路由前校验其 Host id、有效期与撤销
+状态。OIDC 联合与 pi-backend 账号服务不在远程控制范围内，该模型中不存在 refresh token。
 浏览器无法在 WebSocket/EventSource 上设置请求头，因此 Gateway 提供两种认证
 profile：非浏览器客户端用 `Authorization` 头（header profile）；浏览器客户端用
 HttpOnly、Secure、SameSite cookie + 按租户的 Origin 白名单 + 每次 mutation 的
@@ -158,3 +160,6 @@ SSH 配对 owner 设备的上限豁免、远程工具目录与 provider 配置�
 D375 同日记录的设计决定把身份源定为 PI 账号服务，`pi-host` 从 GitHub Releases 下载，
 补充中继与终端规则及验收门 19–20、远程审批 30 分钟默认寿命和
 `applyCeilingToPairedDevices` 策略。
+
+D376（2026-09-10）撤回第一方身份源：远程控制从结构上就是用户本地的，所有凭据由用户
+自己的 Host 签发，Gateway 只能是用户自托管的中继。

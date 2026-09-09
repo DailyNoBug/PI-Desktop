@@ -47,7 +47,7 @@ an authority that the authenticated principal does not already have.
 | Zone | Trust assumption | Required boundary |
 |---|---|---|
 | Remote Client | Authenticated but UI and prompt data are untrusted | Scoped session or bearer credential; no secret authority by default |
-| Gateway | Trusted product service, but routable and exposed | Authn, authz, rate limits, audit, transient buffers only, no raw host RPC |
+| Gateway | User-hosted relay, routable and exposed | Authn, authz, rate limits, audit, transient buffers only, no raw host RPC |
 | Agent Host | Trusted local authority beside the workspace | mTLS/device identity, signed route context, host policy, remote permission ceiling |
 | Node sidecar | Agent runtime, not policy owner | Main/Host proxy allowlist |
 | Rust host-core | Workspace, storage, tool, permission, and secret authority | stdio only; no public listener |
@@ -57,21 +57,21 @@ an authority that the authenticated principal does not already have.
 ### 3.1 Client to Gateway
 
 The production Gateway MUST validate an established identity before routing.
-D375 fixes the identity source: the first-party PI account service specified
-in the pi-backend repository (its PocketBase `users` collection), whose user
-tokens the Gateway validates as first-party JWTs. Browser clients sign in
-through that service's GitHub OAuth2 or email flow; native clients use the
-same service with a product-approved device flow. OIDC federation is not
-planned. The Gateway validates issuer, audience, signature, expiry, tenant,
-and revocation state, and refresh tokens never leave the client identity
-boundary or reach the Agent Host.
+D376 makes remote control user-local by construction. No project-operated
+identity or account service is in the path: the only credential a client ever
+holds is a device token issued by the user's own Host at pairing (§3.4). A
+Gateway, if a user runs one, is self-hosted on the user's infrastructure and
+admits clients with those same Host-issued device credentials; it validates
+the token's Host id, expiry, and revocation state before routing. OIDC
+federation and the pi-backend account service are out of scope for remote
+control, and refresh tokens do not exist in this model.
 
 Because a browser cannot set request headers on the `WebSocket` and
 `EventSource` APIs, the Gateway offers two authentication profiles:
 
 - **Header profile** for non-browser clients: the access token is sent in the
   `Authorization` header of every request and of the WebSocket upgrade.
-- **Cookie profile** for browser clients: after login the Gateway issues an
+- **Cookie profile** for browser clients: after device pairing the self-hosted Gateway or the Host issues an
   `HttpOnly`, `Secure`, `SameSite=Lax` or stricter session cookie; the
   WebSocket upgrade and the SSE request are authorized by that cookie plus the
   per-tenant Origin allowlist, and every mutation carries a CSRF token issued
@@ -353,6 +353,8 @@ The Gateway milestone is unscheduled (D375). These rules bind when it is
 scheduled and are retained so the contract does not drift.
 
 - Every route is keyed by `(tenantId, hostId, sessionId)`.
+- A user-local deployment has exactly one tenant, the Host itself; PI never
+  operates a shared Gateway (D376).
 - The first deployment is single-tenant. Routes already carry `tenantId` so a
   second tenant is an operational change, not a protocol change; cross-tenant
   isolation tests run once a multi-tenant harness exists.
@@ -495,3 +497,8 @@ The D375 design-gate answers, recorded the same day, fixed the identity
 source to the PI account service, the GitHub Releases download for
 `pi-host`, the relay and terminal rules with gates 19–20, the 30-minute
 remote approval lifetime, and the `applyCeilingToPairedDevices` policy.
+
+D376 (2026-09-10) withdrew the first-party identity source: remote control
+is user-local by construction, every credential is issued by the user's own
+Host, and any Gateway is self-hosted and admits clients with those device
+credentials.

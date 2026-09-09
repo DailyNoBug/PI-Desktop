@@ -4164,3 +4164,19 @@ D193, and D194.
   gRPC binding stay specified but unscheduled, and the Gateway identity
   source is fixed to the PI account service of the pi-backend specification.
   See the amended remote specifications and E2E-231 / E2E-232.
+
+## 2026-09-10 — Remote control stays user-local: no first-party identity (D376)
+
+- The maintainer requires that a user's client never authenticate through a
+  service the project operates and that remote control stay entirely on the
+  user's own machines and infrastructure.
+- Decision D376 amends ADR 0205 a third time and withdraws D375 item 10: no
+  project-operated identity, account, or relay service is in the path; the
+  only credential a client holds is a device token issued by the user's own
+  Host at pairing; a Gateway, if ever scheduled, is self-hosted by the user
+  and admits clients with those Host-issued credentials; OIDC federation and
+  the pi-backend account service are out of scope. The Host's only outbound
+  connections are the user's SSH hosts, the user's own messaging channels,
+  the model providers the user configured, and the read-only GitHub Releases
+  download of `pi-host`. The SSH-tunnel topology, device pairing, and the
+  messaging integration already satisfy the rule.

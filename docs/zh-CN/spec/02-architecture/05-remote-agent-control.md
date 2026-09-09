@@ -25,6 +25,9 @@ D375 固定了拓扑的交付顺序：首个远程部署是桌面本身作为远
   构建都不依赖 Electron，桌面 IPC、本地 MCP、RACP 和消息集成都是它的调用方。
 - 远程会话完全存在于其 Host 上：transcript、工具、工作区、权限和 provider
   secret 都在运行 Host 的机器上，桌面只展示和控制。
+- 用户本地化是结构性的：控制链路中没有任何项目方运营的服务，所有凭据由用户
+  自己的 Host 签发，出站连接只有用户的 SSH 主机、用户配置的消息渠道与模型
+  provider，以及只读的 GitHub Releases `pi-host` 下载（D376）。
 - 本地 stdio NDJSON JSON-RPC、Rust host-core 和 loopback MCP 保持不变。
 
 ## 2. 参考实现
@@ -44,7 +47,7 @@ Gateway 的模式，服务端经用户自己的 SSH 会话引导，客户端通�
 | 无头 Agent Host 模块（`packages/agent-host`） | 会话/回合准入、回合队列、审批代理、内存事件日志、快照构建；向桌面 IPC、本地 MCP、RACP 和集成暴露同一套 API | Electron、renderer 或传输依赖；第二套权限或持久化实现 |
 | `pi-host` 无头包 | 在远端机器上以桌面同版本运行模块、Node pi sidecar 和 Rust host-core，只绑定 loopback，由引导脚本从 GitHub Releases 下载 | 桌面 UI、插件面板、其他 Host 的 secret |
 | 消息集成适配层 | 在 Host 进程内订阅 Host 范围事件，把脱敏摘要转发到出站渠道；把固定指令词汇映射到回合与审批操作 | 自己的权限策略、入站监听器、原始 transcript 内容 |
-| Gateway（不排期） | 身份认证、路由、Host link、限流、审计、上传字节的瞬态缓冲、（保留）推送脱敏摘要 | provider secret、完整 transcript、host-core 访问、上传窗口之外的附件字节 |
+| 自托管 Gateway（不排期） | 以 Host 签发的设备凭据准入、路由、Host link、限流、审计、上传字节的瞬态缓冲、（保留）推送脱敏摘要 | provider secret、完整 transcript、host-core 访问、上传窗口之外的附件字节 |
 | Node pi sidecar | 运行 pi Agent 和 provider stream | 远程认证、工作区策略、secret storage |
 | Rust host-core | SQLite、工具、工作区、权限及待处理权限表、secret 和本地持久化 | 公网监听器 |
 
@@ -82,7 +85,7 @@ Host 只绑定 loopback；只有绑定地址与对端地址都是 loopback且出
 时才接受明文 `ws://`，因为 SSH 通道已提供机密性，SSH 登录也已证明对该机器的
 shell 访问。非 loopback 绑定仍要求 TLS 与设备 token。首版无法引导没有 GitHub 出网能力的机器。
 
-### 4.3 生产 Gateway（不排期）
+### 4.3 自托管 Gateway（不排期）
 
 ```text
 Client ── HTTPS/WSS ── Gateway
@@ -92,8 +95,9 @@ Client ── HTTPS/WSS ── Gateway
 ```
 
 生产模式由 Agent Host 主动建立出站 Host link，Gateway 不要求桌面开放入站
-端口。Host link 是中继 profile，复用多个逻辑客户端连接。本拓扑保留规格以免
-契约漂移，但不排期。
+端口。Host link 是中继 profile，复用多个逻辑客户端连接。PI 不运营 Gateway：若日后
+排期，由用户在自己的基础设施上运行，并以 Host 签发的设备凭据准入（D376）。本拓扑
+保留规格以免契约漂移，但不排期。
 
 ## 5. 角色、队列、归属与事件同步
 

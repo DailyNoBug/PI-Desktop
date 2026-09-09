@@ -193,8 +193,9 @@ commands from an unlinked chat have no effect; the Host has no new listener.
 
 A separate Remote Gateway and the outbound Host link
 (`racp-hostlink.v1`) with identity, routing, rate limits, audit, revocation,
-and transient attachment relay. The identity source is fixed by D375: the
-first-party PI account service specified in the pi-backend repository. Exit criteria remain those of E2E-227.
+and transient attachment relay. PI does not operate it: a user runs it on
+their own infrastructure and it admits clients with Host-issued device
+credentials, so there is no identity source beyond the Host (D376). Exit criteria remain those of E2E-227.
 
 ### Unscheduled — Browser profile (formerly R4)
 
@@ -401,3 +402,7 @@ one milestone, download `pi-host` from GitHub Releases, persist the turn
 queue in host-core, default the remote approval lifetime to 30 minutes, make
 the paired-device exemption a Host policy, and fix the Gateway identity
 source to the PI account service.
+
+D376 (2026-09-10) withdrew the identity-source clause: remote control is
+user-local by construction, and any Gateway is self-hosted and admits clients
+with Host-issued device credentials.
