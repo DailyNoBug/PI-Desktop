@@ -532,7 +532,10 @@ visually distinct from list content.
   message-plus session icon. Generic
   `IconPlus` remains reserved for adding non-session entities.
 - Icons are decorative when a localized text label or accessible name is
-  present; click, keyboard, and focus behavior remain unchanged.
+  present; click, keyboard, and focus behavior remain unchanged. Every
+  icon-only action must also expose that localized purpose on hover and focus:
+  use the native `title` together with `aria-label`, or the existing themed
+  `data-tip` pattern when a custom tooltip is required.
 - The expanded sidebar brand is a localized button with a 20px logo and the
   shell name on Windows/Linux; pointer or keyboard activation navigates to the
   chat home. macOS hides this brand and right-aligns Collapse sidebar in the

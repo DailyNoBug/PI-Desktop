@@ -9397,3 +9397,25 @@ browser milestones are scheduled.
 - **Acceptance**: Security, Quality
 - **Milestone**: Post-MVP (rollout R3)
 - **Status**: Draft; integration fixture required
+
+---
+
+#### E2E-233: Icon-only actions explain their purpose in the active language
+
+- **Preconditions**: The desktop app is running with a project, a chat error,
+  toast, update notice, dialog, sidebar row, pull request, and work-panel file
+  available as applicable; the UI language can be changed between English and
+  Simplified Chinese.
+- **Steps**: 1) Hover each icon-only action in the error, toast/update,
+  dialog, capability search, sidebar, pull-request, and file-viewer surfaces.
+  2) Focus the same controls with the keyboard. 3) Repeat after switching the
+  UI language to Simplified Chinese.
+- **Expected**: Each control exposes a localized action purpose on hover and
+  focus, has the same localized accessible name, and does not expose a raw icon
+  name or URL as its action label. Decorative icons remain silent to assistive
+  technology. English and Simplified Chinese show different catalog values.
+- **Specs linked**: `04-ux/08-component-spec.md`,
+  `04-ux/09-interaction-patterns.md`
+- **Acceptance**: Accessibility, Quality
+- **Milestone**: M6+
+- **Status**: Source-contract covered; desktop hover/focus automation pending

@@ -607,6 +607,7 @@ export function SubagentEditorSheet({
             type="button"
             className="ext-sheet-close"
             aria-label={t("common.close")}
+            title={t("common.close")}
             onClick={onClose}
           >
             <IconX size={14} />

@@ -96,6 +96,7 @@ export function UpdateBanner() {
       <button
         type="button"
         aria-label={t("updates.dismiss")}
+        title={t("updates.dismiss")}
         className="update-notice-dismiss"
         onClick={() => setDismissedState(stateKey)}
       >

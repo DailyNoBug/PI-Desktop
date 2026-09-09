@@ -846,6 +846,16 @@ Running turns and pending approvals continue to gate the controls.
 - Error toasts require manual dismiss or timeout at 8s (longer than success)
 - Success toasts auto-dismiss at 4s
 
+### 6.4 Icon-only action labels
+
+- Every icon-only action exposes a localized purpose through both its accessible
+  name and its hover/focus tooltip.
+- Use `title` for native tooltips on compact actions; use the existing themed
+  `data-tip` pattern when placement or visual treatment requires a custom
+  tooltip. Decorative icons remain `aria-hidden` and do not need a tooltip.
+- Tooltip text must describe the action, not the icon shape, and must come from
+  the active i18n catalog.
+
 ## 7. Focus management
 
 ### 7.1 Focus flow on page load

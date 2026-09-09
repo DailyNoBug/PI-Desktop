@@ -1,0 +1,44 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const source = (relativePath) =>
+  readFileSync(join(here, "../src", relativePath), "utf8");
+
+function assertLocalizedIconTooltip(relativePath, key) {
+  const contents = source(relativePath);
+  const ariaLabel = `aria-label={t("${key}"`;
+  const title = `title={t("${key}"`;
+  const ariaIndex = contents.indexOf(ariaLabel);
+  const titleIndex = contents.indexOf(title, ariaIndex);
+  assert.ok(ariaIndex >= 0, `${relativePath} should expose ${key} as an accessible name`);
+  assert.ok(
+    titleIndex >= ariaIndex && titleIndex - ariaIndex < 160,
+    `${relativePath} should expose ${key} on hover`,
+  );
+}
+
+test("icon-only actions expose localized hover tooltips", () => {
+  for (const [relativePath, key] of [
+    ["components/ChatSurface.tsx", "errors.action.dismiss"],
+    ["components/Toast.tsx", "toast.dismiss"],
+    ["components/UpdateBanner.tsx", "updates.dismiss"],
+    ["components/ProjectInstructionsDialog.tsx", "settings.cancel"],
+    ["components/extensions/McpEditorSheet.tsx", "common.close"],
+    ["components/settings/SkillEditorSheet.tsx", "common.close"],
+    ["components/settings/SubagentEditorSheet.tsx", "common.close"],
+    ["components/extensions/ScopeControl.tsx", "common.close"],
+    ["components/settings/AgentCapabilityLayout.tsx", "settings.clearSearch"],
+    ["components/Sidebar.tsx", "nav.sessionActions"],
+    ["components/Sidebar.tsx", "project.openActions"],
+    ["components/Sidebar.tsx", "nav.sortSessions"],
+    ["pages/PullRequestsPage.tsx", "pulls.open"],
+    ["components/workpanel/FilesTab.tsx", "panel.files.back"],
+    ["components/workpanel/FilesTab.tsx", "panel.files.reveal"],
+  ]) {
+    assertLocalizedIconTooltip(relativePath, key);
+  }
+});
