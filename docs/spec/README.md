@@ -1,7 +1,7 @@
 # PI-Desktop Spec
 
 > Frozen baseline: `0.4.16` · current app line: `0.14.x`
-> Updated: `2026-09-09`
+> Updated: `2026-09-10`
 > Language: **English-first**
 > Stack: Electron + **Rust host core** + pi Agent Harness + user-installable plugins
 

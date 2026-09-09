@@ -25,8 +25,18 @@ Required (all **implemented**):
   (`parseAllowedExternalUrl`, D330 / ADR 0168). `file:`, `javascript:`,
   `data:`, and custom URI schemes never reach `shell.openExternal`.
   `will-navigate` blocks all non-dev-server navigations
+- Every web contents Electron creates starts with a deny-all window-open
+  handler and a blocked `<webview>` attach (`app.on("web-contents-created")`);
+  the owning surface replaces the handler with its own policy, so a window
+  that forgets to wire one denies popups instead of inheriting Chromium's
+  defaults
 - Preload exposes a whitelist-checked `invoke`/`on` bridge only
   (`IPC_WHITELIST` enforced on both preload and main sides)
+- Transcript Markdown is sanitized (`rehype-sanitize`), but remote `http(s)`
+  images, audio, and video that a model writes into a reply are fetched on
+  render, without a click. This is a deliberate readability trade-off: a
+  reply can therefore reveal the user's IP to the host it names. Links never
+  navigate in-app and always route through the external-open path.
 
 ### Content Security Policy
 
