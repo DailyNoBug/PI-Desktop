@@ -396,8 +396,11 @@ Recorded on the `feat/remote-agent-host` branch, 2026-09-10:
   Electron bridge that hosts the module over the existing IPC handlers and
   feeds every agent event through it; and schema v15 with the persisted
   `turn_queue` and its RPC methods (D377 / ADR 0206).
-- R1 open: retiring the renderer's in-memory prompt queue in favor of the
-  Host queue, and a runtime-level per-turn permission ceiling (a capped turn
+- R1 shipped: the renderer's in-memory prompt queue is retired; the
+  composer pushes through `agent/queue/push`, mirrors
+  `agent/event/queueChanged`, and "send now" is `turn/prioritize` plus a
+  graceful stop.
+- R1 open: a runtime-level per-turn permission ceiling (a capped turn
   currently fails closed in the bridge).
 - R2 and later: not started.
 

@@ -1855,6 +1855,17 @@ async fn handle_request(
                 .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?;
             Ok(json!({ "removed": removed }))
         }
+        "session.queuePrioritize" => {
+            let id = params
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| rpc_err(1002, "id required", "INVALID_PARAMS"))?;
+            let st = state.lock().await;
+            let entry = turn_queue::prioritize(&st.db, id)
+                .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?
+                .ok_or_else(|| rpc_err(1007, "queue entry not found", "NOT_FOUND"))?;
+            Ok(json!({ "entry": entry }))
+        }
 
         "notification.list" => {
             let unread_only = params

@@ -554,6 +554,7 @@ to this same catalog.
 | `turn/stop` | controller | Finish the current assistant/tool boundary, then end the turn; idempotent |
 | `turn/interrupt` | controller | Abort the turn now; cancels a queued turn; idempotent |
 | `turn/cancel` | controller | Remove a queued turn that has not started; idempotent |
+| `turn/prioritize` | controller | Move a queued turn to the head of its session's queue; idempotent |
 | `approval/respond` | approver | Resolve one live approval request |
 | `input/respond` | controller | Resolve one live input request |
 | `attachment/create` | controller | Reserve a bounded attachment slot |
@@ -768,6 +769,11 @@ The three operations share this shape and each returns the current turn state.
   are never rolled back. On a queued turn it behaves as `turn/cancel`.
 - `turn/cancel` removes a queued turn and marks it `canceled`; on a started
   turn it returns `CONFLICT`.
+- `turn/prioritize` moves a queued turn to the head of its session's queue
+  (the desktop's "send now") and emits `turn.queued` with the new position;
+  it never touches the running turn, so a client that wants the entry to
+  start at the next boundary also calls `turn/stop`. On a started turn it
+  returns `CONFLICT`.
 
 A late call after a terminal event is a successful no-op. None of the three
 rewinds a persisted transcript.
@@ -1022,6 +1028,7 @@ with the unscheduled browser milestone.
 | Start turn | `POST /v1/sessions/{sessionId}/turns` |
 | Get turn | `GET /v1/turns/{turnId}` |
 | Stop / interrupt / cancel turn | `POST /v1/turns/{turnId}:stop` / `:interrupt` / `:cancel` |
+| Prioritize turn | `POST /v1/turns/{turnId}:prioritize` |
 | Session event stream | `GET /v1/sessions/{sessionId}/events` |
 | Host event stream | `GET /v1/events` |
 | Resolve approval | `POST /v1/approvals/{approvalId}:respond` |
@@ -1233,8 +1240,9 @@ D375 (2026-09-10) re-sequenced the deployments and extended the catalog:
 - `RACP-HTTP`, the cookie profile, and the Host link marked as belonging to
   unscheduled milestones;
 - `terminal/open`, `terminal/input`, `terminal/resize`, `terminal/close`, the
-  `terminal.changed` / `terminal.output` kinds, `tools/advertise`, and the
-  `tool/execute` server request (§9.4), all in the same milestone; and
+  `terminal.changed` / `terminal.output` kinds, `tools/advertise`, the
+  `tool/execute` server request (§9.4), and `turn/prioritize` for the
+  desktop's "send now", all in the same milestone; and
 - queued turns persisted by host-core and held after a restart, the
   30-minute default approval lifetime for remote subscribers, and the
   `applyCeilingToPairedDevices` policy.

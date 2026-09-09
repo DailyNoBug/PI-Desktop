@@ -47,6 +47,9 @@ export interface RuntimePort {
   stop(sessionId: string): Promise<{ requested: boolean }>;
   abort(sessionId: string, turnId?: string): Promise<void>;
   respondInput(resolution: AskToolResolution): Promise<void>;
+  /** Runtime-side busy state the event stream cannot see, e.g. a manual
+   * compaction; a busy session queues instead of starting. */
+  isBusy?(sessionId: string): boolean;
 }
 
 export type QueuedTurnRecord = {
@@ -68,6 +71,8 @@ export interface QueueStore {
   listAll(): Promise<QueuedTurnRecord[]>;
   push(record: QueuedTurnRecord): Promise<void>;
   remove(id: string): Promise<boolean>;
+  /** Move one entry to the head of its session ("send now"). */
+  prioritize?(id: string): Promise<void>;
 }
 
 export type SessionSummary = {

@@ -414,6 +414,46 @@ type AgentStatus = {
 };
 ```
 
+### 5.6 Turn queue (D375 / D377)
+
+The Host owns the per-session prompt queue; the renderer mirrors it. A
+Send-while-running pushes through `pi-desktop/agent/queue/push` and the
+headless Agent Host module admits, orders, and drains the durable entries
+(`turn_queue`, schema v15). Every change is fanned out as
+`pi-desktop/agent/event/queueChanged`.
+
+```ts
+type AgentQueuePushRequest = {
+  sessionId: string;
+  content: string;
+  attachments?: AgentPromptAttachment[];
+  idempotencyKey?: string;
+};
+
+type QueuedTurnSummary = {
+  id: string;         // the RACP turn id, stable from admission
+  sessionId: string;
+  content: string;
+  attachments?: AgentPromptAttachment[];
+  position: number;   // 1-based queue position
+  createdAt: string;
+};
+
+// pi-desktop/agent/queue/push       -> QueuedTurnSummary
+// pi-desktop/agent/queue/list       -> { entries: QueuedTurnSummary[] }
+// pi-desktop/agent/queue/remove     -> { ok: true }   (turnId)
+// pi-desktop/agent/queue/prioritize -> { ok: true }   (turnId; "send now")
+// pi-desktop/agent/event/queueChanged -> { sessionId, entries }
+```
+
+`push` returns `AGENT_BUSY` with `queueFull` once a session holds eight
+entries and `IDEMPOTENCY_CONFLICT` when a key is reused with other input.
+`prioritize` moves an entry to the head without touching the running turn;
+the renderer's "send now" then requests a graceful stop so the entry starts
+at the next boundary. `remove` cancels an entry that has not started. A
+restored queue stays held until the desktop attaches as the owner, so a
+reboot never starts work unattended.
+
 ## 6. Agent Events
 
 Pushed from main → renderer:

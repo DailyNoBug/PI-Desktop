@@ -175,6 +175,34 @@ pub fn remove(db: &Database, id: &str) -> Result<bool> {
     Ok(removed > 0)
 }
 
+/// Move one entry to the head of its session's queue ("send now"). The entry
+/// takes a position below the current minimum, so nothing else is rewritten.
+pub fn prioritize(db: &Database, id: &str) -> Result<Option<QueuedTurn>> {
+    let conn = db.conn();
+    let tx = conn.unchecked_transaction()?;
+    let Some(session_id) = tx
+        .prepare_cached("SELECT session_id FROM turn_queue WHERE id = ?1")?
+        .query_row(params![id], |row| row.get::<_, String>(0))
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let min_position: i64 = tx.query_row(
+        "SELECT COALESCE(MIN(position), 0) FROM turn_queue WHERE session_id = ?1",
+        params![session_id],
+        |row| row.get(0),
+    )?;
+    tx.execute(
+        "UPDATE turn_queue SET position = ?1 WHERE id = ?2",
+        params![min_position - 1, id],
+    )?;
+    let entry = tx
+        .prepare_cached(&format!("{SELECT} WHERE id = ?1"))?
+        .query_row(params![id], row_to_entry)?;
+    tx.commit()?;
+    Ok(Some(entry))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,6 +278,23 @@ mod tests {
         let entry = push(&db, chosen).unwrap();
         assert_eq!(entry.id, "turn_client_1");
         assert_eq!(list(&db, Some(&session_id)).unwrap()[0].attachments, entry.attachments);
+    }
+
+    #[test]
+    fn prioritize_moves_an_entry_to_the_head() {
+        let (_dir, db, session_id) = open_with_session();
+        push(&db, input(&session_id, "one", None)).unwrap();
+        let second = push(&db, input(&session_id, "two", None)).unwrap();
+        push(&db, input(&session_id, "three", None)).unwrap();
+        let moved = prioritize(&db, &second.id).unwrap().unwrap();
+        assert!(moved.position < 1);
+        let order: Vec<String> = list(&db, Some(&session_id))
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.content)
+            .collect();
+        assert_eq!(order, ["two", "one", "three"]);
+        assert!(prioritize(&db, "missing").unwrap().is_none());
     }
 
     #[test]

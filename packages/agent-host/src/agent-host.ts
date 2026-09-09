@@ -70,6 +70,15 @@ export type AgentHostOptions = {
   allowRemoteSessionGrants?: boolean;
   /** Bound on the transcript page in a snapshot. */
   snapshotItems?: number;
+  /** Called after any change to a session's queue, with the new entries. */
+  onQueueChange?: (sessionId: string, entries: QueueEntryView[]) => void;
+};
+
+/** A queued turn together with the prompt it will send. */
+export type QueueEntryView = {
+  turn: RacpTurn;
+  content: string;
+  attachments?: AgentPromptAttachment[];
 };
 
 export type StartTurnParams = {
@@ -143,6 +152,7 @@ export class AgentHost {
   private readonly localApprovalLifetimeMs: number;
   private readonly allowRemoteSessionGrants: boolean;
   private readonly snapshotItems: number;
+  private readonly onQueueChange?: (sessionId: string, entries: QueueEntryView[]) => void;
   private readonly states = new Map<string, SessionState>();
   private readonly turnIndex = new Map<string, string>();
   private readonly runtimeAliases = new Map<string, string>();
@@ -159,6 +169,7 @@ export class AgentHost {
     this.localApprovalLifetimeMs = options.localApprovalLifetimeMs ?? 120_000;
     this.allowRemoteSessionGrants = options.allowRemoteSessionGrants ?? false;
     this.snapshotItems = options.snapshotItems ?? 50;
+    this.onQueueChange = options.onQueueChange;
     this.hub = new EventHub({ clock: this.clock, ids: this.ids, limits: this.limits });
     this.queue = new TurnQueue(options.queueStore ?? new MemoryQueueStore(), this.limits.maxQueuedTurnsPerSession);
     this.approvals = new ApprovalBroker(options.approvals, this.clock);
@@ -250,6 +261,9 @@ export class AgentHost {
         const item = this.itemFromEvent(event, envelope, turnId, "completed", mapping.itemType!);
         state.activeItems.delete(item.id);
         this.emit(state, mapping.kind, { itemType: mapping.itemType, itemId: item.id, event }, meta2);
+        // A manual compaction occupies the runtime without a turn; let the
+        // queue run once it ends.
+        if (event.type === "compaction_end") void this.drain(state.id);
         return;
       }
       case "tool_permission_request": {
@@ -284,6 +298,7 @@ export class AgentHost {
         this.emit(state, "session.changed", { event: planning }, meta2);
         if (approval) this.emit(state, "approval.requested", approval, meta2);
         this.emitHostSessionChanged(state);
+        if (planning.state !== "awaiting_approval") void this.drain(state.id);
         return;
       }
       case "status": {
@@ -446,6 +461,7 @@ export class AgentHost {
       turn.idempotencyKey = idempotencyKey;
       turn.principalSubject = principal.subject;
       this.emit(state, "turn.queued", { turn: this.toRacpTurn(state, turn) }, { turnId: turn.id });
+      this.notifyQueue(state.id);
     } else {
       const started = await this.runtime.prompt({
         sessionId: state.id,
@@ -500,6 +516,23 @@ export class AgentHost {
       throw racpError("CONFLICT", "only a queued turn can be canceled");
     }
     return this.cancelQueued(state, turn);
+  }
+
+  /** Move a queued turn to the head of its session's queue ("send now"). */
+  async prioritizeTurn(principal: Principal, turnId: string): Promise<RacpTurn> {
+    this.requireRole(principal, "turn/prioritize");
+    const state = this.stateForTurn(turnId);
+    const turn = state.turns.get(turnId)!;
+    if (turn.status !== "queued") {
+      throw racpError("CONFLICT", "only a queued turn can be prioritized");
+    }
+    await this.queue.moveToHead(state.id, turn.id);
+    this.renumberQueue(state);
+    this.emit(state, "turn.queued", { turn: this.toRacpTurn(state, turn) }, { turnId: turn.id });
+    this.notifyQueue(state.id);
+    this.queue.resume(state.id);
+    void this.drain(state.id);
+    return this.toRacpTurn(state, turn);
   }
 
   async respondApproval(principal: Principal, response: RacpApprovalResponse): Promise<RacpApprovalResult> {
@@ -582,13 +615,36 @@ export class AgentHost {
   }
 
   queuedTurns(sessionId: string): RacpTurn[] {
+    return this.queueEntries(sessionId).map((entry) => entry.turn);
+  }
+
+  /** Queued turns with their prompts, in queue order. */
+  queueEntries(sessionId: string): QueueEntryView[] {
     const state = this.state(sessionId);
-    return this.queue.list(sessionId).map((record) => this.toRacpTurn(state, this.ensureTurn(state, record.id)));
+    return this.queue.list(sessionId).map((record) => ({
+      turn: this.toRacpTurn(state, this.ensureTurn(state, record.id)),
+      content: record.content,
+      ...(record.attachments ? { attachments: record.attachments } : {}),
+    }));
+  }
+
+  /** Let the queue of an idle session run, e.g. after the runtime became free. */
+  kick(sessionId: string): void {
+    void this.drain(sessionId);
   }
 
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
+
+  private notifyQueue(sessionId: string): void {
+    if (!this.onQueueChange) return;
+    try {
+      this.onQueueChange(sessionId, this.queueEntries(sessionId));
+    } catch {
+      // A listener failure must not affect the queue.
+    }
+  }
 
   private async drain(sessionId: string): Promise<void> {
     if (this.draining.has(sessionId)) return;
@@ -596,7 +652,7 @@ export class AgentHost {
     try {
       while (true) {
         const state = this.state(sessionId);
-        if (this.queue.isHeld(sessionId) || this.hasActiveTurn(state)) return;
+        if (this.queue.isHeld(sessionId) || this.isOccupied(state)) return;
         const record = await this.queue.shift(sessionId);
         if (!record) return;
         const turn = this.ensureTurn(state, record.id);
@@ -617,6 +673,7 @@ export class AgentHost {
           state.activeTurnId = turn.id;
           state.status = "running";
           this.renumberQueue(state);
+          this.notifyQueue(sessionId);
           return;
         } catch (error) {
           turn.status = "failed";
@@ -629,6 +686,7 @@ export class AgentHost {
           };
           this.emit(state, "turn.failed", { turn: this.toRacpTurn(state, turn) }, { turnId: turn.id });
           this.renumberQueue(state);
+          this.notifyQueue(sessionId);
         }
       }
     } finally {
@@ -644,6 +702,7 @@ export class AgentHost {
       turn.endedAt = new Date(this.clock.now()).toISOString();
       this.emit(state, "turn.canceled", { turn: this.toRacpTurn(state, turn) }, { turnId: turn.id });
       this.renumberQueue(state);
+      this.notifyQueue(state.id);
     }
     return this.toRacpTurn(state, turn);
   }
@@ -886,7 +945,16 @@ export class AgentHost {
   }
 
   private isBusy(state: SessionState): boolean {
-    return this.hasActiveTurn(state) || this.queue.size(state.id) > 0;
+    return this.isOccupied(state) || this.queue.size(state.id) > 0;
+  }
+
+  /** The session cannot start a turn right now, queue aside. */
+  private isOccupied(state: SessionState): boolean {
+    return (
+      this.hasActiveTurn(state) ||
+      state.planningState === "awaiting_approval" ||
+      (this.runtime.isBusy?.(state.id) ?? false)
+    );
   }
 
   private hasActiveTurn(state: SessionState): boolean {

@@ -3003,8 +3003,8 @@ D193 和 D194。
 - D375 把排队的 prompt 移入 Host 并选择持久化；无头 Agent Host 模块需要一个能在重启后
   存活且绝不自行启动工作的存储，而 host-core 独占 SQLite。
 - 决策 D377 / ADR 0206 增加 schema v15 的 `turn_queue` 表以及增量的
-  `session.queuePush` / `session.queueList` / `session.queueRemove` 方法。push 按主体与
+  `session.queuePush` / `session.queueList` / `session.queueRemove` / `session.queuePrioritize` 方法。push 按主体与
   幂等 key 幂等，每会话最多八条，随会话删除级联。模块在 host-core 就绪后恢复条目，把每个
   恢复的会话挂起到 controller 接入，并且只在活动回合终止事件之后释放一条。协议保持 v11；
-  renderer 的内存队列在 R1 最后一步退役。
+  renderer 的内存队列已退役，其“立即发送”成为 RACP `turn/prioritize` 加优雅停止。
 

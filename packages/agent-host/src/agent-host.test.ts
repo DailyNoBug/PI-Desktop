@@ -438,3 +438,56 @@ describe("AgentHost attach and subscribe", () => {
     expect(kinds).toEqual(["session.created", "session.changed"]);
   });
 });
+
+describe("AgentHost queue extras", () => {
+  it("prioritizes a queued turn, reports queue changes, and respects runtime busy state", async () => {
+    const changes: Array<{ sessionId: string; ids: string[] }> = [];
+    const runtime = new FakeRuntime();
+    const sessions = new FakeSessions();
+    sessions.summaries.set("s1", summary("s1"));
+    let runtimeBusy = false;
+    (runtime as RuntimePort).isBusy = () => runtimeBusy;
+    const host = new AgentHost({
+      runtime,
+      sessions,
+      approvals: new FakeApprovals(),
+      clock: new FixedClock(),
+      ids: new SeqIds(),
+      onQueueChange: (sessionId, entries) => changes.push({ sessionId, ids: entries.map((entry) => entry.turn.id) }),
+    });
+    runtimeBusy = true;
+    const first = await host.startTurn(owner, { sessionId: "s1", admission: "queue", input: { text: "one" }, context: { requestId: "r1" } });
+    const second = await host.startTurn(owner, { sessionId: "s1", admission: "queue", input: { text: "two" }, context: { requestId: "r2" } });
+    expect(first.turn.status).toBe("queued");
+    expect(runtime.prompts).toHaveLength(0);
+    expect(changes.at(-1)?.ids).toEqual([first.turn.id, second.turn.id]);
+
+    const moved = await host.prioritizeTurn(owner, second.turn.id);
+    expect(moved.queuePosition).toBe(1);
+    expect(host.queueEntries("s1").map((entry) => entry.content)).toEqual(["two", "one"]);
+    expect(changes.at(-1)?.ids).toEqual([second.turn.id, first.turn.id]);
+    await expect(host.prioritizeTurn(viewer, first.turn.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    runtimeBusy = false;
+    host.kick("s1");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runtime.prompts.map((prompt) => prompt.content)).toEqual(["two"]);
+    expect(changes.at(-1)?.ids).toEqual([first.turn.id]);
+    await expect(host.prioritizeTurn(owner, second.turn.id)).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("queues behind a pending contract approval and drains when planning leaves it", async () => {
+    const { host, runtime } = build();
+    host.ingest(envelope("s1", "rt_1", { type: "agent_start" }));
+    host.ingest(envelope("s1", "rt_1", { type: "planning_state", state: "awaiting_approval", kind: "plan", proposalId: "p1", title: "T", question: "?" }));
+    host.ingest(envelope("s1", "rt_1", { type: "agent_end", messageIds: [] }));
+    const queued = await host.startTurn(owner, { sessionId: "s1", admission: "queue", input: { text: "later" }, context: { requestId: "r" } });
+    expect(queued.turn.status).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runtime.prompts).toHaveLength(0);
+    host.ingest(envelope("s1", undefined, { type: "planning_state", state: "inactive" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runtime.prompts.map((prompt) => prompt.content)).toEqual(["later"]);
+  });
+});
+

@@ -383,6 +383,24 @@ type AgentStatus = {
 };
 ```
 
+### 5.6 回合队列（D375 / D377）
+
+Host 拥有每会话的 prompt 队列，renderer 只做镜像。运行中发送经
+`pi-desktop/agent/queue/push` 推入，无头 Agent Host 模块负责准入、排序并释放持久
+条目（`turn_queue`，架构 v15）。每次变化都以 `pi-desktop/agent/event/queueChanged`
+扇出。
+
+```ts
+type AgentQueuePushRequest = { sessionId: string; content: string; attachments?: AgentPromptAttachment[]; idempotencyKey?: string };
+type QueuedTurnSummary = { id: string; sessionId: string; content: string; attachments?: AgentPromptAttachment[]; position: number; createdAt: string };
+// push -> QueuedTurnSummary；list -> { entries }；remove / prioritize -> { ok: true }；queueChanged -> { sessionId, entries }
+```
+
+`push` 在会话已有八条时返回带 `queueFull` 的 `AGENT_BUSY`，同一 key 配不同输入时返回
+`IDEMPOTENCY_CONFLICT`。`prioritize` 把条目移到队列头部而不触碰运行中的回合，renderer 的
+“立即发送”随后请求优雅停止，使该条目在下一个边界启动。`remove` 取消尚未开始的条目。恢复
+的队列在桌面以 owner 身份接入之前保持挂起，因此重启绝不无人值守地启动工作。
+
 ## 6. Agent 事件
 
 从主→渲染器推送：

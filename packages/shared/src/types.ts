@@ -676,6 +676,28 @@ export type AgentStopResponse = {
   requested: boolean;
 };
 
+/** One entry of the Host-owned turn queue as the renderer mirrors it (D377). */
+export type QueuedTurnSummary = {
+  id: string;
+  sessionId: string;
+  content: string;
+  attachments?: AgentPromptAttachment[];
+  position: number;
+  createdAt: string;
+};
+
+export type AgentQueuePushRequest = {
+  sessionId: string;
+  content: string;
+  attachments?: AgentPromptAttachment[];
+  idempotencyKey?: string;
+};
+
+export type AgentQueueChangedEvent = {
+  sessionId: string;
+  entries: QueuedTurnSummary[];
+};
+
 export type AgentCompactRequest = {
   sessionId: string;
 };

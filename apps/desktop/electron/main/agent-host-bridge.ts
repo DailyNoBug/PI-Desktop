@@ -5,6 +5,8 @@ import {
   RacpError,
   type ApprovalPort,
   type PendingToolRequest,
+  type Principal,
+  type QueueEntryView,
   type QueueStore,
   type QueuedTurnRecord,
   type RuntimePort,
@@ -14,7 +16,10 @@ import {
 } from "@pi-desktop/agent-host";
 import type {
   AgentEventEnvelope,
+  AgentQueueChangedEvent,
+  AgentQueuePushRequest,
   AskToolResolution,
+  QueuedTurnSummary,
   RacpApprovalResult,
   RacpItemSummary,
   RacpPermissionMode,
@@ -32,7 +37,19 @@ export type AgentHostBridgeOptions = {
   invoke: IpcInvoke;
   channels: typeof IPC.invoke;
   getHost: () => HostLike | null;
+  /** Runtime-side busy state the event stream cannot see (active turn map,
+   * manual compaction). */
+  isSessionBusy?: (sessionId: string) => boolean;
+  /** Renderer fan-out for queue changes (`agent/event/queueChanged`). */
+  onQueueChange?: (event: AgentQueueChangedEvent) => void;
   log: (level: "info" | "warn", message: string, data?: Record<string, unknown>) => void;
+};
+
+/** The local desktop: the SSH-paired owner device of its own Host. */
+export const DESKTOP_PRINCIPAL: Principal = {
+  subject: "desktop",
+  roles: ["owner"],
+  pairedDevice: true,
 };
 
 type HostSessionRecord = {
@@ -104,6 +121,9 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
     },
     async respondInput(resolution: AskToolResolution) {
       await options.invoke(options.channels.askToolResolve, [resolution]);
+    },
+    isBusy(sessionId: string) {
+      return options.isSessionBusy?.(sessionId) ?? false;
     },
   };
 
@@ -202,6 +222,9 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
       const result = await requireHost().call<{ removed?: boolean }>("session.queueRemove", { id });
       return result.removed === true;
     },
+    async prioritize(id) {
+      await requireHost().call("session.queuePrioritize", { id });
+    },
   };
 
   const agentHost = new AgentHost({
@@ -209,10 +232,52 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
     sessions,
     approvals,
     queueStore,
+    onQueueChange: (sessionId, entries) => {
+      options.onQueueChange?.({ sessionId, entries: entries.map(toQueueSummary) });
+    },
   });
+
+  /** The desktop's queue operations, all under the owner principal. */
+  const queue = {
+    async push(request: AgentQueuePushRequest): Promise<QueuedTurnSummary> {
+      const result = await forIpc(() =>
+        agentHost.startTurn(DESKTOP_PRINCIPAL, {
+          sessionId: request.sessionId,
+          admission: "queue",
+          ...(request.idempotencyKey ? { idempotencyKey: request.idempotencyKey } : {}),
+          input: {
+            text: request.content,
+            ...(request.attachments ? { attachments: request.attachments } : {}),
+          },
+          context: { requestId: `desktop-queue-${Date.now().toString(36)}` },
+        }),
+      );
+      const entry = agentHost.queueEntries(request.sessionId).find((candidate) => candidate.turn.id === result.turn.id);
+      return entry
+        ? toQueueSummary(entry)
+        : {
+            id: result.turn.id,
+            sessionId: request.sessionId,
+            content: request.content,
+            ...(request.attachments ? { attachments: request.attachments } : {}),
+            position: 0,
+            createdAt: new Date().toISOString(),
+          };
+    },
+    list(sessionId: string): QueuedTurnSummary[] {
+      return agentHost.queueEntries(sessionId).map(toQueueSummary);
+    },
+    async remove(turnId: string): Promise<void> {
+      await forIpc(() => agentHost.cancelTurn(DESKTOP_PRINCIPAL, turnId));
+    },
+    async prioritize(turnId: string): Promise<void> {
+      await forIpc(() => agentHost.prioritizeTurn(DESKTOP_PRINCIPAL, turnId));
+    },
+  };
 
   return {
     agentHost,
+    queue,
     /** Feed one normalized runtime event; `agent_end` after an abort is `turn.interrupted`. */
     ingest(envelope: AgentEventEnvelope): void {
       const interrupted =
@@ -255,6 +320,32 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
 }
 
 export type AgentHostBridge = ReturnType<typeof createAgentHostBridge>;
+
+/** Surface a module error through the IPC error contract (`errorCode`). */
+async function forIpc<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof RacpError) {
+      throw Object.assign(new Error(error.message), {
+        errorCode: error.code,
+        details: error.details,
+      });
+    }
+    throw error;
+  }
+}
+
+function toQueueSummary(entry: QueueEntryView): QueuedTurnSummary {
+  return {
+    id: entry.turn.id,
+    sessionId: entry.turn.sessionId,
+    content: entry.content,
+    ...(entry.attachments ? { attachments: entry.attachments } : {}),
+    position: entry.turn.queuePosition ?? 0,
+    createdAt: entry.turn.startedAt ?? new Date().toISOString(),
+  };
+}
 
 type HostQueueEntry = {
   id: string;

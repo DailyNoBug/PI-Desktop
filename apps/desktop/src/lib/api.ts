@@ -13,6 +13,9 @@ import type {
   SessionSummarizeTitleRequest,
   SessionSummarizeTitleResponse,
   AgentStopResponse,
+  AgentQueueChangedEvent,
+  AgentQueuePushRequest,
+  QueuedTurnSummary,
   AgentStatus,
   AskToolResolution,
   AgentInstructionFile,
@@ -526,6 +529,14 @@ export const api = {
     invoke(IPC.invoke.agentAbort, { sessionId }),
   stop: (sessionId: string) =>
     invoke<AgentStopResponse>(IPC.invoke.agentStop, { sessionId }),
+  queuePrompt: (req: AgentQueuePushRequest) =>
+    invoke<QueuedTurnSummary>(IPC.invoke.agentQueuePush, req),
+  listQueuedPrompts: (sessionId: string) =>
+    invoke<{ entries: QueuedTurnSummary[] }>(IPC.invoke.agentQueueList, { sessionId }),
+  removeQueuedPrompt: (turnId: string) =>
+    invoke(IPC.invoke.agentQueueRemove, { turnId }),
+  prioritizeQueuedPrompt: (turnId: string) =>
+    invoke(IPC.invoke.agentQueuePrioritize, { turnId }),
   getStatus: (sessionId: string) =>
     invoke<{ status: AgentStatus }>(IPC.invoke.agentGetStatus, sessionId),
   getAgentInstructions: (projectPath?: string) =>
@@ -889,6 +900,12 @@ export const api = {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.agentMessage, (payload) =>
       listener(payload as AgentEventEnvelope),
+    );
+  },
+  onAgentQueueChanged: (listener: (event: AgentQueueChangedEvent) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.agentQueueChanged, (payload) =>
+      listener(payload as AgentQueueChangedEvent),
     );
   },
   onPlansChanged: (listener: (event: PlanningStateEvent) => void) => {

@@ -26,22 +26,23 @@ table and RPC surface, not a file the module writes.
    is additive: it creates the table and indexes, every existing chain gains
    the step, and a `pi.sqlite.v14.bak` copy is kept like every prior
    migration.
-2. **Three additive RPC methods.** `session.queuePush` is idempotent on
+2. **Four additive RPC methods.** `session.queuePush` is idempotent on
    `(session, principal, idempotencyKey)`, returns the existing entry when
    the input hash matches, fails with `IDEMPOTENCY_CONFLICT` when a key is
    reused with other input, and fails with `AGENT_BUSY` when the session
    already holds eight entries. `session.queueList` returns one session's
    entries or every entry in position order. `session.queueRemove` deletes
-   one entry. Protocol version stays v11.
+   one entry. `session.queuePrioritize` moves one entry to the head of its
+   session (the desktop's "send now", RACP `turn/prioritize`). Protocol
+   version stays v11.
 3. **The store never decides execution.** The Agent Host module restores
    entries when host-core answers, holds every restored session until a
    controller attaches, and drains one entry only after the active turn's
    terminal event. The startup fence still never replays or auto-starts
    work.
-4. **The renderer's in-memory queue is retired in the last R1 step.** Until
-   then the Host queue is the durable store the module drains and the
-   renderer keeps its local composer queue; both paths reject a second
-   concurrent turn.
+4. **The renderer's in-memory queue is retired.** The composer pushes
+   through `agent/queue/push`, mirrors `agent/event/queueChanged`, and its
+   "send now" is `agent/queue/prioritize` followed by a graceful stop.
 
 ## Consequences
 

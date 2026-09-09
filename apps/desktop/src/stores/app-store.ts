@@ -159,6 +159,7 @@ import {
   type QueuedPrompt,
   type QueuedPrompts,
 } from "../lib/queued-prompts";
+import type { AgentQueueChangedEvent, QueuedTurnSummary } from "@pi-desktop/shared";
 import { settleBootstrapRequests } from "../lib/bootstrap-result";
 import type { SubagentPanelSelection } from "../lib/subagent-panel";
 
@@ -382,7 +383,6 @@ type SessionConfiguration = Pick<
  */
 const pendingSessionConfigurations = new Map<string, SessionConfiguration>();
 const sessionConfigurationFlushes = new Map<string, Promise<void>>();
-const queuedPromptDrains = new Map<string, Promise<void>>();
 const sessionDetailLoads = new Map<
   string,
   ReturnType<typeof api.getSession>
@@ -901,6 +901,8 @@ export type AppState = {
   ) => void;
   removeQueuedPrompt: (promptId: string) => void;
   sendQueuedNow: (promptId: string) => Promise<void>;
+  refreshQueuedPrompts: (sessionId: string) => Promise<void>;
+  applyQueueChanged: (event: AgentQueueChangedEvent) => void;
   compactContext: () => Promise<void>;
   retryAssistantMessage: (messageId: string) => Promise<void>;
   /** Replace a user prompt and regenerate from it; the old branch stays in the revision pager. */
@@ -2063,8 +2065,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           })),
         }
       : { text: content, fileReferences: [] };
+    // The Host owns the queue (D375 / D377). Show the row at once and let
+    // the durable entry replace it when the Host answers.
     const item: QueuedPrompt = {
-      id: crypto.randomUUID(),
+      id: `pending:${crypto.randomUUID()}`,
       sessionId,
       content,
       draft: queuedDraft,
@@ -2073,6 +2077,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       queuedPrompts: enqueueQueuedPrompt(state.queuedPrompts, item),
     }));
+    const attachments = promptAttachmentsFromDraft(queuedDraft.fileReferences);
+    void api
+      .queuePrompt({
+        sessionId,
+        content,
+        ...(attachments.length ? { attachments } : {}),
+      })
+      .then((entry) => {
+        queuedDrafts.set(entry.id, queuedDraft);
+        set((state) => ({
+          queuedPrompts: removeQueuedPrompt(state.queuedPrompts, sessionId, item.id),
+        }));
+        return get().refreshQueuedPrompts(sessionId);
+      })
+      .catch((error) => {
+        set((state) => ({
+          queuedPrompts: removeQueuedPrompt(state.queuedPrompts, sessionId, item.id),
+        }));
+        get().showToast(
+          error instanceof Error ? error.message : String(error),
+          { variant: "error" },
+        );
+      });
   },
 
   removeQueuedPrompt: (promptId) => {
@@ -2085,6 +2112,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         promptId,
       ),
     }));
+    queuedDrafts.delete(promptId);
+    if (promptId.startsWith("pending:")) return;
+    void api.removeQueuedPrompt(promptId).catch((error) => {
+      get().showToast(
+        error instanceof Error ? error.message : String(error),
+        { variant: "error" },
+      );
+      void get().refreshQueuedPrompts(sessionId);
+    });
   },
 
   sendQueuedNow: async (promptId) => {
@@ -2095,17 +2131,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessionId,
       promptId,
     );
-    if (!item) return;
-    if (get().runningSessions[sessionId]) {
-      if (item.sendNowRequested) return;
-      set((state) => ({
-        queuedPrompts: prioritizeQueuedPrompt(
-          state.queuedPrompts,
-          sessionId,
-          promptId,
-        ),
-      }));
-      try {
+    if (!item || item.id.startsWith("pending:") || item.sendNowRequested) return;
+    set((state) => ({
+      queuedPrompts: prioritizeQueuedPrompt(
+        state.queuedPrompts,
+        sessionId,
+        promptId,
+      ),
+    }));
+    try {
+      // The Host moves the entry to the head of its queue; a running turn is
+      // asked to finish at its next boundary so that entry starts next.
+      await api.prioritizeQueuedPrompt(promptId);
+      if (get().runningSessions[sessionId]) {
         const result = await api.stop(sessionId);
         if (!result.requested) {
           set((state) => ({
@@ -2114,41 +2152,33 @@ export const useAppStore = create<AppState>((set, get) => ({
               sessionId,
             ),
           }));
-          if (!get().runningSessions[sessionId]) {
-            void drainQueuedPrompts(sessionId);
-          }
         }
-      } catch (error) {
-        set((state) => ({
-          queuedPrompts: clearQueuedPromptSendNow(
-            state.queuedPrompts,
-            sessionId,
-          ),
-        }));
-        get().showToast(
-          error instanceof Error ? error.message : String(error),
-          { variant: "error" },
-        );
       }
-      return;
-    }
-
-    set((state) => ({
-      queuedPrompts: removeQueuedPrompt(
-        state.queuedPrompts,
-        sessionId,
-        promptId,
-      ),
-    }));
-    const accepted = await get().sendPrompt(item.content, item.draft, sessionId);
-    if (!accepted) {
+    } catch (error) {
       set((state) => ({
-        queuedPrompts: enqueueQueuedPrompt(state.queuedPrompts, {
-          ...item,
-          sendNowRequested: undefined,
-        }),
+        queuedPrompts: clearQueuedPromptSendNow(
+          state.queuedPrompts,
+          sessionId,
+        ),
       }));
+      get().showToast(
+        error instanceof Error ? error.message : String(error),
+        { variant: "error" },
+      );
     }
+  },
+
+  refreshQueuedPrompts: async (sessionId) => {
+    try {
+      const { entries } = await api.listQueuedPrompts(sessionId);
+      applyQueueEntries(sessionId, entries);
+    } catch {
+      // The next queue event resynchronizes the mirror.
+    }
+  },
+
+  applyQueueChanged: (event) => {
+    applyQueueEntries(event.sessionId, event.entries);
   },
 
   sendPrompt: async (content, draft, requestedSessionId) => {
@@ -3554,7 +3584,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       void get().refreshSessions();
     }
     if (event.state !== "awaiting_approval") {
-      void drainQueuedPrompts(event.sessionId);
+      void get().refreshQueuedPrompts(event.sessionId);
     }
   },
 
@@ -3622,7 +3652,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         runningSessions: { ...s.runningSessions, [envelope.sessionId]: false },
       }));
       void flushPendingSessionConfiguration(envelope.sessionId);
-      void drainQueuedPrompts(envelope.sessionId);
+      void get().refreshQueuedPrompts(envelope.sessionId);
     } else if (
       event.type === "agent_end" ||
       event.type === "error"
@@ -3659,7 +3689,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
       void flushPendingSessionConfiguration(envelope.sessionId);
       if (event.type === "agent_end") {
-        void drainQueuedPrompts(envelope.sessionId);
+        void get().refreshQueuedPrompts(envelope.sessionId);
       }
     }
     if (event.type === "planning_state") {
@@ -3695,7 +3725,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         notifyInteractivePrompt(envelope.sessionId, "plan");
       }
       if (event.state !== "awaiting_approval") {
-        void drainQueuedPrompts(envelope.sessionId);
+        void get().refreshQueuedPrompts(envelope.sessionId);
       }
     }
     // Any session's workspace mutation invalidates the review diff; this
@@ -4443,41 +4473,42 @@ useAppStore.subscribe((state, previous) => {
   );
 });
 
-function drainQueuedPrompts(sessionId: string): Promise<void> {
-  const active = queuedPromptDrains.get(sessionId);
-  if (active) return active;
-  const drain = (async () => {
-    while (!useAppStore.getState().runningSessions[sessionId]) {
-      const item = useAppStore.getState().queuedPrompts[sessionId]?.[0];
-      if (!item) break;
-      useAppStore.setState((state) => ({
-        queuedPrompts: removeQueuedPrompt(
-          state.queuedPrompts,
-          sessionId,
-          item.id,
-        ),
-      }));
-      const accepted = await useAppStore
-        .getState()
-        .sendPrompt(item.content, item.draft, sessionId);
-      if (!accepted) {
-        useAppStore.setState((state) => ({
-          queuedPrompts: enqueueQueuedPrompt(state.queuedPrompts, {
-            ...item,
-            sendNowRequested: undefined,
-          }),
-        }));
-        break;
+/** Composer drafts behind Host queue entries, so removing one restores it. */
+const queuedDrafts = new Map<string, ComposerDraftSnapshot>();
+
+function toQueuedPrompt(
+  entry: QueuedTurnSummary,
+  previous?: QueuedPrompt,
+): QueuedPrompt {
+  return {
+    id: entry.id,
+    sessionId: entry.sessionId,
+    content: entry.content,
+    draft: queuedDrafts.get(entry.id) ?? { text: entry.content, fileReferences: [] },
+    createdAt: Date.parse(entry.createdAt) || Date.now(),
+    ...(previous?.sendNowRequested ? { sendNowRequested: true } : {}),
+  };
+}
+
+/** The Host owns the queue (D375 / D377); the renderer mirrors its entries. */
+function applyQueueEntries(sessionId: string, entries: QueuedTurnSummary[]): void {
+  useAppStore.setState((state) => {
+    const current = state.queuedPrompts[sessionId] ?? [];
+    const pending = current.filter((item) => item.id.startsWith("pending:"));
+    const mirrored = entries.map((entry) =>
+      toQueuedPrompt(entry, current.find((item) => item.id === entry.id)),
+    );
+    for (const item of current) {
+      if (!item.id.startsWith("pending:") && !entries.some((entry) => entry.id === item.id)) {
+        queuedDrafts.delete(item.id);
       }
     }
-  })();
-  queuedPromptDrains.set(sessionId, drain);
-  void drain.finally(() => {
-    if (queuedPromptDrains.get(sessionId) === drain) {
-      queuedPromptDrains.delete(sessionId);
-    }
+    const next = { ...state.queuedPrompts };
+    const merged = [...mirrored, ...pending];
+    if (merged.length === 0) delete next[sessionId];
+    else next[sessionId] = merged;
+    return { queuedPrompts: next };
   });
-  return drain;
 }
 
 function flushPendingSessionConfiguration(sessionId: string): Promise<void> {

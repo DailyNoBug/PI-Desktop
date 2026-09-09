@@ -255,6 +255,7 @@ import {
   mcpControlRendererEvent,
 } from "./mcp-control";
 import { createAgentHostBridge, type AgentHostBridge } from "./agent-host-bridge";
+import type { AgentQueuePushRequest } from "@pi-desktop/shared";
 
 // The shared error-code union is reconciled in the shared lane. Keep desktop
 // source type-safe while that lane is temporarily staged at main.
@@ -8076,6 +8077,27 @@ function registerIpc() {
     return sidecar.call("agent.getStatus", { sessionId });
   });
 
+  // The Host-owned turn queue (D375 / D377). The renderer mirrors it; the
+  // headless module admits, orders, and drains it.
+  handle(IPC.invoke.agentQueuePush, async (req: AgentQueuePushRequest) => {
+    if (!agentHostBridge) throw new Error("agent host unavailable");
+    return agentHostBridge.queue.push(req);
+  });
+  handle(IPC.invoke.agentQueueList, async (req: { sessionId: string }) => {
+    if (!agentHostBridge) throw new Error("agent host unavailable");
+    return { entries: agentHostBridge.queue.list(req.sessionId) };
+  });
+  handle(IPC.invoke.agentQueueRemove, async (req: { turnId: string }) => {
+    if (!agentHostBridge) throw new Error("agent host unavailable");
+    await agentHostBridge.queue.remove(req.turnId);
+    return { ok: true };
+  });
+  handle(IPC.invoke.agentQueuePrioritize, async (req: { turnId: string }) => {
+    if (!agentHostBridge) throw new Error("agent host unavailable");
+    await agentHostBridge.queue.prioritize(req.turnId);
+    return { ok: true };
+  });
+
   handle(IPC.invoke.toolResolvePermission, async (resolution: {
     requestId: string;
     decision: string;
@@ -9039,6 +9061,8 @@ app.whenReady().then(async () => {
     invoke: invokeIpc,
     channels: IPC.invoke,
     getHost: () => host,
+    isSessionBusy: (sessionId) => activeTurns.has(sessionId),
+    onQueueChange: (event) => sendToRenderer(IPC.event.agentQueueChanged, event),
     log: (level, message, data) => logger.app("runtime", level, message, { data }),
   });
   const control = createMcpControlController({

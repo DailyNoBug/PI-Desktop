@@ -94,4 +94,16 @@ export class TurnQueue {
     if (!head) return undefined;
     return this.remove(sessionId, head.id);
   }
+
+  /** Move one entry to the head ("send now"); `false` when it is not queued. */
+  async moveToHead(sessionId: string, id: string): Promise<boolean> {
+    const queue = this.bySession.get(sessionId);
+    if (!queue) return false;
+    const index = queue.findIndex((record) => record.id === id);
+    if (index === -1) return false;
+    if (this.store.prioritize) await this.store.prioritize(id);
+    const [record] = queue.splice(index, 1);
+    queue.unshift(record!);
+    return true;
+  }
 }

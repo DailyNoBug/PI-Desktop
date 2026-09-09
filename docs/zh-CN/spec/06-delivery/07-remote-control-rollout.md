@@ -135,8 +135,9 @@ runbook 写明 feature flag、配对撤销路径、远端机器上的数据保�
   事件日志、有界扇出、审批代理、回合队列、快照构建）；在现有 IPC handler 之上承载该
   模块并把每个 agent 事件送入它的 Electron 桥接层；以及 schema v15 的持久化
   `turn_queue` 与其 RPC 方法（D377 / ADR 0206）。
-- R1 未完成：用 Host 队列替换 renderer 的内存 prompt 队列，以及运行时级别的逐回合权限
-  上限（当前被限制的回合在桥接层直接拒绝）。
+- R1 已交付：renderer 的内存 prompt 队列已退役；composer 经 `agent/queue/push` 推入，
+  镜像 `agent/event/queueChanged`，“立即发送”即 `turn/prioritize` 加优雅停止。
+- R1 未完成：运行时级别的逐回合权限上限（当前被限制的回合在桥接层直接拒绝）。
 - R2 及之后：尚未开始。
 
 ## 8. 修订记录

@@ -535,8 +535,18 @@ function AppShell() {
     void bootstrap();
   }, [bootstrap]);
 
+  // The Host owns the prompt queue (D375); mirror it whenever the visible
+  // session changes so a reload or a switch shows the durable entries.
+  useEffect(() => {
+    if (!activeSessionId) return;
+    void useAppStore.getState().refreshQueuedPrompts(activeSessionId);
+  }, [activeSessionId]);
+
   useEffect(() => {
     const offEvent = api.onAgentEvent(handleAgentEvent);
+    const offQueueChanged = api.onAgentQueueChanged((event) =>
+      useAppStore.getState().applyQueueChanged(event),
+    );
     const offPlansChanged = api.onPlansChanged(handlePlansChanged);
     // Host-pushed toasts (plugin runtime etc.) are informational.
     const offToast = api.onToast((message) => showToast(message));
@@ -721,6 +731,7 @@ function AppShell() {
     window.addEventListener("keydown", onKey);
     return () => {
       offEvent();
+      offQueueChanged();
       offPlansChanged();
       offToast();
       offBrowserPreview();

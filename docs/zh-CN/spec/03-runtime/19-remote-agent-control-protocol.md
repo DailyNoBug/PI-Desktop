@@ -185,6 +185,7 @@ Host 队列；持久事件使用每 epoch 递增且不复用的 `sequence`；附
 | `turn/stop` | controller | 在当前助手/工具边界后结束回合，幂等 |
 | `turn/interrupt` | controller | 立即中止回合，对排队回合等同取消，幂等 |
 | `turn/cancel` | controller | 移除尚未开始的排队回合，幂等 |
+| `turn/prioritize` | controller | 把排队回合移到会话队列头部，幂等 |
 | `approval/respond` | approver | 解决活动审批请求 |
 | `input/respond` | controller | 解决活动输入请求 |
 | `attachment/create` | controller | 预留有界附件槽位 |
@@ -228,7 +229,9 @@ owner，工作区读取都按会话持久根、Host 忽略规则和 `PATH_OUTSID
 epoch；把日志放入 host-core 需要单独的 ADR。
 
 `turn/start` 默认 `reject_if_busy`，忙时返回 `AGENT_BUSY`；`admission: "queue"`
-进入 Host 拥有的每会话队列，所有客户端（含本地桌面）看到同一份队列。排队回合及其
+进入 Host 拥有的每会话队列，所有客户端（含本地桌面）看到同一份队列；`turn/prioritize` 把排队回合移到队列头部
+（桌面的“立即发送”），不触碰正在运行的回合，想让它在下一个边界启动的客户端再调用
+`turn/stop`。排队回合及其
 幂等 key 由 host-core 持久化（D375），Host 重启后按序恢复并保持挂起，直到有
 controller 接入才继续释放，重启绝不无人值守地启动工作。远程主体
 发起的回合运行在会话权限模式与 Host `remoteMaxPermissionMode`（默认 `ask`）
@@ -274,6 +277,7 @@ Plan/Goal 审批为带显式 `permissionMode` 的 `approve` 或 `reject`，且�
 | Start turn | `POST /v1/sessions/{sessionId}/turns` |
 | Get turn | `GET /v1/turns/{turnId}` |
 | Stop / interrupt / cancel turn | `POST /v1/turns/{turnId}:stop` / `:interrupt` / `:cancel` |
+| Prioritize turn | `POST /v1/turns/{turnId}:prioritize` |
 | Session event stream | `GET /v1/sessions/{sessionId}/events` |
 | Host event stream | `GET /v1/events` |
 | Resolve approval | `POST /v1/approvals/{approvalId}:respond` |

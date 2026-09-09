@@ -4188,10 +4188,11 @@ D193, and D194.
   starts work by itself, and host-core owns SQLite exclusively.
 - Decision D377 / ADR 0206 adds schema v15 with the `turn_queue` table and
   the additive `session.queuePush` / `session.queueList` /
-  `session.queueRemove` methods. Push is idempotent per principal and key,
+  `session.queueRemove` / `session.queuePrioritize` methods. Push is idempotent per principal and key,
   bounded at eight entries per session, and cascades with session deletion.
   The module restores entries when host-core answers, holds every restored
   session until a controller attaches, and drains one entry only after the
   active turn's terminal event. Protocol stays v11; the renderer's in-memory
-  queue is retired in the last R1 step.
+  queue is retired, and its "send now" becomes RACP `turn/prioritize` plus
+  a graceful stop.
 
