@@ -26,8 +26,23 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Prepare package inputs
+        # Mirrors release.yml: build host-core with --locked so a drifted
+        # Cargo.lock fails here instead of being silently rewritten by the
+        # desktop `build:host-release` script, which does not pass --locked.
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p host-core &
+          host_build_pid=$!
+          trap 'kill "$host_build_pid" 2>/dev/null || true' EXIT
+
+          pnpm install --frozen-lockfile
+          pnpm --filter '@pi-desktop/desktop^...' --fail-if-no-match build
+
+          wait "$host_build_pid"
+          trap - EXIT
 
       - name: Build Linux packages
         run: pnpm --filter @pi-desktop/desktop run dist:linux -- --x64
