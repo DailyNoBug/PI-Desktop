@@ -38,6 +38,14 @@ export const en = {
    * declare. Lives here rather than in the renderer because the dialog is a
    * main-process `showMessageBox` — it has to block the plugin's call.
    */
+  pluginDesktopConsent: {
+    message: "{name} wants to run {operation}",
+    arguments: "Arguments: {args}",
+    detail:
+      "This is a dangerous desktop operation. The plugin acknowledged the risk; whether it runs is up to you. Deny if you did not expect it.",
+    allowOnce: "Allow once",
+    deny: "Deny",
+  },
   pluginFsConsent: {
     read: "{name} wants to read a file outside what it declared",
     write: "{name} wants to write a file outside what it declared",
@@ -1868,6 +1876,12 @@ export const en = {
     CONTEXT_COMPACTION_FAILED: "Couldn't compact this conversation's model context.",
     AGENT_BUSY: "This chat is already working. Wait for it to finish, or stop it first.",
     TURN_ABORTED: "Stopped.",
+    workspaceActivationFailed: "Unable to activate project workspace",
+    sessionNotFound: "Session not found",
+    noActiveSession: "No active session",
+    sessionTitleEmpty: "Session title must not be empty",
+    projectNameLength: "Project name must be between 1 and 80 characters",
+    planApprovalUnavailable: "Plan approval is no longer available",
     action: {
       openSettings: "Open settings",
       retry: "Try again",

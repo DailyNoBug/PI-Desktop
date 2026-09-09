@@ -1,3 +1,5 @@
+import type { EnglishCatalog } from "../en/index.js";
+
 export const fr = {
   "app": {
     "name": "PI-Desktop",
@@ -29,6 +31,14 @@ export const fr = {
     "confirmQuitTitle": "Quitter PI-Desktop ?",
     "confirmQuitBody": "Êtes-vous sûr de vouloir arrêter ? Toutes les sessions en cours seront arrêtées et les modifications non enregistrées risquent d'être perdues.",
     "confirmQuit": "Quitter"
+  },
+  "pluginDesktopConsent": {
+    "message": "{name} veut exécuter {operation}",
+    "arguments": "Arguments : {args}",
+    "detail":
+      "Il s'agit d'une opération de bureau dangereuse. Le plugin a reconnu le risque ; son exécution dépend de vous. Refusez si vous ne l'attendiez pas.",
+    "allowOnce": "Autoriser une fois",
+    "deny": "Refuser",
   },
   "pluginFsConsent": {
     "read": "{name} veut lire un fichier en dehors de ce qu'il a déclaré",
@@ -1826,6 +1836,12 @@ export const fr = {
     "CONTEXT_COMPACTION_FAILED": "Impossible de compacter le contexte du modèle de cette conversation.",
     "AGENT_BUSY": "Ce chat fonctionne déjà. Attendez qu'il se termine ou arrêtez-le d'abord.",
     "TURN_ABORTED": "Arrêté.",
+    "workspaceActivationFailed": "Impossible d'activer l'espace de travail du projet",
+    "sessionNotFound": "Session introuvable",
+    "noActiveSession": "Aucune session active",
+    "sessionTitleEmpty": "Le titre de la session ne peut pas être vide",
+    "projectNameLength": "Le nom du projet doit contenir entre 1 et 80 caractères",
+    "planApprovalUnavailable": "L'approbation du plan n'est plus disponible",
     "action": {
       "openSettings": "Ouvrir les paramètres",
       "retry": "Réessayer",
@@ -1833,6 +1849,6 @@ export const fr = {
       "dismiss": "Ignorer"
     }
   }
-} as const;
+} satisfies EnglishCatalog;
 
 export default fr;

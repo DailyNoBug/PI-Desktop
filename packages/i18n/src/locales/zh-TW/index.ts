@@ -34,6 +34,14 @@ export const zhTW = {
       "退出將停止所有正在進行的會話，未儲存的內容可能會丟失。你確定要退出嗎？",
     confirmQuit: "退出",
   },
+  pluginDesktopConsent: {
+    message: "{name} 想要執行 {operation}",
+    arguments: "參數：{args}",
+    detail:
+      "這是一個危險的桌面操作。外掛已確認風險；是否執行由你決定。如果你沒有預期到這個操作，請拒絕。",
+    allowOnce: "允許一次",
+    deny: "拒絕",
+  },
   pluginFsConsent: {
     read: "{name} 想讀取聲明範圍之外的檔案",
     write: "{name} 想寫入聲明範圍之外的檔案",
@@ -1839,6 +1847,12 @@ export const zhTW = {
     CONTEXT_COMPACTION_FAILED: "無法壓縮當前對話的模型上下文。",
     AGENT_BUSY: "此對話正在處理中。請等待完成，或先停止當前任務。",
     TURN_ABORTED: "已停止。",
+    workspaceActivationFailed: "無法啟用專案工作區",
+    sessionNotFound: "找不到工作階段",
+    noActiveSession: "沒有使用中的工作階段",
+    sessionTitleEmpty: "工作階段標題不能為空",
+    projectNameLength: "專案名稱長度須為 1 到 80 個字元",
+    planApprovalUnavailable: "該計畫核准已失效",
     action: {
       openSettings: "開啟設定",
       retry: "重試",

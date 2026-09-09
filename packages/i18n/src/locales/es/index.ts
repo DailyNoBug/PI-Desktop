@@ -1,3 +1,5 @@
+import type { EnglishCatalog } from "../en/index.js";
+
 export const es = {
   "app": {
     "name": "PI-Desktop",
@@ -29,6 +31,14 @@ export const es = {
     "confirmQuitTitle": "¿Salir de PI-Desktop?",
     "confirmQuitBody": "¿Está seguro de que desea salir? Se detendrán todas las sesiones en ejecución y es posible que se pierdan los cambios no guardados.",
     "confirmQuit": "Salir"
+  },
+  "pluginDesktopConsent": {
+    "message": "{name} quiere ejecutar {operation}",
+    "arguments": "Argumentos: {args}",
+    "detail":
+      "Esta es una operación de escritorio peligrosa. El plugin reconoció el riesgo; que se ejecute depende de ti. Deniégala si no la esperabas.",
+    "allowOnce": "Permitir una vez",
+    "deny": "Denegar",
   },
   "pluginFsConsent": {
     "read": "{name} quiere leer un archivo fuera de lo que declaró",
@@ -1826,6 +1836,12 @@ export const es = {
     "CONTEXT_COMPACTION_FAILED": "No se pudo compactar el contexto del modelo de esta conversación.",
     "AGENT_BUSY": "Este chat ya está funcionando. Espere a que termine o deténgalo primero.",
     "TURN_ABORTED": "Detenido.",
+    "workspaceActivationFailed": "No se pudo activar el espacio de trabajo del proyecto",
+    "sessionNotFound": "Sesión no encontrada",
+    "noActiveSession": "No hay ninguna sesión activa",
+    "sessionTitleEmpty": "El título de la sesión no puede estar vacío",
+    "projectNameLength": "El nombre del proyecto debe tener entre 1 y 80 caracteres",
+    "planApprovalUnavailable": "La aprobación del plan ya no está disponible",
     "action": {
       "openSettings": "Abrir configuración",
       "retry": "Inténtalo de nuevo",
@@ -1833,6 +1849,6 @@ export const es = {
       "dismiss": "Descartar"
     }
   }
-} as const;
+} satisfies EnglishCatalog;
 
 export default es;

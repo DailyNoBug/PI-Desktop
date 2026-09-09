@@ -34,6 +34,14 @@ export const zhCN = {
       "退出将停止所有正在进行的会话，未保存的内容可能会丢失。你确定要退出吗？",
     confirmQuit: "退出",
   },
+  pluginDesktopConsent: {
+    message: "{name} 想要执行 {operation}",
+    arguments: "参数：{args}",
+    detail:
+      "这是一个危险的桌面操作。插件已确认风险；是否执行由你决定。如果你没有预期到这个操作，请拒绝。",
+    allowOnce: "允许一次",
+    deny: "拒绝",
+  },
   pluginFsConsent: {
     read: "{name} 想读取声明范围之外的文件",
     write: "{name} 想写入声明范围之外的文件",
@@ -1840,6 +1848,12 @@ export const zhCN = {
     CONTEXT_COMPACTION_FAILED: "无法压缩当前对话的模型上下文。",
     AGENT_BUSY: "此对话正在处理中。请等待完成，或先停止当前任务。",
     TURN_ABORTED: "已停止。",
+    workspaceActivationFailed: "无法激活项目工作区",
+    sessionNotFound: "未找到会话",
+    noActiveSession: "没有活动会话",
+    sessionTitleEmpty: "会话标题不能为空",
+    projectNameLength: "项目名称长度须为 1 到 80 个字符",
+    planApprovalUnavailable: "该计划审批已失效",
     action: {
       openSettings: "打开设置",
       retry: "重试",

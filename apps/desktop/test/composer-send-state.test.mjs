@@ -62,7 +62,7 @@ test("running session configuration is queued for the next turn", () => {
   assert.match(store, /pendingSessionConfigurations = new Map/);
   assert.match(
     store,
-    /get\(\)\.runningSessions\[sessionId\][\s\S]*pendingSessionConfigurations\.set\(sessionId, config\)/,
+    /get\(\)\.runningSessions\[sessionId\][\s\S]*pendingSessionConfigurations\.set\(\n\s*sessionId,\n\s*mergeSessionConfiguration\(pendingSessionConfigurations\.get\(sessionId\), config\),\n\s*\)/,
   );
   assert.match(store, /applyOptimisticSessionConfiguration\(session, config\)/);
   assert.match(store, /event\.type === "agent_end"[\s\S]*flushPendingSessionConfiguration\(envelope\.sessionId\)/);

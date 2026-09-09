@@ -40,6 +40,14 @@ export const ko = {
    * declare. Lives here rather than in the renderer because the dialog is a
    * main-process `showMessageBox` — it has to block the plugin's call.
    */
+  pluginDesktopConsent: {
+    message: "{name}이(가) {operation}을(를) 실행하려고 합니다",
+    arguments: "인수: {args}",
+    detail:
+      "위험한 데스크톱 작업입니다. 플러그인은 위험을 확인했지만 실행 여부는 사용자가 결정합니다. 예상하지 못한 작업이라면 거부하세요.",
+    allowOnce: "한 번 허용",
+    deny: "거부",
+  },
   pluginFsConsent: {
     read: "{name}이(가) 선언한 범위 밖의 파일을 읽으려고 합니다",
     write: "{name}이(가) 선언한 범위 밖의 파일에 쓰려고 합니다",
@@ -1869,6 +1877,12 @@ export const ko = {
     CONTEXT_COMPACTION_FAILED: "이 대화의 모델 컨텍스트를 압축할 수 없습니다.",
     AGENT_BUSY: "이 채팅은 이미 작업 중입니다. 완료될 때까지 기다리거나 먼저 중지하세요.",
     TURN_ABORTED: "중지됨",
+    workspaceActivationFailed: "프로젝트 작업 공간을 활성화할 수 없습니다",
+    sessionNotFound: "세션을 찾을 수 없습니다",
+    noActiveSession: "활성 세션이 없습니다",
+    sessionTitleEmpty: "세션 제목은 비워 둘 수 없습니다",
+    projectNameLength: "프로젝트 이름은 1~80자여야 합니다",
+    planApprovalUnavailable: "계획 승인을 더 이상 사용할 수 없습니다",
     action: {
       openSettings: "설정 열기",
       retry: "다시 시도",

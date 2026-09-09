@@ -40,6 +40,14 @@ export const tr = {
    * declare. Lives here rather than in the renderer because the dialog is a
    * main-process `showMessageBox` — it has to block the plugin's call.
    */
+  pluginDesktopConsent: {
+    message: "{name}, {operation} işlemini çalıştırmak istiyor",
+    arguments: "Bağımsız değişkenler: {args}",
+    detail:
+      "Bu tehlikeli bir masaüstü işlemidir. Eklenti riski kabul etti; çalışıp çalışmayacağına siz karar verirsiniz. Beklemiyorsanız reddedin.",
+    allowOnce: "Bir kez izin ver",
+    deny: "Reddet",
+  },
   pluginFsConsent: {
     read: "{name}, bildirdiği kapsamın dışında bir dosya okumak istiyor",
     write: "{name}, bildirdiği kapsamın dışında bir dosyaya yazmak istiyor",
@@ -1869,6 +1877,12 @@ export const tr = {
     CONTEXT_COMPACTION_FAILED: "Bu sohbetin model bağlamı sıkıştırılamadı.",
     AGENT_BUSY: "Bu sohbet zaten çalışıyor. Bitmesini bekleyin veya önce durdurun.",
     TURN_ABORTED: "Durduruldu.",
+    workspaceActivationFailed: "Proje çalışma alanı etkinleştirilemedi",
+    sessionNotFound: "Oturum bulunamadı",
+    noActiveSession: "Etkin oturum yok",
+    sessionTitleEmpty: "Oturum başlığı boş olamaz",
+    projectNameLength: "Proje adı 1 ile 80 karakter arasında olmalıdır",
+    planApprovalUnavailable: "Plan onayı artık kullanılamıyor",
     action: {
       openSettings: "Ayarları aç",
       retry: "Yeniden dene",

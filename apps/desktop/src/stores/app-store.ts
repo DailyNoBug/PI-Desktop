@@ -382,6 +382,23 @@ type SessionConfiguration = Pick<
  */
 const pendingSessionConfigurations = new Map<string, SessionConfiguration>();
 const sessionConfigurationFlushes = new Map<string, Promise<void>>();
+
+/**
+ * Later staged choices layer onto earlier ones field by field. The Composer's
+ * model/mode pickers send no `permissionMode`, so replacing the entry wholesale
+ * would silently drop a permission change staged a moment earlier.
+ */
+function mergeSessionConfiguration(
+  current: SessionConfiguration | undefined,
+  next: SessionConfiguration,
+): SessionConfiguration {
+  if (!current) return next;
+  const merged: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(next)) {
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged as SessionConfiguration;
+}
 const queuedPromptDrains = new Map<string, Promise<void>>();
 const sessionDetailLoads = new Map<
   string,
@@ -1747,7 +1764,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             navigationIntent: intent,
           });
           if (!navigationIntentIsCurrent(intent)) return false;
-          if (!workspace) throw new Error("Unable to activate project workspace");
+          if (!workspace) throw new Error(i18n.t("errors.workspaceActivationFailed"));
         }
       } else if (get().workspace) {
         await get().clearProject({ navigationIntent: intent });
@@ -1890,7 +1907,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           navigationIntent: intent,
         });
         if (!navigationIntentIsCurrent(intent)) return;
-        if (!workspace) throw new Error("Unable to activate project workspace");
+        if (!workspace) throw new Error(i18n.t("errors.workspaceActivationFailed"));
       }
       if (requestedProjectPath === null && get().workspace) {
         await get().clearProject({ navigationIntent: intent });
@@ -1939,7 +1956,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     if (!id || state.runningSessions[id]) return;
     const source = state.sessions.find((session) => session.id === id);
-    if (!source) throw new Error("Session not found");
+    if (!source) throw new Error(i18n.t("errors.sessionNotFound"));
 
     if (source.projectPath) {
       if (
@@ -1952,7 +1969,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           navigationIntent: intent,
         });
         if (!navigationIntentIsCurrent(intent)) return;
-        if (!workspace) throw new Error("Unable to activate project workspace");
+        if (!workspace) throw new Error(i18n.t("errors.workspaceActivationFailed"));
       }
     } else if (state.workspace) {
       await get().clearProject({ navigationIntent: intent });
@@ -2024,7 +2041,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().runningSessions[sessionId] ||
       sessionConfigurationFlushes.has(sessionId)
     ) {
-      pendingSessionConfigurations.set(sessionId, config);
+      pendingSessionConfigurations.set(
+        sessionId,
+        mergeSessionConfiguration(pendingSessionConfigurations.get(sessionId), config),
+      );
       set((state) => ({
         sessions: state.sessions.map((session) =>
           session.id === sessionId
@@ -2034,7 +2054,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
       return;
     }
-    const result = await api.configureSession(sessionId, config);
+    // A configuration staged by an earlier turn that never flushed (the host
+    // rejected it) still carries the user's choice; layer the new fields on it.
+    const payload = mergeSessionConfiguration(
+      pendingSessionConfigurations.get(sessionId),
+      config,
+    );
+    pendingSessionConfigurations.delete(sessionId);
+    const result = await api.configureSession(sessionId, payload);
     set((state) => ({
       sessions: state.sessions.map((session) =>
         session.id === sessionId
@@ -2164,7 +2191,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!createdId) return false;
       sessionId = createdId;
     }
-    if (!sessionId) throw new Error("No active session");
+    if (!sessionId) throw new Error(i18n.t("errors.noActiveSession"));
     if (get().pendingPlans[sessionId]?.status === "pending") return false;
     if (get().runningSessions[sessionId]) {
       get().enqueuePrompt(content, draft, sessionId);
@@ -3021,10 +3048,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   renameSession: async (id, title) => {
     if (!id) return;
     const nextTitle = title.trim();
-    if (!nextTitle) throw new Error("Session title must not be empty");
+    if (!nextTitle) throw new Error(i18n.t("errors.sessionTitleEmpty"));
     manuallyRenamedSessionIds.add(id);
     const result = await api.renameSession(id, nextTitle);
-    if (!result.ok) throw new Error("Session not found");
+    if (!result.ok) throw new Error(i18n.t("errors.sessionNotFound"));
     set((state) => ({
       sessionMeta: {
         ...state.sessionMeta,
@@ -3175,7 +3202,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!key) return;
     const normalizedName = normalizeProjectName(name);
     if (!normalizedName) {
-      throw new Error("Project name must be between 1 and 80 characters");
+      throw new Error(i18n.t("errors.projectNameLength"));
     }
     set((state) => ({
       projectMeta: {
@@ -4151,7 +4178,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (activeRequest) return activeRequest;
     const pending = get().pendingPlans[resolution.sessionId];
     if (!pending || pending.status !== "pending" || pending.id !== resolution.proposalId) {
-      throw new Error("Plan approval is no longer available");
+      throw new Error(i18n.t("errors.planApprovalUnavailable"));
     }
     const request = (async () => {
       try {
@@ -4496,12 +4523,18 @@ function flushPendingSessionConfiguration(sessionId: string): Promise<void> {
   }
 
   const flush = (async () => {
+    let failed = false;
     while (!useAppStore.getState().runningSessions[sessionId]) {
       const config = pendingSessionConfigurations.get(sessionId);
       if (!config) break;
-      pendingSessionConfigurations.delete(sessionId);
       try {
         const result = await api.configureSession(sessionId, config);
+        // The entry stays staged until the host accepts it. A choice staged
+        // while the call was in flight has already merged into a newer entry,
+        // which the next iteration sends.
+        if (pendingSessionConfigurations.get(sessionId) === config) {
+          pendingSessionConfigurations.delete(sessionId);
+        }
         useAppStore.setState((state) => ({
           sessions: state.sessions.map((session) =>
             session.id === sessionId
@@ -4524,22 +4557,31 @@ function flushPendingSessionConfiguration(sessionId: string): Promise<void> {
           { variant: "error" },
         );
         void useAppStore.getState().refreshSessions();
+        // A newer entry replaced the rejected one mid-flight: send that one.
+        // Otherwise the staged choice is kept for the next flush trigger
+        // instead of being retried blind here.
+        if (pendingSessionConfigurations.get(sessionId) !== config) continue;
+        failed = true;
+        break;
       }
     }
+    return failed;
   })();
-  sessionConfigurationFlushes.set(sessionId, flush);
-  void flush.finally(() => {
-    if (sessionConfigurationFlushes.get(sessionId) === flush) {
+  const settled = flush.then(() => undefined);
+  sessionConfigurationFlushes.set(sessionId, settled);
+  void flush.then((failed) => {
+    if (sessionConfigurationFlushes.get(sessionId) === settled) {
       sessionConfigurationFlushes.delete(sessionId);
     }
     if (
+      !failed &&
       pendingSessionConfigurations.has(sessionId) &&
       !useAppStore.getState().runningSessions[sessionId]
     ) {
       void flushPendingSessionConfiguration(sessionId);
     }
   });
-  return flush;
+  return settled;
 }
 
 type PersistSessionOptions = {
