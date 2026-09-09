@@ -46,6 +46,7 @@ export type RacpPermissionMode = (typeof RACP_PERMISSION_MODES)[number];
 export const RacpPermissionModeSchema = Type.Union([Type.Literal("ask"), Type.Literal("accept-edits"), Type.Literal("auto")]);
 
 export const RACP_SESSION_MODES = ["agent", "plan", "goal"] as const;
+export type RacpSessionMode = (typeof RACP_SESSION_MODES)[number];
 export const RacpSessionModeSchema = Type.Union([Type.Literal("agent"), Type.Literal("plan"), Type.Literal("goal")]);
 
 export const RACP_SESSION_STATUSES = [
@@ -55,9 +56,11 @@ export const RACP_SESSION_STATUSES = [
   "aborted",
   "error",
 ] as const;
+export type RacpSessionStatus = (typeof RACP_SESSION_STATUSES)[number];
 export const RacpSessionStatusSchema = Type.Union([Type.Literal("idle"), Type.Literal("running"), Type.Literal("waiting_permission"), Type.Literal("aborted"), Type.Literal("error")]);
 
 export const RACP_PLANNING_STATES = ["inactive", "planning", "awaiting_approval"] as const;
+export type RacpPlanningState = (typeof RACP_PLANNING_STATES)[number];
 export const RacpPlanningStateSchema = Type.Union([Type.Literal("inactive"), Type.Literal("planning"), Type.Literal("awaiting_approval")]);
 
 export const RACP_TURN_STATUSES = [
