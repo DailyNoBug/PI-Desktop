@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "0.85.1",
+    "@pi-desktop/agent-host": "workspace:*",
     "@pi-desktop/agent-runtime": "workspace:*",
     "@pi-desktop/i18n": "workspace:*",
     "@pi-desktop/plugin-devkit": "workspace:*",

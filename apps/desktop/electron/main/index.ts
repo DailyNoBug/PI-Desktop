@@ -254,6 +254,7 @@ import {
   McpControlServer,
   mcpControlRendererEvent,
 } from "./mcp-control";
+import { createAgentHostBridge, type AgentHostBridge } from "./agent-host-bridge";
 
 // The shared error-code union is reconciled in the shared lane. Keep desktop
 // source type-safe while that lane is temporarily staged at main.
@@ -366,6 +367,7 @@ let setWorkPanelChatWidthForWindow: ((width: number) => number) | null = null;
 let host: HostProcess | null = null;
 let sidecar: AgentSidecar | null = null;
 let mcpControl: McpControlServer | null = null;
+let agentHostBridge: AgentHostBridge | null = null;
 let desktopControl: ReturnType<typeof createMcpControlController> | null = null;
 let quitting = false;
 let shutdownComplete = false;
@@ -4479,7 +4481,7 @@ function wireHost(h: HostProcess) {
           },
         },
       };
-      sendToRenderer(IPC.event.agentMessage, envelope);
+      emitAgentEvent(envelope);
     } else if (method === "plugins.execute") {
       // Host dispatches plugin_* and mcp_* tools to us; run them and answer.
       void (async () => {
@@ -4673,6 +4675,12 @@ const planUiProbe = createPlanUiProbe({
   logger,
 });
 
+/** Fan an agent event out to the renderer and the headless Agent Host module. */
+function emitAgentEvent(envelope: AgentEventEnvelope) {
+  agentHostBridge?.ingest(envelope);
+  sendToRenderer(IPC.event.agentMessage, envelope);
+}
+
 function wireSidecar(s: AgentSidecar) {
   s.onNotification((method, params) => {
     if (method === "agent.event") {
@@ -4691,14 +4699,14 @@ function wireSidecar(s: AgentSidecar) {
           data: { isError: (event as any).isError === true },
         });
       }
-      sendToRenderer(IPC.event.agentMessage, params);
+      emitAgentEvent(envelope);
       const persistedMessage = persistAgentEvent(envelope);
       if (persistedMessage) {
         // The renderer may have reloaded while a long-running tool was open.
         // Replay the completed row through the existing message_end contract so
         // it can append the row when the original tool_start is no longer in
         // the in-memory transcript.
-        sendToRenderer(IPC.event.agentMessage, {
+        emitAgentEvent({
           ...envelope,
           event: { type: "message_end", message: persistedMessage },
         } satisfies AgentEventEnvelope);
@@ -5039,7 +5047,7 @@ function finishTurn(
           if (result.recovered) {
             // Settle the renderer's streaming row the same way a final
             // message_end would have, so it does not stay "streaming" forever.
-            sendToRenderer(IPC.event.agentMessage, {
+            emitAgentEvent({
               sessionId,
               turnId,
               ts: Date.now(),
@@ -5454,7 +5462,7 @@ function persistAgentEvent(envelope: AgentEventEnvelope): UiMessage | undefined 
         }>("session.saveActiveRevision", { sessionId: envelope.sessionId });
         const root = saved.saved?.root;
         if (!root) return;
-        sendToRenderer(IPC.event.agentMessage, {
+        emitAgentEvent({
           sessionId: envelope.sessionId,
           ts: Date.now(),
           event: { type: "message_end", message: root },
@@ -7951,12 +7959,12 @@ function registerIpc() {
       );
       throw error;
     }
-    sendToRenderer(IPC.event.agentMessage, {
+    emitAgentEvent({
       sessionId: req.sessionId,
       ts: Date.now(),
       event: { type: "message_start", message: userMessage },
     } satisfies AgentEventEnvelope);
-    sendToRenderer(IPC.event.agentMessage, {
+    emitAgentEvent({
       sessionId: req.sessionId,
       ts: Date.now(),
       event: { type: "message_end", message: userMessage },
@@ -8030,6 +8038,7 @@ function registerIpc() {
   handle(IPC.invoke.agentAbort, async (req: { sessionId: string }) => {
     if (!sidecar) throw new Error("sidecar unavailable");
     logger.app("session", "info", "prompt aborted", { sessionId: req.sessionId });
+    agentHostBridge?.markAborting(req.sessionId);
     const executionId =
       approvedExecutionIdsBySession.get(req.sessionId) ??
       [...claimedExecutionSessions].find(
@@ -8075,7 +8084,15 @@ function registerIpc() {
     logger.app("permission", "info", "permission resolved", {
       data: { requestId: resolution.requestId, decision: resolution.decision },
     });
-    return host.call("permissions.resolve", resolution);
+    const resolved = await host.call("permissions.resolve", resolution);
+    agentHostBridge?.settleApproval(resolution.requestId, {
+      ...(resolution.decision === "allow-once" ||
+      resolution.decision === "allow-session" ||
+      resolution.decision === "deny"
+        ? { decision: resolution.decision }
+        : {}),
+    });
+    return resolved;
   });
 
   handle(IPC.invoke.askToolResolve, async (resolution: AskToolResolution) => {
@@ -8136,6 +8153,10 @@ function registerIpc() {
       action,
       ...(version !== undefined ? { version } : {}),
       ...(targetPermissionMode ? { targetPermissionMode } : {}),
+    });
+    agentHostBridge?.settleApproval(proposalId, {
+      decision: action,
+      ...(targetPermissionMode ? { permissionMode: targetPermissionMode } : {}),
     });
     if (action === "approve") {
       const execution = executionFromResponse(result);
@@ -9014,6 +9035,13 @@ app.whenReady().then(async () => {
   // not race the renderer allocation just because backend startup was slow.
   prewarmPluginLauncher();
   const invokeIpc = registerIpc();
+  agentHostBridge = createAgentHostBridge({
+    invoke: invokeIpc,
+    channels: IPC.invoke,
+    getHost: () => host,
+    log: (level, message, data) => logger.app("runtime", level, message, { data }),
+  });
+  void agentHostBridge.agentHost.start();
   const control = createMcpControlController({
     invoke: invokeIpc,
     channels: IPC.invoke,

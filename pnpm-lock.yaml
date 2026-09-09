@@ -31,6 +31,9 @@ importers:
       '@earendil-works/pi-ai':
         specifier: 0.85.1
         version: 0.85.1(supports-color@7.2.0)(ws@8.21.1)(zod@4.4.3)
+      '@pi-desktop/agent-host':
+        specifier: workspace:*
+        version: link:../../packages/agent-host
       '@pi-desktop/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
