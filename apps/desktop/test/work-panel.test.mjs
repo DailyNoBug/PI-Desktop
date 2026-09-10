@@ -4,6 +4,7 @@ import test from "node:test";
 import { loadStyles } from "./helpers/styles.mjs";
 import {
   MAIN_PANE_MIN_WIDTH,
+  WORK_PANEL_CHAT_MIN_WIDTH,
   WORK_PANEL_MAX_WIDTH,
   WORK_PANEL_MIN_WIDTH,
 } from "../src/lib/work-panel-resize.ts";
@@ -285,7 +286,8 @@ test("work panel starts closed with no tabs and persists width only", () => {
 });
 
 test("work panel width is renderer-owned inside the fixed window", () => {
-  assert.equal(MAIN_PANE_MIN_WIDTH, 360);
+  assert.equal(MAIN_PANE_MIN_WIDTH, 515);
+  assert.equal(WORK_PANEL_CHAT_MIN_WIDTH, 1040);
   assert.equal(WORK_PANEL_MIN_WIDTH, 244);
   assert.equal(WORK_PANEL_MAX_WIDTH, 720);
   assert.match(panelSource, /renderPanelWidth = clampWorkPanelWidth\(panelDragWidth \?\? width\)/);

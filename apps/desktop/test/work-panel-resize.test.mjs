@@ -21,10 +21,10 @@ test("clamps the work panel to its fixed width range", () => {
 });
 
 test("collapses only after an open panel's main pane shrinks", () => {
-  assert.equal(shouldCollapseWorkPanel(350, 350), false);
-  assert.equal(shouldCollapseWorkPanel(360, 359), true);
-  assert.equal(shouldCollapseWorkPanel(359, 360), false);
-  assert.equal(shouldCollapseWorkPanel(Number.NaN, 359), false);
+  assert.equal(shouldCollapseWorkPanel(515, 515), false);
+  assert.equal(shouldCollapseWorkPanel(515, 514), true);
+  assert.equal(shouldCollapseWorkPanel(514, 515), false);
+  assert.equal(shouldCollapseWorkPanel(Number.NaN, 514), false);
 });
 
 test("clamps the conversation area to its bounded native resize range", () => {

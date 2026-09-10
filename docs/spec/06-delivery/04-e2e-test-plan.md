@@ -2646,7 +2646,7 @@ Each scenario is documented in this format:
   bounds change; the panel remains at its renderer-committed width. Resize from
   the left edge and repeat after toggling the sidebar. 10) Open, resize, and
   collapse on a small work area, then repeat while maximized and fullscreen. On a
-  minimum-sized window, open the panel even when MainChat is below 360px; then
+  minimum-sized window, open the panel even when MainChat is below 515px; then
   narrow the window or expand the sidebar further and verify the panel collapses
   automatically and MainChat recovers its space. 11)
   Move the normal window between displays and change the active display's
@@ -2666,7 +2666,7 @@ Each scenario is documented in this format:
   closing animate the panel's width/flex allocation with its bounded
   opacity/slide, so MainChat reflows continuously without a pre-animation jump.
   On a minimum-sized work area, the panel still opens when MainChat is below
-  360px; only a subsequent window shrink or sidebar expansion that makes the
+  515px; only a subsequent window shrink or sidebar expansion that makes the
   measured main pane narrower causes automatic collapse and returns the space.
   Opening the panel, collapsing it, or committing a divider resize updates the
   presentation jump. Once the panel is open, a single unified context trigger

@@ -925,9 +925,9 @@ Work-panel and application-window resizing are implemented in MVP:
 - Opening and closing animate the dock's `width` and `flex-basis` together with
   the bounded opacity/transform feedback, so MainChat reflows continuously
   inside the existing client area. Opening is allowed even when MainChat falls
-  below 360px.
+  below 515px.
 - After opening, a later native window resize or sidebar expansion that makes
-  the measured main pane narrower than 360px automatically collapses the panel
+  the measured main pane narrower than 515px automatically collapses the panel
   and returns its internal space to MainChat.
 - No panel action requests a positive native reservation. The preferred panel
   width is renderer-local, and native window edges resize only the fixed app
@@ -1280,5 +1280,5 @@ This does not prevent state changes — it makes them instant.
 21. The work panel opens and collapses inside the fixed client area; the inner
     divider changes the renderer-owned panel target within 244px–720px, and
     divider cancellation restores the prior panel width (ADR 0151). Opening
-    may put MainChat below 360px, but a later resize that makes the measured
-    main pane narrower than 360px automatically collapses the panel.
+    may put MainChat below 515px, but a later resize that makes the measured
+    main pane narrower than 515px automatically collapses the panel.

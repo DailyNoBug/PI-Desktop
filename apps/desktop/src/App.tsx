@@ -38,10 +38,7 @@ import { api } from "./lib/api";
 import { installRendererApi } from "./capture/renderer-api";
 import { commitWorkPanelPresentation } from "./lib/work-panel-presentation";
 import { browserPluginTab } from "./lib/work-panel-tabs";
-import {
-  MAIN_PANE_MIN_WIDTH,
-  shouldCollapseWorkPanel,
-} from "./lib/work-panel-resize";
+import { shouldCollapseWorkPanel } from "./lib/work-panel-resize";
 import {
   clampSidebarWidth,
   loadSidebarWidth,

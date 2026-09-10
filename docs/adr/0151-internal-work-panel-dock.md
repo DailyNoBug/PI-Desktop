@@ -37,8 +37,8 @@ the panel is inside the existing client area.
    but never resize or reserve the work panel. The preferred panel width remains
    renderer-local and persists independently of native window bounds.
 5. Opening the panel is not blocked by the current MainChat width. If the panel
-   opens while MainChat is below the 360px readability target, it remains open;
-   a later decrease of the measured main-pane width below 360px collapses the
+   opens while MainChat is below the 515px readability target, it remains open;
+   a later decrease of the measured main-pane width below 515px collapses the
    panel (and any visible subagent panel) without changing native bounds.
 6. The Browser view continues to use the renderer-measured panel rectangle and
    is detached before the panel exit animation, because a native view cannot
@@ -49,8 +49,8 @@ the panel is inside the existing client area.
 - Opening and collapsing no longer move the window edge or change the user's
   application bounds; the panel visibly occupies internal space like the left
   sidebar.
-- MainChat may be below its 360px readability target when the panel is opened
-  in a narrow client area; if the pane later shrinks further below 360px, the
+- MainChat may be below its 515px readability target when the panel is opened
+  in a narrow client area; if the pane later shrinks further below 515px, the
   renderer collapses the panel to preserve the layout during the resize.
 - Native reservation and chat-width IPC shapes remain as compatibility seams,
   but the current renderer does not use them for panel presentation or resize.
