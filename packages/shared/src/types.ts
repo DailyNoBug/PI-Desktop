@@ -1555,6 +1555,8 @@ export type UserSubagentRecord = {
   model?: string;
   thinkingLevel?: SubagentThinkingLevel;
   maxTurns?: number;
+  /** Output-token cap for one delegate response; omitted follows the model. */
+  maxTokens?: number;
   /** Absolute path of the document, for revealing it. */
   path: string;
   sizeBytes: number;
@@ -1573,6 +1575,8 @@ export type UserSubagentInput = {
   thinkingLevel?: SubagentThinkingLevel | "";
   /** `0` clears the override; absent leaves it unchanged. */
   maxTurns?: number;
+  /** `0` clears the cap; absent leaves it unchanged. */
+  maxTokens?: number;
   enabled?: boolean;
   scope?: ActivationScope;
 };

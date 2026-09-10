@@ -15,6 +15,9 @@ pub const MAX_SUBAGENT_BYTES: usize = 32 * 1024;
 const MAX_NAME_CHARS: usize = 40;
 const MAX_DESCRIPTION_CHARS: usize = 400;
 const MAX_TURNS_CEILING: u32 = 80;
+/// Mirrors `MAX_SUBAGENT_MAX_TOKENS` in `packages/shared`. No published model
+/// accepts an output limit above 128k, so a larger declared value is a typo.
+const MAX_TOKENS_CEILING: u32 = 200_000;
 const DEFAULT_TOOLS: [&str; 3] = ["Read", "Glob", "Grep"];
 const ASSIGNABLE_TOOLS: [&str; 7] = [
     "Read",
@@ -49,6 +52,8 @@ pub struct UserSubagentRecord {
     pub thinking_level: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_turns: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
     pub path: String,
     #[serde(default)]
     pub size_bytes: u64,
@@ -67,6 +72,7 @@ pub struct UserSubagentInput {
     pub model: Option<String>,
     pub thinking_level: Option<String>,
     pub max_turns: Option<u32>,
+    pub max_tokens: Option<u32>,
     pub enabled: Option<bool>,
     /// Kept for protocol compatibility; subagents are global-only now.
     #[allow(dead_code)]
@@ -154,6 +160,11 @@ fn parse_record(path: &Path, state: &CapabilityState) -> Option<UserSubagentReco
         .and_then(|value| value.parse::<u32>().ok())
         .filter(|value| *value > 0)
         .map(|value| value.min(MAX_TURNS_CEILING));
+    let max_tokens = front
+        .get("maxtokens")
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .map(|value| value.min(MAX_TOKENS_CEILING));
     Some(UserSubagentRecord {
         id: name.clone(),
         name,
@@ -168,6 +179,7 @@ fn parse_record(path: &Path, state: &CapabilityState) -> Option<UserSubagentReco
             .filter(|value| !value.is_empty()),
         thinking_level: normalize_thinking(front.get("thinkinglevel").map(String::as_str)),
         max_turns,
+        max_tokens,
         path: path.to_string_lossy().to_string(),
         size_bytes: raw.len() as u64,
         created_at: updated_at.clone(),
@@ -191,6 +203,9 @@ fn render_document(record: &UserSubagentRecord, body: &str) -> String {
     }
     if let Some(max_turns) = record.max_turns {
         output.push_str(&format!("maxTurns: {max_turns}\n"));
+    }
+    if let Some(max_tokens) = record.max_tokens {
+        output.push_str(&format!("maxTokens: {max_tokens}\n"));
     }
     output.push_str("---\n\n");
     output.push_str(body.trim());
@@ -291,6 +306,10 @@ impl UserSubagentRegistry {
                 .max_turns
                 .filter(|value| *value > 0)
                 .map(|value| value.min(MAX_TURNS_CEILING)),
+            max_tokens: input
+                .max_tokens
+                .filter(|value| *value > 0)
+                .map(|value| value.min(MAX_TOKENS_CEILING)),
             path: String::new(),
             size_bytes: 0,
             created_at: Utc::now().to_rfc3339(),
@@ -370,6 +389,11 @@ impl UserSubagentRegistry {
             Some(0) => None,
             Some(value) => Some(value.min(MAX_TURNS_CEILING)),
             None => current.max_turns,
+        };
+        next.max_tokens = match input.max_tokens {
+            Some(0) => None,
+            Some(value) => Some(value.min(MAX_TOKENS_CEILING)),
+            None => current.max_tokens,
         };
         next.enabled = input.enabled.unwrap_or(current.enabled);
         next.path = current.path.clone();
@@ -485,11 +509,41 @@ mod tests {
             model: None,
             thinking_level: None,
             max_turns: None,
+            max_tokens: None,
             path: "/tmp/review.md".into(),
             size_bytes: 0,
             created_at: String::new(),
             updated_at: String::new(),
         };
         assert!(!render_document(&record, "Review it").contains("enabled"));
+    }
+
+    #[test]
+    fn an_output_cap_is_written_and_an_absent_one_is_omitted() {
+        let mut record = UserSubagentRecord {
+            id: "review".into(),
+            name: "review".into(),
+            level: Some("global".into()),
+            description: "Review code".into(),
+            enabled: true,
+            scope: ActivationScope::default(),
+            tools: vec!["Read".into()],
+            model: None,
+            thinking_level: None,
+            max_turns: Some(20),
+            max_tokens: Some(16_000),
+            path: "/tmp/review.md".into(),
+            size_bytes: 0,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let document = render_document(&record, "Review it");
+        assert!(document.contains("maxTurns: 20\n"));
+        assert!(document.contains("maxTokens: 16000\n"));
+
+        // Absent means "follow the model", so the key must not appear at all —
+        // a written `maxTokens: 0` would read back as an explicit empty cap.
+        record.max_tokens = None;
+        assert!(!render_document(&record, "Review it").contains("maxTokens"));
     }
 }

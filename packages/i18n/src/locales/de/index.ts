@@ -1755,6 +1755,9 @@ export const de = {
       "maxTurns": "Rundenlimit",
       "maxTurnsHint": "Stoppt einen Delegaten, der nie beendet wird. 1–{{max}}, oder leer lassen, um keine Begrenzung zu erhalten.",
       "maxTurnsUnlimited": "Keine Begrenzung",
+      "maxTokens": "Ausgabelimit",
+      "maxTokensHint": "Begrenzt eine Antwort des Delegaten. 1–{{max}}, oder leer lassen, um dem Modell zu folgen.",
+      "maxTokensDefault": "Modellvorgabe",
       "body": "Anweisungen",
       "bodyHint": "Markdown, wird als gesamte Systemaufforderung des Delegaten verwendet. Schreiben Sie es als Anweisung an den Delegierten.",
       "bytes": "{{used}} / {{max}} KB",
@@ -1765,6 +1768,7 @@ export const de = {
       "errorTools": "Gewähren Sie mindestens ein Werkzeug.",
       "errorModel": "Schreiben Sie das Modell als Anbieter/Modell, z. B. anthropisch/claude-haiku-4-5.",
       "errorMaxTurns": "Das Wendelimit muss eine ganze Zahl innerhalb des zulässigen Bereichs sein.",
+      "errorMaxTokens": "Das Ausgabelimit muss eine ganze Zahl im zulässigen Bereich sein.",
       "errorBody": "Die Anweisungen sind leer.",
       "errorTooBig": "Die Anweisungen überschreiten die Größenbeschränkung."
     }
