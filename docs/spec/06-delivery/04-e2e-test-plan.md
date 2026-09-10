@@ -366,6 +366,26 @@ Each scenario is documented in this format:
 - **Milestone**: M2
 - **Status**: Unit-covered host migration; manual UI journey
 
+#### E2E-005K: Preserve explicit extended thinking levels on the wire
+
+- **Preconditions**: A provider has a selected model binding with reasoning
+  enabled and `xhigh`/`max` explicitly selected; the catalog omits or marks
+  those adapter mappings as unsupported; a deterministic OpenAI-compatible
+  capture fixture records request JSON.
+- **Steps**: 1) Select `high`, `xhigh`, and `max` in separate turns. 2) Capture
+  each request body at the fixture boundary.
+- **Expected**: The three requests contain `reasoning_effort: "high"`,
+  `reasoning_effort: "xhigh"`, and `reasoning_effort: "max"` respectively.
+  The catalog's non-null wire mapping remains in force when one is published;
+  an absent or null mapping for an explicitly enabled extended level does not
+  silently downgrade it to `high`.
+- **Specs linked**: `03-runtime/11-provider-model-system.md`,
+  `03-runtime/12-provider-config-schema.md`,
+  `03-runtime/13-model-catalog-and-selection.md`
+- **Acceptance**: B (model configuration), F (runtime provider requests)
+- **Milestone**: M2
+- **Status**: Unit-covered; deterministic provider fixture pending
+
 #### E2E-005B: Configure the fixed OpenCode Go API-style preset
 
 - **Preconditions**: App running; no OpenCode Go provider configured; the
