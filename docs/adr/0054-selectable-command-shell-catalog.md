@@ -1,6 +1,6 @@
 # ADR 0054: Selectable command shell catalog and execution identity
 
-- Status: Accepted for implementation (timeout bounds in §4 amended by ADR 0167 / D329; the PowerShell 7 entry is added by ADR 0209 / D380)
+- Status: Accepted for implementation (timeout bounds in §4 amended by ADR 0167 / D329; the PowerShell 7 entry is added by ADR 0209 / D381)
 - Date: 2026-07-31
 - Baseline: `0.4.14`
 - Protocol: v9

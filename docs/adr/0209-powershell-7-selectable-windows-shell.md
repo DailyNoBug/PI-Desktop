@@ -5,7 +5,7 @@
 - Baseline: `0.14.6`
 - Protocol: v9
 - Storage schema: v10
-- Decision: D380
+- Decision: D381
 - Amends: ADR 0054 §1 (Windows catalog table and Windows catalog list)
 - Related: [03-runtime/03-tools-and-permissions.md](../spec/03-runtime/03-tools-and-permissions.md),
   [03-runtime/01-ipc-protocol.md](../spec/03-runtime/01-ipc-protocol.md),

@@ -3634,14 +3634,14 @@ D193 和 D194。
   对未知会话的 `tools.execute` 返回 `SESSION_NOT_FOUND`，而不是继承全局工作区。
   参见 E2E-234 至 E2E-238。
 
-## 2026-09-10 — 将 PowerShell 7 作为 Windows 可选命令 Shell (D380)
+## 2026-09-10 — 将 PowerShell 7 作为 Windows 可选命令 Shell (D381)
 
 - 问题 #151：Windows 用户安装 PowerShell 7（`pwsh.exe`）后无法让 `Bash` 在它下面
   运行。PowerShell 7 与 ADR 0054 中 `windows-powershell` 条目所解析的随系统内置
   5.1 并排安装，且从不替换它，而目录中没有其它可选条目：
   `crates/host-core/src/tools/shell.rs` 没有 `pwsh.exe` 解析路径，
   `COMMAND_SHELL_IDS` 只列出四个 ID。
-- 决策 D380（ADR 0209）在 Windows 目录中新增稳定 ID `windows-pwsh`
+- 决策 D381（ADR 0209）在 Windows 目录中新增稳定 ID `windows-pwsh`
   （"PowerShell 7"），并修订 ADR 0054 §1。解析顺序为
   `%ProgramFiles%\PowerShell\7\pwsh.exe`（宿主进程为 32 位时追加
   `%ProgramW6432%`），再到 PATH 上的 `pwsh.exe`；解析失败返回

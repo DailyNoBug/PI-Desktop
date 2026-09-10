@@ -4241,14 +4241,14 @@ D193, and D194.
   instead of inheriting the global workspace. See E2E-234 through
   E2E-238.
 
-## 2026-09-10 — PowerShell 7 as a selectable Windows command shell (D380)
+## 2026-09-10 — PowerShell 7 as a selectable Windows command shell (D381)
 
 - Issue #151: a Windows user who installs PowerShell 7 (`pwsh.exe`) had no way to
   run `Bash` under it. PowerShell 7 installs side by side with, and never
   replaces, the in-box 5.1 that ADR 0054's `windows-powershell` entry resolves,
   and the catalog exposed no other entry: `crates/host-core/src/tools/shell.rs`
   had no `pwsh.exe` resolution path, and `COMMAND_SHELL_IDS` listed four IDs.
-- Decision D380 (ADR 0209) adds the stable ID `windows-pwsh` ("PowerShell 7") to
+- Decision D381 (ADR 0209) adds the stable ID `windows-pwsh` ("PowerShell 7") to
   the Windows catalog, amending ADR 0054 §1. It resolves
   `%ProgramFiles%\PowerShell\7\pwsh.exe` (plus `%ProgramW6432%` when the host
   process is 32-bit), then `pwsh.exe` on PATH; a miss returns `SHELL_NOT_FOUND`
