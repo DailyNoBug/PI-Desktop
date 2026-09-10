@@ -762,7 +762,12 @@ Agent 中的会话。进程纪元是内部的，不是线路或数据库
 ### 5. 2 Shell 目录
 
 ```ts
-type CommandShellId = "windows-powershell" | "cmd" | "git-bash" | "bash";
+type CommandShellId =
+  | "windows-powershell"
+  | "windows-pwsh"
+  | "cmd"
+  | "git-bash"
+  | "bash";
 
 type CommandShellOption = {
   id: CommandShellId;

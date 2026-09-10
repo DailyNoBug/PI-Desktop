@@ -3633,3 +3633,20 @@ D193 和 D194。
   `<data_dir>/ignore`；路径解析器会跟随悬空符号链接，因此经由它的写入无法离开工作区；
   对未知会话的 `tools.execute` 返回 `SESSION_NOT_FOUND`，而不是继承全局工作区。
   参见 E2E-234 至 E2E-238。
+
+## 2026-09-10 — 将 PowerShell 7 作为 Windows 可选命令 Shell (D380)
+
+- 问题 #151：Windows 用户安装 PowerShell 7（`pwsh.exe`）后无法让 `Bash` 在它下面
+  运行。PowerShell 7 与 ADR 0054 中 `windows-powershell` 条目所解析的随系统内置
+  5.1 并排安装，且从不替换它，而目录中没有其它可选条目：
+  `crates/host-core/src/tools/shell.rs` 没有 `pwsh.exe` 解析路径，
+  `COMMAND_SHELL_IDS` 只列出四个 ID。
+- 决策 D380（ADR 0209）在 Windows 目录中新增稳定 ID `windows-pwsh`
+  （"PowerShell 7"），并修订 ADR 0054 §1。解析顺序为
+  `%ProgramFiles%\PowerShell\7\pwsh.exe`（宿主进程为 32 位时追加
+  `%ProgramW6432%`），再到 PATH 上的 `pwsh.exe`；解析失败返回
+  `SHELL_NOT_FOUND` 并列出两处已搜索位置。它沿用 `powershell` 方言与既有的
+  非交互式脚本，且从不会被隐式选中，因此平台默认值与既有用户的 shell 保持不变。
+- 协议、存储与工具面均为增量改动：`CommandShellId` 新增一个成员，而折叠的
+  设置校验与首个可用回退无需新代码路径，也没有新增 RPC 方法、工具名或schema 迁移。
+  参见 E2E-112。

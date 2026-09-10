@@ -3690,7 +3690,7 @@ IPC 请求无法关闭。
   使持久选择不可用，并且项目绑定的 Agent 会话是
   闲置。 Windows 通道练习多选排序。
 - **步骤**：1) 检查目录中的平台有效 ID
-  `windows-powershell`、`cmd`、`git-bash` 和 `bash`。 2) 验证设置
+  `windows-powershell`、`windows-pwsh`、`cmd`、`git-bash` 和 `bash`。 2) 验证设置
   拒绝不可用或错误的平台 ID。 3）选择可用的shell
   并坚持 `defaultCommandShell`。 4）使坚持的选择不可用，
   重新启动，并验证目录选择第一个可用的平台 shell

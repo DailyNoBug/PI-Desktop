@@ -4779,7 +4779,7 @@ Each scenario is documented in this format:
   make a persisted choice unavailable, and a project-bound Agent session is
   idle. The Windows lane exercises the multi-choice ordering.
 - **Steps**: 1) Inspect the catalog for the platform-valid IDs
-  `windows-powershell`, `cmd`, `git-bash`, and `bash`. 2) Verify settings
+  `windows-powershell`, `windows-pwsh`, `cmd`, `git-bash`, and `bash`. 2) Verify settings
   rejects an unavailable or wrong-platform ID. 3) Select an available shell
   and persist `defaultCommandShell`. 4) Make that persisted choice unavailable,
   restart, and verify the catalog selects the first available platform shell
