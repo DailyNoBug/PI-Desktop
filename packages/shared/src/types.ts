@@ -1345,7 +1345,9 @@ export type PluginCapability =
   | "themes"
   | "mcp"
   | "services"
-  | "bus";
+  | "bus"
+  /** `contributes.agentExtensions`: ExtensionAPI modules in the agent process. */
+  | "agentExtension";
 
 export type PluginSettingType =
   | "string"
@@ -1434,6 +1436,18 @@ export type PluginSummary = {
   /** Declared file scope, so the page can show it next to the permissions. */
   fs?: PluginFsPolicy;
   settings?: PluginSettingDefinition[];
+  /** Live state of the plugin's `contributes.agentExtensions` modules, from
+   * the most recent session that loaded them (spec 07-plugins/16 §11). */
+  agentExtension?: PluginAgentExtensionStatus;
+};
+
+/** What the agent process reported for one plugin's ExtensionAPI modules. */
+export type PluginAgentExtensionStatus = {
+  /** `enabled` until a session loads the modules in this app run. */
+  state: "enabled" | "loaded" | "error";
+  toolNames: string[];
+  commandNames: string[];
+  diagnostics: import("./trusted-extensions.js").TrustedExtensionDiagnostic[];
 };
 
 /** The filesystem level that owns an agent capability. */

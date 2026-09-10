@@ -3728,3 +3728,18 @@ D193 和 D194。
   既有审计字段以及 UI/协议中的时长元数据保持不变，因为它们用于安全取证、成绩单展示和
   有界的 provider 诊断，而不是用于生成冗余进程日志。
 - 既有 timing 文件属于历史本地数据，不会自动删除或迁移。
+
+## 2026-09-11 —— Agent 扩展成为插件贡献点（D388）
+
+- D387 把 ExtensionAPI 模块作为第二个扩展面交付，带有自己的注册表、设置标签和启用
+  存储。维护者要求只有一个扩展面：pi CLI 扩展应当成为 PI-Desktop 插件，像插件一样
+  安装、启用、限定范围和展示。
+- 决策 D388 / ADR 0215 修订 D387：模块以 `contributes.agentExtensions` 声明，由新增的
+  高风险权限 `agent.extension` 门控；没有该权限的 manifest 无效，记录的授权中缺少它的
+  插件照常加载但跳过模块并记审计。启用与项目范围归插件所有。“导入 pi 扩展”把 pi CLI
+  扩展复制到 `<dataDir>/plugins/imported/<slug>` 并生成 manifest，注册为开发插件；
+  选择器之前的确认即信任决定。独立注册表、其存储文件、设置目的地以及 list / enable /
+  rescan / add-path / remove 通道全部移除；插件行显示 `agentExtension` 能力、权限、加载
+  状态、已注册名称和诊断。sidecar 的 loader、Runner、hooks、命令与提示桥接不变。持有
+  `agent.extension` 的插件的市场分发等签名到位。规格 16 §1 至 §3、§10.2、§11；
+  E2E-241 至 E2E-245 已在插件形态夹具上重新执行。

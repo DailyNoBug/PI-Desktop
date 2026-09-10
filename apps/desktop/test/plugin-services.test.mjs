@@ -441,6 +441,7 @@ test("capability badges include every declared plugin capability", () => {
     "views",
     "commands",
     "tools",
+    "agentExtension",
     "skills",
     "themes",
     "mcp",

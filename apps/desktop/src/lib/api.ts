@@ -81,11 +81,9 @@ import type {
   UpdateState,
   WindowControlAction,
   CloseBehavior,
-  TrustedExtensionEntry,
   TrustedExtensionStatusEvent,
   TrustedExtensionUiPrompt,
   TrustedExtensionUiPromptResponse,
-  TrustedExtensionsListResult,
 } from "@pi-desktop/shared";
 import {
   defaultCommandShellForPlatform,
@@ -763,18 +761,11 @@ export const api = {
       IPC.invoke.marketApplyUpdates,
       { onlyAuto },
     ),
-  /** Trusted extensions (D387, spec 16 §10.2). */
-  listTrustedExtensions: () =>
-    invoke<TrustedExtensionsListResult>(IPC.invoke.extensionsList),
-  setTrustedExtensionEnabled: (id: string, enabled: boolean) =>
-    invoke<{ entry: TrustedExtensionEntry }>(IPC.invoke.extensionsSetEnabled, { id, enabled }),
-  rescanTrustedExtensions: () =>
-    invoke<TrustedExtensionsListResult>(IPC.invoke.extensionsRescan),
-  addTrustedExtensionPath: () =>
-    invoke<{ canceled: true } | ({ canceled: false } & TrustedExtensionsListResult)>(
-      IPC.invoke.extensionsAddPath,
+  /** Import a pi CLI extension file or directory as a development plugin (spec 16 §3). */
+  importPiExtension: () =>
+    invoke<{ canceled: true } | { canceled: false; id: string; path: string; entries: string[] }>(
+      IPC.invoke.pluginImportExtension,
     ),
-  removeTrustedExtension: (id: string) => invoke(IPC.invoke.extensionsRemove, { id }),
   runExtensionCommand: (input: { sessionId: string; name: string; args: string }) =>
     invoke<{ ok: boolean }>(IPC.invoke.extensionsCommandRun, input),
   respondExtensionPrompt: (response: TrustedExtensionUiPromptResponse) =>
@@ -936,10 +927,6 @@ export const api = {
     return window.piDesktop.on(IPC.event.providersOauth, (payload) =>
       listener(payload as OAuthLoginEvent),
     );
-  },
-  onExtensionsChanged: (listener: () => void) => {
-    if (!window.piDesktop?.on) return () => undefined;
-    return window.piDesktop.on(IPC.event.extensionsChanged, () => listener());
   },
   onExtensionPrompt: (listener: (prompt: TrustedExtensionUiPrompt) => void) => {
     if (!window.piDesktop?.on) return () => undefined;

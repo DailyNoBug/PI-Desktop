@@ -2009,6 +2009,20 @@
   width: 100%;
 }
 
+/* Agent extension state inside a plugin row (spec 16 §11). */
+.plugins-agent-extension {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.plugins-agent-extension-names {
+  font-size: var(--text-3xs);
+  color: var(--ds-text-muted);
+  word-break: break-all;
+}
+
 /* Trusted extensions (spec 16 §11): the trust notice and per-row diagnostics. */
 .agent-extension-trust-notice {
   display: flex;

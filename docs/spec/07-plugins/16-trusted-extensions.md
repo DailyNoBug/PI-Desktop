@@ -1,73 +1,89 @@
 # 16. Trusted Extensions
 
-> Status: Implemented v1 (D387, ADR 0214); implementation notes are marked "v1 note"
-> Scope: v1. v2 and v3 items are listed in §12 and are not committed.
+> Status: Implemented v1.1 (D387 / D388, ADR 0214 / ADR 0215); implementation notes are marked "v1 note"
+> Scope: v1.1. v2 and v3 items are listed in §12 and are not committed.
 
 ## 1. Purpose and terminology
 
-PI-Desktop has two extension surfaces. Plugins
-([01-plugin-system.md](01-plugin-system.md)) are sandboxed, manifest-driven,
-and run outside the agent. Trusted extensions are the second surface: TypeScript
-modules that run inside the Agent sidecar, receive an `ExtensionAPI` object, and
-register tools, commands, and event handlers directly on the agent loop. The
+Plugins ([01-plugin-system.md](01-plugin-system.md)) are the one extension
+surface of PI-Desktop. This document specifies one plugin contribution,
+`contributes.agentExtensions`: TypeScript or JavaScript modules that run
+inside the Agent sidecar, receive an `ExtensionAPI` object, and register
+tools, commands, and event handlers directly on the agent loop. The
 `ExtensionAPI` contract is the one defined by `@earendil-works/pi-coding-agent`,
-which PI-Desktop adopts as its in-sidecar extension contract alongside the
-`pi-ai` and `pi-agent-core` kernel (ADR 0002). This document specifies that
-surface.
+which PI-Desktop adopts alongside the `pi-ai` and `pi-agent-core` kernel
+(ADR 0002), so an extension written for the pi CLI is the module a plugin
+contributes. D388 folded the earlier standalone "trusted extensions"
+registry into this contribution; the engine below is unchanged.
 
 | Term | Meaning |
 |---|---|
-| Trusted extension | A module written against `ExtensionAPI`, discovered from an extensions directory or a package with a `pi` manifest field, running with the trust level of the Agent sidecar |
-| Plugin | A PI-Desktop plugin with a manifest, running in its own process under the permission gateway (ADR 0008) |
+| Agent extension | One module a plugin lists in `contributes.agentExtensions`, written against `ExtensionAPI`, running with the trust level of the Agent sidecar |
+| Plugin | A PI-Desktop plugin with a manifest, running in its own process under the permission gateway (ADR 0008); the owner, installer, and enablement record of its agent extensions |
 | Adapter | The layer in `packages/agent-runtime` that implements `ExtensionAPI` on top of the desktop runtime |
 | Runner | One desktop-owned `TrustedExtensionRunner` instance bound to one desktop session (v1 note: the pi-coding-agent `ExtensionRunner` is not reused because it binds the terminal theme; its `ExtensionAPI` types are a types-only dependency) |
 
 ## 2. Positioning and trust model
 
-1. Trusted extensions and plugins are distinct surfaces. Neither is
-   converted into the other.
-2. A trusted extension is trusted code. It executes inside the Agent sidecar,
-   which already holds the bash, edit, and write tools, so enabling an
-   extension grants exactly what running the agent already grants. The plugin
-   security baseline in [04-plugin-security.md](04-plugin-security.md) does
-   not apply and is not weakened.
-3. Nothing is enabled by default. D007 stays in force: PI-Desktop never
-   auto-imports `~/.pi`. Discovery lists candidates; the user enables each one.
-4. Project-scoped extensions are gated per project. An extension found under
-   a workspace's `.pi/extensions` loads only for that project and only after
-   the user enabled it there. v1 note: PI-Desktop has no separate project
-   trust state, so enablement is the trust decision and `project_trust` is
-   not emitted.
-5. On every surface the label is "Trusted extension" with the source path.
-   Marketplace, signing, and update flows do not apply in v1.
+1. Agent extensions are installed, enabled, scoped, updated, and removed as
+   part of their plugin. There is no second list, store, or settings page.
+2. An agent extension is trusted code. It executes inside the Agent sidecar,
+   which already holds the bash, edit, and write tools, so granting the
+   `agent.extension` permission grants exactly what running the agent already
+   grants. The plugin sandbox in [04-plugin-security.md](04-plugin-security.md)
+   does not cover these modules, which is why the permission is a separate,
+   high-risk grant rather than an implicit part of `agent.tool.register`.
+3. Nothing runs without the grant. A plugin that declares
+   `contributes.agentExtensions` without `agent.extension` fails manifest
+   validation; a plugin whose recorded grants omit the permission loads with
+   its modules skipped and audited (`plugin.agentExtensions.skipped`). D007
+   stays in force: PI-Desktop never auto-imports `~/.pi`.
+4. Project scope is the plugin's activation scope. A plugin limited to some
+   projects contributes its modules only to sessions in those projects. v1
+   note: there is no separate project trust state, so the plugin scope is the
+   trust decision and `project_trust` is not emitted.
+5. Marketplace distribution of plugins holding `agent.extension` is not
+   enabled in v1.1: the permission is accepted from local imports and
+   development plugins. Marketplace listing waits for signing (spec 08).
 
-## 3. Discovery and enablement
+## 3. Contribution and import
 
-### 3.1 Sources
+### 3.1 Manifest
 
-| Source | Path | Scope |
-|---|---|---|
-| User extensions | `~/.pi/agent/extensions/` | All projects |
-| Project extensions | `<workspace>/.pi/extensions/` | That project, after project trust |
-| Manual path | Any directory or file chosen in Settings | User chooses the scope |
+```json
+{
+  "id": "acme.git-helper",
+  "name": "Git helper",
+  "version": "1.0.0",
+  "main": "main.js",
+  "permissions": ["agent.extension"],
+  "contributes": { "agentExtensions": ["src/index.ts"] }
+}
+```
 
-Resolution inside a source follows the `pi-coding-agent` loader rules: a `package.json`
-with a `pi.extensions` field declares its entry files; otherwise `index.ts`,
-`index.js`, or a direct `*.ts` / `*.js` file one level deep. No deeper
-recursion. The pi CLI's `settings.json` under `~/.pi/agent` is neither read nor
-written in v1; enablement is PI-Desktop state.
+Rules: at most eight entries; each is a relative `.ts`, `.mts`, `.js`, or
+`.mjs` path inside the plugin directory; the file must exist at load; a
+manifest that lists entries without the permission is invalid
+([02-plugin-manifest-schema.md](02-plugin-manifest-schema.md) §4 and §7).
+`main` may be a no-op module when the plugin contributes nothing else.
 
-### 3.2 Enablement state
+### 3.2 Importing a pi CLI extension
 
-- Stored in `~/.pi-desktop/trusted-extensions.json`, keyed by the realpath of
-  the extension entry. No host-core schema change.
-- Each entry records `enabled`, the scope (`user`, `project:<projectId>`, or
-  `manual`), the source, and the last load diagnostic.
-- A rescan is explicit (Settings button or app start). There is no file
-  watcher in v1. A rescan never flips an enabled flag; a missing entry is
-  shown as "missing" until the user removes it.
-- Deleting a project does not delete its extension entries; they become
-  orphaned and are removed on the next rescan.
+Plugins → "Import pi extension" opens a native picker (main owns the path,
+D344) for a file or a directory. Main resolves entries with the
+`pi-coding-agent` loader rules (a `package.json` `pi.extensions` field, else
+`index.ts` / `index.js`, else loose `*.ts` / `*.js` files one level deep),
+copies the source under `<dataDir>/plugins/imported/<slug>/src/`, writes the
+manifest above with id `imported.<slug>`, and registers the directory as a
+development plugin through the same path as "Load local plugin". The confirm
+before the picker is the trust decision; the row then shows the
+`agent.extension` permission like any other grant.
+
+| Source | Becomes |
+|---|---|
+| A pi extension directory or file | A development plugin under `plugins/imported`, id `imported.<slug>` |
+| A plugin package declaring `contributes.agentExtensions` | Installed like any plugin; the grant is asked for at install |
+| A `package.json` with a `pi.extensions` field | The listed entries, relative to `src/` |
 
 ## 4. Loading and runtime
 
@@ -231,40 +247,38 @@ No host-core RPC method, protocol version, or SQLite schema changes in v1.
 
 | Channel | Direction | Purpose |
 |---|---|---|
-| `extensions/list` | request | Candidates with scope, state, and diagnostics |
-| `extensions/setEnabled` | request | Toggle one entry |
-| `extensions/rescan` | request | Re-run discovery |
-| `extensions/addPath` | request | Manual source via native picker token (D344 rules) |
+| `plugin/importExtension` | request | Native picker, generate the plugin, register it as a development plugin |
 | `extensions/commands/run` | request | Run a registered command in the active session |
 | `extensions/ui/respond` | request | Answer a pending prompt |
-| `extensions/changed` | event | List or diagnostics changed |
 | `extensions/ui/prompt` | event | A prompt is pending |
+| `extensions/event/status` | event | `ui.setStatus` / `ui.setWorkingMessage` text changed |
+| `plugin/list` | request | Plugin rows carry `agentExtension` state, tool and command names, and diagnostics |
+| `event/pluginChanged` | event | Also fires when a session publishes commands or diagnostics |
 
 All channels are sender-validated like other plugin channels. The MCP
-control plane exposes `extensions/list` (read), `extensions/commands/run`
-(write), and `extensions/ui/respond` (dangerous, confirm required); enable,
-add path, and remove stay local. Main audits each prompt id in
-`logs/app/plugin.log`.
+control plane exposes `extensions/commands/run` (write) and
+`extensions/ui/respond` (dangerous, confirm required); the import is a native
+picker and stays local. Main audits each prompt id in `logs/app/plugin.log`.
 
-## 11. Settings surface
+## 11. Plugin row surface
 
-Settings gains a "Trusted extensions" destination (tab id
-`trustedExtensions`) in the Agent group beside Skills, MCP, and Subagents:
+The Plugins page shows agent extensions on the owning plugin's row:
 
-- A list grouped by source with the label, entry path, scope, enable toggle,
-  and a state chip (`disabled`, `enabled` until a session loads it in this
-  app run, `loaded`, `error`, `missing`).
-- A diagnostics drawer per entry: load errors, unsupported API calls with
-  counts, rejected registrations, handler timeouts.
-- A "Rescan" action and an "Add path" action (main opens the native picker;
-  the renderer never supplies a path).
-- A short trust notice above the list stating what enabling grants.
+- The `agentExtension` capability chip and the `agent.extension` permission
+  chip (high risk) beside the other capabilities and permissions.
+- A details section with a state chip (`enabled` until a session loads the
+  modules in this app run, `loaded`, `error`), the registered tool and slash
+  command names, and the diagnostics: load errors, unsupported API calls
+  with counts, rejected registrations, handler timeouts.
+- "Import pi extension" in the page's overflow actions, guarded by a confirm
+  that states what the grant means.
 
 ## 12. Phasing
 
 | Phase | Content | Commitment |
 |---|---|---|
-| v1 | §2 to §11: discovery, loader, Runner per session, support matrix, events, tools, commands, UI bridge, settings tab | Committed (D387) |
+| v1 | Loader, Runner per session, support matrix, events, tools, commands, UI bridge | Shipped (D387) |
+| v1.1 | Modules become `contributes.agentExtensions` with the `agent.extension` grant; import of pi CLI extensions as development plugins; the standalone registry and settings tab are removed | Shipped (D388) |
 | v2 | Custom session entries (`sendMessage`, `appendEntry`) with a schema bump and a generic renderer, `sessionManager` read shim, `switchSession`, editor read and write, autocomplete providers, `registerShortcut`, markdown transformers | Planned, needs a decision on entry persistence and compaction |
 | v3 | `pi` package manifests and installation, read-only hints from the pi CLI's `settings.json`, unified skill and prompt discovery, remote-control routing for prompts, marketplace listing | Not scheduled |
 

@@ -402,3 +402,31 @@ describe("validateManifest fs scope", () => {
     ).toBe(true);
   });
 });
+
+describe("contributes.agentExtensions", () => {
+  const base = { schemaVersion: 1, id: "demo.ax", name: "AX", version: "0.1.0", main: "main.js" };
+
+  it("accepts relative .ts/.js entries when agent.extension is declared", () => {
+    const result = validateManifest({
+      ...base,
+      permissions: ["agent.extension"],
+      contributes: { agentExtensions: ["src/index.ts", "lib/hooks.mjs"] },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.manifest?.contributes?.agentExtensions).toEqual(["src/index.ts", "lib/hooks.mjs"]);
+  });
+
+  it("rejects entries without the permission, outside the plugin, non-script, or too many", () => {
+    expect(validateManifest({ ...base, contributes: { agentExtensions: ["src/index.ts"] } }).error).toMatch(
+      /agent\.extension permission/,
+    );
+    const perm = { ...base, permissions: ["agent.extension"] };
+    expect(validateManifest({ ...perm, contributes: { agentExtensions: ["../out.ts"] } }).ok).toBe(false);
+    expect(validateManifest({ ...perm, contributes: { agentExtensions: ["notes.md"] } }).error).toMatch(/\.ts or \.js/);
+    expect(
+      validateManifest({ ...perm, contributes: { agentExtensions: Array.from({ length: 9 }, (_, i) => `e${i}.ts`) } })
+        .error,
+    ).toMatch(/at most/);
+    expect(PLUGIN_PERMISSIONS).toContain("agent.extension");
+  });
+});

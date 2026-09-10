@@ -6229,19 +6229,21 @@ IPC 请求无法关闭。
 
 #### E2E-241：发现列出受信任扩展，启用是显式的
 
-- **前置条件**：临时 home 含 `~/.pi/agent/extensions/hello.ts`；一个受信任夹具项目含
-  `.pi/extensions/project-tool/index.ts`；一个同样布局的未信任项目。
-- **步骤**：1）打开设置 → 扩展 → 扩展。2）重新扫描。3）在受信任项目打开会话并发送
-  提示。4）启用 `hello.ts` 与 `project-tool`。5）发送提示。6）切换到未信任项目并
-  重新扫描。7）在磁盘上删除 `hello.ts` 并重新扫描。
-- **预期**：两个候选以禁用状态出现，带来源路径、范围标记和信任说明；启用前会话
-  目录中没有扩展工具；启用后下一回合列出扩展工具且条目显示 `loaded`；未信任项目
-  的条目保持列出但永不加载，诊断指明项目信任；被删除的条目显示 `missing` 且在
-  移除前保留启用标记；`~/.pi/agent/settings.json` 永不被写入。
+- **前置条件**（D388）：一个含 `index.ts` 的 pi 扩展目录 `hello/`；一个声明了
+  `contributes.agentExtensions` 与 `agent.extension` 且激活范围限定到夹具项目的插件包；
+  一个范围之外的第二个项目。
+- **步骤**：1）插件页 → 导入 pi 扩展，接受确认，选择 `hello/`。2）在夹具项目发送提示。
+  3）打开导入插件的行详情。4）禁用该插件并发送提示。5）切换到第二个项目并发送提示。
+  6）加载一个 manifest 列出 `agentExtensions` 却没有权限的插件。
+- **预期**：导入在 `plugins/imported/hello` 生成持有 `agent.extension` 的 manifest，插件
+  列表显示 `agentExtension` 能力和权限标记；下一回合列出其工具，行显示 `loaded` 及已
+  注册名称；禁用插件后运行时重建，下一回合没有扩展工具；限定项目的插件在其项目之外
+  不贡献任何模块；没有权限的 manifest 以 `PLUGIN_INVALID` 被拒绝；
+  `~/.pi/agent/settings.json` 永不被写入。
 - **链接规格**：`07-plugins/16-trusted-extensions.md` §2、§3、§11；D007；D387
 - **验收**：安全、质量
 - **里程碑**：MVP 后（R7 v1）
-- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
+- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过；D388 后于 2026-09-11 在插件形态夹具上重新执行）；无 CI 旅程
 
 #### E2E-242：扩展工具与 hooks 在回合中生效
 
@@ -6258,7 +6260,7 @@ IPC 请求无法关闭。
 - **链接规格**：`07-plugins/16-trusted-extensions.md` §6、§7；ADR 0214
 - **验收**：B（agent）、安全、质量
 - **里程碑**：MVP 后（R7 v1）
-- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
+- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过；D388 后于 2026-09-11 在插件形态夹具上重新执行）；无 CI 旅程
 
 #### E2E-243：扩展命令与 UI 提示经渲染层往返
 
@@ -6275,7 +6277,7 @@ IPC 请求无法关闭。
   `07-plugins/09-plugin-command-palette.md`
 - **验收**：A（应用控制）、质量
 - **里程碑**：MVP 后（R7 v1）
-- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
+- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过；D388 后于 2026-09-11 在插件形态夹具上重新执行）；无 CI 旅程
 
 #### E2E-244：不支持的 API、加载错误与处理器超时降级为诊断
 
@@ -6290,7 +6292,7 @@ IPC 请求无法关闭。
 - **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§4.4、§5、§6
 - **验收**：质量
 - **里程碑**：MVP 后（R7 v1）
-- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
+- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过；D388 后于 2026-09-11 在插件形态夹具上重新执行）；无 CI 旅程
 
 #### E2E-245：打包后的 sidecar 经 jiti 加载 TypeScript 扩展
 

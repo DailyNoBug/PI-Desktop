@@ -41,7 +41,6 @@ import {
   IconKeyboard,
   IconSearch,
   IconServer,
-  IconPlug,
   IconSliders,
   IconSparkles,
 } from "../components/icons";
@@ -57,7 +56,6 @@ import { ProjectsPage } from "./ProjectsPage";
 import { AgentSkillsPage } from "../components/settings/AgentSkillsPage";
 import { AgentMcpPage } from "../components/settings/AgentMcpPage";
 import { AgentSubagentsPage } from "../components/settings/AgentSubagentsPage";
-import { AgentExtensionsPage } from "../components/settings/AgentExtensionsPage";
 
 type SettingsTab = ReturnType<typeof useAppStore.getState>["settingsTab"];
 
@@ -1238,7 +1236,6 @@ export function SettingsPage() {
       skills: <IconBookOpen size={14} />,
       mcp: <IconServer size={14} />,
       subagents: <IconBot size={14} />,
-      trustedExtensions: <IconPlug size={14} />,
       import: <IconDownload size={14} />,
       projects: <IconArchive size={14} />,
       about: <IconInfo size={14} />,
@@ -1469,8 +1466,6 @@ export function SettingsPage() {
           {tab === "mcp" && <AgentMcpPage />}
 
           {tab === "subagents" && <AgentSubagentsPage />}
-
-          {tab === "trustedExtensions" && <AgentExtensionsPage />}
 
           {tab === "instructions" && <AgentInstructionsSection />}
 

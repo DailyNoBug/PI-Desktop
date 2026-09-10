@@ -134,12 +134,8 @@ export const IPC = {
     providersOauthCancel: "pi-desktop/providers/oauth/cancel",
     providersOauthDelete: "pi-desktop/providers/oauth/delete",
     pluginList: "pi-desktop/plugin/list",
-    /** Trusted extensions (D387, ADR 0214). */
-    extensionsList: "pi-desktop/extensions/list",
-    extensionsSetEnabled: "pi-desktop/extensions/setEnabled",
-    extensionsRescan: "pi-desktop/extensions/rescan",
-    extensionsAddPath: "pi-desktop/extensions/addPath",
-    extensionsRemove: "pi-desktop/extensions/remove",
+    /** Plugin-contributed agent extensions (D387/D388, ADR 0214). */
+    pluginImportExtension: "pi-desktop/plugin/importExtension",
     extensionsCommandRun: "pi-desktop/extensions/commands/run",
     extensionsUiRespond: "pi-desktop/extensions/ui/respond",
     pluginLoadDev: "pi-desktop/plugin/loadDev",
@@ -232,7 +228,6 @@ export const IPC = {
   },
   event: {
     pluginChanged: "pi-desktop/event/pluginChanged",
-    extensionsChanged: "pi-desktop/extensions/event/changed",
     extensionsUiPrompt: "pi-desktop/extensions/event/uiPrompt",
     extensionsStatus: "pi-desktop/extensions/event/status",
     pluginLauncherShown: "pi-desktop/pluginLauncher/event/shown",

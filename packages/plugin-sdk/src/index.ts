@@ -65,6 +65,13 @@ export type PluginManifest = {
     }>;
     /** Relative skill paths, or entries that override the parsed metadata. */
     skills?: Array<string | PluginSkillContrib>;
+    /**
+     * ExtensionAPI modules (the pi CLI extension contract) that run inside the
+     * agent process with the agent's own access. Requires the
+     * `agent.extension` permission; each path is a `.ts` / `.js` file inside
+     * the plugin directory (spec 07-plugins/16).
+     */
+    agentExtensions?: string[];
     settings?: PluginSettingContrib[];
     themes?: PluginThemeContrib[];
     mcpServers?: PluginMcpServerContrib[];
@@ -755,6 +762,9 @@ export type PluginModule = {
   onPanelInvoke?: (channel: string, payload: unknown) => Promise<unknown> | unknown;
 };
 
+/** Upper bound on ExtensionAPI modules one plugin may contribute. */
+export const MAX_AGENT_EXTENSIONS_PER_PLUGIN = 8;
+
 export const PLUGIN_PERMISSIONS = [
   "ui.panel",
   "ui.view",
@@ -769,6 +779,7 @@ export const PLUGIN_PERMISSIONS = [
   "agent.tool.register",
   "agent.prompt.inject",
   "agent.complete",
+  "agent.extension",
   "desktop.control",
   "models.list",
   "project.create",
@@ -845,6 +856,13 @@ export function validateManifest(raw: unknown): {
     }
   }
   const contributesError = validateContributions(m.contributes);
+  if (
+    !contributesError &&
+    (m.contributes?.agentExtensions?.length ?? 0) > 0 &&
+    !(m.permissions ?? []).includes("agent.extension")
+  ) {
+    return { ok: false, error: "contributes.agentExtensions requires the agent.extension permission" };
+  }
   if (contributesError) {
     return { ok: false, error: contributesError };
   }
@@ -974,6 +992,22 @@ export function validateContributions(
     }
     const pathError = relativePathError(path, "contributes.skills path");
     if (pathError) return pathError;
+  }
+
+  const agentExtensions = contributes.agentExtensions ?? [];
+  if (!Array.isArray(agentExtensions)) return "contributes.agentExtensions must be an array";
+  if (agentExtensions.length > MAX_AGENT_EXTENSIONS_PER_PLUGIN) {
+    return `contributes.agentExtensions allows at most ${MAX_AGENT_EXTENSIONS_PER_PLUGIN} entries`;
+  }
+  for (const entry of agentExtensions) {
+    if (typeof entry !== "string" || !entry.trim()) {
+      return "contributes.agentExtensions entries must be paths";
+    }
+    const pathError = relativePathError(entry, "contributes.agentExtensions path");
+    if (pathError) return pathError;
+    if (!/\.(ts|mts|js|mjs)$/.test(entry)) {
+      return "contributes.agentExtensions entries must be .ts or .js files";
+    }
   }
 
   const themeIds = new Set<string>();

@@ -2510,6 +2510,28 @@ fn validate_contributions(root: &Path, manifest: &PluginManifest) -> Result<()> 
         }
     }
 
+    if let Some(extensions) = map.get("agentExtensions") {
+        let entries = array_of(extensions, "contributes.agentExtensions")?;
+        if entries.len() > 8 {
+            bail!("PLUGIN_INVALID: contributes.agentExtensions allows at most 8 entries");
+        }
+        if !entries.is_empty() {
+            require_permission(manifest, "agent.extension", "agent extensions")?;
+        }
+        for entry in entries {
+            let path = entry
+                .as_str()
+                .ok_or_else(|| anyhow!("PLUGIN_INVALID: contributes.agentExtensions entries must be paths"))?;
+            if !(path.ends_with(".ts") || path.ends_with(".mts") || path.ends_with(".js") || path.ends_with(".mjs")) {
+                bail!("PLUGIN_INVALID: contributes.agentExtensions entries must be .ts or .js files");
+            }
+            let resolved = safe_join(root, path)?;
+            if !resolved.exists() {
+                bail!("PLUGIN_INVALID: agent extension file missing: {path}");
+            }
+        }
+    }
+
     if let Some(themes) = map.get("themes") {
         let entries = array_of(themes, "contributes.themes")?;
         if !entries.is_empty() {
@@ -2845,6 +2867,9 @@ fn derive_capabilities(manifest: &PluginManifest) -> Vec<String> {
     }
     if has("views") {
         out.push("views".into());
+    }
+    if has("agentExtensions") {
+        out.push("agentExtension".into());
     }
     if has("agentTools") {
         out.push("tools".into());

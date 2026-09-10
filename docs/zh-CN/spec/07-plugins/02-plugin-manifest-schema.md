@@ -71,6 +71,7 @@ type PluginContributes = {
  commands?: PluginCommandContrib[];
  agentTools?: PluginAgentToolContrib[];
  skills?: Array<string | PluginSkillContrib>; // relative paths, or metadata overrides
+ agentExtensions?: string[]; // 在 agent sidecar 内运行的 ExtensionAPI 模块；需要 `agent.extension`（规格 16）
  settings?: PluginSettingContrib[];
  themes?: PluginThemeContrib[];
  mcpServers?: PluginMcpServerContrib[];

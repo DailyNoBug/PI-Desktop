@@ -4,7 +4,8 @@
  * Plain data shared by the renderer, Electron main, and the Agent sidecar.
  */
 
-export type TrustedExtensionSource = "user" | "project" | "manual";
+/** `plugin` is the only source in v1.1: modules come from `contributes.agentExtensions`. */
+export type TrustedExtensionSource = "user" | "project" | "manual" | "plugin";
 
 /** One loadable entry, keyed by the realpath of its entry file. */
 export type TrustedExtensionSpec = {

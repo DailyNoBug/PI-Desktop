@@ -4403,3 +4403,25 @@ D193, and D194.
   process logging.
 - Existing timing files are historical local data and are not deleted or
   migrated automatically.
+
+## 2026-09-11 — Agent extensions are a plugin contribution (D388)
+
+- D387 shipped ExtensionAPI modules as a second surface with its own
+  registry, settings tab, and enablement store. The maintainer wants one
+  surface: a pi CLI extension should become a PI-Desktop plugin and be
+  installed, enabled, scoped, and shown like one.
+- Decision D388 / ADR 0215 amends D387: modules are declared as
+  `contributes.agentExtensions` and gated by the new high-risk permission
+  `agent.extension`; the manifest is invalid without it, and a plugin whose
+  recorded grants omit it loads with the modules skipped and audited.
+  Enablement and project scope are the plugin's. "Import pi extension"
+  copies a pi CLI extension into `<dataDir>/plugins/imported/<slug>` with a
+  generated manifest and registers it as a development plugin; the confirm
+  before the picker is the trust decision. The standalone registry, its
+  store file, the Settings destination, and the list / enable / rescan /
+  add-path / remove channels are removed; the plugin row shows the
+  `agentExtension` capability, the permission, load state, registered
+  names, and diagnostics. The sidecar loader, Runner, hooks, command and
+  prompt bridges are unchanged. Marketplace distribution of plugins holding
+  `agent.extension` waits for signing. Spec 16 §1 to §3, §10.2, §11;
+  E2E-241 to E2E-245 re-executed on plugin-form fixtures.
