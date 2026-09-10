@@ -187,6 +187,13 @@ export default function (pi: any) {
       { kind: "notify", message: "hello", level: "warning" },
     ]);
     expect(log.diagnostics.length).toBeGreaterThan(0);
+
+    // A second session reuses the cached module: the import-time stub
+    // symbols are replayed so its diagnostics say the same thing.
+    const second = new TrustedExtensionRunner({ specs: [ext], bridge: fakeBridge().bridge });
+    await second.load();
+    await flush();
+    expect(second.getDiagnostics().map((d) => `${d.kind}:${d.member}`)).toContain("stub_symbol:Text");
   });
 
   it("rejects colliding tool and command names, first registration wins", async () => {

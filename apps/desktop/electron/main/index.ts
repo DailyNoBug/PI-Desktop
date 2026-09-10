@@ -962,7 +962,13 @@ const trustedExtensions = new TrustedExtensionsRegistry({
   hasRenderer: () =>
     !!mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed(),
   onChanged: () => sendToRenderer(IPC.event.extensionsChanged, {}),
-  onPrompt: (prompt) => sendToRenderer(IPC.event.extensionsUiPrompt, prompt),
+  onPrompt: (prompt) => {
+    logger.app("plugin", "info", "extension prompt", {
+      sessionId: prompt.sessionId,
+      data: { promptId: prompt.promptId, kind: prompt.request.kind, extensionId: prompt.extensionId },
+    });
+    sendToRenderer(IPC.event.extensionsUiPrompt, prompt);
+  },
   onToast: (message) => sendToRenderer(IPC.event.toast, { message }),
   onStatus: (event) => sendToRenderer(IPC.event.extensionsStatus, event),
 });
@@ -4079,6 +4085,21 @@ async function createWindow() {
             await setPage("scheduled");
             await new Promise((r) => setTimeout(r, 700));
             await shot("pi-scheduled-live");
+            // Trusted extensions (spec 16 §11): the list reads the real
+            // registry, so a seeded data dir shows real rows and diagnostics.
+            await setPage("settings");
+            await setSettingsTab("trustedExtensions");
+            await new Promise((r) => setTimeout(r, 900));
+            await shot("pi-trusted-extensions");
+            await mainWindow!.webContents.executeJavaScript(
+              `(() => { const b = document.querySelector('.agent-extension-diagnostics-toggle'); b?.dispatchEvent(new MouseEvent('click', { bubbles: true })); })()`,
+            );
+            await new Promise((r) => setTimeout(r, 300));
+            await shot("pi-trusted-extensions-diagnostics");
+            await setTheme("dark");
+            await new Promise((r) => setTimeout(r, 300));
+            await shot("pi-trusted-extensions-dark");
+            await setTheme("light");
             await mainWindow!.webContents.executeJavaScript(
               `window.__PI_DESKTOP__?.seedPlugins?.(4);
                window.__PI_DESKTOP__?.seedExtensions?.(3)`,
@@ -4811,6 +4832,19 @@ async function startSidecar(): Promise<void> {
         Array.isArray(params.reports) ? (params.reports as any[]) : [],
       ),
     requestUi: (params) => trustedExtensions.requestUi(params as any),
+    queuePush: async (params) => {
+      if (!agentHostBridge) throw new Error("agent host unavailable");
+      return agentHostBridge.queue.push({
+        sessionId: String(params.sessionId ?? ""),
+        content: String(params.content ?? ""),
+        ...(typeof params.idempotencyKey === "string" ? { idempotencyKey: params.idempotencyKey } : {}),
+      });
+    },
+    queuePrioritize: async (params) => {
+      if (!agentHostBridge) throw new Error("agent host unavailable");
+      await agentHostBridge.queue.prioritize(String(params.id ?? ""));
+      return { ok: true };
+    },
   });
   s.setVendorAuthResolver(async ({ providerId }) =>
     vendorOAuth.resolveAuth(providerId),

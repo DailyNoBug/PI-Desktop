@@ -1571,6 +1571,7 @@ export const fr = {
       "commandNeedsSession": "Démarrez d'abord une discussion pour exécuter une commande d'extension.",
       "state": {
         "disabled": "Désactivée",
+        "enabled": "Activée, chargée au prochain message",
         "loaded": "Chargée",
         "error": "Erreur",
         "missing": "Manquante",

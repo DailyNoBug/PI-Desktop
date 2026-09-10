@@ -1583,6 +1583,7 @@ export const zhTW = {
       "commandNeedsSession": "請先開始一個對話，再執行擴充命令。",
       "state": {
         "disabled": "關閉",
+        "enabled": "已啟用，下次提示時載入",
         "loaded": "已載入",
         "error": "錯誤",
         "missing": "遺失",

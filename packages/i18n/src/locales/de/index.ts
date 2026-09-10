@@ -1571,6 +1571,7 @@ export const de = {
       "commandNeedsSession": "Starte zuerst einen Chat, um einen Erweiterungsbefehl auszuführen.",
       "state": {
         "disabled": "Aus",
+        "enabled": "Aktiv, lädt beim nächsten Prompt",
         "loaded": "Geladen",
         "error": "Fehler",
         "missing": "Fehlt",

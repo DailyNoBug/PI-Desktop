@@ -1584,6 +1584,7 @@ export const zhCN = {
       "commandNeedsSession": "请先开始一个对话，再运行扩展命令。",
       "state": {
         "disabled": "关闭",
+        "enabled": "已启用，下次提示时加载",
         "loaded": "已加载",
         "error": "错误",
         "missing": "缺失",

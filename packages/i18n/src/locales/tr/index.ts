@@ -1609,6 +1609,7 @@ export const tr = {
       "commandNeedsSession": "Uzantı komutu çalıştırmak için önce bir sohbet başlatın.",
       "state": {
         "disabled": "Kapalı",
+        "enabled": "Etkin, sonraki istemde yüklenir",
         "loaded": "Yüklendi",
         "error": "Hata",
         "missing": "Eksik",

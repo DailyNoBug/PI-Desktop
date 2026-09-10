@@ -65,6 +65,7 @@ test("discovery lists user and project entries disabled; enablement is explicit 
   const { reg: again } = registry(paths);
   assert.deepEqual(again.enabledSpecsFor(paths.project).map((s) => s.label), ["hello", "tool"]);
   assert.equal(again.list(paths.project).entries[0].enabled, true);
+  assert.equal(again.list(paths.project).entries[0].state, "enabled", "no session has loaded it yet");
 });
 
 test("a deleted enabled entry shows missing and keeps its flag until removed; rescan drops disabled orphans", () => {

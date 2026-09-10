@@ -409,7 +409,7 @@ export class TrustedExtensionsRegistry {
         commandNames = report.commandNames;
         diagnostics = session.diagnostics.filter((d) => d.extensionId === spec.id);
       }
-      if (!seenReport) state = "disabled";
+      if (!seenReport) state = "enabled";
     }
     return {
       id: spec.id,
@@ -420,7 +420,7 @@ export class TrustedExtensionsRegistry {
       enabled,
       scope,
       missing,
-      state: enabled && !missing && state === "disabled" ? "loaded" : state,
+      state,
       toolNames,
       commandNames,
       diagnostics,

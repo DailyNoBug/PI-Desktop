@@ -9421,7 +9421,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Specs linked**: `07-plugins/16-trusted-extensions.md` §2, §3, §11; D007; D378
 - **Acceptance**: Security, Quality
 - **Milestone**: Post-MVP (R7 v1)
-- **Status**: Draft
+- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
 
 #### E2E-237: Extension tools and hooks take effect in a turn
 
@@ -9443,7 +9443,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Specs linked**: `07-plugins/16-trusted-extensions.md` §6, §7; ADR 0207
 - **Acceptance**: B (agent), Security, Quality
 - **Milestone**: Post-MVP (R7 v1)
-- **Status**: Draft
+- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
 
 #### E2E-238: Extension commands and UI prompts round-trip through the renderer
 
@@ -9465,7 +9465,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   `07-plugins/09-plugin-command-palette.md`
 - **Acceptance**: A (app control), Quality
 - **Milestone**: Post-MVP (R7 v1)
-- **Status**: Draft
+- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
 
 #### E2E-239: Unsupported APIs, load errors, and handler timeouts degrade to diagnostics
 
@@ -9485,7 +9485,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Specs linked**: `07-plugins/16-trusted-extensions.md` §4.2, §4.4, §5, §6
 - **Acceptance**: Quality
 - **Milestone**: Post-MVP (R7 v1)
-- **Status**: Draft
+- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
 
 #### E2E-240: The packaged sidecar loads a TypeScript extension through jiti
 

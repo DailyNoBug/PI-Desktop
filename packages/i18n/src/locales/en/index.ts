@@ -1608,6 +1608,7 @@ export const en = {
       "commandNeedsSession": "Start a chat first to run an extension command.",
       "state": {
         "disabled": "Off",
+        "enabled": "Enabled, loads on next prompt",
         "loaded": "Loaded",
         "error": "Error",
         "missing": "Missing",

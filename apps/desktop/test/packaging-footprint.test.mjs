@@ -110,7 +110,9 @@ test("legacy font fallback stripping only removes redundant fallback sources", (
 
 test("main bundles JavaScript dependencies and externalizes only runtime modules", () => {
   assert.doesNotMatch(viteConfigSource, /externalizeDepsPlugin\s*\(/);
-  assert.match(viteConfigSource, /external:\s*\["electron-updater"\]/);
+  // jiti is listed so the trusted-extension loader's lazy import never
+  // enters the main bundle; main itself never loads it (spec 16 §4.2).
+  assert.match(viteConfigSource, /external:\s*\["electron-updater", "jiti", "jiti\/static"\]/);
   assert.doesNotMatch(viteConfigSource, /node-pty/);
   assert.doesNotMatch(JSON.stringify(packageJson.dependencies), /node-pty/);
 });

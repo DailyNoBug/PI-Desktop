@@ -6246,7 +6246,7 @@ IPC 请求无法关闭。
 - **链接规格**：`07-plugins/16-trusted-extensions.md` §2、§3、§11；D007；D378
 - **验收**：安全、质量
 - **里程碑**：MVP 后（R7 v1）
-- **状态**：草稿
+- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
 
 #### E2E-237：扩展工具与 hooks 在回合中生效
 
@@ -6263,7 +6263,7 @@ IPC 请求无法关闭。
 - **链接规格**：`07-plugins/16-trusted-extensions.md` §6、§7；ADR 0207
 - **验收**：B（agent）、安全、质量
 - **里程碑**：MVP 后（R7 v1）
-- **状态**：草稿
+- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
 
 #### E2E-238：扩展命令与 UI 提示经渲染层往返
 
@@ -6280,7 +6280,7 @@ IPC 请求无法关闭。
   `07-plugins/09-plugin-command-palette.md`
 - **验收**：A（应用控制）、质量
 - **里程碑**：MVP 后（R7 v1）
-- **状态**：草稿
+- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
 
 #### E2E-239：不支持的 API、加载错误与处理器超时降级为诊断
 
@@ -6295,7 +6295,7 @@ IPC 请求无法关闭。
 - **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§4.4、§5、§6
 - **验收**：质量
 - **里程碑**：MVP 后（R7 v1）
-- **状态**：草稿
+- **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
 
 #### E2E-240：打包后的 sidecar 经 jiti 加载 TypeScript 扩展
 

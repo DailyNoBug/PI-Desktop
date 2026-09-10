@@ -25,6 +25,7 @@ import { cx } from "../ui";
 
 const STATE_CLASS: Record<TrustedExtensionEntry["state"], string> = {
   disabled: "",
+  enabled: "is-level",
   loaded: "is-ready",
   error: "is-failed",
   missing: "is-failed",

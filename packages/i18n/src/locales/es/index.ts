@@ -1571,6 +1571,7 @@ export const es = {
       "commandNeedsSession": "Inicia un chat antes de ejecutar un comando de extensión.",
       "state": {
         "disabled": "Apagado",
+        "enabled": "Activada, se carga en el siguiente mensaje",
         "loaded": "Cargado",
         "error": "Error",
         "missing": "Falta",

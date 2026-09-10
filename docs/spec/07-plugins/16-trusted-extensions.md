@@ -240,8 +240,11 @@ No host-core RPC method, protocol version, or SQLite schema changes in v1.
 | `extensions/changed` | event | List or diagnostics changed |
 | `extensions/ui/prompt` | event | A prompt is pending |
 
-All channels are sender-validated like other plugin channels and are absent
-from the MCP control plane's `pi_desktop_invoke` allowlist.
+All channels are sender-validated like other plugin channels. The MCP
+control plane exposes `extensions/list` (read), `extensions/commands/run`
+(write), and `extensions/ui/respond` (dangerous, confirm required); enable,
+add path, and remove stay local. Main audits each prompt id in
+`logs/app/plugin.log`.
 
 ## 11. Settings surface
 
@@ -249,7 +252,8 @@ Settings gains a "Trusted extensions" destination (tab id
 `trustedExtensions`) in the Agent group beside Skills, MCP, and Subagents:
 
 - A list grouped by source with the label, entry path, scope, enable toggle,
-  and a state chip (`disabled`, `loaded`, `error`, `missing`).
+  and a state chip (`disabled`, `enabled` until a session loads it in this
+  app run, `loaded`, `error`, `missing`).
 - A diagnostics drawer per entry: load errors, unsupported API calls with
   counts, rejected registrations, handler timeouts.
 - A "Rescan" action and an "Add path" action (main opens the native picker;

@@ -11,7 +11,13 @@
  */
 import { spawn } from "node:child_process";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import { createVirtualModules, loadExtensionFactory, type ExtensionFactory } from "./loader.js";
+import {
+  createVirtualModules,
+  knownStubSymbols,
+  loadExtensionFactory,
+  setStubSymbolReporter,
+  type ExtensionFactory,
+} from "./loader.js";
 import {
   TRUSTED_EXTENSION_HANDLER_TIMEOUT_MS,
   type TrustedExtensionCommand,
@@ -275,11 +281,18 @@ export class TrustedExtensionRunner {
         handlers: new Map(),
         flags: new Map(),
       };
-      const virtualModules = createVirtualModules({
-        onTuiSymbol: (symbol) =>
-          this.report(spec.id, "stub_symbol", `pi-tui symbol "${symbol}" is a no-op in PI-Desktop`, symbol),
-      });
+      const reportedStubs = new Set<string>();
+      const reportStub = (symbol: string) => {
+        if (reportedStubs.has(symbol)) return;
+        reportedStubs.add(symbol);
+        this.report(spec.id, "stub_symbol", `pi-tui symbol "${symbol}" is a no-op in PI-Desktop`, symbol);
+      };
+      setStubSymbolReporter(spec.id, reportStub);
+      const virtualModules = createVirtualModules({ extensionId: spec.id });
       let factory = factoryCache.get(spec.id);
+      // A cached module keeps the pi-tui symbols it imported the first time;
+      // report them here so this session's diagnostics say so too.
+      if (factory) for (const symbol of knownStubSymbols(spec.id)) reportStub(symbol);
       if (!factory) {
         try {
           factory = await loadExtensionFactory(spec.entry, virtualModules);

@@ -8,7 +8,6 @@
  * `@earendil-works/pi-coding-agent` and an inert stub for
  * `@earendil-works/pi-tui` so a top-level import never fails.
  */
-import { createJiti } from "jiti/static";
 import * as typebox from "typebox";
 import * as typeboxCompile from "typebox/compile";
 import * as typeboxValue from "typebox/value";
@@ -44,7 +43,6 @@ function inertValue(): unknown {
  */
 export function createTuiStub(onUse: StubSymbolReporter): Record<string, unknown> {
   const inert = inertValue();
-  const reported = new Set<string>();
   return new Proxy(
     {},
     {
@@ -54,10 +52,7 @@ export function createTuiStub(onUse: StubSymbolReporter): Record<string, unknown
         if (prop === "default") return inert;
         // A thenable module would hang `await import()`.
         if (prop === "then") return undefined;
-        if (!reported.has(prop)) {
-          reported.add(prop);
-          onUse(prop);
-        }
+        onUse(prop);
         return inert;
       },
       has: () => true,
@@ -88,13 +83,42 @@ export function createCodingAgentShim(): Record<string, unknown> {
 }
 
 export type CreateVirtualModulesOptions = {
-  onTuiSymbol: StubSymbolReporter;
+  /** Extension the modules are built for; stub reports route to whichever
+   * Runner most recently registered a reporter for it. */
+  extensionId: string;
 };
+
+/**
+ * Module factories are cached across Runners, so a cached module keeps the
+ * virtual modules from its first load. Routing stub reports through this
+ * registry keeps diagnostics attached to the Runner that is alive now.
+ */
+const stubReporters = new Map<string, StubSymbolReporter>();
+/** Symbols each cached module touched at import time; replayed to later Runners. */
+const stubSymbolsByExtension = new Map<string, Set<string>>();
+
+export function setStubSymbolReporter(extensionId: string, reporter: StubSymbolReporter | undefined): void {
+  if (reporter) stubReporters.set(extensionId, reporter);
+  else stubReporters.delete(extensionId);
+}
+
+/** pi-tui symbols a cached module already touched, for Runners that reuse it. */
+export function knownStubSymbols(extensionId: string): string[] {
+  return [...(stubSymbolsByExtension.get(extensionId) ?? [])];
+}
 
 export function createVirtualModules(
   options: CreateVirtualModulesOptions,
 ): Record<string, unknown> {
-  const tui = createTuiStub(options.onTuiSymbol);
+  const tui = createTuiStub((symbol) => {
+    let known = stubSymbolsByExtension.get(options.extensionId);
+    if (!known) {
+      known = new Set();
+      stubSymbolsByExtension.set(options.extensionId, known);
+    }
+    known.add(symbol);
+    stubReporters.get(options.extensionId)?.(symbol);
+  });
   const codingAgent = createCodingAgentShim();
   return {
     typebox,
@@ -125,6 +149,9 @@ export async function loadExtensionFactory(
   entry: string,
   virtualModules: Record<string, unknown>,
 ): Promise<ExtensionFactory | undefined> {
+  // Lazy so Electron main, which bundles this package for discovery, never
+  // pulls jiti into its own bundle; the sidecar bundle inlines it.
+  const { createJiti } = await import("jiti/static");
   const jiti = createJiti(import.meta.url, {
     moduleCache: false,
     tryNative: false,

@@ -110,7 +110,8 @@ export type TrustedExtensionStatusEvent = {
 /** Enablement scope as stored by the desktop (spec §3.2). */
 export type TrustedExtensionScope = "user" | "manual" | { project: string };
 
-export type TrustedExtensionEntryState = "disabled" | "loaded" | "error" | "missing";
+/** `enabled` means switched on but not loaded by any session in this app run yet. */
+export type TrustedExtensionEntryState = "disabled" | "enabled" | "loaded" | "error" | "missing";
 
 /** One row of the Settings → Extensions list. */
 export type TrustedExtensionEntry = {

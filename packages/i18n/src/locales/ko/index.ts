@@ -1609,6 +1609,7 @@ export const ko = {
       "commandNeedsSession": "확장 명령을 실행하려면 먼저 채팅을 시작하세요.",
       "state": {
         "disabled": "꺼짐",
+        "enabled": "켜짐, 다음 프롬프트에서 로드",
         "loaded": "로드됨",
         "error": "오류",
         "missing": "없음",

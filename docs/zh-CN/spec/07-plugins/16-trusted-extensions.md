@@ -211,8 +211,10 @@ v1 不改任何 host-core RPC 方法、协议版本或 SQLite schema。
 | `extensions/changed` | 事件 | 列表或诊断发生变化 |
 | `extensions/ui/prompt` | 事件 | 有提示待处理 |
 
-所有通道像其他插件通道一样做 sender 校验，并且不在 MCP 控制面
-`pi_desktop_invoke` 的白名单中。
+所有通道像其他插件通道一样做 sender 校验。MCP 控制面暴露 `extensions/list`
+（读）、`extensions/commands/run`（写）和 `extensions/ui/respond`��危险，需
+confirm）；启用、添加路径和移除保持本地。main 在 `logs/app/plugin.log` 审计
+每个提示 id。
 
 ## 11. 设置界面
 
@@ -220,7 +222,7 @@ v1 不改任何 host-core RPC 方法、协议版本或 SQLite schema。
 `trustedExtensions`）：
 
 - 按来源分组的列表，含标签、入口路径、范围、启用开关和状态标记（`disabled`、
-  `loaded`、`error`、`missing`）。
+  `enabled` 直到本次应用运行中有会话加载它、`loaded`、`error`、`missing`）。
 - 每条记录的诊断抽屉：加载错误、不支持的 API 调用及计数、被拒绝的注册、处理器
   超时。
 - “重新扫描”与“添加路径”动作（main 打开原生选择器；渲染层永不提供路径）。
