@@ -1799,6 +1799,11 @@ async function resolveAgentRuntimeLaunch(
             ...(tool.risk === "low" || tool.risk === "medium" || tool.risk === "high"
               ? { risk: tool.risk as Risk }
               : {}),
+            // Plan-safe action list is forwarded to host-core so it can
+            // admit the tool in Plan/Goal modes (ADR 0207).
+            ...(tool.planSafeActions && tool.planSafeActions.length > 0
+              ? { planSafeActions: tool.planSafeActions }
+              : {}),
           })),
         ...userMcpTools.map((tool) => ({
           name: tool.fullName,
@@ -2724,7 +2729,6 @@ function applyPluginLauncherShortcut(keybindings?: KeybindingOverrides) {
     });
   }
 }
-
 async function createWindow() {
   notificationViewingSessionId = null;
   requestedWorkPanelReservation = 0;
@@ -4489,6 +4493,7 @@ function wireHost(h: HostProcess) {
           toolCallId?: string;
           toolName: string;
           args: unknown;
+          mode?: string;
         };
         const projectPath = q.sessionId
           ? (sessionProjects.get(q.sessionId) ?? null)
@@ -4530,12 +4535,28 @@ function wireHost(h: HostProcess) {
           try {
             let modelKey: string | undefined;
             let thinkingLevel: string | undefined;
-            if (q.sessionId && host) {
+            // Host-core sends the session mode; fall back to a session.get
+            // call when it is missing (legacy callers). The plugin-runtime
+            // uses the mode to enforce plan-safe action restrictions
+            // (ADR 0207).
+            let sessionMode: "agent" | "plan" | "goal" | undefined;
+            const normalizedMode = typeof q.mode === "string" ? q.mode : undefined;
+            if (normalizedMode === "agent" || normalizedMode === "plan" || normalizedMode === "goal") {
+              sessionMode = normalizedMode;
+            } else if (q.sessionId && host) {
               try {
                 const detail = await host.call<{
-                  session?: { providerId?: string; modelId?: string; thinkingLevel?: string };
+                  session?: {
+                    mode?: string;
+                    providerId?: string;
+                    modelId?: string;
+                    thinkingLevel?: string;
+                  };
                 }>("session.get", { id: q.sessionId });
                 const session = detail?.session;
+                if (session?.mode === "agent" || session?.mode === "plan" || session?.mode === "goal") {
+                  sessionMode = session.mode;
+                }
                 if (session?.providerId && session?.modelId) {
                   modelKey = `${session.providerId}/${session.modelId}`;
                 }
@@ -4546,6 +4567,7 @@ function wireHost(h: HostProcess) {
             }
             const result = await tool.execute(q.args, {
               sessionId: q.sessionId,
+              mode: sessionMode,
               modelKey,
               thinkingLevel,
             });
