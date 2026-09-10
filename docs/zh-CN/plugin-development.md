@@ -578,6 +578,64 @@ unsubscribe = await pi.bus.subscribe("example.build.*", async (message) => {
 消息。将主题视为对任何已安装的具有匹配插件的公共主题
 订阅；切勿将秘密放入有效负载中。
 
+### 6.10 Agent 扩展（pi ExtensionAPI 模块）
+
+插件可以携带直接在 agent 进程内运行的代码：一个面向 pi CLI `ExtensionAPI` 编写的
+模块，与 pi 扩展使用同一契约。它可以注册工具、斜杠命令，以及每个回合、每次工具调用
+和每次 provider 请求上的 hook。声明模块和 `agent.extension` 权限：
+
+```json
+{
+  "contributes": { "agentExtensions": ["src/index.ts"] },
+  "permissions": ["agent.extension"]
+}
+```
+
+```ts
+// src/index.ts
+import { Type } from "typebox";
+import { defineTool } from "@earendil-works/pi-coding-agent";
+
+export default function (pi) {
+  pi.registerTool(defineTool({
+    name: "fx_add", label: "Add", description: "两数相加",
+    parameters: Type.Object({ a: Type.Number(), b: Type.Number() }),
+    async execute(_id, { a, b }) {
+      return { content: [{ type: "text", text: String(a + b) }], details: {} };
+    },
+  }));
+  pi.on("tool_call", (event) =>
+    event.toolName === "Bash" ? { block: true, reason: "这里不允许" } : undefined,
+  );
+  pi.registerCommand("greet", {
+    description: "打个招呼",
+    async handler(args, ctx) {
+      const name = await ctx.ui.input("你的名字？");
+      ctx.ui.notify(`你好 ${name} ${args}`);
+    },
+  });
+}
+```
+
+使用前需要知道：
+
+- **没有沙箱。** 模块在 agent 进程内运行，拥有与 agent 自身工具相同的权限。
+  `agent.extension` 是需要用户显式确认的高风险权限；列出模块却没有它的 manifest
+  会被拒绝。
+- **可以直接写 TypeScript。** 模块由 jiti 加载，`.ts` 不需要构建步骤。`typebox`、
+  `@earendil-works/pi-agent-core`、`@earendil-works/pi-ai` 和
+  `@earendil-works/pi-coding-agent` 解析到应用自带的副本；`@earendil-works/pi-tui`
+  解析到空实现桩，终端 UI 调用不做任何事，只在诊断里出现。
+- **工具是延迟激活的。** 与插件工具一样，模型按需通过 `ToolSearch` 激活。与核心工具
+  或插件工具同名的注册会被拒绝并记诊断。
+- **斜杠命令**出现在 composer 的 `/` 菜单和全局搜索里，行的其余部分作为 `args`。
+  `ctx.ui.input` / `select` / `confirm` 打开原生对话框；`ui.notify` 是 toast。
+- **受支持的成员**见规格 07-plugins/16 §5。不支持的成员（`setWidget`、
+  `registerMessageRenderer`、`navigateTree` 及其他仅终端可用的界面）是空操作，在插件行
+  的详情里报告，绝不抛出。
+- **已有的 pi 扩展**无需修改：插件页 → 溢出菜单 →“导入 pi 扩展”会把文件或目录包成
+  生成的插件。
+
 ## 7.权限设计
 
 权限均在 `manifest.json` 中声明并由用户授予。

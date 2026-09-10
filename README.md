@@ -248,6 +248,16 @@ calling local Agent the same authority as the desktop for those operations —
 
 Create specialized agents with their own instructions, tools, and model choices, then delegate work to them from another agent.
 
+### pi extensions
+
+Extensions written for the [pi](https://github.com/badlogic/pi-mono) CLI run
+inside PI-Desktop's agent unchanged: a plugin lists them under
+`contributes.agentExtensions`, and Plugins → "Import pi extension" wraps an
+existing extension file or directory in a plugin for you. They register
+tools, slash commands, and hooks on every turn, tool call, and provider
+request, and run with the same access as the agent's own tools, which the
+`agent.extension` permission asks you to confirm.
+
 ### Plugins
 
 Plugins can extend PI-Desktop itself with:

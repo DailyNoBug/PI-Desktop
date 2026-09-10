@@ -246,6 +246,14 @@ PI-Desktop 也可以被外部 MCP Agent 控制。使用
 
 创建带有独立指令、工具和模型选择的专用智能体，再从另一个智能体把工作委派给它们。
 
+### pi 扩展
+
+为 [pi](https://github.com/badlogic/pi-mono) CLI 写的扩展可以原样在 PI-Desktop 的
+agent 内运行：插件在 `contributes.agentExtensions` 中列出它们，插件页的“导入 pi 扩展”
+会替你把已有的扩展文件或目录包成插件。它们可以注册工具、斜杠命令，以及每个回合、每次
+工具调用和每次 provider 请求上的 hook，并以与 agent 自身工具相同的权限运行，这一点由
+`agent.extension` 权限请你确认。
+
 ### 插件
 
 插件可以扩展 PI-Desktop 本身，例如：

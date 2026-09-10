@@ -658,6 +658,71 @@ Call `unsubscribe()` during unload. A plugin does not receive its own bus
 messages. Treat topics as public to any installed plugin with a matching
 subscription; never put secrets in the payload.
 
+### 6.11 Agent extension (pi ExtensionAPI module)
+
+A plugin can ship code that runs inside the agent process itself: a module
+written against the pi CLI `ExtensionAPI`, the same contract pi extensions
+use. It registers tools, slash commands, and hooks on every turn, tool call,
+and provider request. Declare the modules and the `agent.extension`
+permission:
+
+```json
+{
+  "contributes": { "agentExtensions": ["src/index.ts"] },
+  "permissions": ["agent.extension"]
+}
+```
+
+```ts
+// src/index.ts
+import { Type } from "typebox";
+import { defineTool } from "@earendil-works/pi-coding-agent";
+
+export default function (pi) {
+  pi.registerTool(defineTool({
+    name: "fx_add", label: "Add", description: "Adds two numbers",
+    parameters: Type.Object({ a: Type.Number(), b: Type.Number() }),
+    async execute(_id, { a, b }) {
+      return { content: [{ type: "text", text: String(a + b) }], details: {} };
+    },
+  }));
+  pi.on("tool_call", (event) =>
+    event.toolName === "Bash" ? { block: true, reason: "not here" } : undefined,
+  );
+  pi.registerCommand("greet", {
+    description: "Say hello",
+    async handler(args, ctx) {
+      const name = await ctx.ui.input("Your name?");
+      ctx.ui.notify(`Hello ${name} ${args}`);
+    },
+  });
+}
+```
+
+What to know before you use it:
+
+- **It is not sandboxed.** The module runs in the agent process with the
+  same access as the agent's own tools. `agent.extension` is a high-risk
+  permission the user confirms explicitly; the manifest is rejected if you
+  list modules without it.
+- **TypeScript is fine.** Modules are loaded with jiti, so `.ts` needs no
+  build step. `typebox`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`,
+  and `@earendil-works/pi-coding-agent` resolve to the app's copies;
+  `@earendil-works/pi-tui` resolves to an inert stub, so terminal-UI calls
+  do nothing and show up as diagnostics.
+- **Tools are deferred.** Like plugin tools, the model activates them
+  through `ToolSearch` on demand. Names that collide with core or plugin
+  tools are rejected with a diagnostic.
+- **Slash commands** appear in the composer `/` menu and global search and
+  take the rest of the line as `args`. `ctx.ui.input` / `select` / `confirm`
+  open native dialogs; `ui.notify` is a toast.
+- **Supported members** are listed in spec 07-plugins/16 §5. Unsupported
+  ones (`setWidget`, `registerMessageRenderer`, `navigateTree`, and the
+  other terminal-only surfaces) are inert and reported in the plugin row's
+  details, never thrown.
+- **Existing pi extensions** need no changes: Plugins → overflow menu →
+  "Import pi extension" wraps a file or directory in a generated plugin.
+
 ## 7. Permission design
 
 Permissions are both declared in `manifest.json` and granted by the user.
