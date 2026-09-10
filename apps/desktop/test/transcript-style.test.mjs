@@ -67,6 +67,13 @@ test("tool rows render structured blocks instead of dumping JSON", async () => {
   // Diffs reuse the review card rails; hits and paths open in the work panel.
   assert.match(detailsSource, /className="diff-hunk"/);
   assert.match(detailsSource, /openTarget\(\{ kind: "file", path: rel \}\)/);
+  // File-shaped tool results stay actions even when the raw path is absolute
+  // or belongs to scratch/attachments; the fallback opens allowed files with
+  // their default application.
+  assert.match(detailsSource, /function FilePathButton/);
+  assert.match(detailsSource, /else openFileRef\(path\)/);
+  assert.match(detailsSource, /ariaLabel=\{`\$\{actionLabel\}: \$\{path\}`\}/);
+  assert.match(detailsSource, /row\.filePath/);
 });
 
 test("tool block bodies stay bounded and role-coded", () => {
@@ -92,6 +99,7 @@ test("tool block bodies stay bounded and role-coded", () => {
   assert.ok(fileItem);
   assert.match(fileItem, /display:\s*block;/);
   assert.match(fileItem, /width:\s*100%;/);
+  assert.match(stylesSource, /\.tool-field-label\.is-linked \{[\s\S]*?cursor:\s*pointer;/);
   // stderr and error notes carry the error hue, host notices stay neutral.
   assert.match(stylesSource, /\.tool-row-content\.is-error \{[\s\S]*?var\(--ds-error\)/);
   assert.match(stylesSource, /\.tool-chip\.is-error \{[\s\S]*?var\(--ds-error\)/);

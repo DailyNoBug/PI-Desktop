@@ -5299,6 +5299,11 @@ Each scenario is documented in this format:
   - The agent answers in the language the user wrote in, precedes each tool
     batch with a sentence about what it is doing, never leaves more than one
     batch without new visible text, and ends with a self-contained result.
+  - In the expanded transcript results, every Glob/Grep file path is a
+    keyboard-reachable action. Workspace paths open a path-keyed file resource
+    in the work panel, while allowed scratch/attachment paths open with the OS
+    default application; Grep `count` rows expose the same action on each file
+    path label.
 - **Specs linked**: `03-runtime/16-tool-result-limits.md`,
   `03-runtime/02-agent-runtime.md` §7, `08-meta/decisions-log.md` (D194, D306, D315)
 - **Acceptance**: C (chat & stream), E (tools & permissions), Quality
