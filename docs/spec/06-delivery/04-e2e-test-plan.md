@@ -7729,7 +7729,9 @@ This test plan spec is accepted when:
   right-side dock closes, then click it once more to reopen it. 3) Observe the
   right-side dock while the delegate streams. 4) Scroll the task/process
   conversation upward and then return to the latest output. 5) Switch sessions
-  and return to the original session.
+  and return to the original session. 6) Let a delegate start and then fail,
+  open its node, and read the foot of the dock; repeat with a delegate that
+  completes and one that is still running.
 - **Expected**: The right dock shows a sticky identity header (avatar, name,
   and model caption on the left; status capsule and elapsed time trailing on
   the same row without wrapping), the Task call's description
@@ -7748,11 +7750,23 @@ This test plan spec is accepted when:
   jump-to-latest. The transcript remains the same height and keeps its own
   scroll state. Session switching hides the selection and returning never
   shows another session's task.
+  In step 6, a delegate that starts and then fails closes the dock with an
+  error card rather than a bare `Failed` capsule: the localized summary (the
+  registered `errors.<code>` sentence when the runtime reported a known code,
+  the localized `chat.subagentStatus.*` outcome otherwise), the stable code,
+  the raw provider message behind a Show details / Hide details disclosure, and
+  a copy control. The disclosure control stays reachable while the details are
+  collapsed, and the delegate that completed or is still running shows no card
+  at all.
 - **Specs linked**: `04-ux/08-component-spec.md` §5.7,
   `04-ux/09-interaction-patterns.md` §9.1
 - **Acceptance**: C (conversation), Quality
 - **Milestone**: M6+
-- **Status**: Documented; desktop journey pending
+- **Status**: Documented; desktop journey pending. The failure card's data
+  source is unit-tested in `subagent-topology.test.mjs`: a settled delegation's
+  `error: { code, message }` read from `TaskWait` `delegations[]` and `TaskStop`
+  `stopped[]`, last-write-wins across rows, entries without an error, and the
+  `Task` row that must never carry one.
 
 #### E2E-161: A delegation lifecycle row reads as a subagent row
 

@@ -988,6 +988,18 @@ It does not render separate Details or Output tabs.
   process uses an **Activity** section label (it does not repeat the agent
   name), a trailing step count, and one subtle vertical timeline with no nested
   card, so unused panel space reads as one continuous work surface.
+- A delegate that settles without completing explains why, because the process
+  alone does not: a `Failed`, `Timed out`, or `Aborted` capsule with no reason
+  is all a reader gets, and a delegate that dies before emitting a message row
+  has no other carrier for its failure. When the delegation roster entry
+  reports `error: { code, message }` (ADR 0089), the panel closes with an error
+  card in the transcript's error visual language — the localized
+  `errors.<code>` sentence when that code is registered and the localized
+  `chat.subagentStatus.*` outcome otherwise, the stable code, and the raw
+  message behind a Show details / Hide details disclosure with a copy action.
+  The disclosure control sits in the card's heading so it stays reachable while
+  the details are collapsed, and the card follows a **non-success** terminal
+  outcome, so a completed or still-running delegate never shows one.
 - The dock header identifies the view as **Subagent** and offers close and
   collapse controls. Closing returns to the previously selected work-panel
   resource, if any; `Cmd/Ctrl + J` hides the whole dock. Selecting another node
