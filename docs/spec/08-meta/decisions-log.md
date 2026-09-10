@@ -4201,6 +4201,23 @@ D193, and D194.
   configuration, or unrelated recovery policy changes. See ADR 0206 and
   E2E-096 / E2E-149.
 
+## 2026-09-10 — Name downgraded and non-native builds at boot (D380)
+
+- Installing 0.14.5 over a data directory that 0.14.6-rc.4 had migrated to
+  schema 14 produced three silent host restarts and "Can't reach the local
+  service"; only `logs/host/runtime.log` said `database schema version 14 is
+  newer than supported 13`. An Intel macOS build on Apple Silicon likewise ran
+  under Rosetta with no hint.
+- Decision D380 extends the Linux glibc guard pattern (E2E-195): Electron
+  parses host-core's schema refusal from the last stderr, stops supervising on
+  the first failure, and pushes `hostStatus` with `DB_SCHEMA_TOO_NEW` plus both
+  schema numbers so the banner can say which version to install. Boot also
+  detects a non-native build (`sysctl.proc_translated` on macOS, `os.machine()`
+  elsewhere) and ships `archMismatch` on the boot status; the renderer shows a
+  dismissible hint naming Intel / Apple Silicon. No new error code: both keep
+  `HOST_UNAVAILABLE` and reuse the status-token `message` channel. No downward
+  migration is attempted. See E2E-239 / E2E-240.
+
 ## 2026-09-10 — Allow three same-path mutation recovery failures (D379)
 
 - The previous repeat guard ended a prompt after two counted failures on one
@@ -4240,6 +4257,25 @@ D193, and D194.
   a `tools.execute` for an unknown session returns `SESSION_NOT_FOUND`
   instead of inheriting the global workspace. See E2E-234 through
   E2E-238.
+
+## 2026-09-10 — PowerShell 7 as a selectable Windows command shell (D381)
+
+- Issue #151: a Windows user who installs PowerShell 7 (`pwsh.exe`) had no way to
+  run `Bash` under it. PowerShell 7 installs side by side with, and never
+  replaces, the in-box 5.1 that ADR 0054's `windows-powershell` entry resolves,
+  and the catalog exposed no other entry: `crates/host-core/src/tools/shell.rs`
+  had no `pwsh.exe` resolution path, and `COMMAND_SHELL_IDS` listed four IDs.
+- Decision D381 (ADR 0209) adds the stable ID `windows-pwsh` ("PowerShell 7") to
+  the Windows catalog, amending ADR 0054 §1. It resolves
+  `%ProgramFiles%\PowerShell\7\pwsh.exe` (plus `%ProgramW6432%` when the host
+  process is 32-bit), then `pwsh.exe` on PATH; a miss returns `SHELL_NOT_FOUND`
+  naming both searched locations. It keeps the `powershell` dialect and the
+  pinned non-interactive script, and it is never selected implicitly, so the
+  platform default and existing users' shells are unchanged.
+- Protocol, storage, and tool surfaces are additive: `CommandShellId` gains one
+  member while the folded settings validation and the first-available fallback
+  need no new code path, and no RPC method, tool name, or schema migration is
+  added. See E2E-112.
 
 ## 2026-09-10 — A settled subagent reads back why it failed (D382)
 

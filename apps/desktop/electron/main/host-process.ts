@@ -8,6 +8,7 @@ import {
   GlibcUnsupportedError,
   glibcMissingSymbol,
 } from "./linux-glibc";
+import { DbSchemaTooNewError, parseSchemaTooNew } from "./host-boot-diagnostics";
 
 const HOST_DISPOSE_GRACE_MS = 3_000;
 const HOST_FORCE_KILL_GRACE_MS = 1_000;
@@ -207,6 +208,12 @@ export class HostProcess {
    * rather than by matching message text.
    */
   private unavailableError(message: string): Error & { errorCode: string } {
+    const schema = parseSchemaTooNew(this.lastStderr) ?? parseSchemaTooNew(message);
+    if (schema) {
+      return Object.assign(new DbSchemaTooNewError(schema), {
+        errorCode: ErrorCodes.HOST_UNAVAILABLE,
+      });
+    }
     if (glibcMissingSymbol(this.lastStderr) || glibcMissingSymbol(message)) {
       return Object.assign(new GlibcUnsupportedError(), {
         errorCode: ErrorCodes.HOST_UNAVAILABLE,

@@ -226,3 +226,4 @@ Each ADR includes:
 | 0206 | Extend provider retries and show bounded progress | Accepted |
 | 0207 | Allow three same-path mutation recovery failures | Accepted (amends 0087 / D186) |
 | 0208 | Plugin desktop control requires native user consent | Accepted |
+| 0209 | PowerShell 7 as a selectable Windows command shell | Proposed (issue #151; amends 0054 / D190) |

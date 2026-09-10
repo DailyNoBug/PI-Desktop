@@ -3690,7 +3690,7 @@ IPC 请求无法关闭。
   使持久选择不可用，并且项目绑定的 Agent 会话是
   闲置。 Windows 通道练习多选排序。
 - **步骤**：1) 检查目录中的平台有效 ID
-  `windows-powershell`、`cmd`、`git-bash` 和 `bash`。 2) 验证设置
+  `windows-powershell`、`windows-pwsh`、`cmd`、`git-bash` 和 `bash`。 2) 验证设置
   拒绝不可用或错误的平台 ID。 3）选择可用的shell
   并坚持 `defaultCommandShell`。 4）使坚持的选择不可用，
   重新启动，并验证目录选择第一个可用的平台 shell
@@ -6313,3 +6313,29 @@ IPC 请求无法关闭。
 - **里程碑**：M3+
 - **状态**：由 `crates/host-core/src/rpc/mod.rs`
   （`temporary_session_uses_its_own_scratch_workspace`）单元覆盖
+
+#### E2E-239：旧版构建会指出数据 schema 更新，而不是循环重启
+
+- **前提条件**：数据目录上次由更新版 PI-Desktop 打开，其 host-core 已把
+  schema 迁移到超出当前构建支持的版本。
+- **步骤**：1）用旧版打包应用打开该数据目录。2）观察横幅和
+  `logs/app/runtime.log`。
+- **预期**：host-core 只退出一次；日志中没有后续重启尝试。致命横幅说明当前
+  PI-Desktop 比本地数据更旧，显示两个 schema 版本号，并提示安装更新版本。数据
+  目录未被修改。
+- **链接规格**：`03-runtime/07-process-model.md`（启动结果）
+- **验收**：B
+- **里程碑**：M3+
+- **状态**：由 `apps/desktop/test/host-boot-diagnostics.test.mjs` 源码契约覆盖
+
+#### E2E-240：Apple Silicon 上的 Intel macOS 构建会指向原生下载
+
+- **前提条件**：Apple Silicon Mac；安装并通过 Rosetta 2 运行 x64 macOS 包。
+- **步骤**：1）启动应用。2）阅读标题栏下方的横幅。3）点击其关闭操作。
+- **预期**：应用正常启动。一条可关闭的提示说明当前是 Intel 构建运行在 Apple
+  Silicon 机器上，并要求安装 Apple Silicon 构建。关闭后本次会话不再显示；原生
+  arm64 包不显示任何提示。
+- **链接规格**：`03-runtime/07-process-model.md`（启动结果）
+- **验收**：B
+- **里程碑**：M3+
+- **状态**：由 `apps/desktop/test/host-boot-diagnostics.test.mjs` 源码契约覆盖

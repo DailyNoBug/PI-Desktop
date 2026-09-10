@@ -1816,6 +1816,16 @@ export const ko = {
     fatal: "로컬 서비스에 연결할 수 없습니다",
     unsupportedGlibc:
       "이 Linux 빌드에는 glibc 2.35 이상이 필요합니다 (Ubuntu 22.04, Debian 12, Fedora 36+).",
+    dbSchemaTooNew:
+      "이 PI-Desktop은 로컬 데이터보다 오래된 버전입니다(데이터 스키마 {{found}}, 이 버전은 {{supported}}까지 지원). 이 데이터를 마지막으로 연 최신 PI-Desktop 또는 그 이후 버전을 설치하세요.",
+    archMismatch:
+      "{{machineArch}} 기기에서 {{buildArch}} 빌드를 실행 중이므로 변환을 거쳐 더 느리게 동작합니다. {{machineArch}} 빌드를 설치하세요.",
+    dismissArchMismatch: "닫기",
+    archNames: {
+      darwin: { x64: "Intel", arm64: "Apple Silicon" },
+      win32: { x64: "x64", arm64: "ARM64" },
+      linux: { x64: "x64", arm64: "ARM64" },
+    },
     openLogs: "로그 열기",
   },
   toast: {

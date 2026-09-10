@@ -1790,6 +1790,16 @@ export const zhCN = {
     fatal: "无法连接本地服务",
     unsupportedGlibc:
       "当前 Linux 构建需要 glibc 2.35 或更高版本（Ubuntu 22.04、Debian 12、Fedora 36+）。",
+    dbSchemaTooNew:
+      "当前 PI-Desktop 比本地数据更旧（数据库 schema {{found}}，此版本仅支持 {{supported}}）。请安装上次打开这些数据的更新版本，或更高版本。",
+    archMismatch:
+      "当前安装的是 {{buildArch}} 版本，而这台机器是 {{machineArch}}，需要通过转译运行，速度更慢。请改装 {{machineArch}} 版本。",
+    dismissArchMismatch: "知道了",
+    archNames: {
+      darwin: { x64: "Intel", arm64: "Apple Silicon" },
+      win32: { x64: "x64", arm64: "ARM64" },
+      linux: { x64: "x64", arm64: "ARM64" },
+    },
     openLogs: "打开日志",
   },
   toast: {

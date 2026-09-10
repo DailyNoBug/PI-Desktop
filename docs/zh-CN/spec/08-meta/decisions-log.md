@@ -3605,6 +3605,21 @@ D193 和 D194。
   Gateway、浏览器 profile 和 gRPC 绑定保留规格但不排期，Gateway 身份源定为 pi-backend
   规格中的 PI 账号服务。参见修订后的远程规格以及 E2E-231 / E2E-232。
 
+## 2026-09-10 — 启动时明确指出降级安装与非原生构建（D380）
+
+- 在被 0.14.6-rc.4 迁移到 schema 14 的数据目录上安装 0.14.5，会静默重启 host
+  三次并显示“无法连接本地服务”；只有 `logs/host/runtime.log` 写着 `database
+  schema version 14 is newer than supported 13`。Intel macOS 构建在 Apple
+  Silicon 上同样通过 Rosetta 运行而没有任何提示。
+- 决策 D380 扩展 Linux glibc 守卫模式（E2E-195）：Electron 从最后一段
+  stderr 解析 host-core 的 schema 拒绝信息，首次失败即停止监管，并推送带
+  `DB_SCHEMA_TOO_NEW` 和两个 schema 版本号的 `hostStatus`，横幅据此说明应安装
+  哪个版本。启动时还会检测非原生构建（macOS 用 `sysctl.proc_translated`，其他
+  平台用 `os.machine()`），并在启动状态上附带 `archMismatch`；渲染层显示可关闭
+  的提示，标注 Intel / Apple Silicon。不新增错误码：两者都沿用
+  `HOST_UNAVAILABLE`，复用 `message` 的状态令牌通道。不尝试向下迁移。见
+  E2E-239 / E2E-240。
+
 ## 2026-09-10 — 同一路径允许三次突变恢复失败（D379）
 
 - 之前的重复保护会在同一个 `Edit` 路径或已识别的 shell 修补键累计两次失败后结束提示。
@@ -3633,6 +3648,23 @@ D193 和 D194。
   `<data_dir>/ignore`；路径解析器会跟随悬空符号链接，因此经由它的写入无法离开工作区；
   对未知会话的 `tools.execute` 返回 `SESSION_NOT_FOUND`，而不是继承全局工作区。
   参见 E2E-234 至 E2E-238。
+
+## 2026-09-10 — 将 PowerShell 7 作为 Windows 可选命令 Shell (D381)
+
+- 问题 #151：Windows 用户安装 PowerShell 7（`pwsh.exe`）后无法让 `Bash` 在它下面
+  运行。PowerShell 7 与 ADR 0054 中 `windows-powershell` 条目所解析的随系统内置
+  5.1 并排安装，且从不替换它，而目录中没有其它可选条目：
+  `crates/host-core/src/tools/shell.rs` 没有 `pwsh.exe` 解析路径，
+  `COMMAND_SHELL_IDS` 只列出四个 ID。
+- 决策 D381（ADR 0209）在 Windows 目录中新增稳定 ID `windows-pwsh`
+  （"PowerShell 7"），并修订 ADR 0054 §1。解析顺序为
+  `%ProgramFiles%\PowerShell\7\pwsh.exe`（宿主进程为 32 位时追加
+  `%ProgramW6432%`），再到 PATH 上的 `pwsh.exe`；解析失败返回
+  `SHELL_NOT_FOUND` 并列出两处已搜索位置。它沿用 `powershell` 方言与既有的
+  非交互式脚本，且从不会被隐式选中，因此平台默认值与既有用户的 shell 保持不变。
+- 协议、存储与工具面均为增量改动：`CommandShellId` 新增一个成员，而折叠的
+  设置校验与首个可用回退无需新代码路径，也没有新增 RPC 方法、工具名或schema 迁移。
+  参见 E2E-112。
 
 ## 2026-09-10 —— 已结束的 Subagent 会读回自己失败的原因（D382）
 

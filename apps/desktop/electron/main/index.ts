@@ -95,6 +95,7 @@ import {
   type Risk,
   type ShortcutPlatform,
   type ThinkingLevel,
+  type HostStatusEvent,
   type UiMessage,
   type MessageUsage,
   addUsage,
@@ -172,6 +173,12 @@ import {
   assertLinuxGlibcSupported,
   isGlibcUnsupportedError,
 } from "./linux-glibc";
+import {
+  DB_SCHEMA_TOO_NEW_STATUS,
+  detectRuntimeArch,
+  isDbSchemaTooNewError,
+  schemaTooNewOf,
+} from "./host-boot-diagnostics";
 import { collectWorkspaceDiff } from "./git-diff";
 import { BrowserPane, resolveLocalFile } from "./browser-view";
 import {
@@ -5612,6 +5619,21 @@ async function superviseRestartLoop(kind: RestartKind): Promise<void> {
       });
       return;
     } catch (e) {
+      const schema = schemaTooNewOf(e);
+      if (schema) {
+        logger.app("runtime", "error", "local data schema is newer than this build", {
+          code: ErrorCodes.HOST_UNAVAILABLE,
+          data: schema,
+        });
+        sendToRenderer(IPC.event.hostStatus, {
+          ok: false,
+          component: kind,
+          fatal: true,
+          message: DB_SCHEMA_TOO_NEW_STATUS,
+          schema,
+        });
+        return;
+      }
       if (isGlibcUnsupportedError(e)) {
         logger.app("runtime", "error", "linux glibc is below the packaged host floor", {
           code: ErrorCodes.HOST_UNAVAILABLE,
@@ -5628,6 +5650,51 @@ async function superviseRestartLoop(kind: RestartKind): Promise<void> {
       logger.app("runtime", "error", `${kind} restart failed`, { data: String(e) });
     }
   }
+}
+
+/**
+ * Boot outcome pushed once the renderer has mounted. Known unrecoverable
+ * failures travel as status tokens the UI can phrase; anything else is the
+ * raw error. The architecture check rides along even on success so an Intel
+ * build under Rosetta gets a hint instead of silently running slower.
+ */
+function bootHostStatus(bootError: unknown): HostStatusEvent {
+  const status: HostStatusEvent = { ok: !bootError };
+  if (bootError) {
+    status.component = "host";
+    status.fatal = true;
+    const schema = schemaTooNewOf(bootError);
+    if (schema) {
+      status.message = DB_SCHEMA_TOO_NEW_STATUS;
+      status.schema = schema;
+    } else if (isGlibcUnsupportedError(bootError)) {
+      status.message = GLIBC_UNSUPPORTED_STATUS;
+    } else {
+      status.message = String(bootError);
+    }
+  }
+  const arch = runtimeArch();
+  if (arch.mismatch) {
+    status.archMismatch = {
+      platform: arch.platform,
+      processArch: arch.processArch,
+      machineArch: arch.machineArch,
+    };
+  }
+  return status;
+}
+
+let runtimeArchCache: ReturnType<typeof detectRuntimeArch> | null = null;
+function runtimeArch() {
+  if (!runtimeArchCache) {
+    runtimeArchCache = detectRuntimeArch();
+    if (runtimeArchCache.mismatch) {
+      logger.app("lifecycle", "warn", "build is not native to this cpu", {
+        data: runtimeArchCache,
+      });
+    }
+  }
+  return runtimeArchCache;
 }
 
 async function bootBackends() {
@@ -9106,18 +9173,7 @@ app.whenReady().then(async () => {
   // did-finish-load), so the page is up; give React a beat to mount its
   // event subscriptions before pushing the boot outcome.
   setTimeout(() => {
-    sendToRenderer(IPC.event.hostStatus, {
-      ok: !bootError,
-      ...(bootError
-        ? {
-            component: "host",
-            fatal: true,
-            message: isGlibcUnsupportedError(bootError)
-              ? GLIBC_UNSUPPORTED_STATUS
-              : String(bootError),
-          }
-        : {}),
-    });
+    sendToRenderer(IPC.event.hostStatus, bootHostStatus(bootError));
     applicationBooted = true;
     flushPendingApplicationMenuCommands();
   }, 300);
