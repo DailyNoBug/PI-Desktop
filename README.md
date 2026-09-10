@@ -519,3 +519,9 @@ See [LICENSE](LICENSE) for details.
 <sub>macOS · Windows · Linux</sub>
 
 </div>
+
+---
+
+## Code signing
+
+This project uses the [SignPath Foundation](https://signpath.org/) for code signing.
