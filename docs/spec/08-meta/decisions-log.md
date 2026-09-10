@@ -4241,7 +4241,7 @@ D193, and D194.
   instead of inheriting the global workspace. See E2E-234 through
   E2E-238.
 
-## 2026-09-10 — A settled subagent reads back why it failed (D381)
+## 2026-09-10 — A settled subagent reads back why it failed (D382)
 
 - A delegate that ended `failed`, `timed_out`, or `aborted` showed only its
   outcome capsule and an elapsed time. The reason existed but had no reader:
@@ -4249,7 +4249,7 @@ D193, and D194.
   node and its dock render the `Task` row's own result, which ADR 0089 fixes at
   `running` the moment the delegate starts. A delegate that died before
   emitting a message row therefore left a panel of steps and no explanation.
-- Decision D381: the delegation's `error: { code, message }` is collected from
+- Decision D382: the delegation's `error: { code, message }` is collected from
   the lifecycle rows' `details.delegations[]` and `details.stopped[]` with the
   same last-write-wins rule as the settled status, and the dock closes with an
   error card that reuses the transcript error card's visual language and its

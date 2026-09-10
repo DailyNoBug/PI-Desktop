@@ -3634,14 +3634,14 @@ D193 和 D194。
   对未知会话的 `tools.execute` 返回 `SESSION_NOT_FOUND`，而不是继承全局工作区。
   参见 E2E-234 至 E2E-238。
 
-## 2026-09-10 —— 已结束的 Subagent 会读回自己失败的原因（D381）
+## 2026-09-10 —— 已结束的 Subagent 会读回自己失败的原因（D382）
 
 - 以 `failed`、`timed_out` 或 `aborted` 结束的委派，只显示结果胶囊和耗时。原因其实
   存在但没有读者：`SubagentRunResult.error` 挂在委派名册条目上，而拓扑节点及其侧边
   栏详情渲染的是 `Task` 行自身的结果——按 ADR 0089，它在委派启动的那一刻就被固定为
   `running`。因此在发出任何消息行之前就死掉的委派，只会留下一个满是步骤、毫无解释的
   面板。
-- 决策 D381：从生命周期行的 `details.delegations[]` 与 `details.stopped[]` 收集委派的
+- 决策 D382：从生命周期行的 `details.delegations[]` 与 `details.stopped[]` 收集委派的
   `error: { code, message }`，使用与已定状态相同的"后写覆盖"规则；侧边栏详情的结尾
   用一张错误卡片收束，复用转录错误卡片的视觉语言与 `errors.<code>` 词表，代码未登记时
   回退到本地化的 `chat.subagentStatus.*` 结果标签。卡片跟随"非成功终态"而非仅跟随错误
