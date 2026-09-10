@@ -69,7 +69,7 @@ Local plugins usable → developer-friendly → marketplace distribution → sig
 - v2：自定义会话条目、`sessionManager` 只读 shim、编辑器读写、快捷键、markdown 转换器
 - v3：`pi` 包 manifest 与安装、pi CLI `settings.json` 提示、统一 skill/提示发现、
   远程控制提示路由
-- 规格：[16-trusted-extensions.md](/zh-CN/spec/07-plugins/16-trusted-extensions)；ADR 0213
+- 规格：[16-trusted-extensions.md](/zh-CN/spec/07-plugins/16-trusted-extensions)；ADR 0214
 
 ## 3. 映射到产品里程碑
 

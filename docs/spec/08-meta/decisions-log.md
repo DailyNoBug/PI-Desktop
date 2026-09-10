@@ -4186,7 +4186,7 @@ D193, and D194.
 - D375 moved queued prompts into the Host and chose persistence; the
   headless Agent Host module needs a store that survives a restart and never
   starts work by itself, and host-core owns SQLite exclusively.
-- Decision D386 / ADR 0212 adds schema v15 with the `turn_queue` table and
+- Decision D386 / ADR 0213 adds schema v15 with the `turn_queue` table and
   the additive `session.queuePush` / `session.queueList` /
   `session.queueRemove` / `session.queuePrioritize` methods. Push is idempotent per principal and key,
   bounded at eight entries per session, and cascades with session deletion.
@@ -4203,7 +4203,7 @@ D193, and D194.
   distributed, untrusted code but leaves no surface for code that must sit
   on the agent loop itself: tools that execute in-process, hooks on every
   turn and provider request, and slash commands with session context.
-- Decision D387 / ADR 0213 adds trusted extensions as the second extension
+- Decision D387 / ADR 0214 adds trusted extensions as the second extension
   surface. The contract is the `ExtensionAPI` of `pi-coding-agent`, adopted
   at the same pinned version as `pi-ai` and `pi-agent-core`; the sidecar
   reuses its loader and `ExtensionRunner`, one Runner per session, with the

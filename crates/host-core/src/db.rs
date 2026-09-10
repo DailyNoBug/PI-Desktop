@@ -1167,7 +1167,7 @@ fn migrate_v13_to_v14_tx(tx: &rusqlite::Transaction<'_>) -> Result<()> {
     Ok(())
 }
 
-/// v15 persists the Host-owned turn queue (D375 / ADR 0212). Queued prompts
+/// v15 persists the Host-owned turn queue (D375 / ADR 0213). Queued prompts
 /// used to live in renderer memory; the table lets a restart restore them in
 /// order, held until a controller attaches.
 fn migrate_v14_to_v15_tx(tx: &rusqlite::Transaction<'_>) -> Result<()> {

@@ -1,4 +1,4 @@
-# ADR 0212: Persist the Host-owned turn queue in host-core
+# ADR 0213: Persist the Host-owned turn queue in host-core
 
 - Status: Accepted
 - Date: 2026-09-10

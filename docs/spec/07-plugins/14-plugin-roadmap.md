@@ -67,7 +67,7 @@ Local plugins usable → developer-friendly → marketplace distribution → sig
   shortcuts, markdown transformers
 - v3: `pi` package manifests and installation, pi CLI `settings.json` hints,
   unified skill/prompt discovery, remote-control prompt routing
-- Spec: [16-trusted-extensions.md](16-trusted-extensions.md); ADR 0213
+- Spec: [16-trusted-extensions.md](16-trusted-extensions.md); ADR 0214
 
 ## 3. Mapping to product milestones
 

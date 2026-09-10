@@ -217,5 +217,5 @@ Each ADR includes:
 | 0203 | Local MCP control plane for desktop operations | Accepted (amended by D372) |
 | 0204 | Explicit unsigned macOS first-launch helper | Accepted |
 | 0205 | Remote Agent Control uses a dedicated Host boundary | Accepted for implementation (post-MVP; amended by D374, D375, and D385) |
-| 0212 | Persist the Host-owned turn queue in host-core | Accepted |
-| 0213 | Trusted extensions run in the Agent sidecar | Accepted (v1 implemented) |
+| 0213 | Persist the Host-owned turn queue in host-core | Accepted |
+| 0214 | Trusted extensions run in the Agent sidecar | Accepted (v1 implemented) |

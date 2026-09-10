@@ -551,7 +551,7 @@ CREATE UNIQUE INDEX idx_turn_queue_idempotency
   WHERE idempotency_key IS NOT NULL;
 ```
 
-- 每条在活动回合之后准入的 prompt 一行（D375 / ADR 0212）。无头 Agent Host 模块是唯一
+- 每条在活动回合之后准入的 prompt 一行（D375 / ADR 0213）。无头 Agent Host 模块是唯一
   写入方，经 `session.queuePush`、`session.queueList`、`session.queueRemove` 操作；存储
   本身绝不启动回合。
 - `position` 按会话只增不减，删除一条不会重排其余条目。`principal` 加 `idempotency_key`
@@ -1010,7 +1010,7 @@ outbox 排空。渲染器侧的停止绝不重写已有已开始回复的转录
   存档仍保留以供手动恢复。所有 v7 之前的迁移代码
   （v1 `settings.sqlite` 导入，v2→v6 链）被删除。
 - 全新安装直接运行完整的 v15 DDL。
-- **架构 v15 是增量的。** 它增加 `turn_queue` 表及其两个索引（D386 / ADR 0212），使 Host
+- **架构 v15 是增量的。** 它增加 `turn_queue` 表及其两个索引（D386 / ADR 0213），使 Host
   拥有的回合队列在重启后存活；不改动任何已有行，迁移前保留 `pi.sqlite.v14.bak`。
 - **架构 v7 首先到达 v8，然后使用受保护的路径。** v7→v8
   迁移之后是相同的受保护的 v8→v15 迁移；架构-v9 和

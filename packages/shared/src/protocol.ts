@@ -133,7 +133,7 @@ export const IPC = {
     providersOauthCancel: "pi-desktop/providers/oauth/cancel",
     providersOauthDelete: "pi-desktop/providers/oauth/delete",
     pluginList: "pi-desktop/plugin/list",
-    /** Trusted extensions (D387, ADR 0213). */
+    /** Trusted extensions (D387, ADR 0214). */
     extensionsList: "pi-desktop/extensions/list",
     extensionsSetEnabled: "pi-desktop/extensions/setEnabled",
     extensionsRescan: "pi-desktop/extensions/rescan",

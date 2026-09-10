@@ -954,7 +954,7 @@ const IMPORT_SOURCES = new Set<ExternalSource>([
 const dataDir =
   process.env.PI_DESKTOP_DATA_DIR || join(homedir(), ".pi-desktop");
 
-// Trusted extensions (D387, ADR 0213): discovery and enablement live here;
+// Trusted extensions (D387, ADR 0214): discovery and enablement live here;
 // loading happens in the sidecar per session.
 const trustedExtensions = new TrustedExtensionsRegistry({
   storePath: join(dataDir, "trusted-extensions.json"),

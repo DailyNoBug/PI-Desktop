@@ -1,4 +1,4 @@
-# ADR 0213: Trusted extensions run in the Agent sidecar
+# ADR 0214: Trusted extensions run in the Agent sidecar
 
 - Status: Accepted (v1 implemented 2026-09-10)
 - Date: 2026-09-10

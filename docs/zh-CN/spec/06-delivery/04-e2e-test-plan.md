@@ -6229,7 +6229,7 @@ IPC 请求无法关闭。
 
 ## 受信任扩展场景（R7 v1）
 
-以下场景是 D387 / ADR 0213 与 `07-plugins/16-trusted-extensions.md` 的验收目标，
+以下场景是 D387 / ADR 0214 与 `07-plugins/16-trusted-extensions.md` 的验收目标，
 使用 `apps/desktop/test/fixtures/pi-extensions/` 下的样例扩展夹具目录。
 
 #### E2E-241：发现列出受信任扩展，启用是显式的
@@ -6260,7 +6260,7 @@ IPC 请求无法关闭。
   值；`bash` 以扩展的理由被阻止，且阻止在记录中可见；审计记录含扩展 id、工具名
   和耗时，不含参数；Plan 模式下 `fx_add` 遵循非核心模式门控；`read` 冲突被拒绝并
   记诊断，核心工具不变。
-- **链接规格**：`07-plugins/16-trusted-extensions.md` §6、§7；ADR 0213
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §6、§7；ADR 0214
 - **验收**：B（agent）、安全、质量
 - **里程碑**：MVP 后（R7 v1）
 - **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
@@ -6306,7 +6306,7 @@ IPC 请求无法关闭。
   回合。4）检查 sidecar 打包清单中三个 pi 包的版本。
 - **预期**：扩展加载无转译或解析错误；别名导入解析到 sidecar 的副本；工具执行；
   三个 pi 包版本一致且 CI 版本锁检查通过。
-- **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§13；ADR 0213
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§13；ADR 0214
 - **验收**：质量、发布
 - **里程碑**：MVP 后（R7 v1，作为打包 spike 首先交付）
 - **状态**：由 `packages/agent-runtime/src/extensions/bundle.test.ts` 单元覆盖

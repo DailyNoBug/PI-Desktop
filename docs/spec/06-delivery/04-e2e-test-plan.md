@@ -9398,7 +9398,7 @@ browser milestones are scheduled.
 
 ## Trusted extension scenarios (R7 v1)
 
-The following scenarios are the acceptance targets of D387 / ADR 0213 and
+The following scenarios are the acceptance targets of D387 / ADR 0214 and
 `07-plugins/16-trusted-extensions.md`. They use a fixture directory of
 sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 
@@ -9440,7 +9440,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   and no parameters; in Plan mode `fx_add` follows the non-core mode gate;
   the `read` collision is rejected with a diagnostic and the core tool is
   unchanged.
-- **Specs linked**: `07-plugins/16-trusted-extensions.md` §6, §7; ADR 0213
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §6, §7; ADR 0214
 - **Acceptance**: B (agent), Security, Quality
 - **Milestone**: Post-MVP (R7 v1)
 - **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
@@ -9499,7 +9499,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   the aliased imports resolve to the sidecar's copies; the tool executes;
   the three pi package versions are identical and the CI version-lock check
   passes.
-- **Specs linked**: `07-plugins/16-trusted-extensions.md` §4.2, §13; ADR 0213
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §4.2, §13; ADR 0214
 - **Acceptance**: Quality, Release
 - **Milestone**: Post-MVP (R7 v1, delivered first as the bundling spike)
 - **Status**: Unit-covered by `packages/agent-runtime/src/extensions/bundle.test.ts`

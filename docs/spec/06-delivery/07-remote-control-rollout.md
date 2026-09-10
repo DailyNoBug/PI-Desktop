@@ -395,7 +395,7 @@ Recorded on the `feat/remote-agent-host` branch, 2026-09-10:
   the approval broker, the turn queue, and the snapshot builder; the
   Electron bridge that hosts the module over the existing IPC handlers and
   feeds every agent event through it; and schema v15 with the persisted
-  `turn_queue` and its RPC methods (D386 / ADR 0212).
+  `turn_queue` and its RPC methods (D386 / ADR 0213).
 - R1 shipped: the renderer's in-memory prompt queue is retired; the
   composer pushes through `agent/queue/push`, mirrors
   `agent/event/queueChanged`, and "send now" is `turn/prioritize` plus a

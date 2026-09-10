@@ -82,7 +82,7 @@
 > API through ADR 0200 / D367, explicit project ids plus host-owned session
 > refresh through ADR 0201 / D368, and the opt-in local MCP control plane
 > through ADR 0203 / D370 (catalog and bind tightened by D372). Protocol v11 remains unchanged; schema v15 adds the Host-owned turn queue
-> (D386 / ADR 0212) on top of schema v14, which added the
+> (D386 / ADR 0213) on top of schema v14, which added the
 > plugin origin sidecar and soft-delete marker. Session mutation, arbitrary
 > re-binding, provider/model binding, batch-delete, and tag operations remain
 > deferred; an explicit `projectId` is the limited project-binding exception

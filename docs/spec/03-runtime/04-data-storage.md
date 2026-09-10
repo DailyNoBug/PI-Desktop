@@ -571,7 +571,7 @@ CREATE UNIQUE INDEX idx_turn_queue_idempotency
   WHERE idempotency_key IS NOT NULL;
 ```
 
-- One row per prompt admitted behind an active turn (D375 / ADR 0212). The
+- One row per prompt admitted behind an active turn (D375 / ADR 0213). The
   headless Agent Host module is the only writer through `session.queuePush`,
   `session.queueList`, and `session.queueRemove`; the store never starts a
   turn.
@@ -1101,7 +1101,7 @@ truncating at a guessed position.
   during migration; all unrelated settings remain intact.
 
 - **Schema v15 is additive.** It adds the `turn_queue` table and its two
-  indexes (D386 / ADR 0212) so the Host-owned turn queue survives a restart;
+  indexes (D386 / ADR 0213) so the Host-owned turn queue survives a restart;
   no existing row changes, and a `pi.sqlite.v14.bak` copy precedes the step.
 - **Schema v14 is additive.** It adds nullable `sessions.deleted_at`, the
   partial deletion index, and `session_import_origins`. Existing sessions stay
