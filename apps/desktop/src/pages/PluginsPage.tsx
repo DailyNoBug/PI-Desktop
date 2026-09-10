@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../stores/app-store";
 import { api } from "../lib/api";
-import { Button, cx } from "../components/ui";
+import { Button, TooltipButton, cx } from "../components/ui";
 import {
   IconCheck,
   IconCircleAlert,
@@ -537,18 +537,18 @@ function SearchField({
         autoCapitalize="off"
       />
       {value ? (
-        <button
+        <TooltipButton
           type="button"
           className="plugins-search-clear"
-          aria-label={t("plugins.clearSearch")}
-          title={t("plugins.clearSearch")}
+          ariaLabel={t("plugins.clearSearch")}
+          tooltip={t("plugins.clearSearch")}
           onClick={() => {
             onChange("");
             inputRef.current?.focus();
           }}
         >
           <IconX size={12} />
-        </button>
+        </TooltipButton>
       ) : null}
     </div>
   );
@@ -1045,17 +1045,17 @@ export function PluginsPage() {
               className="plugins-menu-wrap"
               ref={headerMenu ? headerMenuRef : undefined}
             >
-              <button
+              <TooltipButton
                 type="button"
                 className="plugins-icon-btn plugins-header-menu"
-                aria-label={t("plugins.moreActions")}
-                title={t("plugins.moreActions")}
+                ariaLabel={t("plugins.moreActions")}
+                tooltip={t("plugins.moreActions")}
                 aria-haspopup="menu"
                 aria-expanded={headerMenu}
                 onClick={() => setHeaderMenu((open) => !open)}
               >
                 <IconMore size={16} />
-              </button>
+              </TooltipButton>
               {headerMenu ? (
                 <div className="plugins-menu is-end" role="menu">
                   {overflowActions.map((action) => (
@@ -1295,43 +1295,38 @@ export function PluginsPage() {
                             />
                             <div className="plugins-row-actions">
                               {plugin.ui?.panel ? (
-                                <button
+                                <TooltipButton
                                   type="button"
                                   className="plugins-icon-btn"
-                                  aria-label={t("plugins.openPanel")}
-                                  title={t("plugins.openPanel")}
-                                  data-tip={t("plugins.openPanel")}
+                                  tooltip={t("plugins.openPanel")}
+                                  ariaLabel={t("plugins.openPanel")}
                                   onClick={() =>
                                     void run(() => api.openPluginPanel(plugin.id))
                                   }
                                 >
                                   <IconPanel size={15} />
-                                </button>
+                                </TooltipButton>
                               ) : null}
                               {plugin.enabled && plugin.settings?.length ? (
-                                <button
+                                <TooltipButton
                                   type="button"
                                   className="plugins-icon-btn"
-                                  aria-label={t("plugins.openSettings")}
-                                  title={t("plugins.openSettings")}
-                                  data-tip={t("plugins.openSettings")}
+                                  tooltip={t("plugins.openSettings")}
+                                  ariaLabel={t("plugins.openSettings")}
                                   onClick={() => setSettingsPlugin(plugin)}
                                 >
                                   <IconSettings size={15} />
-                                </button>
+                                </TooltipButton>
                               ) : null}
                               <div
                                 className="plugins-menu-wrap"
                                 ref={menuOpen ? rowMenuRef : undefined}
                               >
-                                <button
+                                <TooltipButton
                                   type="button"
                                   className="plugins-icon-btn"
-                                  aria-label={t("plugins.rowActions", {
-                                    name: plugin.name,
-                                  })}
-                                  title={t("plugins.rowActions", { name: plugin.name })}
-                                  data-tip={t("plugins.rowActions", { name: plugin.name })}
+                                  tooltip={t("plugins.rowActions", { name: plugin.name })}
+                                  ariaLabel={t("plugins.rowActions", { name: plugin.name })}
                                   aria-haspopup="menu"
                                   aria-expanded={menuOpen}
                                   onClick={(event) => {
@@ -1347,7 +1342,7 @@ export function PluginsPage() {
                                   }}
                                 >
                                   <IconMore size={15} />
-                                </button>
+                                </TooltipButton>
                                 {menuOpen ? (
                                   <div
                                     className={cx(
@@ -1657,15 +1652,15 @@ export function PluginsPage() {
                   ) : null}
                 </div>
               </div>
-              <button
+              <TooltipButton
                 type="button"
                 className="plugins-icon-btn"
-                aria-label={t("plugins.closeDetail")}
-                title={t("plugins.closeDetail")}
+                ariaLabel={t("plugins.closeDetail")}
+                tooltip={t("plugins.closeDetail")}
                 onClick={closeDetail}
               >
                 <IconX size={15} />
-              </button>
+              </TooltipButton>
             </header>
 
             {detailLoading ? (

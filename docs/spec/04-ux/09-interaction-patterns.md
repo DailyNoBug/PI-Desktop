@@ -850,9 +850,12 @@ Running turns and pending approvals continue to gate the controls.
 
 - Every icon-only action exposes a localized purpose through both its accessible
   name and its hover/focus tooltip.
-- Use `title` for native tooltips on compact actions; use the existing themed
-  `data-tip` pattern when placement or visual treatment requires a custom
-  tooltip. Decorative icons remain `aria-hidden` and do not need a tooltip.
+- Use the shared `TooltipButton` for interactive buttons and `Tooltip` for
+  non-button controls. Both render the themed tooltip in a body-level portal so
+  it is not clipped by pane overflow or hidden below a neighboring surface.
+  Native `title` remains for full-value metadata such as paths, IDs, and
+  descriptions; rich hover cards and popovers keep their specialized surfaces.
+  Decorative icons remain `aria-hidden` and do not need a tooltip.
 - Tooltip text must describe the action, not the icon shape, and must come from
   the active i18n catalog.
 

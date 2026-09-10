@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { MessageUsage, UiMessage } from "@pi-desktop/shared";
 import { useAppStore } from "../stores/app-store";
+import { TooltipButton } from "./ui";
 import {
   aggregateToolTokenUsage,
   calculateCacheRate,
@@ -331,17 +332,21 @@ export function ContextUsageInspector({
       data-level={level}
       data-open={open ? "true" : "false"}
     >
-      <button
+      <TooltipButton
         ref={triggerRef}
         type="button"
         className="context-inspector-trigger"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? panelId : undefined}
-        aria-label={t("chat.usageContextAria", {
+        tooltip={t("chat.usageContextAria", {
           percent: context.remainingPercent,
           remaining: formatTokenCount(context.remainingTokens),
         })}
+        ariaLabel={t("chat.usageContextAria", {
+          percent: context.remainingPercent,
+          remaining: formatTokenCount(context.remainingTokens),
+        })}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         onClick={toggleInspector}
       >
         <svg
@@ -369,7 +374,7 @@ export function ContextUsageInspector({
         <span className="context-inspector-ring-value">
           {context.remainingPercent}%
         </span>
-      </button>
+      </TooltipButton>
       {popover && typeof document !== "undefined"
         ? createPortal(popover, document.body)
         : null}

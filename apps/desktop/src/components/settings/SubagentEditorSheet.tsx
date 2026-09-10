@@ -16,7 +16,7 @@ import {
   type UserSubagentRecord,
 } from "@pi-desktop/shared";
 import { useAppStore } from "../../stores/app-store";
-import { Button, Field, Input, Select, Textarea, cx } from "../ui";
+import { Button, Field, Input, Select, Textarea, TooltipButton, cx } from "../ui";
 import { IconChevronRight, IconFolderOpen, IconX } from "../icons";
 import {
   groupSubagentModelChoices,
@@ -615,15 +615,15 @@ export function SubagentEditorSheet({
                 : t("extensions.subagents.addTitle")}
             </h3>
           </div>
-          <button
+          <TooltipButton
             type="button"
             className="ext-sheet-close"
-            aria-label={t("common.close")}
-            title={t("common.close")}
+            ariaLabel={t("common.close")}
+            tooltip={t("common.close")}
             onClick={onClose}
           >
             <IconX size={14} />
-          </button>
+          </TooltipButton>
         </div>
 
         <div className="ext-sheet-body">

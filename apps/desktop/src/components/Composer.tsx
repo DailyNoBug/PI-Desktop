@@ -61,6 +61,7 @@ import {
   useComposerAutocomplete,
 } from "../hooks/use-composer-autocomplete";
 import { ComposerAutocomplete } from "./ComposerAutocomplete";
+import { TooltipButton } from "./ui";
 import { ContextUsageInspector } from "./ContextUsageInspector";
 import { AskToolCard } from "./AskToolCard";
 import { PlanApprovalBar } from "./PlanApprovalBar";
@@ -2069,15 +2070,15 @@ export function Composer({
                   <span className="composer-queued-prompt-text" title={label}>
                     {label}
                   </span>
-                  <button
+                  <TooltipButton
                     type="button"
                     className="composer-queued-prompt-action"
-                    title={t("chat.removeQueuedPrompt")}
-                    aria-label={t("chat.removeQueuedPrompt")}
+                    tooltip={t("chat.removeQueuedPrompt")}
+                    ariaLabel={t("chat.removeQueuedPrompt")}
                     onClick={() => removeQueuedPrompt(item.id)}
                   >
                     <IconX size={13} aria-hidden />
-                  </button>
+                  </TooltipButton>
                   <button
                     type="button"
                     className="composer-queued-prompt-send-now"
@@ -2102,15 +2103,15 @@ export function Composer({
               {t("chat.enhancementFailed")}: {enhancementError.message}
             </span>
             <code>{enhancementError.code}</code>
-            <button
+            <TooltipButton
               type="button"
               className="composer-enhancement-error-dismiss"
-              title={t("chat.dismissEnhancementError")}
-              aria-label={t("chat.dismissEnhancementError")}
+              tooltip={t("chat.dismissEnhancementError")}
+              ariaLabel={t("chat.dismissEnhancementError")}
               onClick={() => setEnhancementError(null)}
             >
               <IconX size={13} aria-hidden="true" />
-            </button>
+            </TooltipButton>
           </div>
         ) : null}
         <div className={`composer-shell${inputBlocked ? " is-gated" : ""}`}>
@@ -2236,11 +2237,11 @@ export function Composer({
           <div className="composer-toolbar">
             <div className="composer-left">
               <div className="composer-plus">
-                <button
+                <TooltipButton
                   type="button"
                   className="icon-btn"
-                  title={t("chat.addFiles")}
-                  aria-label={t("chat.addFiles")}
+                  tooltip={t("chat.addFiles")}
+                  ariaLabel={t("chat.addFiles")}
                   disabled={controlsBlocked || pasting}
                   onClick={() => {
                     setPermissionOpen(false);
@@ -2248,15 +2249,15 @@ export function Composer({
                   }}
                 >
                   <IconPlus size={15} aria-hidden="true" />
-                </button>
+                </TooltipButton>
               </div>
-              <button
+              <TooltipButton
+                type="button"
                 className="icon-btn mode-chip composer-mode-chip"
                 data-mode={mode}
                 data-planning={planningLive ? "true" : undefined}
-                title={
-                  planningLive ? t(`${mode}.planning`) : t("settings.mode")
-                }
+                tooltip={planningLive ? t(`${mode}.planning`) : t("settings.mode")}
+                ariaLabel={planningLive ? t(`${mode}.planning`) : t("settings.mode")}
                 disabled={controlsBlocked}
                 onClick={async () => {
                   setModelThinkingOpen(false);
@@ -2282,12 +2283,20 @@ export function Composer({
                     {t(MODE_LABEL_KEYS[mode])}
                   </span>
                 </span>
-              </button>
+              </TooltipButton>
               {mode === "agent" || mode === "plan" || mode === "goal" ? (
                 <div className="composer-permission" ref={permissionRef}>
-                  <button
+                  <TooltipButton
+                    type="button"
                     className={`icon-btn mode-chip ${permissionOpen ? "active" : ""}`}
-                    title={
+                    tooltip={
+                      mode === "goal"
+                        ? `${t("chat.permissionMode")} · ${t("goal.autoWarning")}`
+                        : mode === "plan" && composerPermissionMode === "auto"
+                          ? `${t("chat.permissionMode")} · ${t("plan.autoWarning")}`
+                          : t("chat.permissionMode")
+                    }
+                    ariaLabel={
                       mode === "goal"
                         ? `${t("chat.permissionMode")} · ${t("goal.autoWarning")}`
                         : mode === "plan" && composerPermissionMode === "auto"
@@ -2306,7 +2315,7 @@ export function Composer({
                       {t(PERMISSION_MODE_I18N_KEYS[composerPermissionMode])}
                     </span>
                     <IconChevronDown size={12} />
-                  </button>
+                  </TooltipButton>
                   {permissionOpen && mode !== "goal" && (
                     <div className="composer-permission-menu" role="menu">
                       {(["ask", "accept-edits", "auto"] as const).map(
@@ -2362,13 +2371,13 @@ export function Composer({
                 ref={modelThinkingRef}
                 onKeyDown={onModelThinkingMenuKeyDown}
               >
-                <button
+                <TooltipButton
                   type="button"
                   className={`icon-btn composer-model-thinking-chip ${
                     modelThinkingOpen ? "active" : ""
                   }`}
-                  title={`${modelLabel} · ${t("chat.reasoningLevel")}: ${thinkingLabel}`}
-                  aria-label={`${t("chat.model")}: ${modelLabel}. ${t("chat.reasoningLevel")}: ${thinkingLabel}`}
+                  tooltip={`${modelLabel} · ${t("chat.reasoningLevel")}: ${thinkingLabel}`}
+                  ariaLabel={`${t("chat.model")}: ${modelLabel}. ${t("chat.reasoningLevel")}: ${thinkingLabel}`}
                   aria-haspopup="menu"
                   aria-expanded={modelThinkingOpen}
                   disabled={controlsBlocked}
@@ -2400,7 +2409,7 @@ export function Composer({
                     </>
                   ) : null}
                   <IconChevronDown size={12} aria-hidden="true" />
-                </button>
+                </TooltipButton>
                 {modelThinkingOpen ? (
                   <div
                     className="composer-model-menu composer-model-thinking-menu"
@@ -2612,11 +2621,11 @@ export function Composer({
                   </div>
                 ) : null}
               </div>
-              <button
+              <TooltipButton
                 type="button"
                 className={`icon-btn composer-enhance-btn${enhancingPrompt ? " is-loading" : ""}`}
-                title={t("chat.enhancePrompt")}
-                aria-label={
+                tooltip={t("chat.enhancePrompt")}
+                ariaLabel={
                   enhancingPrompt
                     ? t("chat.enhancingPrompt")
                     : t("chat.enhancePrompt")
@@ -2639,37 +2648,35 @@ export function Composer({
                 ) : (
                   <IconSparkles size={15} aria-hidden="true" />
                 )}
-              </button>
+              </TooltipButton>
               {enhancementUndoText !== null ? (
-                <button
+                <TooltipButton
                   type="button"
                   className="icon-btn composer-enhance-undo"
-                  title={t("chat.undoEnhancement")}
-                  aria-label={t("chat.undoEnhancement")}
+                  tooltip={t("chat.undoEnhancement")}
+                  ariaLabel={t("chat.undoEnhancement")}
                   disabled={controlsBlocked}
                   onClick={undoPromptEnhancement}
                 >
                   <IconUndo2 size={15} aria-hidden="true" />
-                </button>
+                </TooltipButton>
               ) : null}
               {runActive && !hasDraftContent ? (
-                <button
+                <TooltipButton
                   type="button"
                   className="stop-btn"
-                  title={t("chat.stopGenerating")}
-                  aria-label={t("chat.stopGenerating")}
+                  tooltip={t("chat.stopGenerating")}
+                  ariaLabel={t("chat.stopGenerating")}
                   onClick={() => void abort()}
                 >
                   <IconStop size={14} />
-                </button>
+                </TooltipButton>
               ) : (
-                <button
+                <TooltipButton
                   type="button"
                   className="send-btn"
-                  aria-label={modelReady ? t("chat.send") : t("settings.addProvider")}
-                  title={
-                    modelReady ? t("chat.send") : t("settings.addProvider")
-                  }
+                  ariaLabel={modelReady ? t("chat.send") : t("settings.addProvider")}
+                  tooltip={modelReady ? t("chat.send") : t("settings.addProvider")}
                   disabled={
                     !hasDraftContent ||
                     sendBlocked ||
@@ -2678,7 +2685,7 @@ export function Composer({
                   onClick={() => void submit()}
                 >
                   <IconArrowUp size={15} />
-                </button>
+                </TooltipButton>
               )}
             </div>
           </div>

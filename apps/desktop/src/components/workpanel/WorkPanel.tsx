@@ -18,6 +18,7 @@ import { pluginViewIcon, pluginViewInitial } from "../../lib/plugin-view-icons";
 import { useAppStore } from "../../stores/app-store";
 import type { WorkPanelTab } from "../../stores/app-store";
 import { cx } from "../ui";
+import { TooltipButton } from "../ui";
 import {
   IconChevronDown,
   IconClose,
@@ -530,17 +531,17 @@ export function WorkPanel({
                             </button>
                             <span className="work-panel-menu-slot">
                               {tab && (
-                                <button
+                                <TooltipButton
                                   type="button"
                                   tabIndex={-1}
                                   data-work-panel-menu-close=""
                                   className="work-panel-menu-close"
-                                  title={t("panel.closeTab", { name: view.title })}
-                                  aria-label={t("panel.closeTab", { name: view.title })}
+                                  tooltip={t("panel.closeTab", { name: view.title })}
+                                  ariaLabel={t("panel.closeTab", { name: view.title })}
                                   onClick={() => closeTabFromMenu(tab.id, itemIndex)}
                                 >
                                   <IconClose size={12} />
-                                </button>
+                                </TooltipButton>
                               )}
                             </span>
                           </div>
@@ -593,19 +594,17 @@ export function WorkPanel({
                               <Icon size={15} />
                               <span className="work-panel-menu-label">{label}</span>
                             </button>
-                            <span className="work-panel-menu-slot">
-                              <button
+                              <TooltipButton
                                 type="button"
                                 tabIndex={-1}
                                 data-work-panel-menu-close=""
                                 className="work-panel-menu-close"
-                                title={t("panel.closeTab", { name: label })}
-                                aria-label={t("panel.closeTab", { name: label })}
+                                tooltip={t("panel.closeTab", { name: label })}
+                                ariaLabel={t("panel.closeTab", { name: label })}
                                 onClick={() => closeTabFromMenu(tab.id, itemIndex)}
                               >
                                 <IconClose size={12} />
-                              </button>
-                            </span>
+                              </TooltipButton>
                           </div>
                         );
                       })}
@@ -617,26 +616,26 @@ export function WorkPanel({
           </div>
           <div className="work-panel-actions no-drag">
             {activeTab && !subagentPanel ? (
-              <button
+              <TooltipButton
                 type="button"
                 className="work-panel-current-close"
-                title={t("panel.closeTab", { name: activeLabel })}
-                aria-label={t("panel.closeTab", { name: activeLabel })}
+                tooltip={t("panel.closeTab", { name: activeLabel })}
+                ariaLabel={t("panel.closeTab", { name: activeLabel })}
                 onClick={() => closeTab(activeTab.id)}
               >
                 <IconClose size={14} />
-              </button>
+              </TooltipButton>
             ) : null}
             {subagentPanel && onCloseSubagentPanel ? (
-              <button
+              <TooltipButton
                 type="button"
                 className="work-panel-current-close"
-                title={t("panel.subagentClose")}
-                aria-label={t("panel.subagentClose")}
+                tooltip={t("panel.subagentClose")}
+                ariaLabel={t("panel.subagentClose")}
                 onClick={onCloseSubagentPanel}
               >
                 <IconClose size={14} />
-              </button>
+              </TooltipButton>
             ) : null}
           </div>
         </header>

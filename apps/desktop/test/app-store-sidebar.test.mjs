@@ -92,7 +92,7 @@ test("global search stays on the conversation topbar, not the sidebar header", (
   assert.doesNotMatch(sidebarSource, /sidebar-session-search|toggleSearch/);
   assert.match(topbarSource, /onOpenSearch/);
   assert.match(topbarSource, /<IconSearch/);
-  assert.match(topbarSource, /aria-label=\{t\("nav\.search"\)\}/);
+  assert.match(topbarSource, /ariaLabel=\{t\("nav\.search"\)\}/);
 });
 
 test("manual ordering stays a persistence-only compatibility value", () => {

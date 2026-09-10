@@ -152,8 +152,8 @@ test("Windows and Linux use menu-free frameless chrome with window controls", ()
   }
   assert.match(appSource, /nativeMenuAction\(id\)/);
   assert.match(controlsSource, /windowControl\("getState"\)/);
-  assert.match(controlsSource, /aria-label=\{t\("window\.minimize"/);
-  assert.match(controlsSource, /aria-label=\{t\("window\.close"/);
+  assert.match(controlsSource, /ariaLabel=\{t\("window\.minimize"/);
+  assert.match(controlsSource, /ariaLabel=\{t\("window\.close"/);
   assert.match(controlsSource, /window-controls-in-pane/);
   assert.match(
     appSource,

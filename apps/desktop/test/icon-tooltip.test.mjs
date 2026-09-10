@@ -11,12 +11,14 @@ const source = (relativePath) =>
 function assertLocalizedIconTooltip(relativePath, key) {
   const contents = source(relativePath);
   const ariaLabel = `aria-label={t("${key}"`;
+  const sharedAriaLabel = `ariaLabel={t("${key}"`;
   const title = `title={t("${key}"`;
-  const ariaIndex = contents.indexOf(ariaLabel);
-  const titleIndex = contents.indexOf(title, ariaIndex);
+  const sharedTooltip = `tooltip={t("${key}"`;
+  const ariaIndex = Math.max(contents.indexOf(ariaLabel), contents.indexOf(sharedAriaLabel));
+  const hoverIndex = Math.max(contents.indexOf(title), contents.indexOf(sharedTooltip));
   assert.ok(ariaIndex >= 0, `${relativePath} should expose ${key} as an accessible name`);
   assert.ok(
-    titleIndex >= ariaIndex && titleIndex - ariaIndex < 160,
+    Math.abs(hoverIndex - ariaIndex) < 220,
     `${relativePath} should expose ${key} on hover`,
   );
 }
@@ -24,6 +26,7 @@ function assertLocalizedIconTooltip(relativePath, key) {
 test("icon-only actions expose localized hover tooltips", () => {
   for (const [relativePath, key] of [
     ["components/ChatSurface.tsx", "errors.action.dismiss"],
+    ["components/ContextUsageInspector.tsx", "chat.usageContextAria"],
     ["components/Toast.tsx", "toast.dismiss"],
     ["components/UpdateBanner.tsx", "updates.dismiss"],
     ["components/ProjectInstructionsDialog.tsx", "settings.cancel"],

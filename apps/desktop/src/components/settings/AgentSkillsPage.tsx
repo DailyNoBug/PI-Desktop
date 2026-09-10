@@ -41,6 +41,7 @@ import {
   IconTrash,
 } from "../icons";
 
+import { TooltipButton } from "../ui";
 const GLOBAL_SKILLS_PATH = "~/.agents/skills";
 
 function projectSkillsPath(projectPath: string | null): string {
@@ -332,16 +333,16 @@ export function AgentSkillsPage() {
         description={skill.description || t("settings.noCapabilityDescription")}
         actions={
           <>
-            <button
+            <TooltipButton
               type="button"
               className="settings-icon-button"
-              aria-label={t("extensions.skills.rowActions", { name })}
-              title={t("extensions.skills.edit")}
+              ariaLabel={t("extensions.skills.rowActions", { name })}
+              tooltip={t("extensions.skills.edit")}
               disabled={busy}
               onClick={() => void openEdit(skill, level)}
             >
               <IconPencil size={15} />
-            </button>
+            </TooltipButton>
             <CapabilityRowMenu
               label={t("extensions.skills.rowActions", { name })}
               items={items}

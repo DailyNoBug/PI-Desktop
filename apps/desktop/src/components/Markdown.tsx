@@ -36,6 +36,7 @@ import {
   IconImage,
   IconWorkflow,
 } from "./icons";
+import { TooltipButton } from "./ui";
 import { createPortal } from "react-dom";
 import { api } from "../lib/api";
 import { useAppStore } from "../stores/app-store";
@@ -198,14 +199,14 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     <div className="code-block">
       <div className="code-block-head">
         <span className="code-block-lang">{lang || "text"}</span>
-        <button
+        <TooltipButton
           className={`code-copy-btn ${copied ? "copied" : ""}`}
-          aria-label={t("chat.copy")}
-          title={copied ? t("chat.copied") : t("chat.copy")}
+          tooltip={copied ? t("chat.copied") : t("chat.copy")}
+          ariaLabel={t("chat.copy")}
           onClick={() => copy(code)}
         >
           {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-        </button>
+        </TooltipButton>
       </div>
       <pre>
         <code>
@@ -312,13 +313,13 @@ function MermaidBlock({ code }: { code: string }) {
         </span>
         <div className="mermaid-block-actions">
           {svg && !error ? (
-            <button
+            <TooltipButton
               type="button"
               className={`mermaid-action-btn${showSource ? " active" : ""}`}
-              aria-label={
+              tooltip={
                 showSource ? t("chat.showDiagram") : t("chat.showDiagramSource")
               }
-              title={
+              ariaLabel={
                 showSource ? t("chat.showDiagram") : t("chat.showDiagramSource")
               }
               aria-pressed={showSource}
@@ -329,17 +330,17 @@ function MermaidBlock({ code }: { code: string }) {
               ) : (
                 <IconCode size={13} />
               )}
-            </button>
+            </TooltipButton>
           ) : null}
-          <button
+          <TooltipButton
             type="button"
             className={`mermaid-action-btn${copied ? " copied" : ""}`}
-            aria-label={t("chat.copyDiagramSource")}
-            title={copied ? t("chat.copied") : t("chat.copyDiagramSource")}
+            tooltip={copied ? t("chat.copied") : t("chat.copyDiagramSource")}
+            ariaLabel={t("chat.copyDiagramSource")}
             onClick={() => copy(code)}
           >
             {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-          </button>
+          </TooltipButton>
         </div>
       </div>
       <div className="mermaid-block-body">

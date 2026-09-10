@@ -127,9 +127,9 @@ test("installed plugin rows keep secondary detail behind a disclosure", () => {
 });
 
 test("extension row actions stay visible and labelled", () => {
-  assert.match(pageSrc, /data-tip=\{t\("plugins\.openPanel"\)\}/);
-  assert.match(pageSrc, /data-tip=\{t\("plugins\.rowActions", \{ name: plugin\.name \}\)\}/);
-  assert.match(styles, /\.plugins-icon-btn\[data-tip\]::after[\s\S]*?content: attr\(data-tip\)/);
+  assert.match(pageSrc, /<TooltipButton[\s\S]*?tooltip=\{t\("plugins\.openPanel"\)\}/);
+  assert.match(pageSrc, /<TooltipButton[\s\S]*?tooltip=\{t\("plugins\.rowActions", \{ name: plugin\.name \}\)\}/);
+  assert.match(styles, /\.ui-tooltip\s*\{[\s\S]*?position:\s*fixed;/);
   const actionBlock = styles.match(/\.ext-row-actions\s*\{[^}]*\}/)?.[0] ?? "";
   assert.match(actionBlock, /opacity:\s*1/);
 });

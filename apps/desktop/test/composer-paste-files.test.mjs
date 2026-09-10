@@ -126,7 +126,7 @@ test("picker attachments materialize a session before importing paths", () => {
 
 test("composer opens one unified file picker directly from the plus button", () => {
   const leftStart = composer.indexOf('<div className="composer-left">');
-  const plusIndex = composer.indexOf('title={t("chat.addFiles")}', leftStart);
+  const plusIndex = composer.indexOf('tooltip={t("chat.addFiles")}', leftStart);
   const modeIndex = composer.indexOf("composer-mode-chip", leftStart);
   assert.ok(leftStart >= 0 && plusIndex > leftStart && modeIndex > leftStart);
   assert.ok(plusIndex < modeIndex, "upload must precede the agent mode chip");

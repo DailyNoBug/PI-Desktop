@@ -18,6 +18,7 @@ import {
   IconChevronDown,
   IconFileText,
 } from "./icons";
+import { TooltipButton } from "./ui";
 
 const APPROVAL_MODES: readonly GlobalPermissionMode[] = [
   "ask",
@@ -270,19 +271,19 @@ export function PlanApprovalBar({ proposal }: { proposal: PlanProposal }) {
                 ? copy("approving")
                 : copy(APPROVE_LABELS[approvalMode])}
             </button>
-            <button
+            <TooltipButton
               ref={chevronRef}
               type="button"
               className="plan-approval-approve-menu"
               disabled={busy}
-              aria-label={copy("chooseApprovalMode")}
-              title={copy("chooseApprovalMode")}
+              ariaLabel={copy("chooseApprovalMode")}
+              tooltip={copy("chooseApprovalMode")}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((open) => !open)}
             >
               <IconChevronDown size={13} aria-hidden />
-            </button>
+            </TooltipButton>
             {menuOpen ? (
               <div
                 className="plan-approval-menu"

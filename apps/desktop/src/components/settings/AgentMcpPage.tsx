@@ -35,7 +35,7 @@ import {
   type McpDraft,
 } from "../extensions/McpEditorSheet";
 import { IconPencil, IconPlay, IconPlus, IconServer, IconTerminal, IconTrash } from "../icons";
-import { cx } from "../ui";
+import { TooltipButton, cx } from "../ui";
 
 const GLOBAL_MCP_PATH = "~/.agents/servers";
 
@@ -347,16 +347,16 @@ export function AgentMcpPage() {
         description={server.description || t("settings.noCapabilityDescription")}
         actions={
           <>
-            <button
+            <TooltipButton
               type="button"
               className="settings-icon-button"
-              aria-label={t("settings.editMcpOf", { name })}
-              title={t("settings.editMcp")}
+              ariaLabel={t("settings.editMcpOf", { name })}
+              tooltip={t("settings.editMcp")}
               disabled={busy}
               onClick={() => openEdit(server, level)}
             >
               <IconPencil size={15} />
-            </button>
+            </TooltipButton>
             <CapabilityRowMenu
               label={t("extensions.mcp.rowActions", { name })}
               items={items}

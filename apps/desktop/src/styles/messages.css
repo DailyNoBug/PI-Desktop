@@ -1010,39 +1010,6 @@
   padding-inline: 5px;
 }
 
-/* 8px matches other floating layers (composer menus, autocomplete). A 5px
-   gap let the tooltip border sit on --ds-bg-hover (6% dark / 5% light) so
-   the label looked clipped (#74). The compact raised shadow stays inside
-   that gap; the composer's 20px glow would still wash over the chip. */
-.copy-btn[data-tip]::after {
-  content: attr(data-tip);
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  z-index: 8;
-  transform: translateX(-50%);
-  border: 1px solid var(--ds-border-default);
-  border-radius: var(--radius-sm);
-  background: var(--ds-bg-elevated-opaque);
-  box-shadow: var(--ds-raised-shadow);
-  padding: 3px 7px;
-  color: var(--ds-text-secondary);
-  font-size: var(--text-2xs);
-  line-height: var(--leading-compact);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
-}
-
-.copy-btn[data-tip]:hover::after,
-.copy-btn[data-tip]:focus-visible::after {
-  opacity: 1;
-}
-
-.copy-btn[data-tip]:disabled::after {
-  content: none;
-}
 
 .message-meta {
   display: inline-flex;

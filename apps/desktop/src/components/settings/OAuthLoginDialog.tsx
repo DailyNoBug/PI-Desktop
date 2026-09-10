@@ -12,7 +12,7 @@ import { useTranslation } from "react-i18next";
 import type { OAuthPromptRequest, OAuthVendor } from "@pi-desktop/shared";
 import type { OAuthLoginSession } from "../../lib/oauth-login-session";
 import { canSubmitOAuthPrompt } from "../../lib/oauth-login-prompt";
-import { Button, Input, cx } from "../ui";
+import { Button, Input, TooltipButton, cx } from "../ui";
 import { IconCheck, IconCopy, IconExternal } from "../icons";
 
 type AuthUrlState = { url: string; instructions?: string; opened: boolean };
@@ -201,10 +201,11 @@ export function OAuthLoginDialog({
                 <div className="oauth-block-text">
                   {t("settings.vendorDeviceCodeHint")}
                 </div>
-                <button
+                <TooltipButton
                   type="button"
                   className="oauth-device-code font-mono"
-                  title={t("settings.vendorCopyCode")}
+                  tooltip={t("settings.vendorCopyCode")}
+                  ariaLabel={t("settings.vendorCopyCode")}
                   onClick={() => copy(deviceCode.userCode)}
                 >
                   <span>{deviceCode.userCode}</span>
@@ -213,7 +214,7 @@ export function OAuthLoginDialog({
                   ) : (
                     <IconCopy size={14} />
                   )}
-                </button>
+                </TooltipButton>
                 <a
                   className="oauth-link"
                   href={deviceCode.verificationUri}

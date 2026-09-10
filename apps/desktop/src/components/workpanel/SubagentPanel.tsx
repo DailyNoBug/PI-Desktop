@@ -20,6 +20,7 @@ import type { SubagentPanelSelection } from "../../lib/subagent-panel";
 import { useAppStore } from "../../stores/app-store";
 import { useFollowScroll } from "../../hooks/use-follow-scroll";
 import { IconArrowDown } from "../icons";
+import { TooltipButton } from "../ui";
 import { SubagentDetail } from "../ChatTranscript";
 
 function delegationIdForMessage(message: UiMessage): string {
@@ -146,15 +147,15 @@ export function SubagentPanel({ selection }: { selection: SubagentPanelSelection
         </div>
       </div>
       {showJump ? (
-        <button
+        <TooltipButton
           type="button"
           className="jump-latest-btn subagent-panel-jump"
-          aria-label={t("chat.scrollToBottom")}
-          title={t("chat.scrollToBottom")}
+          tooltip={t("chat.scrollToBottom")}
+          ariaLabel={t("chat.scrollToBottom")}
           onClick={jumpToLatest}
         >
           <IconArrowDown size={14} />
-        </button>
+        </TooltipButton>
       ) : null}
       <span id="subagent-panel-title" className="sr-only">
         {activeSessionId === selection.sessionId

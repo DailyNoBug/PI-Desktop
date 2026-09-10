@@ -22,7 +22,7 @@ import {
   type ModelInfo,
   type ThinkingLevel,
 } from "@pi-desktop/shared";
-import { Button, Field, Input, cx } from "../ui";
+import { Button, Field, Input, Tooltip, TooltipButton, cx } from "../ui";
 import { IconClose, IconHelp, IconPlus, IconRefresh, IconSearch } from "../icons";
 import { describeModelsFetchError } from "./model-fetch-error";
 import type { ProviderModelsState } from "./useProviderModels";
@@ -466,11 +466,11 @@ export function ModelSelectionPanes({
                     >
                       {t("settings.advanced")}
                     </button>
-                    <button
+                    <TooltipButton
                       type="button"
                       className="provider-chosen-remove"
-                      aria-label={t("settings.removeModel")}
-                      title={t("settings.removeModel")}
+                      ariaLabel={t("settings.removeModel")}
+                      tooltip={t("settings.removeModel")}
                       disabled={busy}
                       onClick={() =>
                         setModels((current) =>
@@ -479,7 +479,7 @@ export function ModelSelectionPanes({
                       }
                     >
                       <IconClose size={12} />
-                    </button>
+                    </TooltipButton>
                   </div>
                   {/* Dense sheet: 2xs labels, alias hint as a title tooltip. */}
                   <div
@@ -588,12 +588,13 @@ export function ModelSelectionPanes({
                         {levelChoices.map((level) => {
                           const on = binding.thinkingLevels.includes(level);
                           return (
-                            <button
+                            <TooltipButton
                               key={level}
                               type="button"
                               className={cx("provider-thinking-chip", on && "selected")}
+                              ariaLabel={t(`thinkingLevel.${level}`)}
+                              tooltip={t(`thinkingLevel.${level}`)}
                               aria-pressed={on}
-                              title={t(`thinkingLevel.${level}`)}
                               onClick={() => {
                                 const next: ThinkingLevel[] = on
                                   ? binding.thinkingLevels.filter(
@@ -611,7 +612,7 @@ export function ModelSelectionPanes({
                               }}
                             >
                               {t(`thinkingLevel.${level}`)}
-                            </button>
+                            </TooltipButton>
                           );
                         })}
                       </div>
@@ -651,12 +652,13 @@ export function ModelSelectionPanes({
                             />
                             <span>{t("settings.availableForSubagents")}</span>
                           </label>
-                          <span
+                          <Tooltip
                             className="provider-chosen-delegation-help"
-                            data-tip={t("settings.availableForSubagentsHint")}
+                            label={t("settings.availableForSubagentsHint")}
+                            ariaLabel={t("settings.availableForSubagentsHint")}
                           >
                             <IconHelp size={13} />
-                          </span>
+                          </Tooltip>
                         </span>
                       </div>
                     </div>

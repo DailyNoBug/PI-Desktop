@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { cx } from "./ui";
+import { TooltipButton, cx } from "./ui";
 
 // --- Time-based session grouping ---
 type TimeGroup = "today" | "yesterday" | "thisWeek" | "older14d" | "archived";
@@ -95,13 +95,6 @@ type ProjectEntry = {
   meta: ProjectMeta;
   /** Best-effort git branch from the project workspace, if known. */
   branch?: string;
-};
-
-type ProjectPathTooltip = {
-  id: string;
-  path: string;
-  top: number;
-  left: number;
 };
 
 type SessionHoverCard = {
@@ -285,14 +278,12 @@ export function Sidebar({
     top: number;
     left: number;
   } | null>(null);
-  const [projectPathTooltip, setProjectPathTooltip] = useState<ProjectPathTooltip | null>(null);
   const [sessionHoverCard, setSessionHoverCard] = useState<SessionHoverCard | null>(null);
   const [expandedProjectSessions, setExpandedProjectSessions] = useState<Record<string, boolean>>({});
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const menuFirstItemRef = useRef<HTMLButtonElement | null>(null);
   const sessionPrefetchTimerRef = useRef<number | undefined>(undefined);
-  const projectPathTimerRef = useRef<number | undefined>(undefined);
   const sessionHoverTimerRef = useRef<number | undefined>(undefined);
   const sessionHoverTargetRef = useRef<HTMLElement | null>(null);
   const sidebarResizeRef = useRef<SidebarResizeState | null>(null);
@@ -461,8 +452,6 @@ export function Sidebar({
   const openProjectRowMenu = useCallback(
     (projectKey: string, trigger: HTMLButtonElement | null) => {
       menuTriggerRef.current = trigger;
-      window.clearTimeout(projectPathTimerRef.current);
-      setProjectPathTooltip(null);
       setSortOpen(false);
       setSessionMenu(null);
       setSectionMenu(null);
@@ -475,27 +464,6 @@ export function Sidebar({
   // the pointer to settle on the row, but short enough that a deliberate
   // hover does not feel sluggish.
   const PROJECT_PATH_HOVER_DELAY_MS = 500;
-
-  const showProjectPath = useCallback(
-    (entry: ProjectEntry, target: HTMLButtonElement) => {
-      // Clear any pending timer so back-to-back hovers don't flash the card.
-      window.clearTimeout(projectPathTimerRef.current);
-      projectPathTimerRef.current = window.setTimeout(() => {
-        const rect = target.getBoundingClientRect();
-        const tooltipWidth = Math.min(420, window.innerWidth - 16);
-        setProjectPathTooltip({
-          id: `${projectDomId(entry.key)}-path-tooltip`,
-          path: entry.path,
-          top:
-            rect.bottom + 48 <= window.innerHeight
-              ? rect.bottom + 6
-              : Math.max(8, rect.top - 42),
-          left: Math.max(8, Math.min(rect.left, window.innerWidth - tooltipWidth - 8)),
-        });
-      }, PROJECT_PATH_HOVER_DELAY_MS);
-    },
-    [],
-  );
 
   const openSectionMenu = useCallback(
     (section: "sessions" | "projects", x: number, y: number) => {
@@ -539,16 +507,6 @@ export function Sidebar({
     if (!sessionMenu && !projectMenu && !sectionMenu && !sortOpen) return;
     requestAnimationFrame(() => menuFirstItemRef.current?.focus());
   }, [sessionMenu, projectMenu, sectionMenu, sortOpen]);
-
-  useEffect(() => {
-    if (!projectPathTooltip) return;
-    const hideTooltip = () => {
-      window.clearTimeout(projectPathTimerRef.current);
-      setProjectPathTooltip(null);
-    };
-    window.addEventListener("resize", hideTooltip);
-    return () => window.removeEventListener("resize", hideTooltip);
-  }, [projectPathTooltip]);
 
   useEffect(() => {
     if (!sessionHoverCard) return;
@@ -1231,12 +1189,12 @@ export function Sidebar({
           <span className="thread-item-title">{taskTitle(session.title)}</span>
         </button>
         <div className="sidebar-row-actions">
-          <button
+          <TooltipButton
             type="button"
             className="thread-item-more"
             data-action="session-menu"
-            aria-label={t("nav.sessionActions", { defaultValue: "Session actions" })}
-            title={t("nav.sessionActions", { defaultValue: "Session actions" })}
+            tooltip={t("nav.sessionActions", { defaultValue: "Session actions" })}
+            ariaLabel={t("nav.sessionActions", { defaultValue: "Session actions" })}
             aria-haspopup="menu"
             aria-expanded={sessionMenu === session.id}
             onClick={(event) => {
@@ -1250,7 +1208,7 @@ export function Sidebar({
             }}
           >
             <IconMore size={14} />
-          </button>
+          </TooltipButton>
         </div>
       </div>
     );
@@ -1335,25 +1293,18 @@ export function Sidebar({
             );
           }}
         >
-          <button
+          <TooltipButton
             type="button"
             id={projectId}
             className="sidebar-session-group-title project-toggle"
-            aria-label={entry.name}
+            tooltip={entry.path}
+            tooltipDelayMs={500}
+            tooltipClassName="ui-tooltip-path"
+            ariaLabel={entry.name}
             aria-describedby={`${projectId}-path-description`}
             aria-expanded={!collapsedProject}
             aria-controls={`${projectId}-sessions`}
             data-action="toggle-project-collapse"
-            onMouseEnter={(event) => showProjectPath(entry, event.currentTarget)}
-            onMouseLeave={() => {
-              window.clearTimeout(projectPathTimerRef.current);
-              setProjectPathTooltip(null);
-            }}
-            onFocus={(event) => showProjectPath(entry, event.currentTarget)}
-            onBlur={() => {
-              window.clearTimeout(projectPathTimerRef.current);
-              setProjectPathTooltip(null);
-            }}
             onClick={() => void (async () => {
               if (!entry.active && !(await selectProject(entry.path))) return;
               setCollapsed(entry.path, !collapsedProject);
@@ -1375,16 +1326,16 @@ export function Sidebar({
             )}
             <span>{entry.name}</span>
             {entry.active ? <span className="sidebar-project-active-dot" aria-label={t("project.active", { defaultValue: "Active" })} /> : null}
-          </button>
+          </TooltipButton>
           <span id={`${projectId}-path-description`} className="sr-only">
             {entry.path}
           </span>
           <div className="sidebar-menu-wrap">
-            <button
+            <TooltipButton
               type="button"
               className="thread-item-more project-more"
-              aria-label={t("project.openActions", { name: entry.name })}
-              title={t("project.openActions", { name: entry.name })}
+              tooltip={t("project.openActions", { name: entry.name })}
+              ariaLabel={t("project.openActions", { name: entry.name })}
               aria-haspopup="menu"
               aria-expanded={isMenuOpen}
               onClick={(event) => {
@@ -1398,17 +1349,17 @@ export function Sidebar({
               }}
             >
               <IconMore size={14} />
-            </button>
+            </TooltipButton>
           </div>
-          <button
+          <TooltipButton
             type="button"
             className="sidebar-session-group-add"
-            title={entry.active ? t("project.newTask") : t("project.openAndNewTask", { defaultValue: "Open project and create task" })}
-            aria-label={entry.active ? t("project.newTask") : t("project.openAndNewTask", { defaultValue: "Open project and create task" })}
+            tooltip={entry.active ? t("project.newTask") : t("project.openAndNewTask", { defaultValue: "Open project and create task" })}
+            ariaLabel={entry.active ? t("project.newTask") : t("project.openAndNewTask", { defaultValue: "Open project and create task" })}
             onClick={() => void createProjectSession(entry.path)}
           >
             <IconNewSession size={13} />
-          </button>
+          </TooltipButton>
         </div>
         <div
           id={`${projectId}-sessions`}
@@ -1681,21 +1632,6 @@ export function Sidebar({
     );
   };
 
-  const renderProjectPathTooltip = () => {
-    if (!projectPathTooltip || typeof document === "undefined") return null;
-    return createPortal(
-      <div
-        id={projectPathTooltip.id}
-        className="sidebar-project-path-tooltip"
-        role="tooltip"
-        style={{ top: projectPathTooltip.top, left: projectPathTooltip.left }}
-      >
-        {projectPathTooltip.path}
-      </div>,
-      document.body,
-    );
-  };
-
   // Map a session mode to the secondary tag label. We only show one tag in
   // addition to the always-on "Local task" badge so the row stays compact.
   const modeTagLabel = (mode: Mode, permission: PermissionMode): string => {
@@ -1777,33 +1713,33 @@ export function Sidebar({
       onAnimationEnd={onAnimationEnd}
     >
       <div className="sidebar-header">
-        <button
+        <TooltipButton
           type="button"
           className="brand no-drag"
           data-nav="home"
-          title={t("nav.home")}
-          aria-label={t("nav.home")}
+          tooltip={t("nav.home")}
+          ariaLabel={t("nav.home")}
           onClick={() => setPage("chat")}
         >
           <BrandLogo size={20} />
           <span>{t("app.shellName")}</span>
-        </button>
+        </TooltipButton>
         <div className="sidebar-header-actions no-drag">
-          <button
+          <TooltipButton
             type="button"
             className="icon-btn"
-            title={
+            tooltip={
               sidebarToggleShortcut
                 ? `${t("nav.collapseSidebar")} (${sidebarToggleShortcut})`
                 : t("nav.collapseSidebar")
             }
-            aria-label={t("nav.collapseSidebar")}
+            ariaLabel={t("nav.collapseSidebar")}
             aria-expanded={true}
             data-nav="toggle-sidebar"
             onClick={onToggleSidebar}
           >
             <IconSidebar size={15} />
-          </button>
+          </TooltipButton>
         </div>
       </div>
 
@@ -1832,12 +1768,12 @@ export function Sidebar({
             </span>
             <div className="sidebar-toolbar-actions">
               <div className="sidebar-menu-wrap">
-                <button
+                <TooltipButton
                   type="button"
                   className={`sidebar-toolbar-button ${sortOpen ? "active" : ""}`}
                   data-action="session-sort"
-                  aria-label={t("nav.sortSessions", { defaultValue: "Sort sessions" })}
-                  title={t("nav.sortSessions", { defaultValue: "Sort sessions" })}
+                  ariaLabel={t("nav.sortSessions", { defaultValue: "Sort sessions" })}
+                  tooltip={t("nav.sortSessions", { defaultValue: "Sort sessions" })}
                   aria-haspopup="menu"
                   aria-expanded={sortOpen}
                   onClick={(event) => {
@@ -1854,25 +1790,23 @@ export function Sidebar({
                   }}
                 >
                   <IconArrowUpDown size={14} />
-                </button>
+                </TooltipButton>
               </div>
-              <button
+              <TooltipButton
                 type="button"
                 className="sidebar-toolbar-button"
                 data-action="new-standalone-session"
-                title={t("nav.newTemporarySession")}
-                aria-label={t("nav.newTemporarySession")}
+                tooltip={t("nav.newTemporarySession")}
+                ariaLabel={t("nav.newTemporarySession")}
                 onClick={() => void createSession({ projectPath: null })}
               >
                 <IconNewSession size={14} />
-              </button>
+              </TooltipButton>
             </div>
           </div>
           <div
             className="sidebar-session-group-body standalone"
             onScroll={() => {
-              window.clearTimeout(projectPathTimerRef.current);
-              setProjectPathTooltip(null);
               if (sessionMenu || projectMenu || sectionMenu || sortOpen) closeMenus(false);
             }}
             onContextMenu={(event) => {
@@ -1901,23 +1835,21 @@ export function Sidebar({
           }}
         >
           <span className="sidebar-list-label">{t("nav.projects")}</span>
-          <button
+          <TooltipButton
             type="button"
             className="sidebar-toolbar-button"
             data-action="new-project"
-            title={t("nav.newProject")}
-            aria-label={t("nav.newProject")}
+            tooltip={t("nav.newProject")}
+            ariaLabel={t("nav.newProject")}
             onClick={() => void openProjectPicker()}
           >
             <IconNewProject size={14} />
-          </button>
+          </TooltipButton>
         </div>
 
         <div
           className="sidebar-session-groups min-h-0 flex-1 overflow-auto px-0.5"
           onScroll={() => {
-            window.clearTimeout(projectPathTimerRef.current);
-            setProjectPathTooltip(null);
             if (sessionMenu || projectMenu || sectionMenu || sortOpen) closeMenus(false);
           }}
           onContextMenu={(event) => {
@@ -1947,35 +1879,35 @@ export function Sidebar({
 
         <div className="sidebar-footer no-drag">
           <div className="footer-actions">
-            <button
+            <TooltipButton
               type="button"
               className={`footer-action ${page === "settings" ? "active" : ""}`}
               data-nav="settings"
-              title={t("nav.settings")}
-              aria-label={t("nav.settings")}
+              tooltip={t("nav.settings")}
+              ariaLabel={t("nav.settings")}
               onClick={() => setPage("settings")}
             >
               <IconSettings size={14} aria-hidden />
-            </button>
-            <button
+            </TooltipButton>
+            <TooltipButton
               type="button"
               className={`footer-action ${page === "plugins" ? "active" : ""}`}
               data-nav="plugins"
-              title={t("nav.plugins")}
-              aria-label={t("nav.plugins")}
+              tooltip={t("nav.plugins")}
+              ariaLabel={t("nav.plugins")}
               onClick={() => setPage("plugins")}
             >
               <IconPlug size={14} aria-hidden />
-            </button>
+            </TooltipButton>
             <NotificationCenter onBeforeOpen={() => closeMenus(false)} />
           </div>
 
-          <button
+          <TooltipButton
             type="button"
             className={`footer-build ${updateReady ? "has-update" : ""}`}
             data-nav="build"
-            title={buildTitle}
-            aria-label={buildTitle}
+            tooltip={buildTitle}
+            ariaLabel={buildTitle}
             onClick={() => {
               if (updateReady) {
                 setSettingsAnchor("updates.title");
@@ -1991,11 +1923,10 @@ export function Sidebar({
           >
             <span className="footer-build-version">{buildLabel}</span>
             {updateReady ? <span className="footer-build-dot" aria-hidden /> : null}
-          </button>
+          </TooltipButton>
         </div>
       </div>
       {renderFloatingMenu()}
-      {renderProjectPathTooltip()}
       {renderSessionHoverCard()}
       {renameFor ? (
         <SessionRenameDialog

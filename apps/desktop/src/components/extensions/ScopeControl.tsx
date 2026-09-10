@@ -10,7 +10,7 @@ import {
   type ActivationState,
   type ProjectRecord,
 } from "@pi-desktop/shared";
-import { cx } from "../ui";
+import { TooltipButton, cx } from "../ui";
 import {
   IconCheck,
   IconChevronDown,
@@ -162,14 +162,13 @@ export function ScopeControl({
     <div className={cx("scope-control", compact && "is-compact")}>
       {compact ? (
         <div className="scope-compact-wrap" ref={compactWrapRef}>
-          <button
+          <TooltipButton
             type="button"
             className={cx("scope-compact-trigger", `is-${state}`)}
-            aria-label={`${t("extensions.scope.ariaLabel", { name: label })}: ${currentStateLabel}`}
+            ariaLabel={`${t("extensions.scope.ariaLabel", { name: label })}: ${currentStateLabel}`}
+            tooltip={t(STATE_HINT_KEYS[state])}
             aria-haspopup={pickerOpen ? "dialog" : "menu"}
             aria-expanded={compactOpen || pickerOpen}
-            title={t(STATE_HINT_KEYS[state])}
-            data-tip={t(STATE_HINT_KEYS[state])}
             disabled={disabled}
             onClick={() => {
               if (pickerOpen) {
@@ -182,7 +181,7 @@ export function ScopeControl({
             <StateIcon state={state} />
             <span className="scope-compact-label">{currentStateLabel}</span>
             <IconChevronDown className="scope-compact-chevron" size={12} />
-          </button>
+          </TooltipButton>
           {compactOpen ? (
             <div
               className={cx("scope-compact-menu", compactFlipUp && "is-up")}
@@ -190,13 +189,14 @@ export function ScopeControl({
               aria-label={t("extensions.scope.ariaLabel", { name: label })}
             >
               {STATE_ORDER.map((option) => (
-                <button
+                <TooltipButton
                   key={option}
                   type="button"
                   role="menuitemradio"
                   aria-checked={state === option}
                   className={cx("scope-compact-option", state === option && "is-active")}
-                  title={t(STATE_HINT_KEYS[option])}
+                  tooltip={t(STATE_HINT_KEYS[option])}
+                  ariaLabel={t(STATE_LABEL_KEYS[option])}
                   disabled={disabled}
                   onClick={() => select(option)}
                 >
@@ -210,7 +210,7 @@ export function ScopeControl({
                     </span>
                   </span>
                   {state === option ? <IconCheck size={13} /> : null}
-                </button>
+                </TooltipButton>
               ))}
             </div>
           ) : null}
@@ -236,19 +236,20 @@ export function ScopeControl({
             aria-label={t("extensions.scope.ariaLabel", { name: label })}
           >
             {STATE_ORDER.map((option) => (
-              <button
+              <TooltipButton
                 key={option}
                 type="button"
                 role="radio"
                 aria-checked={state === option}
                 className={cx("scope-seg", state === option && "is-active")}
-                title={t(STATE_HINT_KEYS[option])}
+                tooltip={t(STATE_HINT_KEYS[option])}
+                ariaLabel={t(STATE_LABEL_KEYS[option])}
                 disabled={disabled}
                 onClick={() => select(option)}
               >
                 <StateIcon state={option} />
                 <span>{t(STATE_LABEL_KEYS[option])}</span>
-              </button>
+              </TooltipButton>
             ))}
           </div>
           {state === "projects" ? (
@@ -403,15 +404,15 @@ function ScopeProjectsSummary({
         >
           <div className="scope-popover-head">
             <div className="scope-popover-title">{t("extensions.scope.pickerTitle", { name: label })}</div>
-            <button
+            <TooltipButton
               type="button"
               className="scope-popover-close"
-              aria-label={t("common.close")}
-              title={t("common.close")}
+              tooltip={t("common.close")}
+              ariaLabel={t("common.close")}
               onClick={() => onOpenChange(false)}
             >
               <IconX size={12} />
-            </button>
+            </TooltipButton>
           </div>
           <div className="scope-popover-search">
             <IconSearch size={12} />

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Composer } from "./Composer";
 import { HomeMascotLogo } from "./HomeMascotLogo";
 import { IconX } from "./icons";
+import { TooltipButton } from "./ui";
 import { OnboardingChecklist } from "./OnboardingChecklist";
 import { SessionPane } from "./SessionPane";
 import { useAppStore } from "../stores/app-store";
@@ -227,15 +228,15 @@ export const ChatSurface = memo(function ChatSurface() {
                 {t("errors.action.retry")}
               </button>
             ) : null}
-            <button
+            <TooltipButton
               type="button"
-              aria-label={t("errors.action.dismiss")}
-              title={t("errors.action.dismiss")}
+              tooltip={t("errors.action.dismiss")}
+              ariaLabel={t("errors.action.dismiss")}
               className="chat-error-dismiss"
               onClick={() => useAppStore.getState().clearError()}
             >
               <IconX size={13} />
-            </button>
+            </TooltipButton>
           </div>
         </div>
       ) : null}

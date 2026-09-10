@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { TrustedExtensionUiPrompt } from "@pi-desktop/shared";
 import { api } from "../lib/api";
 import { useAppStore } from "../stores/app-store";
-import { Button } from "./ui";
+import { Button, TooltipButton } from "./ui";
 import { IconClose, IconPlug } from "./icons";
 
 /**
@@ -137,15 +137,15 @@ function ExtensionPromptDialog({
               <code className="extension-prompt-source-path">{prompt.extensionId}</code>
             </p>
           </div>
-          <button
+          <TooltipButton
             type="button"
             className="session-rename-dialog-close"
-            aria-label={t("common.cancel")}
-            title={t("common.cancel")}
+            ariaLabel={t("common.cancel")}
+            tooltip={t("common.cancel")}
             onClick={() => onSettle(undefined)}
           >
             <IconClose size={16} />
-          </button>
+          </TooltipButton>
         </div>
         <form onSubmit={submit}>
           {request.kind === "confirm" ? (
