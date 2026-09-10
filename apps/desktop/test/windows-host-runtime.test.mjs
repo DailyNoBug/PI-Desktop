@@ -31,3 +31,17 @@ test("Windows keyboard hook retains only a weak stdout sender", async () => {
   assert.match(rpc, /tokio::time::timeout\(STDOUT_WRITER_SHUTDOWN, writer_done_rx\)/);
 });
 
+test("shared host stdin cap matches host-core MAX_STDIN_LINE_BYTES", async () => {
+  const rpc = await readFile(
+    new URL("../../../crates/host-core/src/rpc/mod.rs", import.meta.url),
+    "utf8",
+  );
+  const limits = await readFile(
+    new URL("../../../packages/shared/src/rpc-limits.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(rpc, /const MAX_STDIN_LINE_BYTES: u64 = 64 \* 1024 \* 1024;/);
+  assert.match(limits, /export const MAX_HOST_STDIN_LINE_BYTES = 64 \* 1024 \* 1024;/);
+});
+
+
