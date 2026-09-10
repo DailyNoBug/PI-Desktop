@@ -39,6 +39,10 @@ import { installRendererApi } from "./capture/renderer-api";
 import { commitWorkPanelPresentation } from "./lib/work-panel-presentation";
 import { browserPluginTab } from "./lib/work-panel-tabs";
 import {
+  MAIN_PANE_MIN_WIDTH,
+  shouldCollapseWorkPanel,
+} from "./lib/work-panel-resize";
+import {
   clampSidebarWidth,
   loadSidebarWidth,
   saveSidebarWidth,
@@ -189,6 +193,7 @@ function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => loadSidebarWidth());
   const [sidebarExiting, setSidebarExiting] = useState(false);
+  const mainPaneRef = useRef<HTMLElement | null>(null);
   const handleSidebarWidthChange = useCallback((width: number) => {
     setSidebarWidth(clampSidebarWidth(width));
   }, []);
@@ -231,6 +236,7 @@ function AppShell() {
     return () => window.clearTimeout(timer);
   }, [sidebarExiting]);
   const [presentedWorkPanelOpen, setPresentedWorkPanelOpen] = useState(false);
+  const [workPanelEntranceComplete, setWorkPanelEntranceComplete] = useState(false);
   const [workPanelExiting, setWorkPanelExiting] = useState(false);
   const workPanelReservationRequest = useRef(0);
   const workPanelExitGeneration = useRef(0);
@@ -263,6 +269,10 @@ function AppShell() {
 
   useEffect(() => {
     presentedWorkPanelRef.current = presentedWorkPanelOpen;
+  }, [presentedWorkPanelOpen]);
+
+  useEffect(() => {
+    if (!presentedWorkPanelOpen) setWorkPanelEntranceComplete(false);
   }, [presentedWorkPanelOpen]);
 
   useEffect(() => {
@@ -333,6 +343,7 @@ function AppShell() {
     const request = ++workPanelReservationRequest.current;
 
     if (shouldPresent) {
+      const reopeningDuringExit = workPanelExitingRef.current;
       // The panel is an internal flex column. Keep the reservation seam
       // explicitly at zero so opening it can only reflow the existing client
       // area; it must never grow the native window before mounting.
@@ -340,6 +351,7 @@ function AppShell() {
       workPanelExitClosing.current = false;
       workPanelExitingRef.current = false;
       setWorkPanelExiting(false);
+      if (reopeningDuringExit) setWorkPanelEntranceComplete(false);
       void commitWorkPanelPresentation({
         reservation: api.setWorkPanelReservation(0),
         isCurrent: () => request === workPanelReservationRequest.current,
@@ -366,6 +378,25 @@ function AppShell() {
       commit: () => setPresentedWorkPanelOpen(shouldPresent),
     });
   }, [page, ready, subagentPanelOpen, workPanelOpen]);
+  useEffect(() => {
+    if (!presentedWorkPanelOpen || !workPanelEntranceComplete) return;
+    const pane = mainPaneRef.current;
+    if (!pane || typeof ResizeObserver === "undefined") return;
+
+    let previousWidth = pane.getBoundingClientRect().width;
+    const collapseIfTooNarrow = () => {
+      const width = pane.getBoundingClientRect().width;
+      const shouldCollapse = shouldCollapseWorkPanel(previousWidth, width);
+      previousWidth = width;
+      if (!shouldCollapse) return;
+      const store = useAppStore.getState();
+      if (store.workPanelOpen) store.collapseWorkPanel();
+      if (store.subagentPanel) closeSubagentPanel();
+    };
+    const observer = new ResizeObserver(collapseIfTooNarrow);
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, [closeSubagentPanel, presentedWorkPanelOpen, workPanelEntranceComplete]);
 
   // Fallback if animationend is skipped (display:none mid-flight, etc.).
   useEffect(() => {
@@ -848,7 +879,7 @@ function AppShell() {
             />
           ) : null}
 
-          <section className="main-pane">
+          <section className="main-pane" ref={mainPaneRef}>
             <WindowControls contained />
             {page === "chat" ? (
               <ConversationTopbar
@@ -959,6 +990,7 @@ function AppShell() {
               onExitAnimationEnd={() =>
                 finishWorkPanelExit(workPanelExitGeneration.current)
               }
+              onEntranceAnimationEnd={() => setWorkPanelEntranceComplete(true)}
               subagentPanel={subagentPanelOpen ? subagentPanel : null}
               onCloseSubagentPanel={closeSubagentPanel}
             />

@@ -162,7 +162,7 @@ test("renderer exposes the updates API, banner and settings row", () => {
   assert.match(releaseNotesDialogSource, /event\.key === "Escape"/);
   assert.match(
     appSource,
-    /<section className="main-pane">[\s\S]*?<UpdateBanner \/>/,
+    /<section className="main-pane"(?: ref=\{mainPaneRef\})?>[\s\S]*?<UpdateBanner \/>/,
     "chat update notice is anchored inside the main pane",
   );
   assert.match(

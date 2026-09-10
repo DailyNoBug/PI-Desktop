@@ -913,7 +913,7 @@ Codex parity decisions (D034/D070) supersede any older value here.
 | Titlebar row height | 46px | Codex toolbar rhythm (D034); traffic lights {x:16,y:16} |
 | Sidebar width (collapsed) | 48px | Icon-only rail |
 | Sidebar width (expanded) | `240px–520px` (default 275px) | Right-edge resize handle; persisted preferred width |
-| Main pane minimum readable width | 360px | Target when the panel is closed; an open internal panel may reduce MainChat below this target on small windows |
+| Main pane minimum readable width | 360px | Readability threshold for resize collapse; opening may begin below this target on small windows, but a later shrink below it while the panel is open collapses the panel |
 | Work panel width (closed) | 0px | Hidden by default |
 | Work panel width (open) | `244px–720px` (default 280px), fixed at the committed width | the panel is an in-flow column whose width is taken from the existing client area; the renderer owns its divider (ADR 0151) |
 | Composer shell minimum | ~80px | One-line draft + toolbar padding |
@@ -924,16 +924,20 @@ Codex parity decisions (D034/D070) supersede any older value here.
 
 An open work panel is a fixed-width in-flow column inside the existing client
 area (ADR 0151). Its flex allocation comes from MainChat, and the renderer's
-measured panel rect continues to position the native Browser view. Opening and
-collapsing do not request a positive native reservation or change persisted
-window bounds. Before collapse motion starts, any native Browser preview surface
-is detached because it cannot participate in renderer CSS animation; macOS,
-Windows, and Linux retain the fade-and-slide exit.
+measured panel rect continues to position the native Browser view. Opening is
+allowed even when MainChat is below 360px; opening and collapsing do not request
+a positive native reservation or change persisted window bounds. Before collapse
+motion starts, any native Browser preview surface is detached because it cannot
+participate in renderer CSS animation; macOS, Windows, and Linux retain the
+fade-and-slide exit.
 
 ### 10.1 Responsive collapse
 
-- The work panel never participates in responsive collapse. It keeps its
-  committed `244..720px` width (default 280px) while visible.
+- The panel opens at its committed `244..720px` width even when the current
+  client area leaves MainChat below 360px.
+- After opening, the renderer tracks the measured main-pane width. If a later
+  native window resize or sidebar expansion makes it narrower than 360px, the
+  panel collapses automatically and returns its internal space to MainChat.
 - The inner panel divider changes the panel width in the renderer. Moving it
   left takes more internal space from MainChat; moving it right returns that
   space. Native window edges resize only the fixed app window.

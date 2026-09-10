@@ -523,3 +523,36 @@ test("work panel empty states match the app's other empty-state proportions", ()
     /\.work-panel-empty-tool:focus-visible \{\s*outline: 2px solid var\(--ds-focus\)/,
   );
 });
+
+test("work panel opens at any width and collapses after the conversation shrinks", () => {
+  assert.match(appSource, /const mainPaneRef = useRef<HTMLElement \| null>\(null\)/);
+  assert.match(appSource, /workPanelEntranceComplete/);
+  assert.match(
+    appSource,
+    /if \(!presentedWorkPanelOpen \|\| !workPanelEntranceComplete\) return/,
+  );
+  assert.match(
+    appSource,
+    /onEntranceAnimationEnd=\{\(\) => setWorkPanelEntranceComplete\(true\)\}/,
+  );
+  assert.match(panelSource, /event\.animationName === "work-panel-in"/);
+  assert.match(appSource, /const reopeningDuringExit = workPanelExitingRef\.current/);
+  assert.match(
+    appSource,
+    /if \(reopeningDuringExit\) setWorkPanelEntranceComplete\(false\)/,
+  );
+  assert.doesNotMatch(appSource, /hasWorkPanelSpace|canOpenWorkPanel/);
+  assert.match(
+    appSource,
+    /let previousWidth = pane\.getBoundingClientRect\(\)\.width/,
+  );
+  assert.match(
+    appSource,
+    /const shouldCollapse = shouldCollapseWorkPanel\(previousWidth, width\)/,
+  );
+  assert.match(appSource, /new ResizeObserver\(collapseIfTooNarrow\)/);
+  assert.match(
+    appSource,
+    /if \(!shouldCollapse\) return/,
+  );
+});

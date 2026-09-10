@@ -157,7 +157,7 @@ test("Windows and Linux use menu-free frameless chrome with window controls", ()
   assert.match(controlsSource, /window-controls-in-pane/);
   assert.match(
     appSource,
-    /<section className="main-pane">[\s\S]*?<WindowControls contained \/>/,
+    /<section className="main-pane"(?: ref=\{mainPaneRef\})?>[\s\S]*?<WindowControls contained \/>/,
   );
   assert.match(
     stylesSource,

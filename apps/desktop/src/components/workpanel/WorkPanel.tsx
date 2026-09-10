@@ -74,6 +74,7 @@ export function WorkPanel({
   panelBlocked = false,
   exiting = false,
   onExitAnimationEnd,
+  onEntranceAnimationEnd,
   subagentPanel = null,
   onCloseSubagentPanel,
 }: {
@@ -85,7 +86,10 @@ export function WorkPanel({
   panelBlocked?: boolean;
   /** Plays work-panel-out; parent unmounts after animationend. */
   exiting?: boolean;
+  /** Called after the work-panel-out animation finishes. */
   onExitAnimationEnd?: () => void;
+  /** Called after the work-panel-in animation finishes. */
+  onEntranceAnimationEnd?: () => void;
   /** Temporarily replaces the resource body with the selected subagent detail. */
   subagentPanel?: SubagentPanelSelection | null;
   onCloseSubagentPanel?: () => void;
@@ -409,9 +413,13 @@ export function WorkPanel({
       data-resizing={isResizing ? "true" : undefined}
       data-exiting={exiting ? "true" : undefined}
       onAnimationEnd={(event) => {
-        if (!exitAnimationReady) return;
-        // Bubbled tab/chrome animations must not finish the shell exit.
+        // Bubbled child animations must not change shell presentation state.
         if (event.target !== event.currentTarget) return;
+        if (event.animationName === "work-panel-in") {
+          onEntranceAnimationEnd?.();
+          return;
+        }
+        if (!exitAnimationReady) return;
         if (!event.animationName.startsWith("work-panel-out")) return;
         onExitAnimationEnd?.();
       }}
