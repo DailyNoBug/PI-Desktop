@@ -38,7 +38,19 @@ import {
   type Usage,
   type UserMessage,
 } from "@earendil-works/pi-ai";
-import { DEFAULT_COMMAND_TIMEOUT_MS, OAUTH_AUTH_KIND } from "@pi-desktop/shared";
+import {
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  OAUTH_AUTH_KIND,
+  type TrustedExtensionCommand,
+  type TrustedExtensionDiagnostic,
+  type TrustedExtensionSpec,
+  type TrustedExtensionUiRequest,
+  type TrustedExtensionUiResponse,
+} from "@pi-desktop/shared";
+import {
+  TrustedExtensionRunner,
+  type TrustedExtensionBridge,
+} from "./extensions/runner.js";
 import type {
   AgentActivity,
   AgentActivityAgent,
@@ -695,6 +707,9 @@ export type AgentRuntimeOptions = {
   pluginTools?: PluginToolDef[];
   /** Plugin skills advertised in the system prompt and loaded via `Skill`. */
   pluginSkills?: PluginSkillDef[];
+  /** Trusted extensions enabled for this session (D378); loaded by
+   * `loadTrustedExtensions()` before the first prompt. */
+  trustedExtensions?: TrustedExtensionSpec[];
   /** Effective command shell selected by host-core for this session. */
   commandShell: CommandShellOption;
   /** Absolute per-session scratch directory for temporary files (D114).
@@ -722,6 +737,7 @@ export type RuntimeMatchConfig = {
   thinkingLevel: ThinkingLevel;
   pluginTools?: PluginToolDef[];
   pluginSkills?: PluginSkillDef[];
+  trustedExtensions?: TrustedExtensionSpec[];
   projectInstructions?: ProjectInstructions;
   projectPath?: string;
   commandShell: CommandShellOption;
@@ -732,6 +748,10 @@ export type RuntimeMatchConfig = {
 /** Tool calls ride in the assistant content array as `type: "toolCall"`. A
  * message that requested any is never a silent turn: the loop keeps going and
  * the user sees the tool activity. */
+function trustedExtensionIds(specs: TrustedExtensionSpec[]): string {
+  return specs.map((spec) => spec.id).sort().join("\n");
+}
+
 function messageRequestsTools(message: unknown): boolean {
   const content = isRecord(message) ? message.content : undefined;
   return (
@@ -1253,6 +1273,10 @@ export class DesktopAgentRuntime {
   private currentAssistant?: UiMessage;
   private pluginTools: PluginToolDef[];
   private pluginSkills: PluginSkillDef[];
+  private trustedExtensionSpecs: TrustedExtensionSpec[];
+  private extensionRunner?: TrustedExtensionRunner;
+  private extensionSessionName?: string;
+  private extensionTurnIndex = 0;
   /** Subagent definitions offered through the `Task` tool (ADR 0062). */
   private subagents: SubagentDefinition[];
   private subagentProviders: Record<string, RuntimeProviderConfig>;
@@ -1383,6 +1407,7 @@ export class DesktopAgentRuntime {
     this.onEvent = opts.onEvent;
     this.pluginTools = opts.pluginTools ?? [];
     this.pluginSkills = opts.pluginSkills ?? [];
+    this.trustedExtensionSpecs = opts.trustedExtensions ?? [];
     this.subagents = opts.subagents ?? [];
     this.subagentProviders = opts.subagentProviders ?? {};
     if (!isCommandShellOption(opts.commandShell) || !opts.commandShell.available) {
@@ -1622,7 +1647,7 @@ Delegation rules:
    * id while the call runs; this is where they reach pi's tool-error channel.
    * Subagents reuse it so a delegate's host failure behaves like the parent's.
    */
-  private afterToolCall({
+  private resolveOwnToolOutcome({
     toolCall,
   }: AfterToolCallContext): AfterToolCallResult | undefined {
     const terminate = this.terminatingToolCalls.delete(toolCall.id);
@@ -1632,6 +1657,104 @@ Delegation rules:
       isError: true,
       ...(terminate ? { terminate: true } : {}),
     };
+  }
+
+  private async afterToolCall(
+    context: AfterToolCallContext,
+  ): Promise<AfterToolCallResult | undefined> {
+    const own = this.resolveOwnToolOutcome(context);
+    const fromExtensions = await this.extensionToolResult(context, own);
+    if (!fromExtensions) return own;
+    return { ...(own ?? {}), ...fromExtensions };
+  }
+
+  /** `tool_call` hook: an extension may block a call with a reason (spec 16 §6). */
+  private async extensionToolCall(
+    context: BeforeToolCallContext,
+  ): Promise<BeforeToolCallResult | undefined> {
+    const runner = this.extensionRunner;
+    if (!runner?.hasHandlers("tool_call")) return undefined;
+    const result = await runner.emit<BeforeToolCallResult>("tool_call", {
+      type: "tool_call",
+      toolName: context.toolCall.name,
+      toolCallId: context.toolCall.id,
+      input: context.args,
+    }, (acc, next) => (acc?.block ? acc : next));
+    if (!result?.block) return undefined;
+    return { block: true, reason: result.reason ?? "blocked by a trusted extension" };
+  }
+
+  /** `tool_result` hook: an extension may replace content, details, or the error flag. */
+  private async extensionToolResult(
+    context: AfterToolCallContext,
+    own: AfterToolCallResult | undefined,
+  ): Promise<AfterToolCallResult | undefined> {
+    const runner = this.extensionRunner;
+    if (!runner?.hasHandlers("tool_result")) return undefined;
+    const result = await runner.emit<AfterToolCallResult>("tool_result", {
+      type: "tool_result",
+      toolName: context.toolCall.name,
+      toolCallId: context.toolCall.id,
+      input: context.args,
+      content: context.result.content,
+      details: context.result.details,
+      isError: own?.isError ?? context.isError,
+    }, (acc, next) => ({ ...(acc ?? {}), ...next }));
+    if (!result) return undefined;
+    const out: AfterToolCallResult = {};
+    if (result.content !== undefined) out.content = result.content;
+    if (result.details !== undefined) out.details = result.details;
+    if (result.isError !== undefined) out.isError = result.isError;
+    return Object.keys(out).length ? out : undefined;
+  }
+
+  /** `context` hook: extensions may rewrite the message list before a provider request. */
+  private async extensionContext(update: AgentLoopTurnUpdate): Promise<AgentLoopTurnUpdate> {
+    const runner = this.extensionRunner;
+    if (!runner?.hasHandlers("context") || !update.context) return update;
+    const result = await runner.emit<{ messages?: AgentMessage[] }>(
+      "context",
+      { type: "context", messages: update.context.messages },
+      (_acc, next) => next,
+    );
+    if (!Array.isArray(result?.messages)) return update;
+    return { ...update, context: { ...update.context, messages: result.messages } };
+  }
+
+  /** Mirror pi-agent-core events to extension handlers (spec 16 §6). */
+  private forwardAgentEventToExtensions(event: AgentEvent): void {
+    const runner = this.extensionRunner;
+    if (!runner) return;
+    const payload: Record<string, unknown> | undefined = (() => {
+      switch (event.type) {
+        case "agent_start":
+          return { type: "agent_start" };
+        case "agent_end":
+          return { type: "agent_end", messages: (event as { messages?: unknown }).messages ?? [] };
+        case "turn_start":
+          this.extensionTurnIndex += 1;
+          return { type: "turn_start", turnIndex: this.extensionTurnIndex, timestamp: Date.now() };
+        case "turn_end":
+          return {
+            type: "turn_end",
+            turnIndex: this.extensionTurnIndex,
+            message: (event as { message?: unknown }).message,
+            toolResults: (event as { toolResults?: unknown }).toolResults ?? [],
+          };
+        case "message_start":
+        case "message_update":
+        case "message_end":
+          return { type: event.type, message: (event as { message?: unknown }).message };
+        case "tool_execution_start":
+        case "tool_execution_update":
+        case "tool_execution_end":
+          return { ...(event as unknown as Record<string, unknown>) };
+        default:
+          return undefined;
+      }
+    })();
+    if (!payload || !runner.hasHandlers(payload.type as string)) return;
+    void runner.emit(payload.type as any, payload);
   }
 
   private async beforeToolCall(
@@ -1650,7 +1773,7 @@ Delegation rules:
         reason: `${[...MODE_TRANSITION_TOOL_NAMES].join(", ")} must be the only tool call in the assistant message.`,
       };
     }
-    if (!transition) return undefined;
+    if (!transition) return this.extensionToolCall(context);
     const enterKind = enterToolKind(context.toolCall.name);
     if (enterKind && this.mode !== "agent") {
       return {
@@ -1736,8 +1859,163 @@ Delegation rules:
       // bodies are part of the `Task` tool's behavior, so unlike skills they
       // are compared in full.
       safeJson(this.subagents) === safeJson(config.subagents ?? []) &&
-      safeJson(this.subagentProviders) === safeJson(config.subagentProviders ?? {})
+      safeJson(this.subagentProviders) === safeJson(config.subagentProviders ?? {}) &&
+      // Enabling or disabling a trusted extension retires the runtime so the
+      // next prompt reloads the set (spec 16 §4.3).
+      trustedExtensionIds(this.trustedExtensionSpecs) ===
+        trustedExtensionIds(config.trustedExtensions ?? [])
     );
+  }
+
+  /**
+   * Load the enabled trusted extensions (D378). Called once by the sidecar
+   * after construction; a failing entry is reported through diagnostics and
+   * never fails the session.
+   */
+  async loadTrustedExtensions(): Promise<void> {
+    if (this.disposed || this.extensionRunner || this.trustedExtensionSpecs.length === 0) return;
+    const runner = new TrustedExtensionRunner({
+      specs: this.trustedExtensionSpecs,
+      bridge: this.createExtensionBridge(),
+      reservedToolNames: () => this.toolCatalog.keys(),
+    });
+    this.extensionRunner = runner;
+    await runner.load();
+    if (this.disposed) return;
+    this.rebuildToolCatalog();
+    this.agent.state.tools = this.activeTools();
+  }
+
+  /** Run a registered extension slash command in this session (spec 16 §8). */
+  async runTrustedExtensionCommand(name: string, args: string): Promise<{ handled: boolean }> {
+    if (!this.extensionRunner) return { handled: false };
+    return { handled: await this.extensionRunner.runCommand(name, args) };
+  }
+
+  getTrustedExtensionReports() {
+    return this.extensionRunner?.getLoadReports() ?? [];
+  }
+
+  private createExtensionBridge(): TrustedExtensionBridge {
+    const runtime = this;
+    return {
+      sessionId: this.sessionId,
+      cwd: this.projectPath ?? process.cwd(),
+      getModel: () => runtime.model,
+      // The desktop owns the provider binding per session (D342); an
+      // extension cannot swap it from inside a turn.
+      setModel: async () => false,
+      getThinkingLevel: () => runtime.thinkingLevel,
+      setThinkingLevel: (level) => {
+        runtime.thinkingLevel = clampThinkingLevel(runtime.provider, level as ThinkingLevel);
+      },
+      isIdle: () => !runtime.agent.state.isStreaming,
+      abort: () => {
+        void runtime.abort();
+      },
+      hasPendingMessages: () => false,
+      getContextUsage: () => {
+        const budget = runtime.contextBudget(runtime.agent.state.messages);
+        return {
+          tokens: budget.tokens,
+          contextWindow: budget.hardLimit,
+          percent: budget.hardLimit > 0 ? Math.round((budget.tokens / budget.hardLimit) * 100) : null,
+        };
+      },
+      compact: () => {
+        runtime.pendingModelCompaction = true;
+      },
+      getSystemPrompt: () => runtime.agent.state.systemPrompt,
+      getActiveTools: () => runtime.activeTools().map((tool) => tool.name),
+      getAllTools: () => {
+        const active = new Set(runtime.activeTools().map((tool) => tool.name));
+        return [...runtime.toolCatalog.values()].map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          active: active.has(tool.name),
+        }));
+      },
+      setActiveTools: (names) => {
+        const wanted = new Set(names);
+        for (const name of runtime.deferredToolNames) {
+          if (wanted.has(name)) runtime.activeDeferredToolNames.add(name);
+          else runtime.activeDeferredToolNames.delete(name);
+        }
+        runtime.agent.state.tools = runtime.activeTools();
+      },
+      getSessionName: () => runtime.extensionSessionName,
+      setSessionName: async (name) => {
+        runtime.extensionSessionName = name;
+        await runtime.host.call("session.rename", { id: runtime.sessionId, title: name });
+        void runtime.extensionRunner?.emit("session_info_changed", {
+          type: "session_info_changed",
+          name,
+        });
+      },
+      sendUserMessage: async (content, options) => {
+        const text = Array.isArray(content)
+          ? content
+              .map((part) => (isRecord(part) && typeof part.text === "string" ? part.text : ""))
+              .join("")
+          : String(content);
+        await runtime.host.call("session.queuePush", {
+          sessionId: runtime.sessionId,
+          principal: "extension",
+          idempotencyKey: randomUUID(),
+          content: text,
+          ...(options?.deliverAs === "steer" ? { prioritize: true } : {}),
+        });
+      },
+      waitForIdle: () => runtime.agent.waitForIdle(),
+      newSession: async () => {
+        try {
+          await runtime.host.call("session.create", {
+            projectPath: runtime.projectPath,
+            mode: runtime.mode,
+          });
+          return { cancelled: false };
+        } catch {
+          return { cancelled: true };
+        }
+      },
+      fork: async (entryId) => {
+        try {
+          await runtime.host.call("session.fork", {
+            sessionId: runtime.sessionId,
+            throughMessageId: entryId || undefined,
+          });
+          return { cancelled: false };
+        } catch {
+          return { cancelled: true };
+        }
+      },
+      requestUi: (extension, request) =>
+        runtime.host.call<TrustedExtensionUiResponse>("extensions.ui.request", {
+          sessionId: runtime.sessionId,
+          extensionId: extension.id,
+          extensionLabel: extension.label,
+          request,
+        } satisfies {
+          sessionId: string;
+          extensionId: string;
+          extensionLabel: string;
+          request: TrustedExtensionUiRequest;
+        }),
+      publishCommands: (commands: TrustedExtensionCommand[]) => {
+        void runtime.host
+          .call("extensions.commands.publish", { sessionId: runtime.sessionId, commands })
+          .catch(() => undefined);
+      },
+      publishDiagnostics: (diagnostics: TrustedExtensionDiagnostic[]) => {
+        void runtime.host
+          .call("extensions.diagnostics.publish", {
+            sessionId: runtime.sessionId,
+            diagnostics,
+            reports: runtime.extensionRunner?.getLoadReports() ?? [],
+          })
+          .catch(() => undefined);
+      },
+    };
   }
 
   /* Rebuild pi-ai messages from the persisted transcript, including tool
@@ -2487,6 +2765,9 @@ Delegation rules:
     const contextTools = this.compactionEnabled
       ? [this.buildContextCompactionTool()]
       : [];
+    // Trusted extension tools are non-core: the per-mode allowlist and
+    // ToolSearch deferral treat them like plugin tools (spec 16 §7).
+    const extensionTools = this.extensionRunner?.getAgentTools() ?? [];
     return [
       ...builtins,
       askTool,
@@ -2495,6 +2776,7 @@ Delegation rules:
       ...modeTools,
       ...subagentTools,
       ...contextTools,
+      ...extensionTools,
     ];
   }
 
@@ -3074,7 +3356,7 @@ Delegation rules:
           },
           // A host failure inside a delegate reaches its tool-error channel
           // through the same bookkeeping the parent uses.
-          resolveToolOutcome: (context) => this.afterToolCall(context),
+          resolveToolOutcome: (context) => this.resolveOwnToolOutcome(context),
           signal: abortSignal,
         })
           .run()
@@ -4437,6 +4719,13 @@ Delegation rules:
    */
   private async prepareNextTurn(
     turn: PrepareNextTurnContext,
+    signal?: AbortSignal,
+  ): Promise<AgentLoopTurnUpdate> {
+    return this.extensionContext(await this.prepareNextTurnWithoutExtensions(turn, signal));
+  }
+
+  private async prepareNextTurnWithoutExtensions(
+    turn: PrepareNextTurnContext,
     _signal?: AbortSignal,
   ): Promise<AgentLoopTurnUpdate> {
     let context = this.rebuiltAgentContext();
@@ -5113,6 +5402,7 @@ Delegation rules:
   }
 
   private async handleAgentEvent(event: AgentEvent) {
+    this.forwardAgentEventToExtensions(event);
     switch (event.type) {
       case "agent_start":
         if (this.providerRetryInProgress || this.silentTurnRerunInProgress) {
@@ -5807,12 +6097,14 @@ Delegation rules:
           return { turnId: this.turnId };
         }
       }
+      await this.extensionBeforeAgentStart(input);
       if (typeof input === "string") {
         await this.agent.prompt(input);
       } else {
         await this.agent.prompt(input.text, promptImages(input));
       }
       await this.agent.waitForIdle();
+      void this.extensionRunner?.emit("agent_settled", { type: "agent_settled" });
 
       if (!(await this.runPendingRecoveries())) return { turnId: this.turnId };
       if (this.turnHadError) {
@@ -5841,6 +6133,25 @@ Delegation rules:
       throw Object.assign(new Error(diagnosticError.message), diagnosticError);
     }
     return { turnId: this.turnId };
+  }
+
+  /** `before_agent_start` hook: extensions may replace the system prompt for this turn. */
+  private async extensionBeforeAgentStart(input: string | RuntimePrompt): Promise<void> {
+    const runner = this.extensionRunner;
+    if (!runner?.hasHandlers("before_agent_start")) return;
+    const base = this.composeSystemPrompt();
+    const result = await runner.emit<{ systemPrompt?: string }>(
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: typeof input === "string" ? input : input.text,
+        systemPrompt: base,
+        systemPromptOptions: {},
+      },
+      (acc, next) => ({ ...(acc ?? {}), ...next }),
+    );
+    this.agent.state.systemPrompt =
+      typeof result?.systemPrompt === "string" ? result.systemPrompt : base;
   }
 
   async abort(): Promise<void> {
@@ -5881,6 +6192,9 @@ Delegation rules:
   }
 
   async dispose(): Promise<void> {
+    const runner = this.extensionRunner;
+    this.extensionRunner = undefined;
+    if (runner) await runner.dispose().catch(() => undefined);
     this.disposed = true;
     this.runCancelled = true;
     this.resolvePendingAskTools();
