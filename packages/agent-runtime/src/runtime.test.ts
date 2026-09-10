@@ -2088,6 +2088,237 @@ describe("DesktopAgentRuntime plan transitions", () => {
     await runtime.dispose();
   });
 
+  it("re-runs a progress-only turn once during approved plan execution", async () => {
+    const onEvent = vi.fn();
+    const runtime = createRuntime({ onEvent });
+    const agent = (runtime as any).agent;
+    const handleAgentEvent = (runtime as any).handleAgentEvent.bind(runtime);
+    const progressMessage = assistantMessage({
+      content: [
+        { type: "text", text: "Staged YAML complete. Writing Owner Note now." },
+      ],
+    });
+    const recoveredMessage = assistantMessage({
+      content: [{ type: "text", text: "Implemented the approved plan." }],
+    });
+
+    let attempts = 0;
+    agent.waitForIdle = vi.fn(async () => undefined);
+    agent.continue = vi.fn(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        agent.state.messages = [
+          { role: "user", content: "execute the approved plan", timestamp: 1 },
+          progressMessage,
+        ];
+      } else {
+        // The progress assistant is visible in the reused bubble but must be
+        // removed before continue() rebuilds the model context.
+        expect(agent.state.messages).toHaveLength(1);
+        expect(agent.state.messages.at(-1)?.role).toBe("user");
+        expect(agent.state.systemPrompt).toContain("<progress_only_recovery>");
+      }
+      await handleAgentEvent({ type: "agent_start" });
+      await handleAgentEvent({ type: "turn_start" });
+      await handleAgentEvent({
+        type: "message_start",
+        message: { role: "assistant", content: [] },
+      });
+      await handleAgentEvent({
+        type: "message_end",
+        message: attempts === 1 ? progressMessage : recoveredMessage,
+      });
+      await handleAgentEvent({ type: "turn_end" });
+      await handleAgentEvent({ type: "agent_end", messages: [] });
+    });
+
+    const execution: PlanExecution = {
+      id: "execution-progress",
+      proposalId: "proposal-progress",
+      sessionId: "session-1",
+      kind: "plan",
+      plan: "# Approved\n\nDo the work.",
+      title: "Approved plan",
+      question: "Proceed?",
+      artifact: {
+        relativePath: ".pi/plan/proposal-progress.md",
+        sha256: "abc123",
+        sizeBytes: 24,
+      },
+      targetPermissionMode: "auto",
+      state: "running",
+    };
+
+    await runtime.executeApprovedPlan(execution, "execution-turn-progress");
+
+    const events = onEvent.mock.calls.map(([envelope]) => (envelope as any).event);
+    expect(agent.continue).toHaveBeenCalledTimes(2);
+    expect(events.filter((event) => event.type === "agent_start")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "turn_start")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "message_start")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "turn_end")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "error")).toHaveLength(0);
+    expect(
+      events.filter((event) => event.type === "message_update")[1]?.message
+        ?.content,
+    ).toBe("Staged YAML complete. Writing Owner Note now.");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "message_end",
+        message: expect.objectContaining({
+          status: "complete",
+          content: "Implemented the approved plan.",
+        }),
+      }),
+    );
+    expect(agent.state.systemPrompt).not.toContain("<progress_only_recovery>");
+    expect((runtime as any).progressTurnRerunInProgress).toBe(false);
+    expect((runtime as any).pendingProgressTurnRerun).toBe(false);
+
+    await runtime.dispose();
+  });
+
+  it("chains silent recovery after a progress-only turn", async () => {
+    const onEvent = vi.fn();
+    const runtime = createRuntime({ onEvent });
+    const agent = (runtime as any).agent;
+    const handleAgentEvent = (runtime as any).handleAgentEvent.bind(runtime);
+    const progressMessage = assistantMessage({
+      content: [{ type: "text", text: "Writing the remaining note." }],
+    });
+    const silentMessage = assistantMessage({
+      content: [{ type: "thinking", thinking: "the work is complete" }],
+    });
+    const finalMessage = assistantMessage({
+      content: [{ type: "text", text: "Implemented the approved plan." }],
+    });
+
+    let attempts = 0;
+    agent.waitForIdle = vi.fn(async () => undefined);
+    agent.continue = vi.fn(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        agent.state.messages = [
+          { role: "user", content: "execute the approved plan", timestamp: 1 },
+        ];
+      } else {
+        expect(agent.state.messages).toHaveLength(1);
+        expect(agent.state.messages.at(-1)?.role).toBe("user");
+        expect(agent.state.systemPrompt).toContain(
+          attempts === 2 ? "<progress_only_recovery>" : "<no_output_recovery>",
+        );
+      }
+      const message =
+        attempts === 1 ? progressMessage : attempts === 2 ? silentMessage : finalMessage;
+      agent.state.messages = [...agent.state.messages, message];
+      await handleAgentEvent({ type: "agent_start" });
+      await handleAgentEvent({ type: "turn_start" });
+      await handleAgentEvent({
+        type: "message_start",
+        message: { role: "assistant", content: [] },
+      });
+      await handleAgentEvent({ type: "message_end", message });
+      await handleAgentEvent({ type: "turn_end" });
+      await handleAgentEvent({ type: "agent_end", messages: [] });
+    });
+
+    const execution: PlanExecution = {
+      id: "execution-progress-silent",
+      proposalId: "proposal-progress-silent",
+      sessionId: "session-1",
+      kind: "plan",
+      plan: "# Approved\n\nDo the work.",
+      title: "Approved plan",
+      question: "Proceed?",
+      artifact: {
+        relativePath: ".pi/plan/proposal-progress-silent.md",
+        sha256: "abc123",
+        sizeBytes: 24,
+      },
+      targetPermissionMode: "auto",
+      state: "running",
+    };
+
+    await runtime.executeApprovedPlan(execution, "execution-turn-progress-silent");
+
+    const events = onEvent.mock.calls.map(([envelope]) => (envelope as any).event);
+    expect(agent.continue).toHaveBeenCalledTimes(3);
+    expect(events.filter((event) => event.type === "agent_start")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "turn_start")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "message_start")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "turn_end")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "error")).toHaveLength(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "message_end",
+        message: expect.objectContaining({
+          status: "complete",
+          content: "Implemented the approved plan.",
+        }),
+      }),
+    );
+    expect(agent.state.systemPrompt).not.toContain("<progress_only_recovery>");
+    expect(agent.state.systemPrompt).not.toContain("<no_output_recovery>");
+
+    await runtime.dispose();
+  });
+
+  it("does not re-run a normal approved plan final report", async () => {
+    const onEvent = vi.fn();
+    const runtime = createRuntime({ onEvent });
+    const agent = (runtime as any).agent;
+    const handleAgentEvent = (runtime as any).handleAgentEvent.bind(runtime);
+    const finalMessage = assistantMessage({
+      content: [{ type: "text", text: "Implemented the approved plan." }],
+    });
+
+    agent.waitForIdle = vi.fn(async () => undefined);
+    agent.continue = vi.fn(async () => {
+      agent.state.messages = [
+        { role: "user", content: "execute the approved plan", timestamp: 1 },
+        finalMessage,
+      ];
+      await handleAgentEvent({ type: "agent_start" });
+      await handleAgentEvent({ type: "turn_start" });
+      await handleAgentEvent({
+        type: "message_start",
+        message: { role: "assistant", content: [] },
+      });
+      await handleAgentEvent({ type: "message_end", message: finalMessage });
+      await handleAgentEvent({ type: "turn_end" });
+      await handleAgentEvent({ type: "agent_end", messages: [] });
+    });
+
+    const execution: PlanExecution = {
+      id: "execution-final",
+      proposalId: "proposal-final",
+      sessionId: "session-1",
+      kind: "plan",
+      plan: "# Approved\n\nDo the work.",
+      title: "Approved plan",
+      question: "Proceed?",
+      artifact: {
+        relativePath: ".pi/plan/proposal-final.md",
+        sha256: "abc123",
+        sizeBytes: 24,
+      },
+      targetPermissionMode: "auto",
+      state: "running",
+    };
+
+    await runtime.executeApprovedPlan(execution, "execution-turn-final");
+
+    const events = onEvent.mock.calls.map(([envelope]) => (envelope as any).event);
+    expect(agent.continue).toHaveBeenCalledOnce();
+    expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "error")).toHaveLength(0);
+    expect(agent.state.systemPrompt).not.toContain("<progress_only_recovery>");
+
+    await runtime.dispose();
+  });
+
   it("starts each approved plan execution from clean recovery state", async () => {
     const runtime = createRuntime();
     const agent = (runtime as any).agent;
@@ -2096,6 +2327,10 @@ describe("DesktopAgentRuntime plan transitions", () => {
     (runtime as any).suppressSilentTurnRunEnd = true;
     (runtime as any).silentTurnRerunAttempted = true;
     (runtime as any).pendingSilentTurnRerun = true;
+    (runtime as any).suppressProgressTurnRunEnd = true;
+    (runtime as any).progressTurnRerunAttempted = true;
+    (runtime as any).pendingProgressTurnRerun = true;
+    (runtime as any).progressTurnRerunInProgress = true;
     agent.continue = vi.fn(async () => undefined);
     agent.waitForIdle = vi.fn(async () => undefined);
 
@@ -2121,6 +2356,10 @@ describe("DesktopAgentRuntime plan transitions", () => {
     expect((runtime as any).suppressSilentTurnRunEnd).toBe(false);
     expect((runtime as any).silentTurnRerunAttempted).toBe(false);
     expect((runtime as any).pendingSilentTurnRerun).toBe(false);
+    expect((runtime as any).suppressProgressTurnRunEnd).toBe(false);
+    expect((runtime as any).progressTurnRerunAttempted).toBe(false);
+    expect((runtime as any).pendingProgressTurnRerun).toBe(false);
+    expect((runtime as any).progressTurnRerunInProgress).toBe(false);
 
     await runtime.dispose();
   });

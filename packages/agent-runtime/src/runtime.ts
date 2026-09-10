@@ -755,17 +755,30 @@ function messageRequestsTools(message: unknown): boolean {
   );
 }
 
-/** Visible assistant text without any toolCall in an autonomous run. */
+const PROGRESS_FORWARD_INTENT_PATTERNS = [
+  /\b(?:about to|going to|will|next|then|still(?: need| have to)?|remaining|left to|working on|writing|reading|updating|implementing|checking|running|creating|fixing|reviewing|proceed(?:ing)?|continu(?:e|ing)|starting|moving on)\b/i,
+  /(?:接下来|下一步|还需要|仍需|剩下|正在|将要|继续|开始)/i,
+];
+const PROGRESS_TERMINAL_LEAD =
+  /^(?:done|all done|complete(?:d)?|finished|implemented|resolved|verified|successful(?:ly)?|the (?:approved )?(?:plan|goal) is complete)\b/i;
+
+function hasProgressForwardIntent(text: string): boolean {
+  return PROGRESS_FORWARD_INTENT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/** Clearly forward-looking visible assistant text without a toolCall. */
 export function isProgressOnlyAssistantTurn(message: unknown): boolean {
+  if (!isRecord(message) || message.role !== "assistant") return false;
   if (messageRequestsTools(message)) return false;
   const content = isRecord(message) ? message.content : undefined;
-  if (typeof content === "string") return content.trim().length > 0;
-  if (!Array.isArray(content)) return false;
-  const text = content
-    .filter((part) => isRecord(part) && part.type === "text")
-    .map((part) => String((part as { text?: unknown }).text ?? ""))
-    .join("");
-  return text.trim().length > 0;
+  const text = assistantContent(content).text.trim();
+  if (!text || !hasProgressForwardIntent(text)) return false;
+  if (!PROGRESS_TERMINAL_LEAD.test(text)) return true;
+
+  // A report can mention a completed step and still announce the next one.
+  // Only recover a terminal-looking lead when a later clause carries the
+  // forward intent that distinguishes it from a normal final report.
+  return hasProgressForwardIntent(text.replace(PROGRESS_TERMINAL_LEAD, ""));
 }
 
 function boundedText(value: string, maxChars: number): string {
@@ -1451,7 +1464,7 @@ export class DesktopAgentRuntime {
       // (which the user never sees), and the user is left sending "继续" to
       // find out whether anything happened. Every clause below is one of those
       // observed failures stated as a hard rule.
-      "Collaboration: answer in the same language the user writes in. Before each batch of tool calls, write one short sentence saying what you are about to do; never leave the user with no new text for more than one tool batch or 60 seconds of work. Whatever the user asked must be answered in your visible text — your reasoning is not shown to them, so a conclusion that lives only there never reached them. Make the final message self-contained: the outcome, what you changed, and anything still open, without asking the user to re-read intermediate updates. Carry the work through end to end; when you hit a blocker, try to clear it yourself and report what you tried, instead of stopping at analysis or a half-finished change.",
+      "Collaboration: answer in the same language the user writes in. Before each batch of tool calls, write one short sentence saying what you are about to do in the same assistant message as those calls; never leave the user with no new text for more than one tool batch or 60 seconds of work. Whatever the user asked must be answered in your visible text — your reasoning is not shown to them, so a conclusion that lives only there never reached them. Make the final message self-contained: the outcome, what you changed, and anything still open, without asking the user to re-read intermediate updates. Carry the work through end to end; when you hit a blocker, try to clear it yourself and report what you tried, instead of stopping at analysis or a half-finished change.",
       // Delegation steering (ADR 0089). The trigger patterns below are the
       // proactive half of the Task tool's own description: models delegate
       // when the system prompt names the situations, and keep doing everything
@@ -4242,57 +4255,61 @@ Delegation rules:
 
   /**
    * Run whatever recovery the finished loop armed for itself. Overflow, a
-   * retriable provider stream failure, and a silent turn all suppress their
-   * run's `turn_end` / `agent_end` inside `message_end` and leave a `pending*`
-   * flag for the caller to act on once the loop is idle. An entry point that
-   * skips this leaves the run with no end events, no error, and no recovery —
-   * the turn simply stops, which is exactly how an approved plan execution
-   * used to die on a silent turn.
+   * retriable provider stream failure, a silent turn, and an autonomous
+   * progress-only turn all suppress their run's `turn_end` / `agent_end`
+   * inside `message_end` and leave a `pending*` flag for the caller to act on
+   * once the loop is idle. An entry point that skips this leaves the run with
+   * no end events, no error, and no recovery — the turn simply stops, which is
+   * exactly how an approved plan execution used to die on a silent turn.
    *
    * Returns false when overflow recovery could not create a checkpoint and the
    * caller must stop; the error event is already emitted.
    */
   private async runPendingRecoveries(): Promise<boolean> {
-    while (this.pendingProviderRetry) {
-      await this.retryPendingProviderFailure();
-    }
-
-    if (this.pendingOverflow) {
-      this.pendingOverflow = false;
-      this.suppressOverflowRunEnd = false;
-      this.overflowRecoveryAttempted = true;
-      const messages = [...this.agent.state.messages];
-      if (messages.at(-1)?.role === "assistant") messages.pop();
-      this.agent.state.messages = messages;
-      const compacted = await this.runCompaction(
-        "overflow",
-        true,
-        "active_turn",
-      );
-      if (!compacted) {
-        this.terminateParentTurn();
-        this.emit({
-          type: "error",
-          error: {
-            code: "CONTEXT_COMPACTION_FAILED",
-            message: "Context overflow recovery could not create a checkpoint",
-            retriable: false,
-          },
-        });
-        return false;
+    while (
+      this.pendingProviderRetry ||
+      this.pendingOverflow ||
+      this.pendingSilentTurnRerun ||
+      this.pendingProgressTurnRerun
+    ) {
+      if (this.pendingProviderRetry) {
+        await this.retryPendingProviderFailure();
+        continue;
       }
-      this.turnHadError = false;
-      this.requestStartedAt = Date.now();
-      await this.agent.continue();
-      await this.agent.waitForIdle();
-    }
-
-    // Last, so a turn that went silent after overflow recovery still gets
-    // its one re-run, and a re-run that goes silent again is not re-run.
-    if (this.pendingSilentTurnRerun) {
-      await this.rerunSilentTurn();
-    }
-    if (this.pendingProgressTurnRerun) {
+      if (this.pendingOverflow) {
+        this.pendingOverflow = false;
+        this.suppressOverflowRunEnd = false;
+        this.overflowRecoveryAttempted = true;
+        const messages = [...this.agent.state.messages];
+        if (messages.at(-1)?.role === "assistant") messages.pop();
+        this.agent.state.messages = messages;
+        const compacted = await this.runCompaction(
+          "overflow",
+          true,
+          "active_turn",
+        );
+        if (!compacted) {
+          this.terminateParentTurn();
+          this.emit({
+            type: "error",
+            error: {
+              code: "CONTEXT_COMPACTION_FAILED",
+              message: "Context overflow recovery could not create a checkpoint",
+              retriable: false,
+            },
+          });
+          return false;
+        }
+        this.turnHadError = false;
+        this.requestStartedAt = Date.now();
+        await this.agent.continue();
+        await this.agent.waitForIdle();
+        continue;
+      }
+      if (this.pendingSilentTurnRerun) {
+        await this.rerunSilentTurn();
+        continue;
+      }
       await this.rerunProgressOnlyTurn();
     }
     return true;
@@ -4307,6 +4324,13 @@ Delegation rules:
     if (!this.pendingProgressTurnRerun) return;
     this.pendingProgressTurnRerun = false;
     this.suppressProgressTurnRunEnd = false;
+
+    // pi-agent-core refuses `continue()` when the transcript ends in an
+    // assistant message. The progress text is already visible in the reused
+    // bubble, so it must not be sent back as model context.
+    const messages = [...this.agent.state.messages];
+    if (messages.at(-1)?.role === "assistant") messages.pop();
+    this.agent.state.messages = messages;
 
     const promptBefore = this.agent.state.systemPrompt;
     const promptWithNudge = `${promptBefore}\n\n${PROGRESS_TURN_NUDGE}`;
@@ -5186,13 +5210,21 @@ Delegation rules:
   private async handleAgentEvent(event: AgentEvent) {
     switch (event.type) {
       case "agent_start":
-        if (this.providerRetryInProgress || this.silentTurnRerunInProgress) {
+        if (
+          this.providerRetryInProgress ||
+          this.silentTurnRerunInProgress ||
+          this.progressTurnRerunInProgress
+        ) {
           break;
         }
         this.emit({ type: "agent_start" });
         break;
       case "turn_start":
-        if (this.providerRetryInProgress || this.silentTurnRerunInProgress) {
+        if (
+          this.providerRetryInProgress ||
+          this.silentTurnRerunInProgress ||
+          this.progressTurnRerunInProgress
+        ) {
           break;
         }
         this.emit({ type: "turn_start" });
@@ -5203,13 +5235,21 @@ Delegation rules:
           this.streamStartedAt = Date.now();
           const content = assistantContent((event.message as any).content);
           const retryingAssistant =
-            this.providerRetryInProgress || this.silentTurnRerunInProgress
+            this.providerRetryInProgress ||
+            this.silentTurnRerunInProgress ||
+            this.progressTurnRerunInProgress
               ? this.currentAssistant
               : undefined;
+          const initialText =
+            content.hasText && content.text.length > 0
+              ? content.text
+              : this.progressTurnRerunInProgress
+                ? retryingAssistant?.content ?? ""
+                : content.text;
           this.currentAssistant = {
             id: retryingAssistant?.id ?? randomUUID(),
             role: "assistant",
-            content: content.text,
+            content: initialText,
             ...(content.hasThinking && content.thinking
               ? { thinking: content.thinking }
               : {}),
@@ -5225,6 +5265,7 @@ Delegation rules:
             // applies to a silent-turn re-run: one bubble, no empty row.
             this.providerRetryInProgress = false;
             this.silentTurnRerunInProgress = false;
+            this.progressTurnRerunInProgress = false;
             this.emit({ type: "message_update", message: this.currentAssistant });
           } else {
             this.emit({ type: "message_start", message: this.currentAssistant });
@@ -5325,6 +5366,11 @@ Delegation rules:
           const nextThinking = content.hasThinking
             ? content.thinking
             : this.currentAssistant.thinking ?? "";
+          // `nextText` may include text retained in a reused assistant bubble
+          // from an earlier recovery attempt. Recovery classification must
+          // inspect only the response that just ended, or a silent retry after
+          // progress text would look non-silent forever.
+          const responseText = content.hasText ? content.text : "";
           if (looksLikePseudoToolCall(nextText)) {
             // The visible text is a lost tool batch, not an answer. Logging it
             // separates "the model went quiet" from "the model tried to act and
@@ -5359,7 +5405,7 @@ Delegation rules:
           const silentTurn =
             !failed &&
             !aborted &&
-            nextText.trim().length === 0 &&
+            responseText.trim().length === 0 &&
             !messageRequestsTools(event.message);
           if (silentTurn && !this.silentTurnRerunAttempted) {
             this.silentTurnRerunAttempted = true;
@@ -5412,13 +5458,14 @@ Delegation rules:
               streamMs,
             );
           }
-          // Autonomous plan/goal: progress text without a tool call is not a
-          // final answer. Nudge continue once (#43).
+          // Autonomous plan/goal: clearly forward-looking text without a tool
+          // call is probably progress, not a final answer. Nudge once (#43).
           const progressOnlyTurn =
             !failed &&
             !aborted &&
             !silentTurn &&
             this.autonomousExecution &&
+            !this.silentTurnRerunAttempted &&
             !this.progressTurnRerunAttempted &&
             isProgressOnlyAssistantTurn(event.message);
           if (progressOnlyTurn) {
