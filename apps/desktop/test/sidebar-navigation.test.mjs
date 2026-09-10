@@ -31,11 +31,11 @@ test("home sidebar exposes only the supported destination entries", () => {
 
 test("sidebar brand returns to the chat home", () => {
   const brandButton = sidebarSource.match(
-    /<button\s+type="button"\s+className="brand no-drag"[\s\S]*?<\/button>/,
+    /<TooltipButton\s+type="button"\s+className="brand no-drag"[\s\S]*?<\/TooltipButton>/,
   )?.[0] ?? "";
 
   assert.match(brandButton, /data-nav="home"/);
-  assert.match(brandButton, /aria-label=\{t\("nav\.home"\)\}/);
+  assert.match(brandButton, /ariaLabel=\{t\("nav\.home"\)\}/);
   assert.match(brandButton, /onClick=\{\(\) => setPage\("chat"\)\}/);
   assert.match(brandButton, /<BrandLogo size=\{20\}/);
   assert.match(brandButton, /t\("app\.shellName"\)/);
@@ -244,15 +244,11 @@ test("project rows expose folder actions and full-path hover", () => {
   assert.doesNotMatch(sidebarSource, /api\.openSessionFolder\(/);
   assert.match(
     sidebarSource,
-    /className="sidebar-session-group-title project-toggle"[\s\S]*?aria-describedby=\{`\$\{projectId\}-path-description`\}[\s\S]*?onMouseEnter=\{\(event\) => showProjectPath\(entry, event\.currentTarget\)\}[\s\S]*?onFocus=\{\(event\) => showProjectPath\(entry, event\.currentTarget\)\}/,
+    /className="sidebar-session-group-title project-toggle"[\s\S]*?tooltip=\{entry\.path\}[\s\S]*?tooltipDelayMs=\{500\}[\s\S]*?aria-describedby=\{`\$\{projectId\}-path-description`\}/,
   );
-  assert.match(sidebarSource, /className="sidebar-project-path-tooltip"/);
-  assert.match(sidebarSource, /role="tooltip"/);
+  assert.match(sidebarSource, /<TooltipButton/);
+  assert.match(globalStyles, /\.ui-tooltip-path\s*\{[^}]*overflow-wrap:\s*anywhere/);
   assert.match(sidebarSource, /className="sr-only">\s*\{entry\.path\}/);
-  assert.match(
-    globalStyles,
-    /\.sidebar-project-path-tooltip\s*\{[^}]*position:\s*fixed;[^}]*max-width:[^;]*;[^}]*overflow-wrap:\s*anywhere;/s,
-  );
 });
 
 test("session rows use the hover card instead of a native title tooltip", () => {

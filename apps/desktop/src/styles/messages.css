@@ -1010,24 +1010,6 @@
   padding-inline: 5px;
 }
 
-/* Portal tooltips escape the transcript scroller so a label near the
-   sidebar edge cannot be clipped by `.thread-scroll` or painted below the dock. */
-.copy-btn-tooltip {
-  position: fixed;
-  z-index: 1000;
-  max-width: calc(100vw - 16px);
-  transform: translate(-50%, -100%);
-  border: 1px solid var(--ds-border-default);
-  border-radius: var(--radius-sm);
-  background: var(--ds-bg-elevated-opaque);
-  box-shadow: var(--ds-raised-shadow);
-  padding: 3px 7px;
-  color: var(--ds-text-secondary);
-  font-size: var(--text-2xs);
-  line-height: var(--leading-compact);
-  white-space: nowrap;
-  pointer-events: none;
-}
 
 .message-meta {
   display: inline-flex;

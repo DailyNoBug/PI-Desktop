@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { UpdateState } from "@pi-desktop/shared";
 import { api } from "../lib/api";
 import { useUpdateState } from "../hooks/use-update-state";
-import { Button } from "./ui";
+import { Button, TooltipButton } from "./ui";
 import { IconClose, IconCloudDown, IconExternal } from "./icons";
 
 /**
@@ -93,15 +93,15 @@ export function UpdateBanner() {
         </div>
       </div>
 
-      <button
+      <TooltipButton
         type="button"
-        aria-label={t("updates.dismiss")}
-        title={t("updates.dismiss")}
+        tooltip={t("updates.dismiss")}
+        ariaLabel={t("updates.dismiss")}
         className="update-notice-dismiss"
         onClick={() => setDismissedState(stateKey)}
       >
         <IconClose className="size-3.5" />
-      </button>
+      </TooltipButton>
     </div>
   );
 }

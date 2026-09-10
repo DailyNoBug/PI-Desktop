@@ -24,7 +24,7 @@ import {
   groupImportCandidates,
   type ImportGroupBy,
 } from "../lib/import-groups";
-import { Badge, Button, Input, Select, cx } from "../components/ui";
+import { Badge, Button, Input, Select, TooltipButton, cx } from "../components/ui";
 import {
   SETTINGS_NAV,
   SETTINGS_NAV_GROUP_LABELS,
@@ -1115,12 +1115,13 @@ function CloseBehaviorSection() {
           aria-label={t("settings.closeBehaviorTitle")}
         >
           {options.map(([value, labelKey, descKey]) => (
-            <button
+            <TooltipButton
               key={value}
               type="button"
               role="radio"
               aria-checked={behavior === value}
-              title={t(descKey)}
+              tooltip={t(descKey)}
+              ariaLabel={t(labelKey)}
               className={cx(
                 "settings-segment-item",
                 behavior === value && "active",
@@ -1128,7 +1129,7 @@ function CloseBehaviorSection() {
               onClick={() => void choose(value)}
             >
               {t(labelKey)}
-            </button>
+            </TooltipButton>
           ))}
         </div>
       </SettingsRow>

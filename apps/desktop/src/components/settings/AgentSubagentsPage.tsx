@@ -25,6 +25,7 @@ import {
   type SubagentDraft,
 } from "./SubagentEditorSheet";
 import { IconBot, IconFolderOpen, IconPencil, IconPlus, IconTrash } from "../icons";
+import { TooltipButton } from "../ui";
 
 const GLOBAL_SUBAGENTS_PATH = "~/.agents/subagents";
 
@@ -226,16 +227,16 @@ export function AgentSubagentsPage() {
         }
         actions={
           <>
-            <button
+            <TooltipButton
               type="button"
               className="settings-icon-button"
-              aria-label={t("extensions.subagents.rowActions", { name })}
-              title={t("extensions.subagents.edit")}
+              ariaLabel={t("extensions.subagents.rowActions", { name })}
+              tooltip={t("extensions.subagents.edit")}
               disabled={busy}
               onClick={() => void openEdit(subagent)}
             >
               <IconPencil size={15} />
-            </button>
+            </TooltipButton>
             <CapabilityRowMenu
               label={t("extensions.subagents.rowActions", { name })}
               items={items}

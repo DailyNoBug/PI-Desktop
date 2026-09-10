@@ -13,7 +13,7 @@ import {
   beginOAuthLogin,
   type OAuthLoginSession,
 } from "../../lib/oauth-login-session";
-import { Badge, Button, cx } from "../ui";
+import { Badge, Button, TooltipButton, cx } from "../ui";
 import { IconKey, IconPencil, IconPlug, IconTrash } from "../icons";
 import { OAuthLoginDialog } from "./OAuthLoginDialog";
 import {
@@ -288,29 +288,29 @@ export function VendorAccountsSection() {
                     ) : null}
                   </div>
                   <div className="provider-row-actions">
-                    <button
+                    <TooltipButton
                       type="button"
                       className="icon-btn provider-icon-btn"
-                      title={t("settings.editVendorAccount")}
-                      aria-label={t("settings.editVendorAccount")}
+                      tooltip={t("settings.editVendorAccount")}
+                      ariaLabel={t("settings.editVendorAccount")}
                       disabled={rowBusy || !provider}
                       onClick={() => setEditingAccount(entry)}
                     >
                       <IconPencil size={14} />
-                    </button>
-                    <button
+                    </TooltipButton>
+                    <TooltipButton
                       type="button"
                       className={cx(
                         "icon-btn provider-icon-btn",
                         testing && "is-testing",
                       )}
-                      title={t("settings.testConnection")}
-                      aria-label={t("settings.testConnection")}
+                      tooltip={t("settings.testConnection")}
+                      ariaLabel={t("settings.testConnection")}
                       disabled={rowBusy || !provider}
                       onClick={() => void testAccount(entry)}
                     >
                       <IconPlug size={14} />
-                    </button>
+                    </TooltipButton>
                     {confirming ? (
                       <button
                         type="button"
@@ -322,16 +322,16 @@ export function VendorAccountsSection() {
                         {t("settings.deleteConfirm")}
                       </button>
                     ) : (
-                      <button
+                      <TooltipButton
                         type="button"
                         className="icon-btn provider-icon-btn provider-icon-btn-danger"
-                        title={t("settings.vendorRemoveAccount")}
-                        aria-label={t("settings.vendorRemoveAccount")}
+                        tooltip={t("settings.vendorRemoveAccount")}
+                        ariaLabel={t("settings.vendorRemoveAccount")}
                         disabled={rowBusy}
                         onClick={() => setConfirmDeleteId(account.providerId)}
                       >
                         <IconTrash size={14} />
-                      </button>
+                      </TooltipButton>
                     )}
                   </div>
                 </div>

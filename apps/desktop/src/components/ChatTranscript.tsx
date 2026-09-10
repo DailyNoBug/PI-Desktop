@@ -9,10 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type ButtonHTMLAttributes,
-  type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type {
   AgentActivity,
@@ -144,80 +141,7 @@ import {
 import { useAppStore } from "../stores/app-store";
 import type { PendingPermission } from "../lib/pending-permissions";
 import { PermissionCard } from "./PermissionCard";
-
-type ToolbarTooltipButtonProps = Omit<
-  ButtonHTMLAttributes<HTMLButtonElement>,
-  "aria-label" | "children" | "title"
-> & {
-  tooltip: string;
-  children: ReactNode;
-  ariaLabel?: string;
-};
-
-function ToolbarTooltipButton({
-  tooltip,
-  ariaLabel,
-  children,
-  className,
-  disabled = false,
-  ...buttonProps
-}: ToolbarTooltipButtonProps) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
-  const open = !disabled && Boolean(tooltip) && (hovered || focused);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setPosition(null);
-      return;
-    }
-    const updatePosition = () => {
-      const rect = buttonRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      setPosition({ left: rect.left + rect.width / 2, top: rect.top - 8 });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open]);
-
-  return (
-    <>
-      <button
-        {...buttonProps}
-        ref={buttonRef}
-        className={className}
-        data-tip={tooltip}
-        aria-label={ariaLabel ?? tooltip}
-        disabled={disabled}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-      >
-        {children}
-      </button>
-      {open && position
-        ? createPortal(
-            <span
-              className="copy-btn-tooltip"
-              role="tooltip"
-              style={{ left: position.left, top: position.top }}
-            >
-              {tooltip}
-            </span>,
-            document.body,
-          )
-        : null}
-    </>
-  );
-}
+import { TooltipButton } from "./ui";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -252,14 +176,14 @@ function CopyButton({
     );
   }
   return (
-    <ToolbarTooltipButton
+    <TooltipButton
       className={`copy-btn icon ${copied ? "copied" : ""}`}
       tooltip={tip}
       ariaLabel={label}
       onClick={() => copy(text)}
     >
       {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-    </ToolbarTooltipButton>
+    </TooltipButton>
   );
 }
 
@@ -613,15 +537,16 @@ function LinkifiedText({ text }: { text: string }) {
             onOpen={openFileRef}
           />
         ) : (
-          <button
+          <TooltipButton
             key={index}
             type="button"
             className="chat-text-link"
-            title={t("chat.previewUrl")}
+            tooltip={t("chat.previewUrl")}
+            ariaLabel={segment.text}
             onClick={() => openTarget(segment.target)}
           >
             {segment.text}
-          </button>
+          </TooltipButton>
         ),
       )}
     </>
@@ -679,14 +604,14 @@ function ToolCommandCopy({ command }: { command: string }) {
   const { t } = useTranslation();
   const { copied, copy } = useCopy();
   return (
-    <button
+    <TooltipButton
       className={`tool-row-head-copy${copied ? " copied" : ""}`}
-      aria-label={`${t("chat.copy")} ${t("chat.toolBlockCommand")}`}
-      title={copied ? t("chat.copied") : t("chat.copy")}
+      ariaLabel={`${t("chat.copy")} ${t("chat.toolBlockCommand")}`}
+      tooltip={copied ? t("chat.copied") : t("chat.copy")}
       onClick={() => copy(command)}
     >
       {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-    </button>
+    </TooltipButton>
   );
 }
 
@@ -1236,15 +1161,15 @@ function SubagentRunFollow({
         </div>
       </div>
       {scrollable && showJump ? (
-        <button
+        <TooltipButton
           type="button"
           className="jump-latest-btn"
-          aria-label={t("chat.scrollToBottom")}
-          title={t("chat.scrollToBottom")}
+          ariaLabel={t("chat.scrollToBottom")}
+          tooltip={t("chat.scrollToBottom")}
           onClick={jumpToLatest}
         >
           <IconArrowDown size={14} />
-        </button>
+        </TooltipButton>
       ) : null}
     </div>
   );
@@ -1599,11 +1524,11 @@ function DisclosureCollapseRail({
   onCollapse: () => void;
 }) {
   return (
-    <button
+    <TooltipButton
       type="button"
       className="disclosure-collapse-rail"
-      aria-label={label}
-      title={label}
+      ariaLabel={label}
+      tooltip={label}
       onClick={onCollapse}
     />
   );
@@ -2306,7 +2231,7 @@ const MessageRow = memo(function MessageRow({
           <div className="message-actions">
             {showRevisionPager ? (
               <div className="message-revision-pager" role="group" aria-label={t("chat.revisions")}>
-                <ToolbarTooltipButton
+                <TooltipButton
                   className="copy-btn icon revision-nav"
                   tooltip={t("chat.revisionPrev")}
                   ariaLabel={t("chat.revisionPrev")}
@@ -2316,14 +2241,14 @@ const MessageRow = memo(function MessageRow({
                   }
                 >
                   <IconChevronLeft size={13} />
-                </ToolbarTooltipButton>
+                </TooltipButton>
                 <span className="message-revision-label">
                   {t("chat.revisionPager", {
                     current: activeRevision,
                     total: revisionCount,
                   })}
                 </span>
-                <ToolbarTooltipButton
+                <TooltipButton
                   className="copy-btn icon revision-nav"
                   tooltip={t("chat.revisionNext")}
                   ariaLabel={t("chat.revisionNext")}
@@ -2336,12 +2261,12 @@ const MessageRow = memo(function MessageRow({
                   }
                 >
                   <IconChevronRight size={13} />
-                </ToolbarTooltipButton>
+                </TooltipButton>
               </div>
             ) : null}
             {hasAnswer ? <CopyButton text={message.content} label={copyLabel} /> : null}
             {isUser ? (
-              <ToolbarTooltipButton
+              <TooltipButton
                 className="copy-btn icon"
                 tooltip={editLabel}
                 ariaLabel={editLabel}
@@ -2352,10 +2277,10 @@ const MessageRow = memo(function MessageRow({
                 }}
               >
                 <IconPencil size={13} />
-              </ToolbarTooltipButton>
+              </TooltipButton>
             ) : null}
             {isUser ? (
-              <ToolbarTooltipButton
+              <TooltipButton
                 className="copy-btn icon danger"
                 tooltip={deleteLabel}
                 ariaLabel={deleteLabel}
@@ -2363,7 +2288,7 @@ const MessageRow = memo(function MessageRow({
                 onClick={() => void deleteMessage(message.id)}
               >
                 <IconTrash size={13} />
-              </ToolbarTooltipButton>
+              </TooltipButton>
             ) : null}
           </div>
         ) : null}
@@ -2646,24 +2571,24 @@ const AssistantTurn = memo(function AssistantTurn({
               <CopyButton text={content} label={t("chat.copy")} />
             ) : null}
             {complete ? (
-              <ToolbarTooltipButton
+              <TooltipButton
                 className="copy-btn icon"
                 tooltip={t("chat.forkResponse")}
                 ariaLabel={t("chat.forkResponse")}
                 onClick={() => void forkAssistantMessage(actionMessage.id)}
               >
                 <IconBranch size={13} />
-              </ToolbarTooltipButton>
+              </TooltipButton>
             ) : null}
             {complete ? (
-              <ToolbarTooltipButton
+              <TooltipButton
                 className="copy-btn icon"
                 tooltip={t("chat.retry")}
                 ariaLabel={t("chat.retry")}
                 onClick={() => void retryAssistantMessage(actionMessage.id)}
               >
                 <IconReview size={13} />
-              </ToolbarTooltipButton>
+              </TooltipButton>
             ) : null}
           </div>
         ) : null}
@@ -3459,10 +3384,10 @@ export const ChatTranscript = memo(function ChatTranscript({
         </div>
       ) : null}
       {showJump && !veilCovering ? (
-        <button
+        <TooltipButton
           className="jump-latest-btn"
-          aria-label={t("chat.scrollToBottom")}
-          title={t("chat.scrollToBottom")}
+          ariaLabel={t("chat.scrollToBottom")}
+          tooltip={t("chat.scrollToBottom")}
           onClick={() => {
             pinnedRef.current = true;
             setShowJump(false);
@@ -3474,7 +3399,7 @@ export const ChatTranscript = memo(function ChatTranscript({
           }}
         >
           <IconArrowDown size={14} />
-        </button>
+        </TooltipButton>
       ) : null}
     </div>
   );

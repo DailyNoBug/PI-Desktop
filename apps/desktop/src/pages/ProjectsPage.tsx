@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ProjectRecord, SessionSummary } from "@pi-desktop/shared";
 import { useAppStore } from "../stores/app-store";
 import { api } from "../lib/api";
-import { Button, cx } from "../components/ui";
+import { Button, Tooltip, TooltipButton, cx } from "../components/ui";
 import {
   IconArchive,
   IconArchiveRestore,
@@ -431,18 +431,18 @@ export function ProjectsPage() {
             autoCapitalize="off"
           />
           {searching ? (
-            <button
+            <TooltipButton
               type="button"
               className="projects-search-clear"
-              aria-label={t("project.clearSearch")}
-              title={t("project.clearSearch")}
+              tooltip={t("project.clearSearch")}
+              ariaLabel={t("project.clearSearch")}
               onClick={() => {
                 setQuery("");
                 searchRef.current?.focus();
               }}
             >
               <IconX size={12} />
-            </button>
+            </TooltipButton>
           ) : null}
         </div>
         {searching ? (
@@ -627,24 +627,24 @@ export function ProjectsPage() {
                         {formatUpdated(project.openedAt, locale, t("project.updatedNever"))}
                       </span>
                       <div className="projects-row-actions">
-                        <button
+                        <TooltipButton
                           type="button"
                           className="projects-icon-btn"
-                          aria-label={t("project.newTask")}
-                          title={t("project.newTask")}
+                          tooltip={t("project.newTask")}
+                          ariaLabel={t("project.newTask")}
                           onClick={() => void startTask(project.path)}
                         >
                           <IconPlus size={15} />
-                        </button>
+                        </TooltipButton>
                         <div
                           className="projects-menu-wrap"
                           ref={menuOpen ? menuRef : undefined}
                         >
-                          <button
+                          <TooltipButton
                             type="button"
                             className="projects-icon-btn"
-                            aria-label={t("project.openActions", { name: project.name })}
-                            title={t("project.openActions", { name: project.name })}
+                            tooltip={t("project.openActions", { name: project.name })}
+                            ariaLabel={t("project.openActions", { name: project.name })}
                             aria-haspopup="menu"
                             aria-expanded={menuOpen}
                             onClick={() =>
@@ -652,7 +652,7 @@ export function ProjectsPage() {
                             }
                           >
                             <IconMore size={16} />
-                          </button>
+                          </TooltipButton>
                           {menuOpen ? (
                             <div className="projects-menu" role="menu">
                               <button
@@ -785,15 +785,15 @@ export function ProjectsPage() {
                                       )}
                                     </span>
                                   </button>
-                                  <button
+                                  <TooltipButton
                                     type="button"
                                     className="projects-detail-task-rename"
-                                    aria-label={t("session.renameAction", { title })}
-                                    title={t("session.renameAction", { title })}
+                                    tooltip={t("session.renameAction", { title })}
+                                    ariaLabel={t("session.renameAction", { title })}
                                     onClick={() => setRenameFor(s)}
                                   >
                                     <IconPencil size={13} aria-hidden />
-                                  </button>
+                                  </TooltipButton>
                                 </div>
                               );
                             })}

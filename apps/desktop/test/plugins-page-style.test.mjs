@@ -93,9 +93,8 @@ test("extensions page draws no in-flow dividers", async () => {
 
   assert.doesNotMatch(pluginsCss, /border-(top|bottom):\s*1px/);
   assert.doesNotMatch(pluginsCss, /inset 0 0 0 0\.5px/);
-  const strokes = pluginsCss.match(/^\s*border:\s*1px solid/gm) ?? [];
-  assert.equal(strokes.length, 1, "only the tooltip keeps a 1px stroke");
-  assert.match(pluginsCss, /\.plugins-icon-btn\[data-tip\]::after\s*\{[^}]*border:\s*1px solid/);
+  assert.doesNotMatch(pluginsCss, /\[data-tip\]|content:\s*attr\(data-tip\)/);
+  assert.match(stylesSource, /\.ui-tooltip\s*\{[\s\S]*?border:\s*1px solid/);
   assert.match(pluginsCss, /\.plugins-menu-sep\s*\{[^}]*height:\s*6px/);
   assert.doesNotMatch(pluginsCss, /\.plugins-menu-sep\s*\{[^}]*background/);
   assert.match(pluginsCss, /\.plugins-sheet-cta\s*\{[^}]*border-radius/);
@@ -123,8 +122,7 @@ test("installed row controls share one aligned rail and explain icon actions", (
   assert.match(section, /\.plugins-row-actions\s*\{[\s\S]*?opacity:\s*1/);
   assert.doesNotMatch(section, /\.plugins-row:hover \.plugins-row-actions/);
   assert.match(section, /\.plugins-icon-btn\s*\{[\s\S]*?position:\s*relative/);
-  assert.match(section, /\.plugins-icon-btn\[data-tip\]::after\s*\{[\s\S]*?content: attr\(data-tip\)/);
-  assert.match(section, /\.plugins-icon-btn\[data-tip\]:focus-visible::after/);
+  assert.match(section, /\.plugins-icon-btn\s*\{/);
 });
 
 // The 46px titlebar band floats over the destination pages on every platform: it

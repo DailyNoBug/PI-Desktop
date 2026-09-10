@@ -556,35 +556,6 @@
   cursor: default;
 }
 
-.scope-compact-trigger[data-tip]::after {
-  content: attr(data-tip);
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 5px);
-  z-index: 40;
-  border: 1px solid var(--ds-border-default);
-  border-radius: var(--radius-sm);
-  background: var(--ds-bg-elevated-opaque, var(--ds-bg-primary));
-  box-shadow: var(--ds-shadow-composer);
-  padding: 3px 7px;
-  color: var(--ds-text-secondary);
-  font-size: var(--text-2xs);
-  font-weight: var(--font-weight-normal);
-  line-height: var(--leading-compact);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
-}
-
-.scope-compact-trigger[data-tip]:hover::after,
-.scope-compact-trigger[data-tip]:focus-visible::after {
-  opacity: 1;
-}
-
-.scope-compact-trigger[data-tip]:disabled::after {
-  content: none;
-}
 
 .scope-compact-menu {
   position: absolute;

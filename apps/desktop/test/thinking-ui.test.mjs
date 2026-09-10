@@ -200,7 +200,7 @@ test("transcript keeps assistant thinking in a separate disclosure", () => {
 test("expanded assistant activity rails collapse their disclosures", () => {
   assert.match(
     transcriptSource,
-    /function DisclosureCollapseRail\([\s\S]*?className="disclosure-collapse-rail"[\s\S]*?aria-label=\{label\}[\s\S]*?onClick=\{onCollapse\}/,
+    /function DisclosureCollapseRail\([\s\S]*?className="disclosure-collapse-rail"[\s\S]*?ariaLabel=\{label\}[\s\S]*?tooltip=\{label\}[\s\S]*?onClick=\{onCollapse\}/,
   );
   assert.match(
     transcriptSource,

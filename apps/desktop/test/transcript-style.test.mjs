@@ -291,11 +291,11 @@ test("message toolbars are icon-only with hover tooltips", () => {
   assert.ok(transcriptSource.includes("label={copyLabel}"));
   assert.match(transcriptSource, /className="copy-btn icon"/);
   assert.match(transcriptSource, /tooltip=\{t\("chat\.forkResponse"\)\}/);
-  assert.match(transcriptSource, /createPortal\(/);
-  assert.match(transcriptSource, /className="copy-btn-tooltip"/);
-  assert.match(stylesSource, /\.copy-btn-tooltip\s*\{[\s\S]*?position:\s*fixed;/);
-  assert.match(stylesSource, /\.copy-btn-tooltip\s*\{[\s\S]*?z-index:\s*1000;/);
-  assert.match(stylesSource, /\.copy-btn-tooltip\s*\{[\s\S]*?transform:\s*translate\(-50%,\s*-100%\)/);
+  assert.match(transcriptSource, /import \{ TooltipButton \} from "\.\/ui"/);
+  assert.match(transcriptSource, /<TooltipButton/);
+  assert.match(stylesSource, /\.ui-tooltip\s*\{[\s\S]*?position:\s*fixed;/);
+  assert.match(stylesSource, /\.ui-tooltip\s*\{[\s\S]*?z-index:\s*1000;/);
+  assert.match(stylesSource, /\.ui-tooltip\s*\{[\s\S]*?transform:\s*translate\(-50%,\s*-100%\)/);
   // Worded surfaces (error details) keep their label.
   assert.match(transcriptSource, /withLabel/);
 });

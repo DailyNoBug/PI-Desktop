@@ -682,35 +682,6 @@
   color: var(--ds-text-primary);
 }
 
-.plugins-icon-btn[data-tip]::after {
-  content: attr(data-tip);
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 5px);
-  z-index: 40;
-  border: 1px solid var(--ds-border-default);
-  border-radius: var(--radius-sm);
-  background: var(--ds-bg-elevated-opaque, var(--ds-bg-primary));
-  box-shadow: var(--ds-shadow-composer);
-  padding: 3px 7px;
-  color: var(--ds-text-secondary);
-  font-size: var(--text-2xs);
-  line-height: var(--leading-compact);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
-}
-
-.plugins-icon-btn[data-tip]:hover::after,
-.plugins-icon-btn[data-tip]:focus-visible::after {
-  opacity: 1;
-}
-
-.plugins-icon-btn[data-tip]:disabled::after {
-  content: none;
-}
-
 .plugins-icon-btn.is-bordered {
   width: 32px;
   height: 32px;

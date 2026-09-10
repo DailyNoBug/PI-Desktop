@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 import type { ProjectRecord } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
-import { Button, Select, cx } from "../ui";
+import { Button, Select, TooltipButton, cx } from "../ui";
 import {
   IconChevronDown,
   IconFolder,
@@ -300,15 +300,15 @@ export function CapabilityToolbar({
           onChange={(event) => onSearchChange(event.target.value)}
         />
         {search ? (
-          <button
+          <TooltipButton
             type="button"
             className="agent-capability-search-clear"
-            aria-label={t("settings.clearSearch")}
-            title={t("settings.clearSearch")}
+            tooltip={t("settings.clearSearch")}
+            ariaLabel={t("settings.clearSearch")}
             onClick={() => onSearchChange("")}
           >
             <IconX size={11} />
-          </button>
+          </TooltipButton>
         ) : null}
       </div>
       {projectPicker}
@@ -493,18 +493,18 @@ export function CapabilityRowMenu({
 
   return (
     <div className="agent-capability-menu-wrap" ref={wrapRef}>
-      <button
+      <TooltipButton
         type="button"
         className="settings-icon-button"
-        aria-label={label}
-        title={label}
+        tooltip={label}
+        ariaLabel={label}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
         onClick={() => onOpenChange(!open)}
       >
         <IconMore size={16} />
-      </button>
+      </TooltipButton>
       {open ? (
         <div className="agent-capability-menu" role="menu">
           {items.map((item) => (
@@ -584,12 +584,28 @@ export function CapabilityButton({
   // No `size="sm"`: its utilities live in Tailwind's `utilities` layer while the
   // style partials are unlayered, so `.btn` wins regardless. Toolbar buttons get
   // their compact geometry from `.agent-capability-toolbar-actions > .btn`.
+  const className = cx(
+    "btn",
+    variant === "primary" ? "btn-primary" : "btn-secondary",
+  );
+  if (title) {
+    return (
+      <TooltipButton
+        tooltip={title}
+        className={className}
+        disabled={disabled || busy}
+        aria-busy={busy || undefined}
+        onClick={onClick}
+      >
+        {children}
+      </TooltipButton>
+    );
+  }
   return (
     <Button
       variant={variant}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
-      title={title}
       onClick={onClick}
     >
       {children}

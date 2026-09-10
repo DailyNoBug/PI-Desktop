@@ -44,7 +44,7 @@ import {
   saveSidebarWidth,
 } from "./lib/sidebar-preferences";
 import { StartupSplash } from "./components/StartupSplash";
-import { cx } from "./components/ui";
+import { TooltipButton, cx } from "./components/ui";
 import {
   IconPanel,
   IconNewSession,
@@ -124,29 +124,29 @@ function CollapsedTitlebarActions({
   const toggleLabel = t("nav.expandSidebar");
   return (
     <div className="titlebar-nav no-drag">
-      <button
+      <TooltipButton
         className="title-nav-btn"
-        title={
+        tooltip={
           sidebarToggleShortcut
             ? `${toggleLabel} (${sidebarToggleShortcut})`
             : toggleLabel
         }
-        aria-label={toggleLabel}
+        ariaLabel={toggleLabel}
         aria-expanded={false}
         data-nav="toggle-sidebar"
         onClick={onToggleSidebar}
       >
         <IconSidebar size={13} />
-      </button>
-      <button
+      </TooltipButton>
+      <TooltipButton
         className="title-nav-btn"
-        title={t("nav.newTask")}
-        aria-label={t("nav.newTask")}
+        tooltip={t("nav.newTask")}
+        ariaLabel={t("nav.newTask")}
         data-nav="new-task"
         onClick={onNewTask}
       >
         <IconNewSession size={13} />
-      </button>
+      </TooltipButton>
     </div>
   );
 }
@@ -964,17 +964,17 @@ function AppShell() {
             />
           )}
 
-          <button
+          <TooltipButton
             type="button"
             className="app-work-panel-toggle no-drag"
-            title={t("nav.toggleWorkPanel")}
-            aria-label={t("nav.toggleWorkPanel")}
+            tooltip={t("nav.toggleWorkPanel")}
+            ariaLabel={t("nav.toggleWorkPanel")}
             aria-pressed={workPanelOpen || presentedWorkPanelOpen}
             disabled={!activeSessionId && !presentedWorkPanelOpen && !workPanelExiting}
             onClick={togglePresentedWorkPanel}
           >
             <IconPanel size={15} />
-          </button>
+          </TooltipButton>
 
           <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
           <ToastHost />
