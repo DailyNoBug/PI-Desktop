@@ -87,9 +87,19 @@ export type RegisteredPluginTool = {
   description: string;
   risk?: string;
   schema?: unknown;
+  /**
+   * Action names that may run in Plan or Goal mode. Omitted or empty
+   * means the tool is hidden from the model in those modes (ADR 0211).
+   */
+  planSafeActions?: readonly string[];
   execute: (
     args: unknown,
-    ctx?: { sessionId?: string; modelKey?: string; thinkingLevel?: string },
+    ctx?: {
+      sessionId?: string;
+      mode?: "agent" | "plan" | "goal";
+      modelKey?: string;
+      thinkingLevel?: string;
+    },
   ) => Promise<unknown>;
 };
 
@@ -179,6 +189,18 @@ export type PluginFsConsentRequest = {
  */
 export type PluginFsConsentAnswer = "once" | "session" | "deny";
 
+/** One dangerous desktop operation a plugin asked the host to run. */
+export type PluginDesktopConsentRequest = {
+  pluginId: string;
+  pluginName: string;
+  /** Operation id from the shared controller catalog, e.g. `session/delete`. */
+  operation: string;
+  /** Catalog description of the operation, for the dialog. */
+  description: string;
+  /** Positional arguments as the plugin supplied them (secret-stripped later). */
+  args: unknown[];
+};
+
 export type PluginHostServices = {
   getWorkspacePath: () => string | null;
   getLocale?: () => string;
@@ -216,6 +238,14 @@ export type PluginHostServices = {
   }) => Promise<{ status: number; headers: Record<string, string>; bodyText: string }>;
   /** The reviewed desktop operation controller shared with MCP. */
   desktopControl?: McpControlController;
+  /**
+   * Blocking, native consent for a plugin-originated dangerous desktop
+   * operation (session delete, permission-mode change, tool approval). The
+   * controller's `confirm` flag is only the caller's acknowledgement; the
+   * user decides here. Without this service every dangerous operation from a
+   * plugin is refused, which is the safe default for a headless host.
+   */
+  confirmDesktopControl?: (request: PluginDesktopConsentRequest) => Promise<boolean>;
   audit?: (entry: Record<string, unknown>) => void;
   /**
    * Blocking, native consent for a file access the manifest did not declare.
@@ -498,6 +528,67 @@ function apiError(code: string, message: string): PluginApiError {
   return err;
 }
 
+function pluginActionEnum(schema: unknown): readonly string[] | null {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return null;
+  const properties = (schema as { properties?: unknown }).properties;
+  if (!properties || typeof properties !== "object" || Array.isArray(properties)) return null;
+  const action = (properties as Record<string, unknown>).action;
+  if (!action || typeof action !== "object" || Array.isArray(action)) return null;
+  const enumValue = (action as { enum?: unknown }).enum;
+  if (!Array.isArray(enumValue)) return null;
+  const values: string[] = [];
+  for (const entry of enumValue) {
+    if (typeof entry !== "string") return null;
+    values.push(entry);
+  }
+  return values;
+}
+
+/**
+ * Normalize and validate a plugin tools `planSafeActions` declaration
+ * (ADR 0211). Every entry must be a string and, when the schema carries an
+ * `action` enum, must be one of that enum. The validation here is the
+ * final defense in depth: the runtime normally hides unsafe tools from the
+ * model in Plan mode, but a stray call must still be rejected.
+ */
+function normalizePlanSafeActions(
+  raw: unknown,
+  schema: unknown,
+  toolName: string,
+): readonly string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw apiError(
+      "INVALID_ARGUMENT",
+      `plugin tool ${toolName} planSafeActions must be a string array`,
+    );
+  }
+  const cleaned: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string" || !entry) {
+      throw apiError(
+        "INVALID_ARGUMENT",
+        `plugin tool ${toolName} planSafeActions entries must be non-empty strings`,
+      );
+    }
+    if (cleaned.includes(entry)) continue;
+    cleaned.push(entry);
+  }
+  const actionEnum = pluginActionEnum(schema);
+  if (actionEnum) {
+    const actionSet = new Set(actionEnum);
+    for (const action of cleaned) {
+      if (!actionSet.has(action)) {
+        throw apiError(
+          "INVALID_ARGUMENT",
+          `plugin tool ${toolName} planSafeActions entry ${action} is not in the schema action enum`,
+        );
+      }
+    }
+  }
+  return cleaned;
+}
+
 const PLUGIN_SESSION_MAX_PAYLOAD_BYTES = 32 * 1024 * 1024;
 const PLUGIN_SESSION_MAX_CONTENT_BYTES = 512 * 1024;
 const PLUGIN_SESSION_MAX_TOOL_VALUE_BYTES = 256 * 1024;
@@ -700,7 +791,7 @@ function realpathOrSelf(path: string): string {
  * directory. Manifest validation already rejects `..`, so this is defense in
  * depth against symlinked or oddly-cased contributions.
  */
-function resolveInsidePlugin(pluginPath: string, relative: string): string | null {
+export function resolveInsidePlugin(pluginPath: string, relative: string): string | null {
   const root = resolve(pluginPath);
   const target = resolve(root, relative);
   const prefix = root.endsWith(sep) ? root : root + sep;
@@ -1048,7 +1139,10 @@ export class PluginRuntime {
     const manifest = validated.manifest;
     await this.unload(manifest.id);
 
-    const mainPath = join(pluginPath, manifest.main);
+    const mainPath = resolveInsidePlugin(pluginPath, manifest.main);
+    if (!mainPath) {
+      throw new Error("PLUGIN_INVALID: main entry must stay inside the plugin directory");
+    }
     if (!existsSync(mainPath)) {
       throw new Error("PLUGIN_LOAD_FAILED: main entry missing");
     }
@@ -1589,10 +1683,16 @@ export class PluginRuntime {
           description?: string;
           risk?: string;
           schema?: unknown;
+          planSafeActions?: unknown;
         };
         const name = String(descriptor.name ?? "");
         if (!name) throw apiError("INVALID_ARGUMENT", "tool.name is required");
         const fullName = pluginToolName(pluginId, name);
+        const planSafeActions = normalizePlanSafeActions(
+          descriptor.planSafeActions,
+          descriptor.schema,
+          name,
+        );
         this.tools.set(fullName, {
           fullName,
           pluginId,
@@ -1600,7 +1700,30 @@ export class PluginRuntime {
           description: String(descriptor.description ?? ""),
           risk: descriptor.risk,
           schema: descriptor.schema,
+          planSafeActions,
           execute: async (toolArgs, ctx) => {
+            // Plan/Goal mode only allows declared plan-safe actions. The
+            // runtime normally hides unsafe tools from the model, but the
+            // host must still reject a stray call (ADR 0211).
+            if (ctx?.mode === "plan" || ctx?.mode === "goal") {
+              const allowed = planSafeActions;
+              if (allowed.length === 0) {
+                throw apiError(
+                  "PERMISSION_DENIED",
+                  `plugin tool ${name} is not available in ${ctx.mode} mode`,
+                );
+              }
+              const action =
+                toolArgs && typeof toolArgs === "object" && !Array.isArray(toolArgs)
+                  ? (toolArgs as { action?: unknown }).action
+                  : undefined;
+              if (typeof action !== "string" || !allowed.includes(action)) {
+                throw apiError(
+                  "PERMISSION_DENIED",
+                  `plugin tool ${name} action ${JSON.stringify(action)} is not allowed in ${ctx.mode} mode`,
+                );
+              }
+            }
             const target = this.loaded.get(pluginId);
             if (!target?.child) throw apiError("NOT_FOUND", `plugin not loaded: ${pluginId}`);
             const sessionId = String(ctx?.sessionId ?? "");
@@ -3167,7 +3290,10 @@ export class PluginRuntime {
           this.assertPermission(loaded, "ui.panel");
           const panel = loaded.manifest.ui?.panel;
           if (!panel) throw apiError("NOT_FOUND", "plugin does not declare ui.panel");
-          const htmlPath = join(pluginPath, panel);
+          const htmlPath = resolveInsidePlugin(pluginPath, panel);
+          if (!htmlPath) {
+            throw apiError("INVALID_PARAMS", `panel html must stay inside the plugin: ${panel}`);
+          }
           if (!existsSync(htmlPath)) {
             throw apiError("NOT_FOUND", `panel html missing: ${panel}`);
           }
@@ -3258,6 +3384,49 @@ export class PluginRuntime {
           const operationInfo = this.services.desktopControl.operations.find(
             (candidate) => candidate.id === operation,
           );
+          // The controller's `confirm` flag is an acknowledgement by the
+          // caller, not a decision by the user. A plugin can set it at will,
+          // so a dangerous operation additionally needs the host's native
+          // consent; a host without that service refuses outright.
+          if (operationInfo?.risk === "dangerous") {
+            if (input.confirm !== true) {
+              throw apiError(
+                "CONFIRMATION_REQUIRED",
+                `confirm=true is required for ${operation}`,
+              );
+            }
+            const consent = this.services.confirmDesktopControl;
+            const granted = consent
+              ? await consent({
+                  pluginId,
+                  pluginName: resolvePluginLocalizedString(
+                    loaded.manifest.name,
+                    this.services.getLocale?.(),
+                    pluginId,
+                  ),
+                  operation,
+                  description: operationInfo.description,
+                  args,
+                })
+              : false;
+            if (!granted) {
+              this.services.audit?.({
+                pluginId,
+                api: "desktop.invoke",
+                operation,
+                risk: operationInfo.risk,
+                ok: false,
+                errorCode: "PERMISSION_DENIED",
+                ts: Date.now(),
+              });
+              throw apiError(
+                "PERMISSION_DENIED",
+                consent
+                  ? `user declined ${operation}`
+                  : `${operation} needs a user confirmation this host cannot show`,
+              );
+            }
+          }
           try {
             const result = await this.services.desktopControl.invoke({
               operation,
@@ -3392,7 +3561,7 @@ export class PluginRuntime {
             });
             throw apiError("INVALID_ARGUMENT", "only files can be previewed");
           }
-          const preview = previewFile(full, rel);
+          const preview = await previewFile(full, rel);
           this.services.audit?.({
             pluginId,
             api: "fs.readPreview",

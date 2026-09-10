@@ -159,8 +159,9 @@ export function PullRequestsPage() {
                   <button
                     type="button"
                     className="icon-btn"
-                    title={pr.url}
-                    onClick={() => window.open(pr.url, "_blank")}
+                    aria-label={t("pulls.open")}
+                    title={t("pulls.open")}
+                    onClick={() => void api.browserOpenExternal(pr.url)}
                   >
                     <IconExternal size={15} />
                   </button>

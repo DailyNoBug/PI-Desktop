@@ -174,6 +174,7 @@ checkpoint architecture remains host-owned.
 - `app.handshake`
 - `app.health`
 - `app.getVersion`
+- `app.getOnboarding` — inline onboarding checklist state (D031)
 
 `app.health` returns a diagnostic `toolBudget` object:
 
@@ -257,6 +258,8 @@ to later refresh and inference; the vendor picker does not collect them.
   deduplicated session index counter, and a window is served by seeking to its
   first selected line instead of scanning the history before it.
 - `session.delete`
+- `session.getScratchPath` — the session's scratch directory (D114), created
+  on demand
 - `session.rename({ id, title })` trims and validates the title at the host
   boundary. It accepts 1–80 Unicode code points and returns `{ ok: boolean }`;
   blank or overlong titles are `INVALID_PARAMS`. A successful rename changes
@@ -454,14 +457,58 @@ one after the final row would be wrong.
 - `plugins.list`
 - `plugins.loadDev`
 - `plugins.installFromPath`
+- `plugins.installFromPackage` — install a `.piplug` archive after checksum
+  verification
 - `plugins.enable`
 - `plugins.disable`
 - `plugins.uninstall`
 - `plugins.getPermissions`
+- `plugins.grantPermissions` / `plugins.revokePermissions` — change the
+  granted set; the runtime enforces the intersection of declared and granted
+- `plugins.setAutoUpdate`
+- `plugins.setScope` — activation scope (ADR 0056)
+- `plugins.resolveExecution` — resolve which plugin tools/skills/MCP servers
+  are active for a session's project before a turn starts
+
+### Marketplace
+- `market.refresh` — fetch and cache the catalog from the configured URL
+- `market.search` / `market.getDetail`
+- `market.install` — download, verify (`PLUGIN_INTEGRITY`,
+  `PLUGIN_MARKET_*`), and install one catalog release
+- `market.checkUpdates` / `market.applyUpdates`
+
+### Providers and models
+- `providers.list` / `providers.get` / `providers.create` /
+  `providers.update` / `providers.delete`
+- `providers.getSecret` — main/host only, never reachable from the renderer
+- `providers.listModels` / `providers.cacheModels` — discovered model rows
+  and their host-side cache (ADR 0027 / ADR 0134)
+- `providers.testConnection`
+
+### Agent capabilities (skills, subagents, MCP servers)
+- `skills.list` / `skills.active` / `skills.read` / `skills.create` /
+  `skills.update` / `skills.remove` / `skills.import` /
+  `skills.setEnabled` / `skills.setScope` — user skill documents
+  (`SKILL_INVALID` on validation failure)
+- `agents.list` / `agents.active` / `agents.read` / `agents.create` /
+  `agents.update` / `agents.remove` / `agents.setEnabled` /
+  `agents.setScope` — user subagent documents (`SUBAGENT_INVALID`)
+- `mcp.list` / `mcp.active` / `mcp.upsert` / `mcp.remove` /
+  `mcp.setEnabled` / `mcp.setScope` — user MCP server definitions
+  (`MCP_INVALID`)
+
+`*.active` returns the entries that apply to the given project after
+activation-scope filtering (`CAPABILITY_INVALID` for an unknown scope).
+
+### Search, artifacts, keyboard
+- `search.query` — global search across sessions, projects, and settings
+  destinations (ADR 0034)
+- `artifacts.list` — Plan/Goal checkpoint artifacts for a session
+- `keyboard.setGlobalShortcut` — host-owned native fallback for the plugin
+  launcher chord where Electron cannot register it
 
 ### Audit
 - `audit.append`
-- `audit.query` (optional later)
 
 ### Notification (D117)
 - `notification.list`
@@ -783,7 +830,12 @@ field.
 ### 5.2 Shell catalog
 
 ```ts
-type CommandShellId = "windows-powershell" | "cmd" | "git-bash" | "bash";
+type CommandShellId =
+  | "windows-powershell"
+  | "windows-pwsh"
+  | "cmd"
+  | "git-bash"
+  | "bash";
 
 type CommandShellOption = {
   id: CommandShellId;
@@ -852,33 +904,42 @@ emitted reads this list and answers through the unchanged
 
 ## 7. Error codes
 
+JSON-RPC errors carry a numeric `code` plus `data.errorCode`, the stable
+string from [08-error-codes](08-error-codes.md). Several string codes share a
+numeric slot; the string is the contract, the number is transport detail.
+
 | code | errorCode | meaning |
 |---|---|---|
 | 1000 | INTERNAL | unexpected host failure |
 | 1001 | UNAUTHORIZED | missing/invalid handshake or capability |
+| 1001 | HOST_SHUTTING_DOWN | the host is draining after EOF and refused the call |
 | 1002 | INVALID_PARAMS | schema validation failed |
-| 1003 | PATH_OUTSIDE_WORKSPACE | path sandbox violation before an explicit outside-path permission decision |
-| 1004 | TOOL_DENIED | permission denied |
-| 1005 | TOOL_TIMEOUT | tool exceeded timeout |
-| 1006 | WORKSPACE_REQUIRED | no workspace bound |
+| 1002 | MODEL_ALIAS_TOO_LONG | provider row alias exceeds 60 code points |
+| 1003 | NOT_FOUND | entity missing (legacy slot, kept for old callers) |
+| 1006 | RATE_LIMITED | a per-caller budget window was exhausted |
 | 1007 | NOT_FOUND | entity missing |
+| 1007 | SESSION_NOT_FOUND | the named session does not exist; tool requests never fall back to the global workspace |
 | 1008 | CONFLICT | busy/conflict state |
+| 1008 | AGENT_BUSY | the session has a running turn |
 | 1009 | PLUGIN_INVALID | manifest/validation failure |
 | 1010 | PLUGIN_LOAD_FAILED | enable/load failure |
-| 1011 | PROTOCOL_MISMATCH | handshake version mismatch |
+| 1011 | PROTOCOL_MISMATCH | `app.handshake` protocol version mismatch |
+| 1012 | PLUGIN_INTEGRITY | package checksum/signature mismatch |
+| 1013 | PLUGIN_PERMISSION_DENIED | plugin lacks the permission the call needs |
+| 1014 | PLUGIN_NETWORK | marketplace download/catalog fetch failed |
+| 1015 | MCP_INVALID | user MCP server definition failed validation |
+| 1015 | PLAN_* | every Plan/Goal checkpoint failure (`PLAN_APPROVAL_TIMEOUT`, `PLAN_APPROVAL_STALE`, `PLAN_APPROVAL_INTERRUPTED`, `PLAN_SESSION_NOT_FOUND`, `PLAN_WORKSPACE_REQUIRED`, …) shares this slot; the string code distinguishes them |
+| 1016 | SKILL_INVALID | user skill document failed validation |
+| 1017 | SUBAGENT_INVALID | user subagent document failed validation |
+| 1018 | CAPABILITY_INVALID | agent capability root/scope setting failed validation |
 | -32029 | HOST_OVERLOADED | RPC dispatcher capacity exhausted |
-| 1012 | WRITE_DISABLED_IN_PLAN | Write is unavailable in Plan and Goal |
-| 1013 | EDIT_DISABLED_IN_PLAN | Edit is unavailable in Plan and Goal |
-| 1014 | PLUGIN_DISABLED_IN_PLAN | plugin tools are unavailable in Plan and Goal |
-| 1015 | PLAN_APPROVAL_REQUIRED | SubmitPlan/SubmitGoal is waiting for approval |
-| 1016 | PLAN_APPROVAL_TIMEOUT | absolute approval deadline expired |
-| 1017 | PLAN_APPROVAL_STALE | response does not match the live proposal/session/turn/tool-call/version |
-| 1018 | PLAN_APPROVAL_INTERRUPTED | pending approval failed closed during abort/recovery |
-| 1019 | PLAN_REQUIRES_INTERACTIVE_SESSION | unattended Plan or Goal cannot run |
-| 1020 | PLAN_ARTIFACT_WRITE_FAILED | exact bytes could not be written to a new `.pi/<kind>/*.md` artifact |
-| 1021 | PLAN_EXECUTION_INTERRUPTED | approved queued/running Plan or Goal execution was interrupted |
-| 1022 | SHELL_NOT_FOUND | no effective platform shell is available |
-| 1023 | COMMAND_SHELL_CHANGED | pinned shell ID or dialect changed before execution |
+| -32601 | — | unknown method |
+| -32700 | — | unparseable request line; a line over 64 MiB ends the stdin reader |
+
+Tool outcomes (`TOOL_DENIED`, `TOOL_TIMEOUT`, `PATH_OUTSIDE_WORKSPACE`,
+`WORKSPACE_PATH_DENIED`, `WRITE_DISABLED_IN_PLAN`, `SHELL_NOT_FOUND`,
+`COMMAND_SHELL_CHANGED`, …) are not JSON-RPC errors: `tools.execute` returns
+`ok: false` with `errorCode` in the result (§5).
 
 ## 8. Concurrency / ordering
 

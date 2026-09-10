@@ -1,4 +1,4 @@
-use std::io::{self, BufRead, BufReader as StdBufReader, Write};
+use std::io::{self, BufRead, BufReader as StdBufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
@@ -83,6 +83,11 @@ fn is_transient_io_error(error: &io::Error) -> bool {
     ) || matches!(error.raw_os_error(), Some(11) | Some(35))
 }
 
+/// Largest single NDJSON request line the host accepts. A Write payload of a
+/// few megabytes fits comfortably; anything past this is a framing fault, not
+/// a request, and must not be buffered into memory line by line.
+const MAX_STDIN_LINE_BYTES: u64 = 64 * 1024 * 1024;
+
 fn spawn_stdin_reader(tx: mpsc::UnboundedSender<StdinEvent>) -> io::Result<thread::JoinHandle<()>> {
     thread::Builder::new()
         .name("pi-host-stdin".into())
@@ -92,8 +97,17 @@ fn spawn_stdin_reader(tx: mpsc::UnboundedSender<StdinEvent>) -> io::Result<threa
             let mut line = String::new();
 
             loop {
-                match reader.read_line(&mut line) {
+                let read = (&mut reader)
+                    .take(MAX_STDIN_LINE_BYTES + 1)
+                    .read_line(&mut line);
+                match read {
                     Ok(0) => break,
+                    Ok(_) if line.len() as u64 > MAX_STDIN_LINE_BYTES => {
+                        let _ = tx.send(StdinEvent::Error(format!(
+                            "request line exceeds {MAX_STDIN_LINE_BYTES} bytes"
+                        )));
+                        break;
+                    }
                     Ok(_) => {
                         if tx
                             .send(StdinEvent::Line(std::mem::take(&mut line)))
@@ -618,9 +632,9 @@ fn resolve_persisted_project_workspace(
 ) -> Result<Option<String>, JsonRpcError> {
     match sessions::get_session(&state.db, session_id) {
         Ok(Some(detail)) => Ok(detail.summary.project_path),
-        // Compatibility fallback for old callers that did not persist a
-        // session before dispatching a tool request.
-        Ok(None) => Ok(state.workspace.path.clone()),
+        // A tool request must name a persisted session: an unknown id never
+        // inherits the mutable global workspace.
+        Ok(None) => Err(rpc_err(1007, "session not found", "SESSION_NOT_FOUND")),
         Err(error) => Err(rpc_err(1000, error.to_string(), "INTERNAL")),
     }
 }
@@ -640,9 +654,9 @@ fn resolve_tool_workspace(
                 .map_err(|error| rpc_err(1000, error.to_string(), "INTERNAL"))?;
             Ok(Some(scratch.to_string_lossy().into_owned()))
         }
-        // Compatibility fallback for old callers that did not persist a
-        // session before dispatching a tool request.
-        Ok(None) => Ok(state.workspace.path.clone()),
+        // A tool request must name a persisted session: an unknown id never
+        // inherits the mutable global workspace.
+        Ok(None) => Err(rpc_err(1007, "session not found", "SESSION_NOT_FOUND")),
         Err(error) => Err(rpc_err(1000, error.to_string(), "INTERNAL")),
     }
 }
@@ -756,6 +770,7 @@ async fn execute_plugin_tool(
     tx: &mpsc::UnboundedSender<String>,
     p: &ToolsExecuteParams,
     timeout_ms: u64,
+    session_mode: &str,
 ) -> tools::ToolsExecuteResult {
     let started = std::time::Instant::now();
     let execution_id = uuid::Uuid::new_v4().to_string();
@@ -773,6 +788,11 @@ async fn execute_plugin_tool(
             "toolCallId": p.tool_call_id,
             "toolName": p.tool_name,
             "args": p.args,
+            // Durable session mode, not the sidecar-supplied field: ADR 0052
+            // forbids a conflicting sidecar mode from authorizing a tool
+            // (ADR 0211).
+            "mode": session_mode,
+            "planSafeActions": p.plan_safe_actions,
         }),
     )
     .await;
@@ -2384,12 +2404,6 @@ async fn handle_request(
 
         "tools.list" => Ok(json!({ "tools": tools::builtin_tool_defs() })),
         "tools.execute" => {
-            // Segmented timing (D137): a slow tool call is almost never slow
-            // *inside* the tool — the wait is either the approval prompt or the
-            // model round trip that follows. Splitting the host's own share
-            // into approval / execution / bookkeeping is what makes the three
-            // distinguishable in host/timing.log instead of one opaque
-            // duration.
             let call_started = std::time::Instant::now();
             let p: ToolsExecuteParams = serde_json::from_value(params.clone())
                 .map_err(|e| rpc_err(1002, e.to_string(), "INVALID_PARAMS"))?;
@@ -2547,6 +2561,7 @@ async fn handle_request(
                             &st.session_grants,
                             p.declared_risk.as_deref(),
                             external_path_permission,
+                            p.plan_safe_actions.as_deref(),
                         );
                     // Write/Edit targeting the session scratch dir never touch
                     // the user's project — skip the prompt (D114). The lexical
@@ -2715,19 +2730,6 @@ async fn handle_request(
                         Some(&p.session_id),
                         denied_audit,
                     );
-                    tracing::info!(
-                        tool = %p.tool_name,
-                        tool_call_id = %p.tool_call_id,
-                        session_id = %p.session_id,
-                        prompted,
-                        permission_wait_ms,
-                        execute_ms = 0,
-                        overhead_ms = 0,
-                        total_ms = call_started.elapsed().as_millis() as u64,
-                        command_shell_id = permission_shell_id.as_deref(),
-                        outcome = if cancelled { "aborted" } else { "denied" },
-                        "tool timing"
-                    );
                     let error_code = if cancelled {
                         "TOOL_ABORTED"
                     } else if sessions::is_contract_mode(&durable_mode)
@@ -2887,7 +2889,7 @@ async fn handle_request(
                 let mut result = if tools::is_desktop_dispatched(&p.tool_name) {
                     // Plugin dispatch keeps its existing bounded default timeout;
                     // command-shell timeout semantics apply only to Bash.
-                    execute_plugin_tool(&state, &tx, &p, p.timeout_ms.unwrap_or(60_000)).await
+                    execute_plugin_tool(&state, &tx, &p, p.timeout_ms.unwrap_or(60_000), &durable_mode).await
                 } else {
                     tools::execute_tool_with_path_access(
                         ws_path.as_deref(),
@@ -2982,19 +2984,6 @@ async fn handle_request(
                     execute_audit["commandShellId"] = json!(shell_id);
                 }
                 let _ = audit::append(&st.db, "tool_execute", Some(&p.session_id), execute_audit);
-                tracing::info!(
-                    tool = %p.tool_name,
-                    tool_call_id = %p.tool_call_id,
-                    session_id = %p.session_id,
-                    prompted,
-                    permission_wait_ms,
-                    execute_ms = result.duration_ms,
-                    overhead_ms,
-                    total_ms,
-                    command_shell_id = result.command_shell_id.as_deref(),
-                    outcome = if result.ok { "ok" } else { "error" },
-                    "tool timing"
-                );
 
                 serde_json::to_value(result).map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))
             }
@@ -3034,6 +3023,16 @@ async fn handle_request(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let declared_risk = params.get("declaredRisk").and_then(|v| v.as_str());
+            let plan_safe_actions: Option<Vec<String>> = params
+                .get("planSafeActions")
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(str::to_string))
+                        .collect()
+                })
+                .filter(|items: &Vec<String>| !items.is_empty());
             let st = state.lock().await;
             let Some(mode) = sessions::session_mode(&st.db, session_id)
                 .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?
@@ -3079,6 +3078,7 @@ async fn handle_request(
                     &st.session_grants,
                     declared_risk,
                     external_path_permission,
+                    plan_safe_actions.as_deref(),
                 );
             Ok(json!({
                 "decision": decision,
@@ -4105,8 +4105,11 @@ mod tests {
             "PLAN_WORKSPACE_REQUIRED"
         );
         assert_eq!(
-            resolve_tool_workspace(&state, "legacy-missing-session").unwrap(),
-            state.workspace.path
+            resolve_tool_workspace(&state, "legacy-missing-session")
+                .expect_err("unknown sessions must not inherit the global workspace")
+                .data
+                .unwrap()["errorCode"],
+            "SESSION_NOT_FOUND"
         );
     }
 

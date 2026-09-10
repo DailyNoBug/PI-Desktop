@@ -519,3 +519,11 @@ See [LICENSE](LICENSE) for details.
 <sub>macOS · Windows · Linux</sub>
 
 </div>
+
+---
+
+## Code Signing
+
+Windows releases of PI-Desktop are digitally signed with free code signing
+provided by [SignPath.io](https://signpath.io/), using a certificate from the
+[SignPath Foundation](https://signpath.org/).

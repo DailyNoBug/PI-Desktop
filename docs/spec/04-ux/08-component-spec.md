@@ -532,7 +532,10 @@ visually distinct from list content.
   message-plus session icon. Generic
   `IconPlus` remains reserved for adding non-session entities.
 - Icons are decorative when a localized text label or accessible name is
-  present; click, keyboard, and focus behavior remain unchanged.
+  present; click, keyboard, and focus behavior remain unchanged. Every
+  icon-only action must also expose that localized purpose on hover and focus:
+  use the native `title` together with `aria-label`, or the existing themed
+  `data-tip` pattern when a custom tooltip is required.
 - The expanded sidebar brand is a localized button with a 20px logo and the
   shell name on Windows/Linux; pointer or keyboard activation navigates to the
   chat home. macOS hides this brand and right-aligns Collapse sidebar in the
@@ -985,6 +988,18 @@ It does not render separate Details or Output tabs.
   process uses an **Activity** section label (it does not repeat the agent
   name), a trailing step count, and one subtle vertical timeline with no nested
   card, so unused panel space reads as one continuous work surface.
+- A delegate that settles without completing explains why, because the process
+  alone does not: a `Failed`, `Timed out`, or `Aborted` capsule with no reason
+  is all a reader gets, and a delegate that dies before emitting a message row
+  has no other carrier for its failure. When the delegation roster entry
+  reports `error: { code, message }` (ADR 0089), the panel closes with an error
+  card in the transcript's error visual language — the localized
+  `errors.<code>` sentence when that code is registered and the localized
+  `chat.subagentStatus.*` outcome otherwise, the stable code, and the raw
+  message behind a Show details / Hide details disclosure with a copy action.
+  The disclosure control sits in the card's heading so it stays reachable while
+  the details are collapsed, and the card follows a **non-success** terminal
+  outcome, so a completed or still-running delegate never shows one.
 - The dock header identifies the view as **Subagent** and offers close and
   collapse controls. Closing returns to the previously selected work-panel
   resource, if any; `Cmd/Ctrl + J` hides the whole dock. Selecting another node
@@ -1487,8 +1502,12 @@ Renderer: `apps/desktop/src/components/Markdown.tsx` + `apps/desktop/src/lib/shi
   hr is pure spacing; lists use quieter markers and flex task
   rows; inline code gets a soft gray tint and no border; tables drop cell
   borders for a `--ds-tile-deep` header and zebra `--ds-tile` rows and wrap
-  in `.table-wrap` (rounded shell, header row, even-row wash, hover wash);
-  display math sits in a subtle inset plate. Thinking prose reuses the same
+  in `.table-wrap` (rounded shell, header row, even-row wash, hover wash).
+  The wrap and table fill the transcript width; cell text wraps
+  (`overflow-wrap: anywhere`) so many columns or long tokens do not force a
+  horizontal scrollbar. `overflow-x: auto` remains only for unbreakable
+  content.
+  Display math sits in a subtle inset plate. Thinking prose reuses the same
   hierarchy at text-sm-plus / secondary color.
 - **Light theme**: paper-quiet surfaces — links use soft underlined ink
   (not hard black/blue), inline code `#f2f2f2`, fenced code cards use One
@@ -1755,12 +1774,14 @@ never summarizes from its own arguments:
   ┌────────────────┐    ┌───────────────────────────────────────────┐
   │ (◎) Main agent │────│ [bot] code-reviewer  claude-sonnet-4-5 · Completed · 32s │
   │ Coordinating 1 │    │ check the store diff                      │
-  │ delegated task │    │ 3 steps                             [›]   │
+  │ delegated task │    │ 3 steps                                   │
   └────────────────┘    └───────────────────────────────────────────┘
 ```
 
-Clicking a topology node opens an inset grouped side sheet in the right-side
-work-panel dock rather than expanding the transcript:
+Clicking a topology node toggles an inset grouped side sheet in the right-side
+work-panel dock rather than expanding the transcript. Clicking the selected node
+again closes the side sheet; selecting another node replaces the current detail
+in place:
 
 ```text
 ┌──────────────────────────────────────────────┐

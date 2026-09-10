@@ -1,3 +1,5 @@
+import type { EnglishCatalog } from "../en/index.js";
+
 export const fr = {
   "app": {
     "name": "PI-Desktop",
@@ -29,6 +31,14 @@ export const fr = {
     "confirmQuitTitle": "Quitter PI-Desktop ?",
     "confirmQuitBody": "Êtes-vous sûr de vouloir arrêter ? Toutes les sessions en cours seront arrêtées et les modifications non enregistrées risquent d'être perdues.",
     "confirmQuit": "Quitter"
+  },
+  "pluginDesktopConsent": {
+    "message": "{name} veut exécuter {operation}",
+    "arguments": "Arguments : {args}",
+    "detail":
+      "Il s'agit d'une opération de bureau dangereuse. Le plugin a reconnu le risque ; son exécution dépend de vous. Refusez si vous ne l'attendiez pas.",
+    "allowOnce": "Autoriser une fois",
+    "deny": "Refuser",
   },
   "pluginFsConsent": {
     "read": "{name} veut lire un fichier en dehors de ce qu'il a déclaré",
@@ -62,6 +72,7 @@ export const fr = {
     "openProject": "Ouvrir le projet…",
     "settings": "Paramètres…",
     "closeWindow": "Fermer la fenêtre",
+    "summonWindow": "Ramener la fenêtre au premier plan",
     "undo": "Annuler",
     "redo": "Rétablir",
     "cut": "Couper",
@@ -396,7 +407,7 @@ export const fr = {
     "preparingNextRequest": "Préparation de la prochaine requête…",
     "compactingContext": "Compactage du contexte…",
     "recoveringTurn": "Récupération d’une réponse vide…",
-    "retryingModel": "Nouvelle tentative de demande de modèle · tentative {{attempt}}",
+    "retryingModel": "Nouvel essai dans {{delaySeconds}} s · tentative {{attempt}}/{{maxAttempts}}",
     "waitingForSubagentNamed": "En attente de {{name}}",
     "waitingForSubagents_one": "En attente de {{count}} sous-agents",
     "waitingForSubagents_other": "En attente de {{count}} sous-agents",
@@ -595,6 +606,7 @@ export const fr = {
       "openWorkPanel": "Basculer le panneau de travail",
       "abort": "Arrêter la tâche active",
       "closeWindow": "Fermer la fenêtre",
+      "summonWindow": "Ramener la fenêtre au premier plan",
       "resetZoom": "Réinitialiser le zoom",
       "zoomIn": "Zoom avant",
       "zoomOut": "Zoom arrière",
@@ -1797,6 +1809,9 @@ export const fr = {
       "maxTurns": "Limite de tours",
       "maxTurnsHint": "Arrête un délégué qui ne termine jamais. 1–{{max}}, ou laissez vide pour aucune limite.",
       "maxTurnsUnlimited": "Aucune limite",
+      "maxTokens": "Limite de sortie",
+      "maxTokensHint": "Limite une réponse du délégué. 1–{{max}}, ou laissez vide pour suivre le modèle.",
+      "maxTokensDefault": "Valeur du modèle",
       "body": "Instructions",
       "bodyHint": "Markdown, utilisé comme invite système complète du délégué. Écrivez-le sous forme d’instructions au délégué.",
       "bytes": "{{used}} / {{max}} Ko",
@@ -1807,6 +1822,7 @@ export const fr = {
       "errorTools": "Accordez au moins un outil.",
       "errorModel": "Écrivez le modèle en tant que fournisseur/modèle, par ex. anthropique/claude-haïku-4-5.",
       "errorMaxTurns": "La limite de tour doit être un nombre entier compris dans la plage autorisée.",
+      "errorMaxTokens": "La limite de sortie doit être un nombre entier dans la plage autorisée.",
       "errorBody": "Les instructions sont vides.",
       "errorTooBig": "Les instructions dépassent la taille limite."
     }
@@ -1821,6 +1837,16 @@ export const fr = {
     "fatal": "Impossible d'atteindre le service local",
     "unsupportedGlibc":
       "Cette version Linux nécessite glibc 2.35 ou plus récent (Ubuntu 22.04, Debian 12, Fedora 36+).",
+    "dbSchemaTooNew":
+      "Cette version de PI-Desktop est plus ancienne que vos données locales (schéma de données {{found}}, cette version prend en charge {{supported}}). Installez la version plus récente de PI-Desktop qui a ouvert ces données en dernier, ou une version ultérieure.",
+    "archMismatch":
+      "Ceci est la version {{buildArch}} exécutée sur une machine {{machineArch}} ; elle tourne par traduction et est plus lente. Installez plutôt la version {{machineArch}}.",
+    "dismissArchMismatch": "Ignorer",
+    "archNames": {
+      "darwin": { "x64": "Intel", "arm64": "Apple Silicon" },
+      "win32": { "x64": "x64", "arm64": "ARM64" },
+      "linux": { "x64": "x64", "arm64": "ARM64" },
+    },
     "openLogs": "Journaux ouverts"
   },
   "toast": {
@@ -1873,11 +1899,17 @@ export const fr = {
     "TIMEOUT": "La demande adressée au fournisseur d'IA a expiré.",
     "STREAM_FAILED": "La réponse a été interrompue.",
     "EMPTY_MODEL_RESPONSE": "Le modèle a terminé son tour sans rien dire, deux fois de suite. Réessayez ou reformulez votre demande.",
-    "MUTATION_RETRY_BUDGET_EXHAUSTED": "La même modification a échoué deux fois, donc ce tour s'est arrêté au lieu de réessayer en aveugle. Demandez à nouveau pour continuer.",
+    "MUTATION_RETRY_BUDGET_EXHAUSTED": "La même modification a échoué trois fois, donc ce tour s'est arrêté au lieu de réessayer en aveugle. Demandez à nouveau pour continuer.",
     "CONTEXT_TOO_LARGE": "Ce chat est encore trop long après la récupération du contexte. Raccourcissez votre message ou démarrez une nouvelle discussion.",
     "CONTEXT_COMPACTION_FAILED": "Impossible de compacter le contexte du modèle de cette conversation.",
     "AGENT_BUSY": "Ce chat fonctionne déjà. Attendez qu'il se termine ou arrêtez-le d'abord.",
     "TURN_ABORTED": "Arrêté.",
+    "workspaceActivationFailed": "Impossible d'activer l'espace de travail du projet",
+    "sessionNotFound": "Session introuvable",
+    "noActiveSession": "Aucune session active",
+    "sessionTitleEmpty": "Le titre de la session ne peut pas être vide",
+    "projectNameLength": "Le nom du projet doit contenir entre 1 et 80 caractères",
+    "planApprovalUnavailable": "L'approbation du plan n'est plus disponible",
     "action": {
       "openSettings": "Ouvrir les paramètres",
       "retry": "Réessayer",
@@ -1885,6 +1917,6 @@ export const fr = {
       "dismiss": "Ignorer"
     }
   }
-} as const;
+} satisfies EnglishCatalog;
 
 export default fr;

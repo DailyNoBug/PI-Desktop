@@ -34,6 +34,14 @@ export const zhTW = {
       "退出將停止所有正在進行的會話，未儲存的內容可能會丟失。你確定要退出嗎？",
     confirmQuit: "退出",
   },
+  pluginDesktopConsent: {
+    message: "{name} 想要執行 {operation}",
+    arguments: "參數：{args}",
+    detail:
+      "這是一個危險的桌面操作。外掛已確認風險；是否執行由你決定。如果你沒有預期到這個操作，請拒絕。",
+    allowOnce: "允許一次",
+    deny: "拒絕",
+  },
   pluginFsConsent: {
     read: "{name} 想讀取聲明範圍之外的檔案",
     write: "{name} 想寫入聲明範圍之外的檔案",
@@ -66,6 +74,7 @@ export const zhTW = {
     openProject: "開啟專案…",
     settings: "設定…",
     closeWindow: "關閉視窗",
+    summonWindow: "喚出視窗",
     undo: "撤銷",
     redo: "重做",
     cut: "剪下",
@@ -403,7 +412,7 @@ export const zhTW = {
     preparingNextRequest: "正在準備下一次請求…",
     compactingContext: "正在壓縮上下文…",
     recoveringTurn: "正在補救空回覆…",
-    retryingModel: "正在重試模型請求 · 第 {{attempt}} 次",
+    retryingModel: "將在 {{delaySeconds}} 秒後重試 · 第 {{attempt}}/{{maxAttempts}} 次",
     waitingForSubagentNamed: "正在等待 {{name}}",
     waitingForSubagents_one: "正在等待 {{count}} 個 Subagent",
     waitingForSubagents_other: "正在等待 {{count}} 個 Subagent",
@@ -603,6 +612,7 @@ export const zhTW = {
       openWorkPanel: "切換工具面板",
       abort: "停止當前任務",
       closeWindow: "關閉視窗",
+      summonWindow: "將視窗帶到最前",
       resetZoom: "重置縮放",
       zoomIn: "放大",
       zoomOut: "縮小",
@@ -1809,6 +1819,9 @@ export const zhTW = {
       maxTurns: "輪次上限",
       maxTurnsHint: "用來兜住停不下來的子智慧體。1–{{max}}，留空表示不限制。",
       maxTurnsUnlimited: "不限制",
+      maxTokens: "輸出上限",
+      maxTokensHint: "限制子代理單次回應的輸出長度。1–{{max}}，留空則跟隨模型。",
+      maxTokensDefault: "跟隨模型",
       body: "指令",
       bodyHint: "Markdown，會作為子智慧體的全部系統提示詞。請以對它下達指令的口吻書寫。",
       bytes: "{{used}} / {{max}} KB",
@@ -1819,6 +1832,7 @@ export const zhTW = {
       errorTools: "至少授予一個工具。",
       errorModel: "模型請寫成 provider/model，例如 anthropic/claude-haiku-4-5。",
       errorMaxTurns: "輪次上限必須是允許範圍內的整數。",
+      errorMaxTokens: "輸出上限必須是允許範圍內的整數。",
       errorBody: "指令是空的。",
       errorTooBig: "指令超過了大小上限。",
     },
@@ -1833,6 +1847,16 @@ export const zhTW = {
     fatal: "無法連線本地服務",
     unsupportedGlibc:
       "目前 Linux 建置需要 glibc 2.35 或更新版本（Ubuntu 22.04、Debian 12、Fedora 36+）。",
+    dbSchemaTooNew:
+      "目前的 PI-Desktop 比本機資料更舊（資料庫 schema {{found}}，此版本僅支援 {{supported}}）。請安裝上次開啟這些資料的較新版本，或更高版本。",
+    archMismatch:
+      "目前安裝的是 {{buildArch}} 版本，而這台機器是 {{machineArch}}，需要透過轉譯執行，速度較慢。請改裝 {{machineArch}} 版本。",
+    dismissArchMismatch: "知道了",
+    archNames: {
+      darwin: { x64: "Intel", arm64: "Apple Silicon" },
+      win32: { x64: "x64", arm64: "ARM64" },
+      linux: { x64: "x64", arm64: "ARM64" },
+    },
     openLogs: "開啟日誌",
   },
   toast: {
@@ -1886,11 +1910,17 @@ export const zhTW = {
     STREAM_FAILED: "回覆中斷了。",
     EMPTY_MODEL_RESPONSE: "模型連續兩輪都沒有輸出內容。可以重試，或換一種說法。",
     MUTATION_RETRY_BUDGET_EXHAUSTED:
-      "同一處修改連續失敗兩次，本輪已停止，不再盲目重試。再說一次即可繼續。",
+      "同一處修改連續失敗三次，本輪已停止，不再盲目重試。再說一次即可繼續。",
     CONTEXT_TOO_LARGE: "上下文恢復後對話仍然過長。請縮短訊息內容或新開對話。",
     CONTEXT_COMPACTION_FAILED: "無法壓縮當前對話的模型上下文。",
     AGENT_BUSY: "此對話正在處理中。請等待完成，或先停止當前任務。",
     TURN_ABORTED: "已停止。",
+    workspaceActivationFailed: "無法啟用專案工作區",
+    sessionNotFound: "找不到工作階段",
+    noActiveSession: "沒有使用中的工作階段",
+    sessionTitleEmpty: "工作階段標題不能為空",
+    projectNameLength: "專案名稱長度須為 1 到 80 個字元",
+    planApprovalUnavailable: "該計畫核准已失效",
     action: {
       openSettings: "開啟設定",
       retry: "重試",

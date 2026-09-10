@@ -345,9 +345,8 @@ project/Temporary 使用消息加会话图标创建控件。
 4. 出现新手引导清单；配置提供商；一轮流式聊天。
 5. 一种授权工具调用（写入）允许 + 拒绝路径。
 6. Quit/relaunch → 恢复会话历史记录，恢复窗口边界。
-7. `~/.pi-desktop/logs/` 包含 `app/`、`host/` 下分类的 NDJSON、
-   和 `agent/`；计时记录位于 `host/timing.log` 和
-   `agent/timing.log`。
+7. `~/.pi-desktop/logs/` 包含 `app/`、`host/` 和 `agent/` 下分类的 NDJSON；
+   关键的生命周期、工具、provider、plugin 和错误记录可用，不再创建独立的计时文件。
 8. 禁用网络访问后，shell 仍然启动； English/Chinese
    切换、语法高亮、shell 高亮、KaTeX、Mermaid fallback/rendering、
    主机运行状况和 sidecar 运行状况继续使用打包的本地资产。

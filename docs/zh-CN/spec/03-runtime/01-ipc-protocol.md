@@ -760,7 +760,12 @@ sidecar 用于显示每秒输出令牌的流时间。 `ToolTokenUsage`
 ### shell
 
 ```ts
-type CommandShellId = "windows-powershell" | "cmd" | "git-bash" | "bash";
+type CommandShellId =
+  | "windows-powershell"
+  | "windows-pwsh"
+  | "cmd"
+  | "git-bash"
+  | "bash";
 
 type CommandShellOption = {
   id: CommandShellId;

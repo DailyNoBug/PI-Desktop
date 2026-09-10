@@ -1,3 +1,5 @@
+import type { EnglishCatalog } from "../en/index.js";
+
 export const de = {
   "app": {
     "name": "PI-Desktop",
@@ -29,6 +31,14 @@ export const de = {
     "confirmQuitTitle": "PI-Desktop beenden?",
     "confirmQuitBody": "Sind Sie sicher, dass Sie beenden möchten? Alle laufenden Sitzungen werden gestoppt und nicht gespeicherte Änderungen gehen möglicherweise verloren.",
     "confirmQuit": "Beenden"
+  },
+  "pluginDesktopConsent": {
+    "message": "{name} möchte {operation} ausführen",
+    "arguments": "Argumente: {args}",
+    "detail":
+      "Dies ist ein gefährlicher Desktop-Vorgang. Das Plugin hat das Risiko bestätigt; ob er ausgeführt wird, entscheiden Sie. Lehnen Sie ab, wenn Sie ihn nicht erwartet haben.",
+    "allowOnce": "Einmal erlauben",
+    "deny": "Ablehnen",
   },
   "pluginFsConsent": {
     "read": "{name} möchte eine Datei außerhalb der Deklaration lesen",
@@ -62,6 +72,7 @@ export const de = {
     "openProject": "Projekt öffnen…",
     "settings": "Einstellungen…",
     "closeWindow": "Fenster schließen",
+    "summonWindow": "Fenster in den Vordergrund",
     "undo": "Rückgängig machen",
     "redo": "Wiederholen",
     "cut": "Ausschneiden",
@@ -396,7 +407,7 @@ export const de = {
     "preparingNextRequest": "Nächste Anfrage wird vorbereitet…",
     "compactingContext": "Kontext wird verdichtet…",
     "recoveringTurn": "Leere Antwort wird nachgeholt…",
-    "retryingModel": "Modellanforderung wird wiederholt · Versuch {{attempt}}",
+    "retryingModel": "Erneuter Versuch in {{delaySeconds}} s · Versuch {{attempt}}/{{maxAttempts}}",
     "waitingForSubagentNamed": "Warten auf {{name}}",
     "waitingForSubagents_one": "Warten auf {{count}} Subagenten",
     "waitingForSubagents_other": "Warten auf {{count}} Subagenten",
@@ -595,6 +606,7 @@ export const de = {
       "openWorkPanel": "Arbeitsfenster um-/ausschalten",
       "abort": "Aktive Aufgabe stoppen",
       "closeWindow": "Fenster schließen",
+      "summonWindow": "Fenster in den Vordergrund holen",
       "resetZoom": "Zoom zurücksetzen",
       "zoomIn": "Vergrößern",
       "zoomOut": "Verkleinern",
@@ -1797,6 +1809,9 @@ export const de = {
       "maxTurns": "Rundenlimit",
       "maxTurnsHint": "Stoppt einen Delegaten, der nie beendet wird. 1–{{max}}, oder leer lassen, um keine Begrenzung zu erhalten.",
       "maxTurnsUnlimited": "Keine Begrenzung",
+      "maxTokens": "Ausgabelimit",
+      "maxTokensHint": "Begrenzt eine Antwort des Delegaten. 1–{{max}}, oder leer lassen, um dem Modell zu folgen.",
+      "maxTokensDefault": "Modellvorgabe",
       "body": "Anweisungen",
       "bodyHint": "Markdown, wird als gesamte Systemaufforderung des Delegaten verwendet. Schreiben Sie es als Anweisung an den Delegierten.",
       "bytes": "{{used}} / {{max}} KB",
@@ -1807,6 +1822,7 @@ export const de = {
       "errorTools": "Gewähren Sie mindestens ein Werkzeug.",
       "errorModel": "Schreiben Sie das Modell als Anbieter/Modell, z. B. anthropisch/claude-haiku-4-5.",
       "errorMaxTurns": "Das Wendelimit muss eine ganze Zahl innerhalb des zulässigen Bereichs sein.",
+      "errorMaxTokens": "Das Ausgabelimit muss eine ganze Zahl im zulässigen Bereich sein.",
       "errorBody": "Die Anweisungen sind leer.",
       "errorTooBig": "Die Anweisungen überschreiten die Größenbeschränkung."
     }
@@ -1821,6 +1837,16 @@ export const de = {
     "fatal": "Kann den lokalen Dienst nicht erreichen",
     "unsupportedGlibc":
       "Diese Linux-Version benötigt glibc 2.35 oder neuer (Ubuntu 22.04, Debian 12, Fedora 36+).",
+    "dbSchemaTooNew":
+      "Diese PI-Desktop-Version ist älter als Ihre lokalen Daten (Datenschema {{found}}, diese Version unterstützt {{supported}}). Installieren Sie die neuere PI-Desktop-Version, die diese Daten zuletzt geöffnet hat, oder eine spätere.",
+    "archMismatch":
+      "Dies ist die {{buildArch}}-Version auf einem {{machineArch}}-Rechner; sie läuft übersetzt und daher langsamer. Installieren Sie stattdessen die {{machineArch}}-Version.",
+    "dismissArchMismatch": "Ausblenden",
+    "archNames": {
+      "darwin": { "x64": "Intel", "arm64": "Apple Silicon" },
+      "win32": { "x64": "x64", "arm64": "ARM64" },
+      "linux": { "x64": "x64", "arm64": "ARM64" },
+    },
     "openLogs": "Offene Protokolle"
   },
   "toast": {
@@ -1873,11 +1899,17 @@ export const de = {
     "TIMEOUT": "Bei der Anfrage an den KI-Anbieter ist eine Zeitüberschreitung aufgetreten.",
     "STREAM_FAILED": "Die Antwort wurde unterbrochen.",
     "EMPTY_MODEL_RESPONSE": "Das Modell beendete seinen Zug zweimal hintereinander, ohne etwas zu sagen. Versuchen Sie es erneut oder formulieren Sie Ihre Anfrage um.",
-    "MUTATION_RETRY_BUDGET_EXHAUSTED": "Die gleiche Bearbeitung schlug zweimal fehl, daher wurde dieser Zug abgebrochen, anstatt es erneut zu versuchen. Bitten Sie erneut, fortzufahren.",
+    "MUTATION_RETRY_BUDGET_EXHAUSTED": "Die gleiche Bearbeitung schlug dreimal fehl, daher wurde dieser Zug abgebrochen, anstatt es erneut zu versuchen. Bitten Sie erneut, fortzufahren.",
     "CONTEXT_TOO_LARGE": "Dieser Chat ist nach der Kontextwiederherstellung immer noch zu lang. Kürzen Sie Ihre Nachricht oder starten Sie einen neuen Chat.",
     "CONTEXT_COMPACTION_FAILED": "Der Modellkontext dieser Konversation konnte nicht komprimiert werden.",
     "AGENT_BUSY": "Dieser Chat funktioniert bereits. Warten Sie, bis der Vorgang abgeschlossen ist, oder stoppen Sie ihn zuerst.",
     "TURN_ABORTED": "Gestoppt.",
+    "workspaceActivationFailed": "Projekt-Arbeitsbereich konnte nicht aktiviert werden",
+    "sessionNotFound": "Sitzung nicht gefunden",
+    "noActiveSession": "Keine aktive Sitzung",
+    "sessionTitleEmpty": "Der Sitzungstitel darf nicht leer sein",
+    "projectNameLength": "Der Projektname muss zwischen 1 und 80 Zeichen lang sein",
+    "planApprovalUnavailable": "Die Planfreigabe ist nicht mehr verfügbar",
     "action": {
       "openSettings": "Einstellungen öffnen",
       "retry": "Noch einmal versuchen",
@@ -1885,6 +1917,6 @@ export const de = {
       "dismiss": "Verwerfen"
     }
   }
-} as const;
+} satisfies EnglishCatalog;
 
 export default de;

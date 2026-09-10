@@ -1,17 +1,18 @@
 # 03. Tools and Permissions
 
 > Decisions applied: D003, D004, D005, D006, D013, D015, D093, D114, D115, D181, D186,
-> D189, D190, D195 (ADR 0057), D315, ADR 0087
+> D189, D190, D195 (ADR 0057), D315, D384 (ADR 0211), ADR 0087
 
 ## 0. Frozen policy summary
 
 | Topic | Decision |
 |---|---|
 | Default mode | Agent |
-| Agent tools | Read / Glob / Grep / Write / Edit / Bash |
-| Plan tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitPlan |
-| Goal tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitGoal |
-| Plan and Goal hard deny | Write / Edit / all plugin tools / unknown tools / the other kind's submit tool |
+| Agent tools | Read / Glob / Grep / Write / Edit / Bash + registered plugin tools |
+| Plan tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitPlan + plugin tools that declare plan-safe actions |
+| Goal tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitGoal + plugin tools that declare plan-safe actions |
+| Plan and Goal hard deny | Write / Edit / plugin tools without `planSafeActions` / unknown tools / the other kind's submit tool |
+| Plugin `planSafeActions` | Non-empty array of `action` strings; runtime hides plugin tools without one in Plan/Goal, host admits listed tools, plugin-runtime rejects any action outside the list (ADR 0211) |
 | Permission timeout | 120s → deny |
 | allow-session scope | toolName |
 | Bash style | non-interactive; selected host catalog shell with streamed output |
@@ -286,13 +287,13 @@ keeps only the ordering and loop-guard rules. The agent mutation workflow is:
    (a complete `EDIT_LINES_UNSEEN` reveal may be retried unchanged). For a
    deterministic syntax or range error such as `EDIT_PARSE_FAILED`, correct the
    operation payload directly; another `Read` does not repair malformed syntax.
-   A body-bearing replacement must use a header such as `PUT 48.=48:`. Once a
-   path has spent its recovery budget (18-line-anchored-edit-contract §9.3), the
-   next failed `Edit` for that path in the prompt — or a second failed shell
-   patch command (`apply_patch`, `git apply`, or `patch`) — returns a terminating
-   tool result with an error-specific recovery hint, so the agent stops after
-   reporting the exact mismatch. Do not hand-edit old unified-diff hunk headers
-   or continue a repair loop.
+   A body-bearing replacement must use a header such as `PUT 48.=48:`. After three
+   counted failures on one path in a prompt (18-line-anchored-edit-contract §9.3),
+   the third counted failed `Edit` for that path — or the third failed shell patch
+   command (`apply_patch`, `git apply`, or `patch`) — returns a terminating tool
+   result with an error-specific recovery hint, so the agent stops after reporting
+   the exact mismatch. Do not hand-edit old unified-diff hunk headers or continue a
+   repair loop.
 4. Keep mutations to one path sequential, even when read/search calls are
    issued in parallel.
 
@@ -305,15 +306,6 @@ one does count toward the guard.
 Serialization also protects the snapshot store, which both producers and `Edit`
 mutate: without the per-session permit, a concurrent record could land between a
 validation and its write.
-
-The sidecar's tool timing line includes `mutationFailureKind` and
-`mutationFailureAttempt` for failed same-path `Edit` calls and recognized shell
-patch commands, `mutationFailureGrace=true` for a failure forgiven under §9.3,
-and `terminate=true` on the failure that exhausts the budget. The last is passed
-through pi-agent-core's runtime-only termination hint; it does not alter the
-durable tool result shape. Because that hint ends the agent loop, the runtime
-also finalizes the assistant row with `MUTATION_RETRY_BUDGET_EXHAUSTED` instead
-of letting the turn complete silently.
 
 ## 5. Bash Rules
 
@@ -330,8 +322,8 @@ Host execution baseline:
   `errorCode: TOOL_FAILED` while preserving its `exitCode`, stdout, and stderr
   in `content` so the agent can diagnose the command without blindly retrying.
 
-Shell catalog (D190) exposes the stable IDs `windows-powershell`, `cmd`,
-`git-bash`, and `bash` where supported by the platform. The host persists
+Shell catalog (D190) exposes the stable IDs `windows-powershell`, `windows-pwsh`,
+`cmd`, `git-bash`, and `bash` where supported by the platform. The host persists
 `defaultCommandShell`; if that persisted choice later becomes unavailable, the
 effective catalog selection intentionally falls back to the first available
 platform shell. A turn pins the effective shell ID and dialect. `Bash` remains
@@ -357,6 +349,12 @@ or executable path hash is accepted as shell identity.
 - No bash bundled in the installer: Git for Windows is the Windows prerequisite (the app requires git anyway)
 - Resolution failure returns stable `SHELL_NOT_FOUND` with install guidance
 - Windows PowerShell and cmd use their native non-interactive invocation.
+- PowerShell 7 resolves `pwsh.exe` from `%ProgramFiles%\PowerShell\7` (or
+  `ProgramW6432` when the host process is 32-bit), then PATH, which covers
+  machine-scope, Store, user-scope, and portable installs. It shares the
+  Windows PowerShell 5.1 invocation contract and is never selected implicitly,
+  so it cannot change an existing user's default shell. Resolution failure
+  returns `SHELL_NOT_FOUND` naming the locations that were searched.
 - Git Bash uses the discovered Git for Windows executable.
 - Unix Bash uses an approved system Bash entry.
 - User abort and timeout terminate the complete process tree before returning.
@@ -411,7 +409,7 @@ Rules:
   (`inherit | ask | accept-edits | auto`, default `inherit`, schema v5) and
   set via `session.configure` `permissionMode`.
 - Plan's hard deny wins over every permission mode for Write/Edit and plugin
-  tools. `auto` cannot re-enable a hidden or denied tool.
+  tools that lack `planSafeActions`. `auto` cannot re-enable a hidden or denied tool.
 - Low-risk tools (`Read`/`Glob`/`Grep`) inside the session roots auto-allow in
   every mode, as before.
 - `BrowserPreview` is an explicit read-only UI inspection capability and is
@@ -467,24 +465,25 @@ Each tool call records:
 
 MVP may start by writing to SQLite or a log file.
 
-Timing is recorded in segments, not as one duration (D183): `prompted`
-(whether a permission card was shown), `permissionWaitMs`, `durationMs` (the
-tool body), `overheadMs` (host bookkeeping), and `totalMs`. Denied calls carry
-the same fields with a zero tool body. See
-[09. Logging and Observability](09-logging-and-observability.md) for the
-matching log lines.
+Audit rows may retain the existing segmented timing fields for forensic
+inspection: `prompted` (whether a permission card was shown),
+`permissionWaitMs`, `durationMs` (the tool body), `overheadMs` (host
+bookkeeping), and `totalMs`. Denied calls carry the same fields with a zero tool
+body. These are structured audit fields; they are not emitted as process-log
+timing lines. See [09. Logging and Observability](09-logging-and-observability.md)
+for the current key-log policy.
 
 ## 10. Operating-mode matrix
 
 | Mode | Read/Glob/Grep | BrowserPreview | Write/Edit | Bash | Plugins |
 |---|---|---|---|---|---|
 | Agent | allow | allow | permission policy | permission policy | registered risk policy |
-| Plan | allow | allow | deny | `ask`/`accept-edits`: confirm; `auto`: allow | deny |
-| Goal | allow | allow | deny | `ask`/`accept-edits`: confirm; `auto`: allow | deny |
+| Plan | allow | allow | deny | `ask`/`accept-edits`: confirm; `auto`: allow | plan-safe actions only |
+| Goal | allow | allow | deny | `ask`/`accept-edits`: confirm; `auto`: allow | plan-safe actions only |
 
 ### Notes
-- Plan and Goal hard-deny Write/Edit/plugin tools before permission UI; a direct host
-  call cannot bypass the matrix.
+- Plan and Goal hard-deny Write/Edit and plugin tools without `planSafeActions` before permission UI; a direct host
+  call cannot bypass the matrix. Plugin tools that declare a non-empty list are admitted; the runner still rejects any action outside that list (ADR 0211).
 - Agent mode uses permission cards or the selected automatic policy for
   Write/Edit/Bash and registered plugin tools.
 - Plan and Goal Bash may mutate workspace or scratch state when the user selected Auto;
@@ -556,19 +555,22 @@ parent and other delegates.
 
 ## 11. Plugin Tools
 
-Plugins can contribute tools via `agentTools` in Agent only:
+Plugins can contribute tools via `agentTools`. Agent mode sees every registered
+plugin tool. Plan and Goal see only tools whose `planSafeActions` list is
+non-empty (ADR 0211 / D384):
 
 1. manifest declaration
 2. user grants `agent.tool.register`
 3. PluginManager registers them into the ToolHost
 4. execution goes through the unified permission/audit/timeout wrapper
 
-No plugin tool is visible or executable in Plan or Goal, regardless of manifest
-risk, declared permission, session grant, or `auto`. A direct attempt returns
-`PLUGIN_DISABLED_IN_PLAN` — the `_IN_PLAN` codes are shared by both contract
-modes rather than duplicated per kind — and is audited as a contract-mode policy
-denial. Missing or invalid plugin risk defaults to `medium` for Agent and never
-grants contract-mode access.
+A plugin tool without `planSafeActions` is hidden from the model in Plan and
+Goal. A direct attempt returns `PLUGIN_DISABLED_IN_PLAN` — the `_IN_PLAN` codes
+are shared by both contract modes rather than duplicated per kind — and is
+audited as a contract-mode policy denial. When the list is present, host-core
+admits the tool and the plugin-runtime rejects any `action` outside the list
+with `PERMISSION_DENIED`. Missing or invalid plugin risk defaults to `medium`
+for Agent and never grants contract-mode access by itself.
 
 Naming:
 - Internal full name: `plugin.<pluginId>.<toolName>`

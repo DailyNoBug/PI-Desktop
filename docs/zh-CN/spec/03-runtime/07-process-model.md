@@ -69,6 +69,20 @@ Linux 打包的 host-core 在 Ubuntu 22.04 上构建，需要 glibc 2.35 或更�
 重启循环：界面会列出这些发行版，而不是只显示“无法连接本地服务”。Linux 标签
 作业不得换用会抬高所需 glibc 的更新 runner。
 
+另有两种启动结果会被明确命名，而不是笼统地当作服务不可用（D380）：
+
+- **降级安装。** 当数据目录的 SQLite schema 比当前构建支持的更新时，host-core
+  会拒绝打开（stderr 输出 `database schema version N is newer than supported
+  M`）。Electron 从退出前的最后一段 stderr 解析该行，首次失败即停止重启循环，
+  并推送 `message: "DB_SCHEMA_TOO_NEW"` 且带有两个版本号的 `hostStatus`。横幅
+  提示用户安装上次打开这些数据的更新版 PI-Desktop。不会向下迁移数据。
+- **非原生构建。** 启动时 Electron 比较 `process.arch` 与实际 CPU（macOS 通过
+  `sysctl.proc_translated` 判断，仅在 Rosetta 2 下为 `1`；其他平台用
+  `os.machine()`）。不匹配时即使启动成功，也会随启动 `hostStatus` 附带
+  `archMismatch`，渲染层显示可关闭的提示，说明当前构建（macOS 上为 Intel /
+  Apple Silicon）并指向对应下载。arm64 构建在 Intel Mac 上根本无法启动，因此
+  只能检测 Intel 构建跑在 Apple Silicon 上这一方向。
+
 Windows 安装包目标为 x64。Windows host-core 使用
 `x86_64-pc-windows-msvc` 目标和 `target-feature=+crt-static` 构建，因此 NSIS
 安装包无需在启动本地服务前单独安装 Visual C++ Redistributable。Windows 11 ARM64

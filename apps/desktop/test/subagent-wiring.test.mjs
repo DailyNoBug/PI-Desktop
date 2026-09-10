@@ -18,6 +18,10 @@ const pageSource = await readFile(
   new URL("../src/components/settings/AgentSubagentsPage.tsx", import.meta.url),
   "utf8",
 );
+const hostCollectionSource = await readFile(
+  new URL("../src/hooks/use-host-collection.ts", import.meta.url),
+  "utf8",
+);
 const hostProcessSource = await readFile(
   new URL("../electron/main/host-process.ts", import.meta.url),
   "utf8",
@@ -123,8 +127,11 @@ test("a dead host transport degrades quietly instead of warning", () => {
 });
 
 test("the subagents page recovers when the host comes back", () => {
-  assert.match(pageSource, /api\.onHostStatus\(\(status\) => \{\n\s+if \(status\.ok\) void load\(\);/);
+  // The page loads through the shared host-collection hook, which owns the
+  // plugin-changed and host-status subscriptions.
+  assert.match(pageSource, /useHostCollection\(fetchSubagents/);
+  assert.match(hostCollectionSource, /api\.onHostStatus\(\(status\) => \{\n\s+if \(status\.ok\) void reload\(\);/);
   // Both subscriptions have to be released, so the effect returns a composed
   // cleanup rather than a single unsubscribe.
-  assert.match(pageSource, /offPluginChanged\(\);\n\s+offHostStatus\(\);/);
+  assert.match(hostCollectionSource, /offPluginChanged\(\);\n\s+offHostStatus\(\);/);
 });

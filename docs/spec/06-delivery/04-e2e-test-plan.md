@@ -277,18 +277,16 @@ Each scenario is documented in this format:
   host-core and Electron startup. Window first shows the branded startup splash
   while bootstrap runs, then reveals the main shell in English with the current
   locale catalog; no compile error, missing-menu runtime error, or crash;
-  version info visible. `~/.pi-desktop/logs/app/timing.log` contains greppable
-  `[timing] kind=boot` lines for `when-ready`, `host`, `sidecar`,
-  `window-shown`, and `renderer-bootstrap` with `elapsedMs` / `durationMs`.
-  GitHub auto-update is not started until after `ensureWindow`, and a hung
+  version info visible. Key lifecycle and error records are written to the
+  categorized logs. GitHub auto-update is not started until after `ensureWindow`, and a hung
   feed cannot keep updater status on `checking` for Chromium's ~60s timeout.
 - **Specs linked**: `03-runtime/07-process-model.md`, `04-ux/01-ui-ia.md`,
-  `03-runtime/09-logging-and-observability.md` §7b
+  `03-runtime/09-logging-and-observability.md`
 - **Acceptance**: A (app startup)
 - **Milestone**: M1
 - **Status**: Partially automated (`runtime-build-contract.test.mjs` covers the
-  dependency build contract; `boot-timing.test.mjs` and `auto-update.test.mjs`
-  cover timing helpers and the bounded auto-check contract; Electron window
+  dependency build contract; `update-timeout.test.mjs` and
+  `auto-update.test.mjs` cover the bounded auto-check contract; Electron window
   launch remains Draft)
 
 #### E2E-002: IPC bridge is functional
@@ -365,6 +363,26 @@ Each scenario is documented in this format:
 - **Acceptance**: F (provider persistence and migration)
 - **Milestone**: M2
 - **Status**: Unit-covered host migration; manual UI journey
+
+#### E2E-005K: Preserve explicit extended thinking levels on the wire
+
+- **Preconditions**: A provider has a selected model binding with reasoning
+  enabled and `xhigh`/`max` explicitly selected; the catalog omits or marks
+  those adapter mappings as unsupported; a deterministic OpenAI-compatible
+  capture fixture records request JSON.
+- **Steps**: 1) Select `high`, `xhigh`, and `max` in separate turns. 2) Capture
+  each request body at the fixture boundary.
+- **Expected**: The three requests contain `reasoning_effort: "high"`,
+  `reasoning_effort: "xhigh"`, and `reasoning_effort: "max"` respectively.
+  The catalog's non-null wire mapping remains in force when one is published;
+  an absent or null mapping for an explicitly enabled extended level does not
+  silently downgrade it to `high`.
+- **Specs linked**: `03-runtime/11-provider-model-system.md`,
+  `03-runtime/12-provider-config-schema.md`,
+  `03-runtime/13-model-catalog-and-selection.md`
+- **Acceptance**: B (model configuration), F (runtime provider requests)
+- **Milestone**: M2
+- **Status**: Unit-covered; deterministic provider fixture pending
 
 #### E2E-005B: Configure the fixed OpenCode Go API-style preset
 
@@ -2158,7 +2176,7 @@ Each scenario is documented in this format:
 
 - **Preconditions**: Fresh profile; provider configured; one chat turn completed.
 - **Steps**: 1) Run a prompt with a tool call. 2) Open `~/.pi-desktop/logs/`. 3) Inspect the categorized files under `app/`, `host/`, and `agent/`.
-- **Expected**: NDJSON records exist with `ts/level/channel/category/message`; tool start/end carry `sessionId`/`toolCallId`; no API key material appears; each category file rotates at 5 MB. Additionally (D183) `host/timing.log` has one `tool timing` record per tool call carrying `prompted`/`permission_wait_ms`/`execute_ms`/`overhead_ms`/`total_ms`, and `agent/timing.log` has matching `[timing] kind=tool` and `[timing] kind=model` lines, so an approval wait, a slow tool body, and a slow provider are distinguishable for the same `toolCallId`.
+- **Expected**: NDJSON records exist with `ts/level/channel/category/message`; tool start/end carry `sessionId`/`toolCallId`; no API key material appears; each category file rotates at 5 MB; lifecycle, permission, tool, provider, plugin, persistence, updater, and error records remain available without creating dedicated timing category files.
 - **Specs linked**: `03-runtime/09-logging-and-observability.md`
 - **Acceptance**: H (diagnostics)
 - **Milestone**: M5
@@ -2834,15 +2852,17 @@ Each scenario is documented in this format:
   contrast on inline code, blockquote rule, and code card.
 - **Expected**: Answer prose uses the `.prose-chat` hierarchy (h1–h6 ramp,
   accent-tinted blockquote, hairline-bordered inline code, zebra/hover table
-  shell, inset code card with monospace language tag). Thinking prose stays
+  shell, inset code card with monospace language tag). A wide GFM table stays
+  inside the transcript column: headers and cells wrap rather than overflowing.
+  Thinking prose stays
   secondary/smaller and does not merge into the answer. Both themes keep
   readable contrast; copy still copies raw fence text.
 - **Specs linked**: `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md` §8.7
 - **Acceptance**: C (chat stream), Quality
 - **Milestone**: M5
-- **Status**: Unit-covered (`user-select.test.mjs`, `thinking-ui.test.mjs`);
-  full visual scenario Draft
+- **Status**: Unit-covered (`user-select.test.mjs`, `thinking-ui.test.mjs`,
+  `markdown-prose-style.test.mjs`); full visual scenario Draft
 
 #### E2E-061: User message plaintext layout survives wrapping and reload
 
@@ -4368,7 +4388,7 @@ Each scenario is documented in this format:
 - **Steps**:
   1. Start a task that emits two mutations for the same session while also
      emitting independent read/search calls.
-  2. Inspect tool timing and the transcript while the first mutation runs.
+  2. Inspect the key tool result and transcript while the first mutation runs.
   3. Force the second `Edit` to carry a `tag` that no longer hashes the file,
      with anchors that recovery cannot remap, then allow the agent to re-read
      the file and retry from the current contents.
@@ -4388,10 +4408,11 @@ Each scenario is documented in this format:
   - The non-zero Bash command is marked failed while retaining its exit code,
     stdout, and stderr for the agent and diagnostics.
   - The retry performs one fresh read and operates on the current file; once
-    that path has spent its recovery graces, the next same-path failure — or a
-    second failed shell patch command — returns a terminating tool result plus a
-    visible `MUTATION_RETRY_BUDGET_EXHAUSTED` row, stops the mutation workflow,
-    and does not repeatedly modify an old patch artifact or its hunk headers.
+    that path has spent its recovery graces, the third counted same-path failure
+    — or a third failed shell patch command — returns a terminating tool result
+    plus a visible `MUTATION_RETRY_BUDGET_EXHAUSTED` row, stops the mutation
+    workflow, and does not repeatedly modify an old patch artifact or its hunk
+    headers.
   - The final file contains exactly the intended change, and diff/review data
     contains no partial or interleaved mutation.
 - **Specs linked**: `03-runtime/03-tools-and-permissions.md`,
@@ -4405,26 +4426,26 @@ Each scenario is documented in this format:
 
 - **Preconditions**: A project-bound Agent session uses a deterministic
   provider fixture that emits a partial assistant stream, terminates once, then
-  succeeds on the next request; a second fixture run can terminate five times; a
+  succeeds on the next request; a second fixture run can terminate eleven times; a
   third fixture returns `OpenAI API error (502)` before headers on one attempt
-  and mid-stream on the next; a fourth fixture returns six consecutive 502s; a
+  and mid-stream on the next; a fourth fixture returns eleven consecutive 502s; a
   fifth fixture returns a 503 with `Retry-After`; a sixth fixture returns a
   pre-stream opaque 400/422 once and succeeds when the output-limit fields are
   omitted; the fixture supports both Chat Completions and Responses payloads and
-  aborting after the opaque failure; timing logs are enabled.
+  aborting after the opaque failure.
 - **Steps**:
   1. Start an Agent turn with the one-termination fixture and observe the
      partial assistant response.
   2. Wait for the bounded retry and inspect the transcript, session state, and
-     model timing log after recovery.
-  3. Repeat with the five-termination fixture and inspect the terminal error
+     terminal diagnostics after recovery.
+  3. Repeat with the eleven-termination fixture and inspect the terminal error
      message/event and its diagnostic details.
-  4. Run the mixed-phase 502 fixture and inspect the request count and timing
-     log for both the pre-header and the mid-stream 502.
-  5. Run the persistent six-502 fixture and inspect the terminal error.
+  4. Run the mixed-phase 502 fixture and inspect the request count and terminal
+     diagnostics for both the pre-header and the mid-stream 502.
+  5. Run the persistent eleven-502 fixture and inspect the terminal error.
   6. Run the 503 `Retry-After` fixture and inspect the observed wait.
   7. Run the opaque 400/422 fixture with both API styles and inspect the two
-     request payloads, request count, and timing log.
+     request payloads, request count, and terminal diagnostics.
   8. Abort immediately after the first opaque 400/422 failure and inspect that
      no repair request starts.
   9. Reload the session and verify that only the completed response or the
@@ -4432,23 +4453,24 @@ Each scenario is documented in this format:
 - **Expected**:
   - `terminated` is classified as `STREAM_FAILED`, and an upstream gateway
     `502`/`503`/`504` as retryable `PROVIDER_ERROR`.
-  - Non-429 transient failures share one bounded budget of four retries after
-    the initial attempt, for five provider attempts total, shared by request
+  - Non-429 transient failures share one bounded budget of ten retries after
+    the initial attempt, for eleven provider attempts total, shared by request
     setup and stream delivery. Each retry waits for an abortable bounded
     backoff, removes the failed assistant from model context, and produces no
     duplicate assistant bubble or terminal error notification.
   - A mid-stream 502 is retried rather than surfacing immediately. The
-    mixed-phase fixture spends one counter across both phases and makes five
+    mixed-phase fixture spends one counter across both phases and makes eleven
     attempts in total, not one retry per phase. Observed waits without a
-    `Retry-After` header are 1, 2, 4, then 8 seconds, identical in both phases.
+    `Retry-After` header are 1, 2, 4, then 8 seconds for every later retry,
+    identical in both phases.
   - Only the failed request is replayed: the session, its transcript, and any
     completed tool call are untouched across every retry.
   - The recovered turn emits one terminal lifecycle and keeps the same visible
-    assistant message id. The timing log records `outcome=retry` for each retry
-    with its attempt number, and the final outcome.
-  - The fifth termination emits one terminal `STREAM_FAILED` assistant error
+    assistant message id. Its terminal diagnostics retain the bounded retry
+    outcome and attempt number.
+  - The eleventh termination emits one terminal `STREAM_FAILED` assistant error
     and lifecycle event; the persistent 502 fixture emits one terminal
-    `PROVIDER_ERROR`. Both carry `retryAttempt: 4`. Available details include
+    `PROVIDER_ERROR`. Both carry `retryAttempt: 10`. Available details include
     phase, stream timing, and provider status, without credentials or an
     unrestricted provider body.
   - The 503 fixture waits for the server's `Retry-After` instead of the client
@@ -4461,7 +4483,7 @@ Each scenario is documented in this format:
     terminal.
   - If the turn is aborted after the first opaque failure, the repair request is
     not started and the result is `aborted`.
-  - A mid-stream HTTP 429 is covered by E2E-149's separate five-retry path; the
+  - A mid-stream HTTP 429 is covered by E2E-149's separate ten-retry path; the
     two budgets do not draw from each other.
   - Authentication, model-selection, context, and descriptive
     malformed-request failures do not enter either provider replay path. The
@@ -4469,7 +4491,7 @@ Each scenario is documented in this format:
     above.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md`,
   `03-runtime/02-agent-runtime.md`, `03-runtime/08-error-codes.md`,
-  `08-meta/decisions-log.md` (D186, D259), ADR 0050, ADR 0128
+  `08-meta/decisions-log.md` (D186, D259, D378), ADR 0050, ADR 0128, ADR 0206
 - **Acceptance**: C (chat & stream), F (persistence), H (diagnostics), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered (`agent-errors.test.ts`, `provider-retry.test.ts`,
@@ -4479,18 +4501,18 @@ Each scenario is documented in this format:
 
 - **Preconditions**: A project-bound Agent session uses deterministic provider
   fixtures for a setup HTTP 429 and a mid-stream HTTP 429. Each fixture can
-  succeed after a retry and can return six consecutive 429 responses. Fixtures
-  cover `retry-after-ms`, `retry-after` seconds, and HTTP-date headers, expose
-  timing logs, and support aborting during the wait. A builtin subagent uses a
+  succeed after a retry and can return eleven consecutive 429 responses. Fixtures
+  cover `retry-after-ms`, `retry-after` seconds, and HTTP-date headers, and
+  support aborting during the wait. A builtin subagent uses a
   fixture with the same responses.
 - **Steps**:
   1. Start an Agent turn with a setup-429 fixture whose next request succeeds.
   2. Repeat with a mid-stream-429 fixture whose next request succeeds.
-  3. Inspect the transcript, lifecycle events, request count, and timing log
-     for both recoveries.
-  4. Repeat with six consecutive 429 responses, then inspect the terminal
+  3. Inspect the transcript, lifecycle events, request count, and terminal
+     diagnostics for both recoveries.
+  4. Repeat with eleven consecutive 429 responses, then inspect the terminal
      assistant error and diagnostic details.
-  5. Start the subagent fixture, then repeat the persistent six-429 case.
+  5. Start the subagent fixture, then repeat the persistent eleven-429 case.
   6. Start another 429 turn and abort while it is waiting; inspect that no
      later provider request or terminal retry is started.
   7. Repeat with authentication, model-selection, malformed-request, and
@@ -4500,27 +4522,28 @@ Each scenario is documented in this format:
     and post-start recovery, including a response body that omits rate-limit
     wording when the captured HTTP status is 429. Diagnostics retain
     `providerStatus: 429`.
-  - Setup and mid-stream failures share one budget of five retries after the
-    initial attempt. A persistent fixture therefore makes six provider
+  - Setup and mid-stream failures share one budget of ten retries after the
+    initial attempt. A persistent fixture therefore makes eleven provider
     attempts, never multiplies attempts through nested pi-ai retries, and
     emits no intermediate assistant error, lifecycle `error`, `turn_end`, or
     `agent_end`.
   - A recovered attempt removes the failed assistant from model context and
     reuses its visible assistant message id. The transcript has one assistant
-    bubble and one terminal lifecycle; the timing log records each retry with
-    its phase, delay, and attempt number.
+    bubble and one terminal lifecycle; bounded retry diagnostics retain the
+    phase, delay, and attempt number.
   - Delay precedence is `retry-after-ms`, `retry-after` seconds, HTTP-date,
     then exponential backoff with positive jitter. Server and fallback waits
     are capped at 30 seconds and the wait is abortable.
   - Exhaustion emits one terminal `PROVIDER_RATE_LIMITED` assistant error and
-    lifecycle event with `retryAttempt: 5` and `providerStatus: 429`; no sixth
-    retry occurs. The structured assistant error card remains the only failure
+    lifecycle event with `retryAttempt: 10` and `providerStatus: 429`; no
+    eleventh retry occurs after the eleven provider attempts. The structured
+    assistant error card remains the only failure
     surface, exposing one localized **Continue** action and no **Regenerate**
     action; the generic TurnOutcomeCard is omitted. Activating **Continue**
     appends the localized continuation prompt (`Continue the user's unfinished
     task.` / `继续用户未完成的任务`) to the same session and starts the next turn
     without discarding the failed turn.
-  - The subagent uses the same five-retry budget and one visible child bubble;
+  - The subagent uses the same ten-retry budget and one visible child bubble;
     its final report is failed only after the budget is exhausted, while
     intermediate 429s never become a parent-visible error report.
   - Aborting during a backoff cancels the pending timer and starts no later
@@ -4529,8 +4552,9 @@ Each scenario is documented in this format:
   - The 429 budget is separate from the non-429 transient budget in E2E-096.
     A 429 does not consume transient retries and a 502 does not consume 429
     retries.
-- **Specs linked**: `03-runtime/02-agent-runtime.md` (D245),
-  `03-runtime/08-error-codes.md`, `08-meta/decisions-log.md` (D245), ADR 0091
+- **Specs linked**: `03-runtime/02-agent-runtime.md` (D245, D378),
+  `03-runtime/08-error-codes.md`, `08-meta/decisions-log.md` (D245, D378),
+  ADR 0091, ADR 0206
 - **Acceptance**: C (chat & stream), H (diagnostics), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered (`provider-retry.test.ts`, `runtime.test.ts`,
@@ -4775,7 +4799,7 @@ Each scenario is documented in this format:
   make a persisted choice unavailable, and a project-bound Agent session is
   idle. The Windows lane exercises the multi-choice ordering.
 - **Steps**: 1) Inspect the catalog for the platform-valid IDs
-  `windows-powershell`, `cmd`, `git-bash`, and `bash`. 2) Verify settings
+  `windows-powershell`, `windows-pwsh`, `cmd`, `git-bash`, and `bash`. 2) Verify settings
   rejects an unavailable or wrong-platform ID. 3) Select an available shell
   and persist `defaultCommandShell`. 4) Make that persisted choice unavailable,
   restart, and verify the catalog selects the first available platform shell
@@ -5083,11 +5107,11 @@ Each scenario is documented in this format:
 - **Preconditions**: A project-bound Agent session uses a deterministic provider
   fixture that ends one turn with no tool call and no text — once with reasoning
   content present, once with nothing at all; a second fixture run ends both the
-  first turn and the re-run that way; timing logs are enabled.
+  first turn and the re-run that way.
 - **Steps**:
   1. Start an Agent turn with the reasoning-only fixture and watch the
      transcript while the runtime recovers.
-  2. Inspect the transcript, session state, and model timing log afterwards.
+  2. Inspect the transcript, session state, and terminal diagnostics afterwards.
   3. Repeat with the nothing-at-all fixture.
   4. Repeat with the twice-silent fixture and inspect the terminal error message,
      its details disclosure, and its action button.
@@ -5099,9 +5123,8 @@ Each scenario is documented in this format:
   - The empty assistant is removed from model context before the re-run, so the
     provider never receives two assistant messages in a row, and it is never
     appended to the durable transcript.
-  - The timing log records `outcome=silent` with `thinkingOnly` true for the
-    reasoning-only fixture and false for the nothing-at-all fixture, then the
-    re-run's own outcome.
+  - The terminal diagnostics identify the empty-response recovery and the
+    re-run's outcome.
   - The second silence emits one terminal retriable `EMPTY_MODEL_RESPONSE`
     assistant error and lifecycle event; the message names both attempts, and
     the retry action re-sends the last prompt.
@@ -5114,6 +5137,39 @@ Each scenario is documented in this format:
 - **Acceptance**: C (chat & stream), F (persistence), H (diagnostics), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered (`runtime.test.ts`); full provider/UI journey Draft
+
+#### E2E-146a: Approved Plan/Goal progress text continues once
+
+- **Preconditions**: A project-bound session has an approved Plan or Goal and a
+  deterministic provider fixture. One fixture ends with short forward-looking
+  progress text and no tool call; a second ends with a normal final report;
+- **Steps**:
+  1. Start the approved execution with the progress-only fixture and inspect
+     the transcript while the runtime recovers.
+  2. Inspect the model request context, lifecycle events, and visible message
+     ids after the continuation completes.
+  3. Repeat with the normal final-report fixture.
+  4. Repeat the progress fixture with a continuation that emits a real tool
+     call, then inspect the tool result and final report.
+- **Expected**:
+  - The progress text remains in one assistant bubble and causes exactly one
+    continuation. The provider receives the user/execution context without the
+    prior assistant message at the end, and the continuation carries the
+    progress nudge.
+  - The first attempt's `agent_start`, `turn_start`, `turn_end`, and
+    `agent_end` are suppressed; the reused bubble id and one terminal lifecycle
+    are visible to the UI. The nudge is removed after the run.
+  - A continuation tool call proceeds through the ordinary autonomous loop;
+    it does not create a duplicate assistant bubble or lifecycle.
+  - A normal final report, including one recovered after silent-turn recovery,
+    does not cause an unnecessary progress continuation. Ordinary Agent text
+    answers remain unchanged.
+- **Specs linked**: `03-runtime/02-agent-runtime.md` §5e/§5e.1/§7,
+  `03-runtime/08-error-codes.md` §3.2
+- **Acceptance**: C (chat & stream), F (persistence), H (diagnostics), Quality
+- **Milestone**: M5
+- **Status**: Unit-covered (`runtime.test.ts`, `progress-turn.test.ts`); full
+  provider/UI journey Draft
 
 #### E2E-147: Scoped search stays inside its budget and the agent narrates
 
@@ -5616,7 +5672,8 @@ Each scenario is documented in this format:
       project-level controls. Confirm the group header carries the global level
       label and item count, that create/edit/delete/reveal all work from the
       page, that leaving the turn limit empty writes a definition with no
-      `maxTurns`, and that an empty directory resolves
+      `maxTurns`, that leaving the output limit empty writes a definition with
+      no `maxTokens`, and that an empty directory resolves
       `settings.subagentsEmpty` to localized empty-state copy rather than
       displaying a raw translation key. Open New subagent and confirm the
       Model field is a select of the same configured, runnable models as the
@@ -5659,7 +5716,11 @@ Each scenario is documented in this format:
     select of configured runnable models plus inherit-session, not a free-typed
     id; saving writes `vendorKey-or-name/modelId` (using a unique provider name
     or id when aliases collide), and an unconfigured existing pin remains
-    selected.
+    selected. The Advanced disclosure also carries the delegate's own output
+    limit beside its turn limit: it starts empty, shows the model-default
+    placeholder rather than an unlimited one, and a value round-trips through
+    the document's `maxTokens` frontmatter and back into the field — while
+    clearing it removes the key so the delegate follows the model again.
   - Capability files contain configuration/frontmatter only; enablement is
     persisted in the app-local `agent-capabilities` state files.
   - Project records shadow global records by id or name even when disabled,
@@ -5679,7 +5740,10 @@ Each scenario is documented in this format:
 - **Status**: Source/unit covered by
   `apps/desktop/test/agent-capability-settings.test.mjs`,
   `apps/desktop/test/extensions-page.test.mjs`,
-  `apps/desktop/test/subagent-models.test.mjs`, and host-core capability tests;
+  `apps/desktop/test/subagent-models.test.mjs`,
+  `apps/desktop/test/subagent-output-limit.test.mjs` (the output cap's path from
+  the editor draft through host-core to the built delegate model), and host-core
+  capability tests;
   full native-picker, rendered modal, project-switch, and runtime journey remain
   Draft (do not run E2E locally unless explicitly requested)
 
@@ -6052,14 +6116,14 @@ Each scenario is documented in this format:
 |---|---|
 | A — App startup | E2E-001, E2E-002, E2E-003, E2E-004, E2E-067, E2E-076, E2E-079, E2E-092, E2E-097, E2E-143, E2E-150, E2E-168, E2E-204 |
 | B — Model config | E2E-005, E2E-006, E2E-007, E2E-038, E2E-050, E2E-052, E2E-055, E2E-066, E2E-080, E2E-082, E2E-102c, E2E-102d, E2E-102e, E2E-151, E2E-154, E2E-163, E2E-166, E2E-172, E2E-174, E2E-197, E2E-005G, E2E-005J, E2E-199, E2E-201, E2E-202, E2E-203, E2E-205, E2E-206, E2E-209 |
-| C — Conversation & stream | E2E-008, E2E-008a, E2E-009, E2E-010, E2E-011, E2E-011a, E2E-011b, E2E-011d, E2E-011e, E2E-011g, E2E-031, E2E-040, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-052, E2E-053, E2E-054, E2E-055, E2E-059, E2E-059a, E2E-060c, E2E-060d, E2E-061, E2E-061a, E2E-062, E2E-064, E2E-065, E2E-068, E2E-071, E2E-073, E2E-074, E2E-075, E2E-081, E2E-083, E2E-084, E2E-086, E2E-087, E2E-088, E2E-088b, E2E-089, E2E-090, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-106, E2E-109, E2E-111, E2E-114, E2E-116, E2E-117, E2E-118, E2E-119, E2E-120, E2E-121, E2E-218, E2E-219, E2E-AGENTS-001, E2E-142, E2E-144, E2E-145, E2E-146, E2E-147, E2E-151, E2E-154, E2E-155, E2E-158, E2E-159, E2E-161, E2E-162, E2E-166, E2E-172, E2E-173, E2E-174, E2E-177, E2E-178, E2E-179, E2E-180, E2E-182, E2E-183, E2E-187, E2E-198, E2E-199, E2E-202, E2E-203, E2E-207, E2E-208 |
+| C — Conversation & stream | E2E-008, E2E-008a, E2E-009, E2E-010, E2E-011, E2E-011a, E2E-011b, E2E-011d, E2E-011e, E2E-011g, E2E-031, E2E-040, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-052, E2E-053, E2E-054, E2E-055, E2E-059, E2E-059a, E2E-060c, E2E-060d, E2E-061, E2E-061a, E2E-062, E2E-064, E2E-065, E2E-068, E2E-071, E2E-073, E2E-074, E2E-075, E2E-081, E2E-083, E2E-084, E2E-086, E2E-087, E2E-088, E2E-088b, E2E-089, E2E-090, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-106, E2E-109, E2E-111, E2E-114, E2E-116, E2E-117, E2E-118, E2E-119, E2E-120, E2E-121, E2E-218, E2E-219, E2E-AGENTS-001, E2E-142, E2E-144, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-151, E2E-154, E2E-155, E2E-158, E2E-159, E2E-161, E2E-162, E2E-166, E2E-172, E2E-173, E2E-174, E2E-177, E2E-178, E2E-179, E2E-180, E2E-182, E2E-183, E2E-187, E2E-198, E2E-199, E2E-202, E2E-203, E2E-207, E2E-208 |
 | D — Workspace | E2E-012, E2E-013, E2E-022B, E2E-024I, E2E-047, E2E-049, E2E-057, E2E-058, E2E-060, E2E-068, E2E-075, E2E-078, E2E-153, E2E-158, E2E-182, E2E-187 |
 | E — Tools & permissions | E2E-008a, E2E-014, E2E-015, E2E-016, E2E-017, E2E-018, E2E-019, E2E-024I, E2E-024K, E2E-040, E2E-049, E2E-074, E2E-093, E2E-097, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102d, E2E-102e, E2E-102g, E2E-103, E2E-105, E2E-106, E2E-107, E2E-111, E2E-112, E2E-113, E2E-114, E2E-115, E2E-116, E2E-119, E2E-121, E2E-122, E2E-142, E2E-145, E2E-147, E2E-155, E2E-158, E2E-166, E2E-181 |
-| F — Persistence | E2E-020, E2E-021, E2E-021a, E2E-036, E2E-037, E2E-038, E2E-040, E2E-042, E2E-047, E2E-048, E2E-051, E2E-054, E2E-056, E2E-061, E2E-062, E2E-064, E2E-066, E2E-068, E2E-071, E2E-072, E2E-073, E2E-082, E2E-084, E2E-096, E2E-098, E2E-102, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-103, E2E-AGENTS-001, E2E-061a, E2E-073a, E2E-104, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-118, E2E-119, E2E-120, E2E-121, E2E-123, E2E-142, E2E-146, E2E-148, E2E-151, E2E-158, E2E-160, E2E-168, E2E-171, E2E-177, E2E-178, E2E-183, E2E-186, E2E-005J |
+| F — Persistence | E2E-020, E2E-021, E2E-021a, E2E-036, E2E-037, E2E-038, E2E-040, E2E-042, E2E-047, E2E-048, E2E-051, E2E-054, E2E-056, E2E-061, E2E-062, E2E-064, E2E-066, E2E-068, E2E-071, E2E-072, E2E-073, E2E-082, E2E-084, E2E-096, E2E-098, E2E-102, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-103, E2E-AGENTS-001, E2E-061a, E2E-073a, E2E-104, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-118, E2E-119, E2E-120, E2E-121, E2E-123, E2E-142, E2E-146, E2E-146a, E2E-148, E2E-151, E2E-158, E2E-160, E2E-168, E2E-171, E2E-177, E2E-178, E2E-183, E2E-186, E2E-005J |
 | G — Plugins | E2E-022, E2E-022A, E2E-022B, E2E-022C, E2E-023, E2E-024, E2E-024B, E2E-024C, E2E-024D, E2E-024E, E2E-024W, E2E-024F, E2E-024G, E2E-024H, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M, E2E-024N, E2E-024O, E2E-024P, E2E-025, E2E-026, E2E-105, E2E-117, E2E-120, E2E-122, E2E-123, E2E-024Q, E2E-148, E2E-152, E2E-153 |
-| H — Diagnostics | E2E-027, E2E-031, E2E-034, E2E-042, E2E-096, E2E-098, E2E-104, E2E-107, E2E-108, E2E-109, E2E-110, E2E-113, E2E-115, E2E-116, E2E-118, E2E-121, E2E-146, E2E-155, E2E-159, E2E-176, E2E-194, E2E-195 |
+| H — Diagnostics | E2E-027, E2E-031, E2E-034, E2E-042, E2E-096, E2E-098, E2E-104, E2E-107, E2E-108, E2E-109, E2E-110, E2E-113, E2E-115, E2E-116, E2E-118, E2E-121, E2E-146, E2E-146a, E2E-155, E2E-159, E2E-176, E2E-194, E2E-195 |
 | Security | E2E-028, E2E-029, E2E-030, E2E-024J, E2E-024K, E2E-024M, E2E-049, E2E-068, E2E-086, E2E-102c, E2E-102d, E2E-102e, E2E-105, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-113, E2E-115, E2E-116, E2E-117, E2E-119, E2E-121, E2E-122, E2E-123, E2E-142, E2E-148, E2E-151, E2E-153, E2E-158, E2E-187, E2E-196c, E2E-196b, E2E-196 |
-| Quality | E2E-032, E2E-033, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-053, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-103, E2E-AGENTS-001, E2E-021a, E2E-024N, E2E-024O, E2E-059a, E2E-060b, E2E-060c, E2E-060d, E2E-061a, E2E-073a, E2E-111, E2E-114, E2E-117, E2E-118, E2E-119, E2E-120, E2E-122, E2E-123, E2E-142, E2E-143, E2E-144, E2E-145, E2E-146, E2E-147, E2E-148, E2E-150, E2E-151, E2E-153, E2E-155, E2E-158, E2E-159, E2E-160, E2E-161, E2E-162, E2E-163, E2E-168, E2E-172, E2E-173, E2E-174, E2E-011g, E2E-176, E2E-177, E2E-178, E2E-179, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-196a, E2E-196b, E2E-196c, E2E-198, E2E-199, E2E-200, E2E-196, E2E-201, E2E-204, E2E-202, E2E-203, E2E-205, E2E-206, E2E-207, E2E-208, E2E-209, E2E-210, E2E-218, E2E-219 |
+| Quality | E2E-032, E2E-033, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-053, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-103, E2E-AGENTS-001, E2E-021a, E2E-024N, E2E-059a, E2E-060b, E2E-060c, E2E-060d, E2E-061a, E2E-073a, E2E-111, E2E-114, E2E-117, E2E-118, E2E-119, E2E-120, E2E-122, E2E-123, E2E-142, E2E-143, E2E-144, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-148, E2E-150, E2E-151, E2E-153, E2E-155, E2E-158, E2E-159, E2E-160, E2E-161, E2E-162, E2E-163, E2E-168, E2E-172, E2E-173, E2E-174, E2E-011g, E2E-176, E2E-177, E2E-178, E2E-179, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-196a, E2E-196b, E2E-196c, E2E-198, E2E-199, E2E-200, E2E-196, E2E-201, E2E-204, E2E-202, E2E-203, E2E-205, E2E-206, E2E-207, E2E-208, E2E-209, E2E-210, E2E-218, E2E-219 |
 
 | Milestone | Scenarios |
 |---|---|
@@ -6067,7 +6131,7 @@ Each scenario is documented in this format:
 | M2 | E2E-004, E2E-005, E2E-006, E2E-007, E2E-008, E2E-009, E2E-010, E2E-011, E2E-011a, E2E-011b, E2E-011d, E2E-011e, E2E-011g, E2E-020, E2E-021, E2E-021a, E2E-027, E2E-031, E2E-036, E2E-037, E2E-042, E2E-087, E2E-088, E2E-088b, E2E-089, E2E-090, E2E-144, E2E-005J, E2E-201, E2E-202, E2E-207, E2E-206 |
 | M3 | E2E-012, E2E-013, E2E-014, E2E-015, E2E-016, E2E-017, E2E-018, E2E-019, E2E-040 |
 | M4 | E2E-022, E2E-023, E2E-024, E2E-025, E2E-026, E2E-030, E2E-038 |
-| M5 | E2E-008a, E2E-032, E2E-033, E2E-034, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-051, E2E-052, E2E-053, E2E-054, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-AGENTS-001, E2E-059a, E2E-060b, E2E-060c, E2E-061a, E2E-073a, E2E-094, E2E-095, E2E-143, E2E-145, E2E-146, E2E-147, E2E-177, E2E-178, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-204, E2E-208 |
+| M5 | E2E-008a, E2E-032, E2E-033, E2E-034, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-051, E2E-052, E2E-053, E2E-054, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-AGENTS-001, E2E-059a, E2E-060b, E2E-060c, E2E-061a, E2E-073a, E2E-094, E2E-095, E2E-143, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-177, E2E-178, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-204, E2E-208 |
 | M6 | E2E-104, E2E-105, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-111, E2E-112, E2E-113, E2E-114, E2E-115, E2E-116, E2E-117, E2E-118, E2E-119, E2E-120, E2E-103, E2E-172 |
 | M6+ | E2E-121, E2E-122, E2E-148, E2E-150, E2E-151, E2E-154, E2E-155, E2E-158, E2E-159, E2E-160, E2E-161, E2E-162, E2E-163, E2E-166, E2E-168, E2E-173, E2E-174, E2E-176, E2E-179, E2E-196a, E2E-196b, E2E-196c, E2E-198, E2E-199, E2E-200, E2E-202, E2E-203, E2E-205, E2E-209, E2E-210, E2E-212, E2E-213, E2E-214, E2E-215, E2E-216, E2E-217, E2E-218, E2E-219 |
 | Post-MVP | E2E-022A, E2E-022B, E2E-022C, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M (plugin roadmap R2/R3/R6) |
@@ -7473,7 +7537,7 @@ This test plan spec is accepted when:
 - **Milestone**: M5+
 - **Status**: Documented
 
-#### E2E-140: Recoverable edit failures each get one retry before the guard counts
+#### E2E-140: Recoverable edit failures each get one retry before the guard counts three
 
 - **Preconditions**: A session with one file read, and a way to make the file
   drift on disk between calls.
@@ -7484,14 +7548,15 @@ This test plan spec is accepted when:
      so it fails with `EDIT_LINES_UNSEEN` and a truncated reveal.
   3. Emit an `Edit` on that same path with a malformed op header.
   4. Emit a second `Edit` with a malformed op header.
+  5. Emit a third `Edit` with a malformed op header.
 - **Expected**: Steps 1 and 2 return their own codes with no `terminate` hint —
   each recoverable code spends its single grace on that path, and the turn keeps
-  going, so the agent can act on what the error handed it. Step 3 counts as
-  attempt 1 and still does not terminate. Step 4 terminates. A successful `Edit`
-  inserted anywhere before step 4 resets the count, so the following failure is
-  attempt 1 again.
+  going, so the agent can act on what the error handed it. Steps 3 and 4 count as
+  attempts 1 and 2 and still do not terminate. Step 5 terminates. A successful
+  `Edit` inserted anywhere before step 5 resets the count, so the following
+  failure is attempt 1 again.
 - **Specs linked**: `03-runtime/18-line-anchored-edit-contract.md` §9.3, §11,
-  `03-runtime/03-tools-and-permissions.md` §4d, ADR 0087
+  `03-runtime/03-tools-and-permissions.md` §4d, ADR 0087, ADR 0207
 - **Acceptance**: E (tools & permissions), Quality
 - **Milestone**: M5+
 - **Status**: Documented
@@ -7501,11 +7566,11 @@ This test plan spec is accepted when:
 - **Preconditions**: A session where `Edit` on one path fails with a
   non-recoverable code every time.
 - **Steps**:
-  1. Emit two failing `Edit` calls on the same path within one prompt.
+  1. Emit three failing `Edit` calls on the same path within one prompt.
   2. Observe the transcript after the agent loop stops.
   3. Send a follow-up prompt in the same session.
-  4. Repeat with two failing `apply_patch` shell commands instead of `Edit`.
-- **Expected**: The second call carries the termination hint and the loop stops,
+  4. Repeat with three failing `apply_patch` shell commands instead of `Edit`.
+- **Expected**: The third call carries the termination hint and the loop stops,
   but the turn does not merely complete: the transcript ends on an assistant
   error row with `MUTATION_RETRY_BUDGET_EXHAUSTED`, marked retriable, naming the
   path and the next action, and the same code arrives as an error event. When the
@@ -7687,9 +7752,13 @@ This test plan spec is accepted when:
   where one `explorer` delegate has a Task description and emits thinking,
   tool, and answer rows over time. The work panel is initially closed.
 - **Steps**: 1) Expand the activity group if needed and click the `explorer`
-  topology node. 2) Observe the right-side dock while the delegate streams.
-  3) Scroll the task/process conversation upward and then return to the latest
-  output. 4) Switch sessions and return to the original session.
+  topology node. 2) Click the selected `explorer` node again and confirm the
+  right-side dock closes, then click it once more to reopen it. 3) Observe the
+  right-side dock while the delegate streams. 4) Scroll the task/process
+  conversation upward and then return to the latest output. 5) Switch sessions
+  and return to the original session. 6) Let a delegate start and then fail,
+  open its node, and read the foot of the dock; repeat with a delegate that
+  completes and one that is still running.
 - **Expected**: The right dock shows a sticky identity header (avatar, name,
   and model caption on the left; status capsule and elapsed time trailing on
   the same row without wrapping), the Task call's description
@@ -7698,6 +7767,8 @@ This test plan spec is accepted when:
   the delegate's live thinking/tool/answer process under an Activity section
   on one subtle vertical timeline using the same row components as the main
   conversation.
+  The selected topology node is a full-row toggle without an extra disclosure
+  chevron: its first click opens the dock and its second click closes it.
   New rows appear without a reload and follow the bottom while pinned. The
   panel has one body scrollbar; the process does not create a nested scrollbar
   or a second elevated card. At the minimum supported panel width, long
@@ -7706,11 +7777,23 @@ This test plan spec is accepted when:
   jump-to-latest. The transcript remains the same height and keeps its own
   scroll state. Session switching hides the selection and returning never
   shows another session's task.
+  In step 6, a delegate that starts and then fails closes the dock with an
+  error card rather than a bare `Failed` capsule: the localized summary (the
+  registered `errors.<code>` sentence when the runtime reported a known code,
+  the localized `chat.subagentStatus.*` outcome otherwise), the stable code,
+  the raw provider message behind a Show details / Hide details disclosure, and
+  a copy control. The disclosure control stays reachable while the details are
+  collapsed, and the delegate that completed or is still running shows no card
+  at all.
 - **Specs linked**: `04-ux/08-component-spec.md` §5.7,
   `04-ux/09-interaction-patterns.md` §9.1
 - **Acceptance**: C (conversation), Quality
 - **Milestone**: M6+
-- **Status**: Documented; desktop journey pending
+- **Status**: Documented; desktop journey pending. The failure card's data
+  source is unit-tested in `subagent-topology.test.mjs`: a settled delegation's
+  `error: { code, message }` read from `TaskWait` `delegations[]` and `TaskStop`
+  `stopped[]`, last-write-wins across rows, entries without an error, and the
+  `Task` row that must never carry one.
 
 #### E2E-161: A delegation lifecycle row reads as a subagent row
 
@@ -7755,7 +7838,9 @@ This test plan spec is accepted when:
   still returns `truncated`; `maxTurns: none` is unlimited. 7) Start a
   delegate on another model, exhaust the parent HTTP 429 budget, and click
   Continue; confirm leftover delegates abort, the session is idle, Continue
-  is accepted, and the failed assistant error surface stays visible.
+  is accepted, and the failed assistant error surface stays visible. 8) Define
+  a delegate with an explicit `maxTokens` and one without, run both, and read
+  the two outgoing provider requests.
 - **Expected**: Idle and duration watchdogs never fire. Parent idle does not
   abort delegates. Completion reports are delivered into the same durable
   turn. `TaskWait` expiry reports “Still running after Ns”, includes a
@@ -7763,13 +7848,20 @@ This test plan spec is accepted when:
   (`explorer` 60, `code-reviewer` 50, `test-runner` 40, `fixer` 80) still end
   a non-converging delegate as `truncated`. Explorer's catalog includes
   `Bash` while code-reviewer remains read-only. A terminal parent 429 aborts
-  leftover delegates and Continue is not `AGENT_BUSY` (D352).
+  leftover delegates and Continue is not `AGENT_BUSY` (D352). In step 8 the
+  capped delegate's request carries the declared output limit and the uncapped
+  one carries the model's published limit, so the cap overrides the derived
+  `max_tokens` / `max_completion_tokens` / `max_output_tokens` without
+  disturbing the session's own requests (D383).
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §5f,
   `03-runtime/08-error-codes.md`, `03-runtime/09-logging-and-observability.md`,
-  ADR 0166, ADR 0189, decisions-log D328 / D352
+  ADR 0166, ADR 0189, decisions-log D328 / D352 / D383
 - **Acceptance**: C (conversation), E (tools & permissions), H (diagnostics), Quality
 - **Milestone**: M6+
-- **Status**: Covered by unit tests; full desktop journey pending
+- **Status**: Covered by unit tests; full desktop journey pending. The output
+  cap's parse and clamp are covered in `packages/shared`
+  `subagent-definition.test.ts`, and its document round-trip in host-core
+  `user_subagents` tests; the request-level assertion in step 8 stays manual.
 
 #### E2E-157: Sidebar scrollbars stay quiet while remaining discoverable
 
@@ -8966,7 +9058,7 @@ are withdrawn with ADR 0165.
   agent runtime; the x64 NSIS installer is available.
 - **Steps**: 1) Install PI-Desktop. 2) Launch it for the first time. 3) Wait
   for the startup splash to yield to the main shell. 4) Inspect the runtime
-  and timing logs, then open Settings → Info.
+  logs, then open Settings → Info.
 - **Expected**: The bundled x64 `pi-desktop-host-core.exe` starts and completes
   `app.handshake` without `0xC0000135` (`STATUS_DLL_NOT_FOUND`), the shell does
   not remain on “Can't reach the local service”, host status is healthy, and
@@ -9065,6 +9157,142 @@ are withdrawn with ADR 0165.
 - **Status**: MCP protocol/unit-covered by `apps/desktop/test/mcp-control.test.mjs`;
   full Electron journey documented and remains deferred by the no-local-E2E
   policy
+
+#### E2E-234: Workspace security denylist and ignore layers
+
+- **Preconditions**: A project containing `.env`, `.env.example`,
+  `server.pem`, `keys/id_rsa`, `notes.txt`, `node_modules/pkg/index.js`,
+  `generated/out.txt`, `debug.log`, and a root `.pi-desktopignore` with
+  `generated/`. Every file contains the word `needle`. The session is Agent
+  in `auto` permission mode.
+- **Steps**: 1) Ask for `Read` of `.env`, then of `.env.example`. 2) Ask for
+  `Write` to `keys/id_rsa`. 3) Run an unscoped `Grep` and `Glob` for `needle`.
+  4) Run `Grep` with `path: node_modules/pkg` and with `path: generated`.
+  5) Repeat step 1 with a system `rg` installed and with
+  `PI_DESKTOP_DISABLE_RG=1`.
+- **Expected**: Steps 1 and 2 fail with `WORKSPACE_PATH_DENIED`, the
+  `.env.example` read succeeds, and no `keys/id_rsa` file is created. The
+  unscoped search lists `notes.txt` and `.env.example` only: `.env`,
+  `server.pem`, `node_modules`, `generated`, and `debug.log` are absent. The
+  explicit-path searches return one hit each. The in-process walker and the
+  `rg` fast path produce the same file set.
+- **Specs linked**: `03-runtime/15-workspace-ignore-rules.md`,
+  `03-runtime/08-error-codes.md` §3.3, D032
+- **Acceptance**: B (workspace tools), Security
+- **Milestone**: M3+
+- **Status**: unit-covered by `crates/host-core/src/tools/mod.rs`
+  (`security_denylist_blocks_read_write_edit_and_hides_search_results`,
+  `default_ignores_and_workspace_ignore_file_hide_unscoped_walks_only`) and
+  `tools/ignore_rules.rs`; the Electron journey is documented and deferred by
+  the no-local-E2E policy
+
+#### E2E-235: Dangling symlinks cannot write outside the workspace
+
+- **Preconditions**: A project containing `dangling -> /tmp/outside/planted.txt`
+  where the target does not exist, and `inner -> ./not-yet.txt`. Agent mode,
+  `auto` permission.
+- **Steps**: 1) Ask for `Write` to `dangling`. 2) Ask for `Write` to
+  `dangling-dir/new.txt` where `dangling-dir -> /tmp/outside/dir`. 3) Ask for
+  `Write` to `inner`.
+- **Expected**: Steps 1 and 2 fail with `PATH_OUTSIDE_WORKSPACE` and nothing
+  appears under `/tmp/outside`. Step 3 creates `not-yet.txt` inside the
+  project. A symlink loop fails with a canonicalize error rather than hanging.
+- **Specs linked**: `03-runtime/03-tools-and-permissions.md`,
+  `03-runtime/15-workspace-ignore-rules.md` §3
+- **Acceptance**: B, Security
+- **Milestone**: M3+
+- **Status**: unit-covered by `crates/host-core/src/workspace.rs`
+  (`blocks_dangling_symlink_escape`,
+  `dangling_symlink_inside_workspace_resolves_to_its_target`,
+  `dangling_symlink_loop_is_rejected`)
+
+#### E2E-236: Plugin desktop control needs the user's native consent
+
+- **Preconditions**: A dev plugin granted `desktop.control` whose panel calls
+  `pi.desktop.invoke({ operation: "session/delete", args: [id], confirm })`.
+  One disposable session exists.
+- **Steps**: 1) Invoke with `confirm: false`. 2) Invoke with `confirm: true`
+  and press Escape on the dialog. 3) Invoke with `confirm: true` and click
+  Deny. 4) Invoke with `confirm: true` and click Allow once. 5) Invoke a
+  `read` operation.
+- **Expected**: Step 1 fails with `CONFIRMATION_REQUIRED` and no dialog
+  appears. Steps 2 and 3 fail with `PERMISSION_DENIED`; the session still
+  exists. The dialog names `session/delete` and the catalog description, never
+  panel-authored text. Step 4 deletes the session and the sidebar refreshes.
+  Step 5 shows no dialog. Every invocation is audited with plugin id,
+  operation, and risk.
+- **Specs linked**: `07-plugins/03-plugin-api.md` (desktop control),
+  `07-plugins/04-plugin-security.md` §8.2,
+  `07-plugins/13-plugin-permissions-matrix.md`, ADR 0203, ADR 0208, D370,
+  D372, D377
+- **Acceptance**: D (plugins), Security
+- **Milestone**: M6+
+- **Status**: runtime-covered by
+  `apps/desktop/test/plugin-desktop-control.test.mjs`; the native dialog
+  journey is documented and deferred by the no-local-E2E policy
+
+#### E2E-237: Plugin fetch re-checks egress on every redirect
+
+- **Preconditions**: A dev plugin with `net.domains: ["allowed.test"]` and
+  `net.fetch`. A local server on `allowed.test` answers `/hop` with a 302 to
+  `http://undeclared.test/leak` and `/ok` with 200.
+- **Steps**: 1) Call `pi.net.fetch({ url: "https://allowed.test/ok" })`. 2)
+  Call `pi.net.fetch({ url: "https://allowed.test/hop" })`.
+- **Expected**: Step 1 returns 200. Step 2 fails with `PERMISSION_DENIED`
+  naming `undeclared.test`, and the undeclared server records no request. The
+  audit log shows the denied hop.
+- **Specs linked**: `07-plugins/04-plugin-security.md` §8.0
+- **Acceptance**: D, Security
+- **Milestone**: M4+
+- **Status**: runtime-covered by `apps/desktop/test/plugin-egress.test.mjs`
+
+#### E2E-238: Tool requests for an unknown session do not fall back
+
+- **Preconditions**: host-core running; a JSON-RPC probe attached to its
+  stdio.
+- **Steps**: 1) Send `tools.execute` with `sessionId: "missing"` and a `Read`
+  of `README.md`. 2) Send `plans.enter` with the same id.
+- **Expected**: Both fail with `SESSION_NOT_FOUND` (numeric `1007` and
+  `PLAN_SESSION_NOT_FOUND` respectively); no file under the last-opened
+  workspace is read.
+- **Specs linked**: `03-runtime/06-host-rpc-protocol.md` §7,
+  `03-runtime/08-error-codes.md` §3.1
+- **Acceptance**: B, Security
+- **Milestone**: M3+
+- **Status**: unit-covered by `crates/host-core/src/rpc/mod.rs`
+  (`temporary_session_uses_its_own_scratch_workspace`)
+
+#### E2E-239: An older build names the newer data schema instead of looping
+
+- **Preconditions**: a data directory last opened by a newer PI-Desktop whose
+  host-core migrated it past the schema this build supports.
+- **Steps**: 1) Launch the older packaged app on that data directory.
+  2) Observe the banner and `logs/app/runtime.log`.
+- **Expected**: host-core exits once; no further restart attempts are logged.
+  The fatal banner says this PI-Desktop is older than the local data, shows
+  both schema numbers, and tells the user to install the newer version. The
+  data directory is not modified.
+- **Specs linked**: `03-runtime/07-process-model.md` (boot outcomes)
+- **Acceptance**: B
+- **Milestone**: M3+
+- **Status**: source-contract covered by
+  `apps/desktop/test/host-boot-diagnostics.test.mjs`
+
+#### E2E-240: An Intel macOS build on Apple Silicon points at the native download
+
+- **Preconditions**: Apple Silicon Mac; the x64 macOS package installed and
+  running under Rosetta 2.
+- **Steps**: 1) Launch the app. 2) Read the banner under the title bar.
+  3) Click its dismiss action.
+- **Expected**: The app boots normally. A dismissible hint says this is the
+  Intel build on an Apple Silicon machine and asks the user to install the
+  Apple Silicon build. Dismissing hides it for the session; the native arm64
+  package shows no hint.
+- **Specs linked**: `03-runtime/07-process-model.md` (boot outcomes)
+- **Acceptance**: B
+- **Milestone**: M3+
+- **Status**: source-contract covered by
+  `apps/desktop/test/host-boot-diagnostics.test.mjs`
 
 ## Remote Agent Control target scenarios (post-MVP)
 
@@ -9504,3 +9732,64 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Milestone**: Post-MVP (R7 v1, delivered first as the bundling spike)
 - **Status**: Unit-covered by `packages/agent-runtime/src/extensions/bundle.test.ts`
   (esbuild bundle run from a temp directory); packaged-app journey Draft
+---
+
+#### E2E-233: Icon-only actions explain their purpose in the active language
+
+- **Preconditions**: The desktop app is running with a project, a chat error,
+  toast, update notice, dialog, sidebar row, pull request, and work-panel file
+  available as applicable; the UI language can be changed between English and
+  Simplified Chinese.
+- **Steps**: 1) Hover each icon-only action in the error, toast/update,
+  dialog, capability search, sidebar, pull-request, and file-viewer surfaces.
+  2) Focus the same controls with the keyboard. 3) Repeat after switching the
+  UI language to Simplified Chinese.
+- **Expected**: Each control exposes a localized action purpose on hover and
+  focus, has the same localized accessible name, and does not expose a raw icon
+  name or URL as its action label. Decorative icons remain silent to assistive
+  technology. English and Simplified Chinese show different catalog values.
+- **Specs linked**: `04-ux/08-component-spec.md`,
+  `04-ux/09-interaction-patterns.md`
+- **Acceptance**: Accessibility, Quality
+- **Milestone**: M6+
+- **Status**: Source-contract covered; desktop hover/focus automation pending
+
+#### E2E-PLAN-005: Plan-mode plugin tools with `planSafeActions` are read-only (D384)
+
+- **Preconditions**: PI-Desktop is built with the bundled Browser
+  plugin (`pi.browser`) enabled and a workspace that exposes one
+  http(s) URL the planner can reach. The catalog list is the default
+  bundled one; no third-party plugin needs to be installed for this
+  scenario.
+- **Steps**: 1) Create a new session and switch it to Plan mode from
+  the mode selector. 2) Send the prompt "Use the browser plugin to
+  read `https://example.com`, summarize the page, and tell me what
+  to change." 3) Wait for the planner to call
+  `plugin_pi_browser_Browser` with `action="navigate"` followed by
+  `action="snapshot"`, and to submit a plan with the requested
+  summary. 4) Approve the plan and confirm the Agent run completes.
+  5) Reject the plan, re-send the same prompt in Plan mode, and
+  confirm the planner can still call `navigate` + `snapshot`.
+  6) Ask the planner to "click the sign-in button" through the
+  browser plugin and confirm the call is rejected with
+  `PERMISSION_DENIED` (a Plan call can never click). 7) Inspect the
+  active session tool list and confirm it shows the Browser plugin
+  with the description suffix `Plan mode: only navigate, snapshot,
+  screenshot, console actions`. 8) Switch back to Agent mode and
+  confirm the same prompt lets the model call `click` and `fill`
+  without the suffix.
+- **Expected**: Plan mode can drive the Browser plugin for the four
+  declared read-only actions, the description tells the model which
+  actions are allowed, and any mutating action is denied with a
+  structured `PERMISSION_DENIED` error before the plugin sees the
+  call. Agent mode keeps the full plugin surface.
+- **Specs linked**: `03-runtime/02-agent-runtime.md`,
+  `03-runtime/03-tools-and-permissions.md`, `07-plugins/README.md`,
+  ADR 0211
+- **Acceptance**: Functional, Quality
+- **Milestone**: M6
+- **Status**: Unit/source-contract covered (`runtime.test.ts`
+  plan-safe filtering, `bundled-plugins.test.mjs` Browser
+  declaration, `mode-prompts.test.ts` updated wording); desktop
+  journey is Draft (do not run E2E locally unless explicitly
+  requested)

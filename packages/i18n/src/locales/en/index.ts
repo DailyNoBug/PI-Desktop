@@ -38,6 +38,14 @@ export const en = {
    * declare. Lives here rather than in the renderer because the dialog is a
    * main-process `showMessageBox` — it has to block the plugin's call.
    */
+  pluginDesktopConsent: {
+    message: "{name} wants to run {operation}",
+    arguments: "Arguments: {args}",
+    detail:
+      "This is a dangerous desktop operation. The plugin acknowledged the risk; whether it runs is up to you. Deny if you did not expect it.",
+    allowOnce: "Allow once",
+    deny: "Deny",
+  },
   pluginFsConsent: {
     read: "{name} wants to read a file outside what it declared",
     write: "{name} wants to write a file outside what it declared",
@@ -71,6 +79,7 @@ export const en = {
     openProject: "Open Project…",
     settings: "Settings…",
     closeWindow: "Close Window",
+    summonWindow: "Summon Window",
     undo: "Undo",
     redo: "Redo",
     cut: "Cut",
@@ -405,7 +414,7 @@ export const en = {
     preparingNextRequest: "Preparing next request…",
     compactingContext: "Compacting context…",
     recoveringTurn: "Recovering empty response…",
-    retryingModel: "Retrying model request · attempt {{attempt}}",
+    retryingModel: "Retrying in {{delaySeconds}}s · attempt {{attempt}}/{{maxAttempts}}",
     waitingForSubagentNamed: "Waiting for {{name}}",
     waitingForSubagents_one: "Waiting for {{count}} subagent",
     waitingForSubagents_other: "Waiting for {{count}} subagents",
@@ -605,6 +614,7 @@ export const en = {
       openWorkPanel: "Toggle work panel",
       abort: "Stop active task",
       closeWindow: "Close window",
+      summonWindow: "Bring window to front",
       resetZoom: "Reset zoom",
       zoomIn: "Zoom in",
       zoomOut: "Zoom out",
@@ -1835,6 +1845,9 @@ export const en = {
       maxTurns: "Turn limit",
       maxTurnsHint: "Stops a delegate that never finishes. 1–{{max}}, or leave empty for no limit.",
       maxTurnsUnlimited: "No limit",
+      maxTokens: "Output limit",
+      maxTokensHint: "Caps one response from the delegate. 1–{{max}}, or leave empty to follow the model.",
+      maxTokensDefault: "Model default",
       body: "Instructions",
       bodyHint: "Markdown, used as the delegate's whole system prompt. Write it as instructions to the delegate.",
       bytes: "{{used}} / {{max}} KB",
@@ -1845,6 +1858,7 @@ export const en = {
       errorTools: "Grant at least one tool.",
       errorModel: "Write the model as provider/model, e.g. anthropic/claude-haiku-4-5.",
       errorMaxTurns: "The turn limit must be a whole number within the allowed range.",
+      errorMaxTokens: "The output limit must be a whole number within the allowed range.",
       errorBody: "The instructions are empty.",
       errorTooBig: "The instructions are over the size limit.",
     },
@@ -1859,6 +1873,16 @@ export const en = {
     fatal: "Can't reach the local service",
     unsupportedGlibc:
       "This Linux build needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36+).",
+    dbSchemaTooNew:
+      "This PI-Desktop is older than your local data (data schema {{found}}, this build supports {{supported}}). Install the newer PI-Desktop that last opened this data, or a later version.",
+    archMismatch:
+      "This is the {{buildArch}} build running on a {{machineArch}} machine, so it runs through translation and is slower. Install the {{machineArch}} build instead.",
+    dismissArchMismatch: "Dismiss",
+    archNames: {
+      darwin: { x64: "Intel", arm64: "Apple Silicon" },
+      win32: { x64: "x64", arm64: "ARM64" },
+      linux: { x64: "x64", arm64: "ARM64" },
+    },
     openLogs: "Open logs",
   },
   toast: {
@@ -1915,11 +1939,17 @@ export const en = {
     EMPTY_MODEL_RESPONSE:
       "The model finished its turn without saying anything, twice in a row. Try again, or rephrase your request.",
     MUTATION_RETRY_BUDGET_EXHAUSTED:
-      "The same edit failed twice, so this turn stopped instead of retrying blind. Ask again to continue.",
+      "The same edit failed three times, so this turn stopped instead of retrying blind. Ask again to continue.",
     CONTEXT_TOO_LARGE: "This chat is still too long after context recovery. Shorten your message or start a new chat.",
     CONTEXT_COMPACTION_FAILED: "Couldn't compact this conversation's model context.",
     AGENT_BUSY: "This chat is already working. Wait for it to finish, or stop it first.",
     TURN_ABORTED: "Stopped.",
+    workspaceActivationFailed: "Unable to activate project workspace",
+    sessionNotFound: "Session not found",
+    noActiveSession: "No active session",
+    sessionTitleEmpty: "Session title must not be empty",
+    projectNameLength: "Project name must be between 1 and 80 characters",
+    planApprovalUnavailable: "Plan approval is no longer available",
     action: {
       openSettings: "Open settings",
       retry: "Try again",

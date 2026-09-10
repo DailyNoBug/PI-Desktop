@@ -96,7 +96,7 @@ import {
   type ProposalKind,
   type SubagentPermission,
 } from "@pi-desktop/shared";
-import type { HostClient } from "./host-client.js";
+import type { RuntimeHost } from "./host-client.js";
 import { classifyAgentError } from "./agent-errors.js";
 import {
   assistantContent,
@@ -142,7 +142,6 @@ import {
   type PluginSkillDef,
 } from "./plugin-skills-prompt.js";
 import { pluginSkillsDigest } from "./plugin-skills.js";
-import { logTiming } from "./timing.js";
 import {
   openCodeEndpointFromProvider,
   withOpenCodeSessionHeaders,
@@ -229,7 +228,7 @@ function runtimeAttachmentFromMessage(
 // pi-ai's adapter retry is disabled here so setup and mid-stream 429s share
 // one runtime-owned budget instead of multiplying nested retry loops.
 const PROVIDER_REQUEST_MAX_RETRIES = 0;
-const MAX_MUTATION_RECOVERY_FAILURES = 2;
+const MAX_MUTATION_RECOVERY_FAILURES = 3;
 const BASH_PATCH_FAILURE_KEY = "__bash_patch_command__";
 /**
  * Edit failures the line-anchored contract expects and already answers: each
@@ -519,12 +518,6 @@ type PathInstructionResolution = {
   fallback: boolean;
 };
 
-type PathInstructionTiming = {
-  durationMs: number;
-  cacheHit: boolean;
-  fallback: boolean;
-};
-
 function pathInstructionScope(path: string): string {
   const normalized = path.replaceAll("\\", "/");
   const slash = normalized.lastIndexOf("/");
@@ -545,6 +538,21 @@ const SILENT_TURN_NUDGE = [
   "Your reasoning is never shown to the user. If you already reached the answer, state it now in plain text.",
   "Otherwise continue the unfinished work, starting with one sentence about what you are doing.",
   "</no_output_recovery>",
+].join("\n");
+
+/**
+ * Autonomous plan/goal execution: collaboration prompts ask the model to
+ * narrate progress ("Writing it now.") then call a tool. Models often emit
+ * that narration as a finished assistant message with `finish_reason: stop`
+ * and no toolCall, so the runtime treats it as the final answer and ends the
+ * run mid-task (#43). One automatic continue with this nudge, then stop.
+ */
+const PROGRESS_TURN_NUDGE = [
+  "<progress_only_recovery>",
+  "Your last message announced next steps but contained no tool call, so the autonomous run would have stopped mid-task.",
+  "Continue the approved plan now: either call the tools for the work you just described, or write the final self-contained completion report.",
+  "Do not announce intent without a tool call in the same message.",
+  "</progress_only_recovery>",
 ].join("\n");
 
 /**
@@ -608,6 +616,13 @@ const CONTEXT_ROLLOVER_SUMMARY = [
  * its wording verbatim. The model cannot know how much room is left, so the
  * tool is only useful together with the budget reminders below.
  */
+/** An abort the error classifier recognizes structurally, not by message. */
+function turnAbortedError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
 const CONTEXT_COMPACTION_TOOL_NAME = "new_context";
 const CONTEXT_COMPACTION_TOOL_DESCRIPTION =
   "Start a new context window. Does not clear, reset, or otherwise affect environment state.";
@@ -677,10 +692,16 @@ export type PluginToolDef = {
   parameters?: unknown;
   /** Declared plugin risk, when the plugin supplied a bounded value. */
   risk?: Risk;
+  /**
+   * Action names that may run in Plan or Goal mode (ADR 0211). When set
+   * and non-empty the runtime may expose this plugin tool in Plan/Goal
+   * modes; host-core enforces the per-action restriction.
+   */
+  planSafeActions?: readonly string[];
 };
 
 export type AgentRuntimeOptions = {
-  host: HostClient;
+  host: RuntimeHost;
   sessionId: string;
   mode: Mode;
   /** Durable host turn ID for the current prompt, used by plan identity. */
@@ -758,6 +779,32 @@ function messageRequestsTools(message: unknown): boolean {
     Array.isArray(content) &&
     content.some((part) => isRecord(part) && part.type === "toolCall")
   );
+}
+
+const PROGRESS_FORWARD_INTENT_PATTERNS = [
+  /\b(?:about to|going to|will|next|then|still(?: need| have to)?|remaining|left to|working on|writing|reading|updating|implementing|checking|running|creating|fixing|reviewing|proceed(?:ing)?|continu(?:e|ing)|starting|moving on)\b/i,
+  /(?:接下来|下一步|还需要|仍需|剩下|正在|将要|继续|开始)/i,
+];
+const PROGRESS_TERMINAL_LEAD =
+  /^(?:done|all done|complete(?:d)?|finished|implemented|resolved|verified|successful(?:ly)?|the (?:approved )?(?:plan|goal) is complete)\b/i;
+
+function hasProgressForwardIntent(text: string): boolean {
+  return PROGRESS_FORWARD_INTENT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/** Clearly forward-looking visible assistant text without a toolCall. */
+export function isProgressOnlyAssistantTurn(message: unknown): boolean {
+  if (!isRecord(message) || message.role !== "assistant") return false;
+  if (messageRequestsTools(message)) return false;
+  const content = isRecord(message) ? message.content : undefined;
+  const text = assistantContent(content).text.trim();
+  if (!text || !hasProgressForwardIntent(text)) return false;
+  if (!PROGRESS_TERMINAL_LEAD.test(text)) return true;
+
+  // A report can mention a completed step and still announce the next one.
+  // Only recover a terminal-looking lead when a later clause carries the
+  // forward intent that distinguishes it from a normal final report.
+  return hasProgressForwardIntent(text.replace(PROGRESS_TERMINAL_LEAD, ""));
 }
 
 function boundedText(value: string, maxChars: number): string {
@@ -1265,7 +1312,7 @@ export class DesktopAgentRuntime {
   private mode: Mode;
   private provider: RuntimeProviderConfig;
   private thinkingLevel: ThinkingLevel;
-  private host: HostClient;
+  private host: RuntimeHost;
   private onEvent: (envelope: AgentEventEnvelope) => void;
   private baseSystemPrompt: string;
   private planningState: PlanningState;
@@ -1345,6 +1392,12 @@ export class DesktopAgentRuntime {
   private silentTurnRerunAttempted = false;
   private silentTurnRerunInProgress = false;
   private suppressSilentTurnRunEnd = false;
+  /** Autonomous plan/goal execution: one progress-only continue (#43). */
+  private autonomousExecution = false;
+  private pendingProgressTurnRerun = false;
+  private progressTurnRerunAttempted = false;
+  private progressTurnRerunInProgress = false;
+  private suppressProgressTurnRunEnd = false;
   private activeToolCalls = new Map<
     string,
     { toolName: string; args: unknown }
@@ -1383,6 +1436,8 @@ export class DesktopAgentRuntime {
   private turnEpoch = 0;
   private compactionAbort?: AbortController;
   private compactionInProgress = false;
+  /** The in-flight checkpoint was cut short by Stop/dispose, not by a failure. */
+  private compactionAborted = false;
   /** Set by the `new_context` tool, consumed at the next turn boundary. */
   private pendingModelCompaction = false;
   /** One-shot request to finish the current turn at the next boundary. */
@@ -1444,7 +1499,7 @@ export class DesktopAgentRuntime {
       // (which the user never sees), and the user is left sending "继续" to
       // find out whether anything happened. Every clause below is one of those
       // observed failures stated as a hard rule.
-      "Collaboration: answer in the same language the user writes in. Before each batch of tool calls, write one short sentence saying what you are about to do; never leave the user with no new text for more than one tool batch or 60 seconds of work. Whatever the user asked must be answered in your visible text — your reasoning is not shown to them, so a conclusion that lives only there never reached them. Make the final message self-contained: the outcome, what you changed, and anything still open, without asking the user to re-read intermediate updates. Carry the work through end to end; when you hit a blocker, try to clear it yourself and report what you tried, instead of stopping at analysis or a half-finished change.",
+      "Collaboration: answer in the same language the user writes in. Before each batch of tool calls, write one short sentence saying what you are about to do in the same assistant message as those calls; never leave the user with no new text for more than one tool batch or 60 seconds of work. Whatever the user asked must be answered in your visible text — your reasoning is not shown to them, so a conclusion that lives only there never reached them. Make the final message self-contained: the outcome, what you changed, and anything still open, without asking the user to re-read intermediate updates. Carry the work through end to end; when you hit a blocker, try to clear it yourself and report what you tried, instead of stopping at analysis or a half-finished change.",
       // Delegation steering (ADR 0089). The trigger patterns below are the
       // proactive half of the Task tool's own description: models delegate
       // when the system prompt names the situations, and keep doing everything
@@ -1479,7 +1534,7 @@ Delegation rules:
       // `multi_tool_use.parallel` wrapper as assistant text. PI-Desktop has no
       // such tool, so the whole batch is silently lost as prose.
       "Call tools through the native tool-call interface only. Never write a tool call as text, and never emit a `multi_tool_use.parallel` / `{\"tool_uses\": [...]}` wrapper — there is no such tool here, and a call written as prose does not run. To run several tools at once, emit several real tool calls in one assistant message.",
-      "Editing workflow: use the built-in Edit or Write tool directly on the deliverable file whenever it is inside the advertised workspace. Use Edit for one small unique line-anchored change (path + tag + ops) and Write for a coherent whole-file rewrite. Do not invoke shell apply_patch, git apply, or patch commands; do not create or hand-edit unified-diff files in scratch or repeatedly repair their hunk headers. Treat an edit or shell patch failure as stale state: perform one fresh Read, regenerate the change from that current tag once, then stop and report the exact mismatch instead of looping. Never issue concurrent Write/Edit calls for the same path. When a dedicated worktree is outside the advertised workspace, make one guarded, deterministic edit inside that worktree with Bash, then verify it with git diff or an equivalent check.",
+      "Editing workflow: use the built-in Edit or Write tool directly on the deliverable file whenever it is inside the advertised workspace. Use Edit for one small unique line-anchored change (path + tag + ops) and Write for a coherent whole-file rewrite. Do not invoke shell apply_patch, git apply, or patch commands; do not create or hand-edit unified-diff files in scratch or repeatedly repair their hunk headers. Treat an edit or shell patch failure as recoverable state: classify the error, perform the required fresh Read or use a complete reveal, regenerate the change, and retry with a corrected payload. A path may have three counted failures per prompt; stop after the third and report the exact mismatch instead of looping. Never issue concurrent Write/Edit calls for the same path. When a dedicated worktree is outside the advertised workspace, make one guarded, deterministic edit inside that worktree with Bash, then verify it with git diff or an equivalent check.",
       // Work panel browser preview (D100): workspace HTML files render
       // in the embedded browser with live reload on file changes.
       `For user-visible HTML pages, call the BrowserPreview tool once after creating the page or making the first meaningful visual edit, using its workspace-relative path (e.g. \`index.html\` or \`demo/index.html\`) to show it in PI-Desktop's built-in browser panel. Reuse that preview while iterating: it live-reloads as you edit, so no repeat call or manual refresh is needed. Skip generated, test-only, and non-visual HTML files. If BrowserPreview is not in the current tool list, load it first with ${TOOL_SEARCH_NAME}.`,
@@ -1554,18 +1609,6 @@ Delegation rules:
                 retryDelayMs: delayMs,
                 error: this.retryActivityError(error),
               });
-              logTiming("model", {
-                model: this.provider.modelId,
-                providerId: this.provider.id,
-                sessionId: this.sessionId,
-                turnId: this.turnId,
-                phase,
-                outcome: "retry",
-                errorCode: error.code,
-                retryAttempt: attempt,
-                retryDelayMs: delayMs,
-                providerStatus: this.providerResponseStatus,
-              });
             },
           },
         );
@@ -1605,7 +1648,25 @@ Delegation rules:
       },
     });
 
-    this.agent.subscribe((event) => this.handleAgentEvent(event));
+    // pi awaits every listener, so a throw here would reject the run in
+    // progress and, with nothing awaiting that rejection, could take the whole
+    // sidecar down. Contain it: log with the session attached and let the
+    // loop continue; a handler that failed on one event still sees the next.
+    this.agent.subscribe((event) =>
+      this.handleAgentEvent(event).catch((error: unknown) => {
+        this.logEventHandlerFailure(event, error);
+      }),
+    );
+  }
+
+  private logEventHandlerFailure(event: AgentEvent, error: unknown): void {
+    const detail =
+      error instanceof Error
+        ? `${error.name}: ${error.message}${error.stack ? `\n${error.stack}` : ""}`
+        : String(error);
+    process.stderr.write(
+      `[agent-runtime] event handler failed (session=${this.sessionId} turn=${this.turnId} event=${event.type}): ${detail}\n`,
+    );
   }
 
   /** Switch the planning state on this Agent without creating another Agent. */
@@ -2347,8 +2408,7 @@ Delegation rules:
         signal,
         onUpdate,
       ) => {
-        const instructionTiming = await this.loadPathInstructions(toolName, params);
-        const startedAt = Date.now();
+        await this.loadPathInstructions(toolName, params);
         const isBash = toolName === "Bash";
         const timeoutMs = isBash ? commandTimeoutMs(params) : undefined;
         let progress = "";
@@ -2463,10 +2523,20 @@ Delegation rules:
                   }
                 : {}),
               ...(toolName.startsWith("plugin_")
-                ? {
-                    declaredRisk: this.pluginTools.find((tool) => tool.name === toolName)
-                      ?.risk,
-                  }
+                ? (() => {
+                    const def = this.pluginTools.find(
+                      (tool) => tool.name === toolName,
+                    );
+                    return {
+                      declaredRisk: def?.risk,
+                      // Plan-safe action list lets host-core admit the
+                      // plugin tool in Plan/Goal modes (ADR 0211).
+                      ...(Array.isArray(def?.planSafeActions) &&
+                      def!.planSafeActions.length > 0
+                        ? { planSafeActions: [...def!.planSafeActions] }
+                        : {}),
+                    };
+                  })()
                 : {}),
               // A delegate's tool call carries its definition's permission
               // scope (ADR 0089); the host resolves the call under that scope
@@ -2486,9 +2556,6 @@ Delegation rules:
         if (abortError) throw abortError;
         if (executionFailed) throw executionError;
         if (!result) throw new Error("tool execution returned no result");
-        // hostRttMs spans approval + execution + IPC. Compare it against the
-        // host's own "tool timing" line for the same toolCallId: the gap is
-        // the stdio hops, and permissionWaitMs there explains a large value.
         const recordParams = isRecord(params) ? params : undefined;
         const failedToolExecution = !result.ok && result.denied !== true;
         const failedEditPath =
@@ -2568,24 +2635,6 @@ Delegation rules:
               : {}),
           };
         }
-        logTiming("tool", {
-          tool: toolName,
-          toolCallId,
-          sessionId: this.sessionId,
-          turnId: this.turnId,
-          hostRttMs: Date.now() - startedAt,
-          instructionResolveMs: instructionTiming?.durationMs,
-          instructionCacheHit: instructionTiming?.cacheHit,
-          instructionFallback: instructionTiming?.fallback ? "base" : undefined,
-          ok: result.ok,
-          errorCode: result.errorCode,
-          ...(mutationFailureKind ? { mutationFailureKind } : {}),
-          ...(mutationFailureAttempt !== undefined
-            ? { mutationFailureAttempt }
-            : {}),
-          ...(grantedRecoveryGrace ? { mutationFailureGrace: true } : {}),
-          ...(terminateAfterMutationFailure ? { terminate: true } : {}),
-        });
         const rawContent = result.content;
         const imageBlocks: Array<{ type: "image"; data: string; mimeType: string }> = [];
         let text: string;
@@ -2723,18 +2772,38 @@ Delegation rules:
     }
     const builtins = tools.map(exec);
 
-    const pluginTools: AgentTool[] =
+    // Plugins contribute Agent tools by default. Plan/Goal modes only
+    // expose plugins that declare plan-safe actions (ADR 0211); the
+    // host still enforces the per-action restriction at execute time.
+    const visiblePluginTools =
       this.mode === "agent"
-        ? this.pluginTools.map((def) => ({
-            name: def.name,
-            label: def.name,
-            description: def.description || `${def.name} plugin tool`,
-            parameters: (def.parameters ??
-              Type.Object({})) as AgentTool["parameters"],
-            executionMode: "sequential" as const,
-            execute: exec(def.name).execute,
-          }))
-        : [];
+        ? this.pluginTools
+        : this.pluginTools.filter(
+            (def) =>
+              Array.isArray(def.planSafeActions) &&
+              def.planSafeActions.length > 0,
+          );
+    const pluginTools: AgentTool[] = visiblePluginTools.map((def) => {
+      // Plan/Goal modes annotate the description so the model knows which
+      // actions it may actually call.
+      const baseDescription =
+        def.description || `${def.name} plugin tool`;
+      const description =
+        this.mode !== "agent" &&
+        Array.isArray(def.planSafeActions) &&
+        def.planSafeActions.length > 0
+          ? `${baseDescription} (${this.mode} mode: only ${def.planSafeActions.join(", ")} actions)`
+          : baseDescription;
+      return {
+        name: def.name,
+        label: def.name,
+        description,
+        parameters: (def.parameters ??
+          Type.Object({})) as AgentTool["parameters"],
+        executionMode: "sequential" as const,
+        execute: exec(def.name).execute,
+      };
+    });
     // Only offered when a plugin actually taught a skill; Electron main serves
     // it locally (host-core never sees the skill documents).
     const skillTools: AgentTool[] =
@@ -2827,11 +2896,21 @@ Delegation rules:
     }
   }
 
+  private isPlanSafePluginTool(name: string): boolean {
+    return this.pluginTools.some(
+      (def) =>
+        def.name === name &&
+        Array.isArray(def.planSafeActions) &&
+        def.planSafeActions.length > 0,
+    );
+  }
+
   private isToolAllowedInMode(name: string): boolean {
     const kind = proposalKindForMode(this.mode);
     if (!kind) return true;
-    // Contract modes are read-only: inspection tools plus the one submit tool
-    // that belongs to this kind.
+    // Contract modes are read-only: inspection tools, plan-safe plugin
+    // actions (ADR 0211), and the one submit tool that belongs to this kind.
+    if (this.isPlanSafePluginTool(name)) return true;
     return new Set([
       "Read",
       "Glob",
@@ -2865,7 +2944,7 @@ Delegation rules:
               "Bash",
               "BrowserPreview",
               ASK_TOOL_NAME,
-            ]).has(name)
+            ]).has(name) || this.isPlanSafePluginTool(name)
           : CHAT_CORE_TOOL_NAMES.has(name))
     );
   }
@@ -3375,14 +3454,6 @@ Delegation rules:
             // guard only keeps an unexpected rejection from leaving the
             // delegation stuck in "running" forever.
             (error: unknown) => {
-              logTiming("subagent", {
-                agent: definition.name,
-                toolCallId,
-                sessionId: this.sessionId,
-                turnId: this.turnId,
-                status: "failed",
-                errorCode: "UNEXPECTED_DELEGATION_REJECTION",
-              });
               this.settleDelegation(record, {
                 agentName: definition.name,
                 modelId: provider.modelId,
@@ -3461,17 +3532,6 @@ Delegation rules:
     if (result.usage) {
       this.turnSubagentUsage = addUsage(this.turnSubagentUsage, result.usage);
     }
-    logTiming("subagent", {
-      agent: result.agentName,
-      delegationId: record.delegationId,
-      sessionId: this.sessionId,
-      turnId: this.turnId,
-      status: result.status,
-      turns: result.turns,
-      toolCalls: result.toolCalls,
-      durationMs: record.completedAt - record.startedAt,
-      errorCode: result.error?.code,
-    });
     record.resolveCompletion();
     this.refreshDelegationWait();
     this.pruneFinishedDelegations();
@@ -4183,7 +4243,7 @@ Delegation rules:
   private async loadPathInstructions(
     toolName: string,
     params: unknown,
-  ): Promise<PathInstructionTiming | undefined> {
+  ): Promise<void> {
     if (!PATH_SCOPED_INSTRUCTION_TOOLS.has(toolName)) {
       return undefined;
     }
@@ -4193,9 +4253,7 @@ Delegation rules:
     if (!path) return undefined;
 
     const key = `${this.projectPath ?? ""}\u0000${pathInstructionScope(path)}`;
-    const startedAt = Date.now();
     let resolution = this.pathInstructionClaims.get(key);
-    const cacheHit = resolution !== undefined;
     if (!resolution) {
       resolution = this.host
         .call<ProjectInstructions | undefined>(
@@ -4223,11 +4281,6 @@ Delegation rules:
     this.applyProjectInstructions(
       resolved.fallback ? this.baseProjectInstructions : resolved.instructions,
     );
-    return {
-      durationMs: Date.now() - startedAt,
-      cacheHit,
-      fallback: resolved.fallback,
-    };
   }
 
   private applyProjectInstructions(resolved: ProjectInstructions | undefined): void {
@@ -4302,7 +4355,7 @@ Delegation rules:
 
   /**
    * Claim a retry without exposing an intermediate error to the user. Rate
-   * limits use one shared five-attempt budget across request setup and stream
+   * limits use one shared ten-retry budget across request setup and stream
    * recovery. Other transient failures — upstream gateway 5xx, dropped sockets,
    * timeouts, truncated streams — share their own bounded budget across both
    * phases, so a flapping gateway is retried instead of surfacing an error
@@ -4385,6 +4438,10 @@ Delegation rules:
     this.silentTurnRerunAttempted = false;
     this.silentTurnRerunInProgress = false;
     this.suppressSilentTurnRunEnd = false;
+    this.pendingProgressTurnRerun = false;
+    this.progressTurnRerunAttempted = false;
+    this.progressTurnRerunInProgress = false;
+    this.suppressProgressTurnRunEnd = false;
     this.providerRetryAbort?.abort();
     this.providerRetryAbort = undefined;
     this.mutationFailureCounts.clear();
@@ -4495,57 +4552,110 @@ Delegation rules:
 
   /**
    * Run whatever recovery the finished loop armed for itself. Overflow, a
-   * retriable provider stream failure, and a silent turn all suppress their
-   * run's `turn_end` / `agent_end` inside `message_end` and leave a `pending*`
-   * flag for the caller to act on once the loop is idle. An entry point that
-   * skips this leaves the run with no end events, no error, and no recovery —
-   * the turn simply stops, which is exactly how an approved plan execution
-   * used to die on a silent turn.
+   * retriable provider stream failure, a silent turn, and an autonomous
+   * progress-only turn all suppress their run's `turn_end` / `agent_end`
+   * inside `message_end` and leave a `pending*` flag for the caller to act on
+   * once the loop is idle. An entry point that skips this leaves the run with
+   * no end events, no error, and no recovery — the turn simply stops, which is
+   * exactly how an approved plan execution used to die on a silent turn.
    *
    * Returns false when overflow recovery could not create a checkpoint and the
    * caller must stop; the error event is already emitted.
    */
   private async runPendingRecoveries(): Promise<boolean> {
-    while (this.pendingProviderRetry) {
-      await this.retryPendingProviderFailure();
-    }
-
-    if (this.pendingOverflow) {
-      this.pendingOverflow = false;
-      this.suppressOverflowRunEnd = false;
-      this.overflowRecoveryAttempted = true;
-      const messages = [...this.agent.state.messages];
-      if (messages.at(-1)?.role === "assistant") messages.pop();
-      this.agent.state.messages = messages;
-      const compacted = await this.runCompaction(
-        "overflow",
-        true,
-        "active_turn",
-      );
-      if (!compacted) {
-        this.terminateParentTurn();
-        this.emit({
-          type: "error",
-          error: {
-            code: "CONTEXT_COMPACTION_FAILED",
-            message: "Context overflow recovery could not create a checkpoint",
-            retriable: false,
-          },
-        });
-        return false;
+    while (
+      this.pendingProviderRetry ||
+      this.pendingOverflow ||
+      this.pendingSilentTurnRerun ||
+      this.pendingProgressTurnRerun
+    ) {
+      if (this.pendingProviderRetry) {
+        await this.retryPendingProviderFailure();
+        continue;
       }
-      this.turnHadError = false;
-      this.requestStartedAt = Date.now();
-      await this.agent.continue();
-      await this.agent.waitForIdle();
-    }
-
-    // Last, so a turn that went silent after overflow recovery still gets
-    // its one re-run, and a re-run that goes silent again is not re-run.
-    if (this.pendingSilentTurnRerun) {
-      await this.rerunSilentTurn();
+      if (this.pendingOverflow) {
+        this.pendingOverflow = false;
+        this.suppressOverflowRunEnd = false;
+        this.overflowRecoveryAttempted = true;
+        const messages = [...this.agent.state.messages];
+        if (messages.at(-1)?.role === "assistant") messages.pop();
+        this.agent.state.messages = messages;
+        const compacted = await this.runCompaction(
+          "overflow",
+          true,
+          "active_turn",
+        );
+        if (!compacted) {
+          this.terminateParentTurn();
+          if (this.compactionAborted) {
+            // The user stopped the turn while the checkpoint was being written.
+            // That is an aborted turn, not a compaction failure: close it the
+            // way a stopped stream closes, with no error row.
+            this.finalizeCurrentAssistant("aborted");
+            this.emit({ type: "turn_end" });
+            this.emit({ type: "agent_end", messageIds: [] });
+            return false;
+          }
+          this.emit({
+            type: "error",
+            error: {
+              code: "CONTEXT_COMPACTION_FAILED",
+              message: "Context overflow recovery could not create a checkpoint",
+              retriable: false,
+            },
+          });
+          return false;
+        }
+        this.turnHadError = false;
+        this.requestStartedAt = Date.now();
+        await this.agent.continue();
+        await this.agent.waitForIdle();
+        continue;
+      }
+      if (this.pendingSilentTurnRerun) {
+        await this.rerunSilentTurn();
+        continue;
+      }
+      await this.rerunProgressOnlyTurn();
     }
     return true;
+  }
+
+  /**
+   * Continue once after an autonomous progress-only assistant message
+   * (text, no toolCall). Mirrors `rerunSilentTurn` but keeps the visible
+   * text and only appends PROGRESS_TURN_NUDGE (#43).
+   */
+  private async rerunProgressOnlyTurn(): Promise<void> {
+    if (!this.pendingProgressTurnRerun) return;
+    this.pendingProgressTurnRerun = false;
+    this.suppressProgressTurnRunEnd = false;
+
+    // pi-agent-core refuses `continue()` when the transcript ends in an
+    // assistant message. The progress text is already visible in the reused
+    // bubble, so it must not be sent back as model context.
+    const messages = [...this.agent.state.messages];
+    if (messages.at(-1)?.role === "assistant") messages.pop();
+    this.agent.state.messages = messages;
+
+    const promptBefore = this.agent.state.systemPrompt;
+    const promptWithNudge = `${promptBefore}\n\n${PROGRESS_TURN_NUDGE}`;
+    this.agent.state.systemPrompt = promptWithNudge;
+    this.progressTurnRerunInProgress = true;
+    this.requestStartedAt = Date.now();
+    this.setAgentActivity({ phase: "recovering", since: Date.now() });
+    try {
+      if (this.disposed) throw new Error("runtime disposed");
+      this.suppressProgressTurnRunEnd = false;
+      await this.agent.continue();
+      await this.agent.waitForIdle();
+    } finally {
+      if (this.agent.state.systemPrompt === promptWithNudge) {
+        this.agent.state.systemPrompt = promptBefore;
+      }
+      this.progressTurnRerunInProgress = false;
+      this.suppressProgressTurnRunEnd = false;
+    }
   }
 
   private cleanupActiveToolProgress(): void {
@@ -4766,6 +4876,11 @@ Delegation rules:
     );
     if (!compacted) {
       if (!hardLimitReached) return { context };
+      // A user Stop that lands during the checkpoint aborts the compaction;
+      // pi's loop is already aborting, so surface it as the abort it is.
+      if (this.compactionAborted) {
+        throw new Error("Turn aborted while compacting context");
+      }
       // Continuing would immediately issue the provider request that this
       // guard exists to prevent. The Agent wrapper converts this failure to
       // the normal error/agent_end event sequence.
@@ -4834,6 +4949,7 @@ Delegation rules:
   ): Promise<boolean> {
     if (this.compactionInProgress) return false;
     this.compactionInProgress = true;
+    this.compactionAborted = false;
     const previous = this.agentActivity;
     this.setAgentActivity({
       phase: "compacting",
@@ -4877,13 +4993,18 @@ Delegation rules:
     tokensBefore: number | undefined,
     message: string,
   ): void {
+    // A checkpoint cut short by the user's Stop is not a failed compaction;
+    // it reports under the abort code so the turn reads as stopped.
+    const aborted = this.compactionAborted;
     this.emit({
       type: "compaction_end",
       reason,
       ok: false,
       ...(tokensBefore !== undefined ? { tokensBefore } : {}),
       willRetry: false,
-      error: { code: "CONTEXT_COMPACTION_FAILED", message },
+      error: aborted
+        ? { code: "TURN_ABORTED", message: "Context compaction was stopped" }
+        : { code: "CONTEXT_COMPACTION_FAILED", message },
     });
   }
 
@@ -5431,13 +5552,21 @@ Delegation rules:
     this.forwardAgentEventToExtensions(event);
     switch (event.type) {
       case "agent_start":
-        if (this.providerRetryInProgress || this.silentTurnRerunInProgress) {
+        if (
+          this.providerRetryInProgress ||
+          this.silentTurnRerunInProgress ||
+          this.progressTurnRerunInProgress
+        ) {
           break;
         }
         this.emit({ type: "agent_start" });
         break;
       case "turn_start":
-        if (this.providerRetryInProgress || this.silentTurnRerunInProgress) {
+        if (
+          this.providerRetryInProgress ||
+          this.silentTurnRerunInProgress ||
+          this.progressTurnRerunInProgress
+        ) {
           break;
         }
         this.emit({ type: "turn_start" });
@@ -5448,13 +5577,21 @@ Delegation rules:
           this.streamStartedAt = Date.now();
           const content = assistantContent((event.message as any).content);
           const retryingAssistant =
-            this.providerRetryInProgress || this.silentTurnRerunInProgress
+            this.providerRetryInProgress ||
+            this.silentTurnRerunInProgress ||
+            this.progressTurnRerunInProgress
               ? this.currentAssistant
               : undefined;
+          const initialText =
+            content.hasText && content.text.length > 0
+              ? content.text
+              : this.progressTurnRerunInProgress
+                ? retryingAssistant?.content ?? ""
+                : content.text;
           this.currentAssistant = {
             id: retryingAssistant?.id ?? randomUUID(),
             role: "assistant",
-            content: content.text,
+            content: initialText,
             ...(content.hasThinking && content.thinking
               ? { thinking: content.thinking }
               : {}),
@@ -5470,6 +5607,7 @@ Delegation rules:
             // applies to a silent-turn re-run: one bubble, no empty row.
             this.providerRetryInProgress = false;
             this.silentTurnRerunInProgress = false;
+            this.progressTurnRerunInProgress = false;
             this.emit({ type: "message_update", message: this.currentAssistant });
           } else {
             this.emit({ type: "message_start", message: this.currentAssistant });
@@ -5570,6 +5708,11 @@ Delegation rules:
           const nextThinking = content.hasThinking
             ? content.thinking
             : this.currentAssistant.thinking ?? "";
+          // `nextText` may include text retained in a reused assistant bubble
+          // from an earlier recovery attempt. Recovery classification must
+          // inspect only the response that just ended, or a silent retry after
+          // progress text would look non-silent forever.
+          const responseText = content.hasText ? content.text : "";
           if (looksLikePseudoToolCall(nextText)) {
             // The visible text is a lost tool batch, not an answer. Logging it
             // separates "the model went quiet" from "the model tried to act and
@@ -5604,7 +5747,7 @@ Delegation rules:
           const silentTurn =
             !failed &&
             !aborted &&
-            nextText.trim().length === 0 &&
+            responseText.trim().length === 0 &&
             !messageRequestsTools(event.message);
           if (silentTurn && !this.silentTurnRerunAttempted) {
             this.silentTurnRerunAttempted = true;
@@ -5627,17 +5770,6 @@ Delegation rules:
               ...(usage ? { usage } : {}),
             };
             this.emit({ type: "message_update", message: this.currentAssistant });
-            logTiming("model", {
-              model: this.provider.modelId,
-              providerId: this.provider.id,
-              sessionId: this.sessionId,
-              turnId: this.turnId,
-              providerWaitMs,
-              streamMs,
-              thinkingLevel: this.thinkingLevel,
-              outcome: "silent",
-              thinkingOnly: nextThinking.trim().length > 0,
-            });
             this.streamStartedAt = undefined;
             break;
           }
@@ -5656,6 +5788,37 @@ Delegation rules:
               providerWaitMs,
               streamMs,
             );
+          }
+          // Autonomous plan/goal: clearly forward-looking text without a tool
+          // call is probably progress, not a final answer. Nudge once (#43).
+          const progressOnlyTurn =
+            !failed &&
+            !aborted &&
+            !silentTurn &&
+            this.autonomousExecution &&
+            !this.silentTurnRerunAttempted &&
+            !this.progressTurnRerunAttempted &&
+            isProgressOnlyAssistantTurn(event.message);
+          if (progressOnlyTurn) {
+            this.progressTurnRerunAttempted = true;
+            this.pendingProgressTurnRerun = true;
+            this.suppressProgressTurnRunEnd = true;
+            this.currentAssistant = {
+              ...this.currentAssistant,
+              content: nextText,
+              ...(nextThinking
+                ? { thinking: nextThinking }
+                : content.hasThinking
+                  ? { thinking: undefined }
+                  : {}),
+              status: "streaming",
+              modelId: this.provider.modelId,
+              providerId: this.provider.id,
+              ...(usage ? { usage } : {}),
+            };
+            this.emit({ type: "message_update", message: this.currentAssistant });
+            this.streamStartedAt = undefined;
+            break;
           }
           const emptyResponse = silentTurn;
           const diagnosticError = classifiedError;
@@ -5684,19 +5847,6 @@ Delegation rules:
               ...(usage ? { usage } : {}),
             };
             this.emit({ type: "message_update", message: this.currentAssistant });
-            logTiming("model", {
-              model: this.provider.modelId,
-              providerId: this.provider.id,
-              sessionId: this.sessionId,
-              turnId: this.turnId,
-              providerWaitMs,
-              streamMs,
-              thinkingLevel: this.thinkingLevel,
-              outcome: "retry",
-              errorCode: diagnosticError.code,
-              retryAttempt: retryProviderAttempt,
-              providerStatus: this.providerResponseStatus,
-            });
             this.streamStartedAt = undefined;
             break;
           }
@@ -5736,27 +5886,6 @@ Delegation rules:
               : {}),
           };
           this.emit({ type: "message_end", message: this.currentAssistant });
-          logTiming("model", {
-            model: this.provider.modelId,
-            providerId: this.provider.id,
-            sessionId: this.sessionId,
-            turnId: this.turnId,
-            // Time from "the agent could send the request" to the first
-            // streamed message: provider queue + network + first token.
-            providerWaitMs,
-            streamMs,
-            thinkingLevel: this.thinkingLevel,
-            outcome: failed || emptyResponse
-              ? "error"
-              : aborted
-                ? "aborted"
-                : "ok",
-            errorCode: diagnosticError?.code,
-            providerStatus: this.providerResponseStatus,
-            ...(this.activeProviderRetryAttempt > 0
-              ? { retryAttempt: this.activeProviderRetryAttempt }
-              : {}),
-          });
           this.activeProviderRetryAttempt = 0;
           this.streamStartedAt = undefined;
           this.currentAssistant = undefined;
@@ -5840,6 +5969,7 @@ Delegation rules:
           this.suppressOverflowRunEnd ||
           this.suppressProviderRetryRunEnd ||
           this.suppressSilentTurnRunEnd ||
+          this.suppressProgressTurnRunEnd ||
           this.keepTurnOpenForDelegates()
         )
           break;
@@ -5855,9 +5985,11 @@ Delegation rules:
           this.suppressOverflowRunEnd ||
           this.suppressProviderRetryRunEnd ||
           this.suppressSilentTurnRunEnd ||
+          this.suppressProgressTurnRunEnd ||
           this.keepTurnOpenForDelegates()
         )
           break;
+        this.autonomousExecution = false;
         this.clearAgentActivity();
         this.reportMutationTermination();
         this.emit({
@@ -5951,32 +6083,26 @@ Delegation rules:
     this.emit({ type: "message_end", message: this.currentAssistant });
     // The failure path is where a slow turn matters most: a provider that
     // burns its retries before giving up shows here as a large providerWaitMs.
-    logTiming("model", {
-      model: this.provider.modelId,
-      providerId: this.provider.id,
-      sessionId: this.sessionId,
-      turnId: this.turnId,
-      providerWaitMs:
-        this.requestStartedAt !== undefined
-          ? Date.now() - this.requestStartedAt
-          : undefined,
-      outcome: status,
-      errorCode: error?.code,
-    });
     this.streamStartedAt = undefined;
     this.currentAssistant = undefined;
   }
 
-  private failBeforeProviderRequest(
-    incomingUserMessage: AgentMessage,
-    error: ReturnType<typeof classifyAgentError>,
-  ): void {
+  /** Keep a pre-flight user message in context so a reused runtime and the
+   * next turn both see it, even though no provider request was made. */
+  private keepPreflightUserMessage(incomingUserMessage: AgentMessage): void {
     const userMessageId = this.pendingUserMessageId || randomUUID();
     this.pendingUserMessageId = undefined;
     this.appendLiveEntry(userMessageId, incomingUserMessage);
     this.agent.state.messages = buildSessionContext(
       this.entriesWithCompaction(),
     ).messages;
+  }
+
+  private failBeforeProviderRequest(
+    incomingUserMessage: AgentMessage,
+    error: ReturnType<typeof classifyAgentError>,
+  ): void {
+    this.keepPreflightUserMessage(incomingUserMessage);
     this.terminateParentTurn();
     this.finalizeCurrentAssistant("error", error);
     this.emit({ type: "error", error });
@@ -5994,6 +6120,7 @@ Delegation rules:
     durableTurnId: string,
   ): Promise<{ turnId: string }> {
     if (this.disposed) throw new Error("runtime disposed");
+    this.assertNotRunning();
     if (execution.sessionId !== this.sessionId) {
       throw Object.assign(new Error("approved plan belongs to another session"), {
         errorCode: "PLAN_EXECUTION_NOT_FOUND",
@@ -6022,6 +6149,7 @@ Delegation rules:
     this.currentAssistant = undefined;
     this.requestStartedAt = Date.now();
     this.setMode("agent");
+    this.autonomousExecution = true;
 
     const kind = execution.kind === "goal" ? "goal" : "plan";
     const instruction =
@@ -6081,6 +6209,7 @@ Delegation rules:
     durableTurnId?: string,
   ): Promise<{ turnId: string }> {
     if (this.disposed) throw new Error("runtime disposed");
+    this.assertNotRunning();
     const nextTurnId = durableTurnId?.trim() || randomUUID();
     this.hostTurnId = nextTurnId;
     this.turnId = nextTurnId;
@@ -6092,6 +6221,7 @@ Delegation rules:
     this.pathInstructionClaims.clear();
     this.pendingUserMessageId = userMessageId;
     this.resetRunRecoveryState();
+    this.autonomousExecution = false;
     this.turnEpoch += 1;
     this.abortDelegationsFromPreviousTurns();
     this.requestStartedAt = Date.now();
@@ -6106,6 +6236,13 @@ Delegation rules:
       if (this.automaticCompactionNeeded([incomingUserMessage])) {
         const compacted = await this.runCompaction("threshold", false);
         if (!compacted) {
+          if (this.compactionAborted) {
+            // Stop landed during the pre-flight checkpoint. Keep the user's
+            // message in context and end the turn as aborted, the same way a
+            // stop during the provider request ends it (the catch below).
+            this.keepPreflightUserMessage(incomingUserMessage);
+            throw turnAbortedError("Turn aborted while compacting context");
+          }
           this.failBeforeProviderRequest(incomingUserMessage, {
             code: "CONTEXT_COMPACTION_FAILED",
             message: "Automatic context compaction failed before the model request",
@@ -6228,6 +6365,20 @@ Delegation rules:
     return next;
   }
 
+  /**
+   * Same rejection the sidecar gives a second `agent.prompt` while a turn is
+   * active, raised before any turn state is touched. pi's own busy check
+   * would throw later, after `turnId`/`turnEpoch` had already moved on, and
+   * that throw finalized the running assistant message as an error.
+   */
+  private assertNotRunning(): void {
+    if (!this.getStatus().isRunning) return;
+    throw Object.assign(new Error("session already has an active turn"), {
+      rpcCode: -32000,
+      errorCode: "AGENT_BUSY",
+    });
+  }
+
   async abort(): Promise<void> {
     this.gracefulStopRequested = false;
     this.runCancelled = true;
@@ -6236,6 +6387,7 @@ Delegation rules:
     this.turnSubagentUsage = undefined;
     this.agent.abort();
     this.providerRetryAbort?.abort();
+    if (this.compactionInProgress) this.compactionAborted = true;
     this.compactionAbort?.abort();
   }
 
@@ -6286,6 +6438,7 @@ Delegation rules:
     this.agent.abort();
     this.providerRetryAbort?.abort();
     this.cleanupActiveToolProgress();
+    if (this.compactionInProgress) this.compactionAborted = true;
     this.compactionAbort?.abort();
   }
 }

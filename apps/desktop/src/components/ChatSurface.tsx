@@ -230,6 +230,7 @@ export const ChatSurface = memo(function ChatSurface() {
             <button
               type="button"
               aria-label={t("errors.action.dismiss")}
+              title={t("errors.action.dismiss")}
               className="chat-error-dismiss"
               onClick={() => useAppStore.getState().clearError()}
             >

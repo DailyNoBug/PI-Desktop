@@ -607,6 +607,20 @@ export class AgentSidecar {
     this.vendorAuthBindings.clear();
     this.closeTransport(new Error("agent sidecar disposed"));
     this.exitHandlers.clear();
-    this.child.kill();
+    if (this.child.exitCode !== null || this.child.signalCode !== null) return;
+    // Wait for the process to actually leave so quit's settle step is real
+    // rather than returning while the sidecar is still tearing down.
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, SIDECAR_DISPOSE_GRACE_MS);
+      timer.unref?.();
+      this.child.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      this.child.kill();
+    });
   }
 }
+
+/** Upper bound on how long `dispose()` waits for the killed sidecar to exit. */
+const SIDECAR_DISPOSE_GRACE_MS = 2_000;

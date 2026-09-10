@@ -407,6 +407,7 @@ function ScopeProjectsSummary({
               type="button"
               className="scope-popover-close"
               aria-label={t("common.close")}
+              title={t("common.close")}
               onClick={() => onOpenChange(false)}
             >
               <IconX size={12} />

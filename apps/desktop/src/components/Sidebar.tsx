@@ -1219,6 +1219,7 @@ export function Sidebar({
             className="thread-item-more"
             data-action="session-menu"
             aria-label={t("nav.sessionActions", { defaultValue: "Session actions" })}
+            title={t("nav.sessionActions", { defaultValue: "Session actions" })}
             aria-haspopup="menu"
             aria-expanded={sessionMenu === session.id}
             onClick={(event) => {
@@ -1366,6 +1367,7 @@ export function Sidebar({
               type="button"
               className="thread-item-more project-more"
               aria-label={t("project.openActions", { name: entry.name })}
+              title={t("project.openActions", { name: entry.name })}
               aria-haspopup="menu"
               aria-expanded={isMenuOpen}
               onClick={(event) => {
@@ -1818,6 +1820,7 @@ export function Sidebar({
                   className={`sidebar-toolbar-button ${sortOpen ? "active" : ""}`}
                   data-action="session-sort"
                   aria-label={t("nav.sortSessions", { defaultValue: "Sort sessions" })}
+                  title={t("nav.sortSessions", { defaultValue: "Sort sessions" })}
                   aria-haspopup="menu"
                   aria-expanded={sortOpen}
                   onClick={(event) => {

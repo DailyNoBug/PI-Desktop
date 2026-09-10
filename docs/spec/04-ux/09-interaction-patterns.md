@@ -846,6 +846,16 @@ Running turns and pending approvals continue to gate the controls.
 - Error toasts require manual dismiss or timeout at 8s (longer than success)
 - Success toasts auto-dismiss at 4s
 
+### 6.4 Icon-only action labels
+
+- Every icon-only action exposes a localized purpose through both its accessible
+  name and its hover/focus tooltip.
+- Use `title` for native tooltips on compact actions; use the existing themed
+  `data-tip` pattern when placement or visual treatment requires a custom
+  tooltip. Decorative icons remain `aria-hidden` and do not need a tooltip.
+- Tooltip text must describe the action, not the icon shape, and must come from
+  the active i18n catalog.
+
 ## 7. Focus management
 
 ### 7.1 Focus flow on page load
@@ -1087,8 +1097,10 @@ When drag/drop is implemented, these patterns should apply:
   new process rows stay in view; a real upward gesture pauses follow and shows
   the standard jump-to-latest control. This keeps the process readable without
   a second scrollbar or an empty tail.
-- Clicking a delegation topology node opens an inset grouped side sheet in the
-  right-side work-panel dock instead of expanding the transcript. The dock has
+- Clicking a delegation topology node toggles an inset grouped side sheet in the
+  right-side work-panel dock instead of expanding the transcript. Clicking the
+  selected node again closes the side sheet; selecting another node replaces
+  the current detail in place. The dock has
   a sticky identity header (avatar, name, and model caption on the left; status
   capsule and elapsed time trailing on the same row), the Task call's selectable description as a full-width grouped
   card under a Task section label, capped at four lines with an inline Show

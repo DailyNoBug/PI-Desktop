@@ -39,6 +39,14 @@ test("failed turns expose a localized continuation prompt", () => {
     chinese["chat.continueUnfinishedTaskPrompt"],
     "继续用户未完成的任务",
   );
+  assert.equal(
+    english["errors.MUTATION_RETRY_BUDGET_EXHAUSTED"],
+    "The same edit failed three times, so this turn stopped instead of retrying blind. Ask again to continue.",
+  );
+  assert.equal(
+    chinese["errors.MUTATION_RETRY_BUDGET_EXHAUSTED"],
+    "同一处修改连续失败三次，本轮已停止，不再盲目重试。再说一次即可继续。",
+  );
 });
 
 test("common setup and marketplace copy avoid developer jargon", () => {

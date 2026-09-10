@@ -27,16 +27,56 @@ on:
         default: false
         type: boolean
 
+# Least privilege by default; only the publish job needs to write the release.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  verify:
+    # Same gate as ci.yml. A tag push does not trigger ci.yml, so without this
+    # job a broken tree could be built and published untested.
+    name: Verify (build / typecheck / lint / test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: pnpm build:js
+
+      - name: Typecheck Desktop
+        run: pnpm --filter @pi-desktop/desktop typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm -r --if-present test
+
+      - name: Rust host-core test
+        run: cargo test -p host-core --locked
+
   build:
     name: Build ${{ matrix.name }}
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
@@ -241,6 +281,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:

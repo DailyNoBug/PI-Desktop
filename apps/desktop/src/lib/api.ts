@@ -99,7 +99,13 @@ import {
 } from "@pi-desktop/shared";
 
 export type ImportSource = "claude-code" | "opencode" | "codex" | "pi";
-export type ModelConfigImportSource = ImportSource | "cc-switch";
+// One definition, owned by the shared package (the host and sidecar use the
+// same shape); re-exported so existing renderer imports keep working.
+import type {
+  ModelConfigImportCandidate,
+  ModelConfigImportSource,
+} from "@pi-desktop/shared";
+export type { ModelConfigImportCandidate, ModelConfigImportSource };
 
 export interface ImportCandidate {
   source: ImportSource;
@@ -116,16 +122,6 @@ export interface ImportRunResult {
   imported: number;
   skipped: number;
   failed: number;
-}
-
-export interface ModelConfigImportCandidate {
-  source: ModelConfigImportSource;
-  externalId: string;
-  name: string;
-  baseUrl: string | null;
-  apiStyle: string;
-  modelIds: string[];
-  hasSecret: boolean;
 }
 
 declare global {

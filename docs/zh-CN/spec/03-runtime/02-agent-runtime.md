@@ -534,6 +534,11 @@ Frontmatter 新增 `permission: inherit | ask | accept-edits | auto`（默认
 使用该定义的系统提示、其（可能已固定的）provider/model、其声明的工具，
 以及与父级相同的主机连接，并遵循与父级相同的有界提供程序重试策略。
 `maxTurns` 是可选的按定义兜底（最大 80）；省略、`none` 或 `0` 表示不限轮数。
+`maxTokens` 是可选的按定义输出上限（最大 200000）；省略、`none` 或 `0` 表示跟随模型
+已发布的上限。它会覆盖为该委托构建的模型上的 `maxTokens`，因此适配器派生出的
+`max_tokens` / `max_completion_tokens` / `max_output_tokens` 都会带上它；它只约束该
+委托自身的响应 —— 会话自己的请求仍沿用模型绑定。超过天花板的值属于笔误，会被钳制
+而不会转发给 provider。
 内置委托各自声明与其工作量相称的值 —— `explorer` 60、`code-reviewer` 50、
 `test-runner` 40、`fixer` 80 —— 因此始终无法收敛的委托会以 `truncated`
 连同其部分报告结束，而不是一直跑到时长上限。内置的 `explorer` 声明 `Read`、
@@ -847,10 +852,8 @@ sidecar 无法选择不同的根。在一次提示期间，路径解析
 源路径标记在 `# Project instructions` 下。
 sidecar 从不直接读取工作区指令。改变的根链
 在下一个提示时重新创建空闲运行时；嵌套指令已解决
-当相关文件工具运行时再次。 sidecar 计时线记录
-`instructionResolveMs`、`instructionCacheHit` 和 `instructionFallback`
-与 `hostRttMs` 分开，因此慢速预检不能被误认为是慢速预检
-指挥机构。
+当相关文件工具运行时再次。解析器的超时和 fallback 是运行时保护措施；
+它们不会输出独立的 timing 日志记录。
 
 设置为固定全局路径提供专门的管理。项目
 查看项目列表菜单为其相应的项目提供了 `AGENTS.md` 编辑器

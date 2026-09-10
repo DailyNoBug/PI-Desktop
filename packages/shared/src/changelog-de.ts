@@ -2,6 +2,23 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const deEntries: ChangelogEntry[] = [
   {
+    "version": "0.14.6",
+    "date": "2026-09-10",
+    "highlights": [
+      "Warnt, wenn diese Version älter ist als Ihre lokalen Daten oder die Intel-Version auf Apple Silicon läuft, statt stumm zu scheitern.",
+      "Fügt eine lokale MCP-Desktop-Steuerebene hinzu; geprüfte Plugins steuern den Desktop nur nach nativer Zustimmung.",
+      "Fügt Subagent-Vorlagen, eine anbietergebundene Modellauswahl und die effektive Denkstufe auf Delegationskarten hinzu.",
+      "Konfigurierte Modelle mit Alias versehen, Modell-IDs kopieren und das modell-eigene Wire-API vor dem Anbieterstil bevorzugen.",
+      "Ersetzt textuelles Edit-Matching durch zeilenverankerte Operationen mit fehlerspezifischen Wiederherstellungshinweisen.",
+      "Wiederholt Anbieteranfragen bis zu zehnmal mit sichtbarem Countdown und setzt autonome Fortschrittsrunden fort.",
+      "Neu gestalteter macOS-Installer, portable Windows-Exe und Linux-RPM-Paket, GNOME-Tray- und Dock-Symbole wiederhergestellt.",
+      "Konversations-IDs kopieren und Sitzungsordner aus der Seitenleiste öffnen, mit lokalisierten Tooltips für Symbolaktionen.",
+      "Zeigt Live-Prozessstatus und ruhige Intervalle in der Aktivitätszeile und fügt einen fixierten Arbeitsbereich-Umschalter hinzu.",
+      "Erzwingt Ignore-Regeln im Arbeitsbereich, löst hängende Symlinks auf und prüft Plugin-Netzwerkausgang bei jeder Umleitung neu.",
+      "Beachtet Proxy-Bypass-Regeln, behält eingefügte Private-Use-Glyphen und lädt Dateivorschauen ohne den Editor zu blockieren.",
+    ],
+  },
+  {
     "version": "0.14.5",
     "date": "2026-09-09",
     "highlights": [

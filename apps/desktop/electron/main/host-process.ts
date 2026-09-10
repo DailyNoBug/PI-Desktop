@@ -8,6 +8,7 @@ import {
   GlibcUnsupportedError,
   glibcMissingSymbol,
 } from "./linux-glibc";
+import { DbSchemaTooNewError, parseSchemaTooNew } from "./host-boot-diagnostics";
 
 const HOST_DISPOSE_GRACE_MS = 3_000;
 const HOST_FORCE_KILL_GRACE_MS = 1_000;
@@ -138,7 +139,15 @@ export class HostProcess {
         `host-core process error: ${error.message}`,
       );
       this.closeTransport(failure);
+      // A spawn failure never produces an `exit` event, so without settling the
+      // exit promise here `dispose()` would wait the full grace period, send a
+      // SIGKILL to a process that never started, and wait again.
+      if (this.child.pid === undefined || this.child.exitCode !== null) {
+        this.exitObserved = true;
+        this.resolveExit();
+      }
       this.notifyExit({ code: null, signal: null, intentional: this.disposed });
+      if (this.exitObserved) this.cleanupProcessListeners();
     });
 
     const rl = createInterface({ input: this.child.stdout });
@@ -199,6 +208,12 @@ export class HostProcess {
    * rather than by matching message text.
    */
   private unavailableError(message: string): Error & { errorCode: string } {
+    const schema = parseSchemaTooNew(this.lastStderr) ?? parseSchemaTooNew(message);
+    if (schema) {
+      return Object.assign(new DbSchemaTooNewError(schema), {
+        errorCode: ErrorCodes.HOST_UNAVAILABLE,
+      });
+    }
     if (glibcMissingSymbol(this.lastStderr) || glibcMissingSymbol(message)) {
       return Object.assign(new GlibcUnsupportedError(), {
         errorCode: ErrorCodes.HOST_UNAVAILABLE,

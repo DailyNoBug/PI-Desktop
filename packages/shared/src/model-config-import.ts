@@ -189,14 +189,14 @@ export function parseJsonDocument(text: string): unknown | null {
     // fall through to JSONC
   }
   try {
-    return JSON.parse(stripJsonc(text)) as unknown;
+    return JSON.parse(stripTrailingCommas(stripJsonc(text))) as unknown;
   } catch {
     return null;
   }
 }
 
 /** Strip line and block comments that sit outside JSON strings. */
-export function stripJsonc(text: string): string {
+function stripJsonc(text: string): string {
   let out = "";
   let i = 0;
   let inString = false;
@@ -230,6 +230,50 @@ export function stripJsonc(text: string): string {
       while (i + 1 < text.length && !(text[i] === "*" && text[i + 1] === "/")) i += 1;
       i += 2;
       continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * Drop a comma that only whitespace separates from a closing `}` or `]`.
+ * JSONC editors leave these behind routinely (opencode.jsonc in particular),
+ * and `JSON.parse` rejects the whole document over one of them. Runs on
+ * comment-free text so a `,` inside a comment cannot confuse it; commas inside
+ * strings are left alone.
+ */
+function stripTrailingCommas(text: string): string {
+  let out = "";
+  let i = 0;
+  let inString = false;
+  let quote = "";
+  let escaped = false;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === quote) inString = false;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      quote = ch;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j += 1;
+      if (text[j] === "}" || text[j] === "]") {
+        i += 1;
+        continue;
+      }
     }
     out += ch;
     i += 1;
@@ -660,7 +704,7 @@ function resolveSecret(raw: unknown, env: ModelConfigImportEnv): string | undefi
   return sanitizeSecret(trimmed);
 }
 
-export function isPlaceholderSecret(value: string): boolean {
+function isPlaceholderSecret(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return true;
   if (/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(trimmed)) return true;
@@ -871,7 +915,7 @@ type TomlExtract = {
  * Minimal TOML reader for Codex `config.toml`: root keys plus `[table]`
  * assignments. Arrays-of-tables and inline tables are ignored.
  */
-export function parseTomlSubset(text: string): TomlExtract {
+function parseTomlSubset(text: string): TomlExtract {
   const root: Record<string, TomlValue> = {};
   const tables = new Map<string, Record<string, TomlValue>>();
   let current: Record<string, TomlValue> = root;

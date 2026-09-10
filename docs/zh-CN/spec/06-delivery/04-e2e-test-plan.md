@@ -135,17 +135,14 @@ M5。
   host-core 和 Electron 启动。窗口首先显示品牌启动画面
   当 bootstrap 运行时，然后用当前的英文显示主 shell
   语言环境目录；没有编译错误、缺少菜单运行时错误或崩溃；
-  版本信息可见。`~/.pi-desktop/logs/app/timing.log` 含有可检索的
-  `[timing] kind=boot` 行（`when-ready`、`host`、`sidecar`、`window-shown`、
-  `renderer-bootstrap`）。GitHub 自动更新在首个窗口出现之后才开始，
+  版本信息可见。分类日志会写入关键生命周期和错误记录。GitHub 自动更新在首个窗口出现之后才开始，
   且不会因约 60 秒的网络超时把状态钉在 `checking`。
 - **链接规格**：`03-runtime/07-process-model.md`、`04-ux/01-ui-ia.md`、
   `03-runtime/09-logging-and-observability.md` §7b
 - **接受**：A（应用程序启动）
 - **里程碑**：M1
 - **状态**：部分自动化（`runtime-build-contract.test.mjs` 涵盖
-  依赖构建合约；`boot-timing.test.mjs` 与 `auto-update.test.mjs` 覆盖打点
-  与限时自动检查；Electron 窗口启动仍处于草案状态）
+  依赖构建合约；`update-timeout.test.mjs` 与 `auto-update.test.mjs` 覆盖限时自动检查；Electron 窗口启动仍处于草案状态）
 
 #### E2E-002：IPC 桥功能正常
 
@@ -1381,7 +1378,7 @@ M5。
 
 - **先决条件**：新鲜的个人资料；提供商已配置；一轮聊天结束。
 - **步骤**：1) 通过工具调用运行提示。 2) 打开 `~/.pi-desktop/logs/`。 3) 检查 `app/`、`host/` 和 `agent/` 下的分类文件。
-- **预期**：NDJSON 记录与 `ts/level/channel/category/message` 一起存在；工具 start/end 携带 host-core/RPC；没有出现 API 密钥材料；每个类别文件的大小为 5 MB。此外，(D183) `host/timing.log` 对于携带 Maximized/fullscreen/invalid/tiny/`04-ux/09-interaction-patterns.md`/NDJSON/`~/.pi-desktop/logs/` 的每个工具调用都有一个 `tool timing` 记录，并且 `agent/timing.log` 具有匹配的 `[timing] kind=tool` 和 `[timing] kind=model` 行，因此对于同一 `toolCallId`，批准等待、慢速工具主体和慢速提供程序是可区分的。
+- **预期**：NDJSON 记录与 `ts/level/channel/category/message` 一起存在；工具 start/end 携带 host-core/RPC；没有出现 API 密钥材料；每个类别文件的大小为 5 MB。生命周期、权限、工具、provider、plugin、持久化、更新器和错误记录仍可用，且正常运行不会创建独立的 timing 类别文件。
 - **链接规格**：`03-runtime/09-logging-and-observability.md`
 - **接受**：H（诊断）
 - **里程碑**：M5
@@ -2059,15 +2056,16 @@ MainChat 弥补了缺口。 Maximized/fullscreen 调用保留最新的
   内联代码、块引用规则和代码卡的对比。
 - **预期**：答案散文使用 `.prose-chat` 层次结构（h1–h6 斜坡，
   带重音的块引用、细线边框内联代码、zebra/hover 表
-  shell，带有等宽语言标签的插入代码卡）。思考散文留下来
+  shell，带有等宽语言标签的插入代码卡）。宽 GFM 表格留在转录列宽内：
+  表头与单元格换行，而不是横向溢出。思考散文留下来
   secondary/smaller 并且不会合并到答案中。两个主题都保留
   可读对比度；复制仍然复制原始栅栏文本。
 - **链接规格**：`04-ux/07-ui-design-system.md`，
   `04-ux/08-component-spec.md` §8.7
 - **验收**：C（聊天流），质量
 - **里程碑**：M5
-- **状态**：单位覆盖（`user-select.test.mjs`、`thinking-ui.test.mjs`）；
-  全视觉场景草稿
+- **状态**：单位覆盖（`user-select.test.mjs`、`thinking-ui.test.mjs`、
+  `markdown-prose-style.test.mjs`）；全视觉场景草稿
 
 #### E2E-061：用户消息纯文本布局在包装和重新加载中仍然存在
 
@@ -3385,7 +3383,7 @@ IPC 请求无法关闭。
 - **步骤**：
   1. 启动一个任务，为同一会话发出两个突变，同时还
      发出独立的 read/search 调用。
-  2. 在第一个突变运行时检查工具计时和转录本。
+  2. 在第一个突变运行时检查关键工具结果和转录本。
   3. 强制第二个 `Edit` 携带一个已无法哈希出该文件的 `tag`，且其锚点
      无法被恢复重映射，然后允许代理重新读取文件并从当前内容重试。
   4. 运行以非零值退出的 Bash 命令并检查其工具结果
@@ -3402,11 +3400,10 @@ IPC 请求无法关闭。
     `EDIT_RANGE_INVALID` 失败。
   - 非零 Bash 命令被标记为失败，同时保留其退出代码，
     用于代理和诊断的 stdout 和 stderr。
-  - 重试执行一次新读取并对当前文件进行操作；一旦该路径用完它的恢复宽限，
-    该路径的下一次失败——或第二个失败的 shell patch 命令——返回
-    终止工具结果以及一条可见的 `MUTATION_RETRY_BUDGET_EXHAUSTED` 行，
-    停止变异工作流程，并且不
-    重复修改旧的补丁工件或其块标头。
+  - 重试执行一次新读取并对当前文件进行操作；一旦该路径用完恢复宽限，第 3 次计数的同路径
+    失败——或第 3 次失败的 shell patch 命令——返回终止工具结果以及一条可见的
+    `MUTATION_RETRY_BUDGET_EXHAUSTED` 行，停止变异工作流程，并且不重复修改旧的补丁工件或其块
+    标头。
   - 最终文件准确包含预期的更改以及 diff/review 数据
     不包含部分或交错突变。
 - **链接规格**：`03-runtime/03-tools-and-permissions.md`，
@@ -3424,16 +3421,16 @@ IPC 请求无法关闭。
   第三个装置在一次尝试中于标头之前返回
   `OpenAI API error (502)`，并在下一次尝试中于流中返回它；
   第四个装置返回连续六个 502；第五个装置返回带
-  `Retry-After` 的 503；计时日志已启用。
+  `Retry-After` 的 503。
 - **步骤**：
   1. 使用单端接夹具开始 Agent 转动，并观察
      部分助理回应。
   2. 等待有界重试并检查成绩单、会话状态和
-     恢复后的模型计时日志。
+     恢复后的终端诊断。
   3. 对五端夹具重复并检查端子错误
      message/event 及其诊断详细信息。
   4. 运行混合阶段 502 装置，并针对标头之前和流中的
-     502 检查请求计数与计时日志。
+     502 检查请求计数与终端诊断。
   5. 运行持续六次 502 的装置并检查终端错误。
   6. 运行 503 `Retry-After` 装置并检查观察到的等待。
   7. 重新加载会话并验证是否只有已完成的响应或
@@ -3691,7 +3688,7 @@ IPC 请求无法关闭。
   使持久选择不可用，并且项目绑定的 Agent 会话是
   闲置。 Windows 通道练习多选排序。
 - **步骤**：1) 检查目录中的平台有效 ID
-  `windows-powershell`、`cmd`、`git-bash` 和 `bash`。 2) 验证设置
+  `windows-powershell`、`windows-pwsh`、`cmd`、`git-bash` 和 `bash`。 2) 验证设置
   拒绝不可用或错误的平台 ID。 3）选择可用的shell
   并坚持 `defaultCommandShell`。 4）使坚持的选择不可用，
   重新启动，并验证目录选择第一个可用的平台 shell
@@ -3984,11 +3981,11 @@ IPC 请求无法关闭。
 - **先决条件**：项目绑定的 Agent 会话使用确定性提供程序
   在没有工具调用和没有文本的情况下结束一圈的夹具 - 一次带有推理
   内容呈现，曾经什么也没有；第二场比赛结束
-  第一个回合，然后以同样的方式重新运行；计时日志已启用。
+  第一个回合，然后以同样的方式重新运行。
 - **步骤**：
   1. 使用仅推理夹具启动 Agent 回合并观察
      运行时恢复时的转录。
-  2. 随后检查脚本、会话状态和模型计时日志。
+  2. 随后检查脚本、会话状态和终端诊断。
   3. 对无任何装置重复上述步骤。
   4. 对两次静音的夹具重复此操作并检查终端错误消息，
      其详细信息披露及其操作按钮。
@@ -4000,9 +3997,7 @@ IPC 请求无法关闭。
   - 在重新运行之前，空助手会从模型上下文中删除，因此
 提供商从来不会连续收到两条辅助消息，而且也永远不会
     附加到持久的成绩单中。
-  - 计时日志记录 `outcome=silent` 且 `thinkingOnly` 为 true
-    仅推理固定装置，对于无任何固定装置为 false，则
-    重新运行自己的结果。
+  - 终端诊断标识空响应恢复和重新运行的结果。
   - 第二次静音发出一个终端可重试 `EMPTY_MODEL_RESPONSE`
     辅助错误和生命周期事件；该消息命名了两次尝试，并且
     重试操作会重新发送最后一个提示。
@@ -5594,23 +5589,23 @@ IPC 请求无法关闭。
 - **里程碑**：M5+
 - **状态**：已记录
 
-#### E2E-140：可恢复的编辑失败各有一次重试才开始计数
+#### E2E-140：可恢复的编辑失败各有一次重试，保护器累计三次后终止
 
-- **先决条件**：一个已读取过某个文件的会话，以及一种在两次调用之间让该文件在磁盘上漂移
-  的手段。
+- **先决条件**：一个读取过文件的会话，以及能在调用之间让文件在磁盘上漂移的方式。
 - **步骤**：
-  1. 让文件漂移，然后用现在已过时的 tag 发出一次锚点无法重映射的 `Edit`，使其以
+  1. 让文件漂移，然后用现在已过时的 tag 发出锚点无法重映射的 `Edit`，使其以
      `EDIT_TAG_MISMATCH` 失败。
   2. 重新读取，然后发出一次锚定在会话从未显示过的行上的 `Edit`，使其以
      `EDIT_LINES_UNSEEN` 与一个被截断的 reveal 失败。
   3. 在同一路径上发出一次头格式错误的 `Edit`。
   4. 再发出一次头格式错误的 `Edit`。
+  5. 第三次发出头格式错误的 `Edit`。
 - **预期**：第 1 与第 2 步返回各自的代码且不带 `terminate` 提示——每个可恢复代码在该
-  路径上花掉它唯一的宽限，本轮继续进行，因此代理可以按错误交回的信息行动。第 3 步计为
-  尝试 1，仍然不终止。第 4 步终止。在第 4 步之前任意位置插入一次成功的 `Edit` 都会重置
-  计数，因此其后的失败又是尝试 1。
+  路径上花掉它唯一的宽限，本轮继续进行，因此代理可以按错误交回的信息行动。第 3 与第 4
+  步分别计为尝试 1 与 2，仍然不终止。第 5 步终止。在第 5 步之前任意位置插入一次成功的
+  `Edit` 都会重置计数，因此其后的失败又是尝试 1。
 - **链接规格**：`03-runtime/18-line-anchored-edit-contract.md` §9.3、§11、
-  `03-runtime/03-tools-and-permissions.md` §4d、ADR 0087
+  `03-runtime/03-tools-and-permissions.md` §4d、ADR 0087、ADR 0207
 - **验收**：E（工具和权限）、质量
 - **里程碑**：M5+
 - **状态**：已记录
@@ -5619,11 +5614,11 @@ IPC 请求无法关闭。
 
 - **先决条件**：一个在某条路径上每次 `Edit` 都以不可恢复代码失败的会话。
 - **步骤**：
-  1. 在一个提示内对同一路径发出两次失败的 `Edit` 调用。
+  1. 在一个提示内对同一路径发出三次失败的 `Edit` 调用。
   2. 在代理循环停止之后观察会话记录。
   3. 在同一会话中发送一条后续提示。
-  4. 用两次失败的 `apply_patch` shell 命令代替 `Edit` 重复上述过程。
-- **预期**：第二次调用携带终止提示并停止循环，但本轮不是仅仅完成：会话记录以一条带
+  4. 用三次失败的 `apply_patch` shell 命令代替 `Edit` 重复上述过程。
+- **预期**：第三次调用携带终止提示并停止循环，但本轮不是仅仅完成：会话记录以一条带
   `MUTATION_RETRY_BUDGET_EXHAUSTED` 的 assistant 错误行结束，被标记为可重试，指明路径与
   下一步动作，并且同一个代码作为错误事件到达。该 turn 被记为失败，而不是完成却没有最终
   消息。第 3 步正常进行——守卫的计数器按提示作用域。第 4 步产生同一条行，其
@@ -6311,3 +6306,117 @@ IPC 请求无法关闭。
 - **里程碑**：MVP 后（R7 v1，作为打包 spike 首先交付）
 - **状态**：由 `packages/agent-runtime/src/extensions/bundle.test.ts` 单元覆盖
   （esbuild 打包产物在临时目录运行）；打包应用旅程为草稿
+#### E2E-234：工作区安全拒绝名单与忽略层
+
+- **前提条件**：一个项目包含 `.env`、`.env.example`、`server.pem`、`keys/id_rsa`、
+  `notes.txt`、`node_modules/pkg/index.js`、`generated/out.txt`、`debug.log`，以及
+  根目录下写有 `generated/` 的 `.pi-desktopignore`。每个文件都包含单词 `needle`。
+  会话为 Agent 模式，权限模式 `auto`。
+- **步骤**：1）请求 `Read` `.env`，再请求 `Read` `.env.example`。2）请求 `Write`
+  到 `keys/id_rsa`。3）对 `needle` 运行无范围的 `Grep` 和 `Glob`。4）以
+  `path: node_modules/pkg` 和 `path: generated` 运行 `Grep`。5）分别在安装了系统 `rg`
+  和设置 `PI_DESKTOP_DISABLE_RG=1` 的情况下重复步骤 1。
+- **预期**：步骤 1 和 2 以 `WORKSPACE_PATH_DENIED` 失败，`.env.example` 的读取成功，
+  且不会创建 `keys/id_rsa` 文件。无范围搜索只列出 `notes.txt` 和 `.env.example`：
+  `.env`、`server.pem`、`node_modules`、`generated` 和 `debug.log` 都不出现。显式路径
+  搜索各返回一条命中。进程内遍历器与 `rg` 快速路径产生相同的文件集。
+- **链接规格**：`03-runtime/15-workspace-ignore-rules.md`、
+  `03-runtime/08-error-codes.md` §3.3、D032
+- **验收**：B（工作区工具）、安全
+- **里程碑**：M3+
+- **状态**：由 `crates/host-core/src/tools/mod.rs`
+  （`security_denylist_blocks_read_write_edit_and_hides_search_results`、
+  `default_ignores_and_workspace_ignore_file_hide_unscoped_walks_only`）和
+  `tools/ignore_rules.rs` 单元覆盖；Electron 旅程已记录，并按无本地 E2E 策略延后
+
+#### E2E-235：悬空软链无法写到工作区之外
+
+- **前提条件**：一个项目包含 `dangling -> /tmp/outside/planted.txt`（目标不存在）
+  和 `inner -> ./not-yet.txt`。Agent 模式，`auto` 权限。
+- **步骤**：1）请求 `Write` 到 `dangling`。2）请求 `Write` 到 `dangling-dir/new.txt`，
+  其中 `dangling-dir -> /tmp/outside/dir`。3）请求 `Write` 到 `inner`。
+- **预期**：步骤 1 和 2 以 `PATH_OUTSIDE_WORKSPACE` 失败，`/tmp/outside` 下没有任何
+  东西出现。步骤 3 在项目内创建 `not-yet.txt`。软链环路以 canonicalize 错误失败，
+  而不是挂起。
+- **链接规格**：`03-runtime/03-tools-and-permissions.md`、
+  `03-runtime/15-workspace-ignore-rules.md` §3
+- **验收**：B、安全
+- **里程碑**：M3+
+- **状态**：由 `crates/host-core/src/workspace.rs`
+  （`blocks_dangling_symlink_escape`、
+  `dangling_symlink_inside_workspace_resolves_to_its_target`、
+  `dangling_symlink_loop_is_rejected`）单元覆盖
+
+#### E2E-236：插件桌面控制需要用户的原生同意
+
+- **前提条件**：一个被授予 `desktop.control` 的开发插件，其面板调用
+  `pi.desktop.invoke({ operation: "session/delete", args: [id], confirm })`。
+  存在一个可丢弃的会话。
+- **步骤**：1）以 `confirm: false` 调用。2）以 `confirm: true` 调用并在对话框上按
+  Escape。3）以 `confirm: true` 调用并点击拒绝。4）以 `confirm: true` 调用并点击一次
+  允许。5）调用一个 `read` 操作。
+- **预期**：步骤 1 以 `CONFIRMATION_REQUIRED` 失败且不出现对话框。步骤 2 和 3 以
+  `PERMISSION_DENIED` 失败；会话仍然存在。对话框点名 `session/delete` 和目录描述，
+  绝不显示面板撰写的文本。步骤 4 删除会话且侧边栏刷新。步骤 5 不显示对话框。
+  每次调用都连同插件 id、操作和风险等级记入审计。
+- **链接规格**：`07-plugins/03-plugin-api.md`（桌面控制）、
+  `07-plugins/04-plugin-security.md` §8.2、
+  `07-plugins/13-plugin-permissions-matrix.md`、ADR 0203、ADR 0208、D370、D372、D377
+- **验收**：D（插件）、安全
+- **里程碑**：M6+
+- **状态**：由 `apps/desktop/test/plugin-desktop-control.test.mjs` 运行时覆盖；
+  原生对话框旅程已记录，并按无本地 E2E 策略延后
+
+#### E2E-237：插件 fetch 在每次重定向时重新检查出网
+
+- **前提条件**：一个声明 `net.domains: ["allowed.test"]` 和 `net.fetch` 的开发插件。
+  `allowed.test` 上的本地服务器对 `/hop` 返回 302 到 `http://undeclared.test/leak`，
+  对 `/ok` 返回 200。
+- **步骤**：1）调用 `pi.net.fetch({ url: "https://allowed.test/ok" })`。2）调用
+  `pi.net.fetch({ url: "https://allowed.test/hop" })`。
+- **预期**：步骤 1 返回 200。步骤 2 以点名 `undeclared.test` 的 `PERMISSION_DENIED`
+  失败，未声明的服务器没有记录到任何请求。审计日志显示被拒绝的那一跳。
+- **链接规格**：`07-plugins/04-plugin-security.md` §8.0
+- **验收**：D、安全
+- **里程碑**：M4+
+- **状态**：由 `apps/desktop/test/plugin-egress.test.mjs` 运行时覆盖
+
+#### E2E-238：未知会话的工具请求不会回退
+
+- **前提条件**：host-core 运行中；一个 JSON-RPC 探针接到其 stdio 上。
+- **步骤**：1）发送 `sessionId: "missing"` 的 `tools.execute`，请求 `Read`
+  `README.md`。2）以同一个 id 发送 `plans.enter`。
+- **预期**：两者都以 `SESSION_NOT_FOUND` 失败（分别对应数字码 `1007` 和
+  `PLAN_SESSION_NOT_FOUND`）；最近打开的工作区下没有任何文件被读取。
+- **链接规格**：`03-runtime/06-host-rpc-protocol.md` §7、
+  `03-runtime/08-error-codes.md` §3.1
+- **验收**：B、安全
+- **里程碑**：M3+
+- **状态**：由 `crates/host-core/src/rpc/mod.rs`
+  （`temporary_session_uses_its_own_scratch_workspace`）单元覆盖
+
+#### E2E-239：旧版构建会指出数据 schema 更新，而不是循环重启
+
+- **前提条件**：数据目录上次由更新版 PI-Desktop 打开，其 host-core 已把
+  schema 迁移到超出当前构建支持的版本。
+- **步骤**：1）用旧版打包应用打开该数据目录。2）观察横幅和
+  `logs/app/runtime.log`。
+- **预期**：host-core 只退出一次；日志中没有后续重启尝试。致命横幅说明当前
+  PI-Desktop 比本地数据更旧，显示两个 schema 版本号，并提示安装更新版本。数据
+  目录未被修改。
+- **链接规格**：`03-runtime/07-process-model.md`（启动结果）
+- **验收**：B
+- **里程碑**：M3+
+- **状态**：由 `apps/desktop/test/host-boot-diagnostics.test.mjs` 源码契约覆盖
+
+#### E2E-240：Apple Silicon 上的 Intel macOS 构建会指向原生下载
+
+- **前提条件**：Apple Silicon Mac；安装并通过 Rosetta 2 运行 x64 macOS 包。
+- **步骤**：1）启动应用。2）阅读标题栏下方的横幅。3）点击其关闭操作。
+- **预期**：应用正常启动。一条可关闭的提示说明当前是 Intel 构建运行在 Apple
+  Silicon 机器上，并要求安装 Apple Silicon 构建。关闭后本次会话不再显示；原生
+  arm64 包不显示任何提示。
+- **链接规格**：`03-runtime/07-process-model.md`（启动结果）
+- **验收**：B
+- **里程碑**：M3+
+- **状态**：由 `apps/desktop/test/host-boot-diagnostics.test.mjs` 源码契约覆盖

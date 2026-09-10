@@ -95,6 +95,7 @@ import {
   type Risk,
   type ShortcutPlatform,
   type ThinkingLevel,
+  type HostStatusEvent,
   type UiMessage,
   type MessageUsage,
   addUsage,
@@ -153,9 +154,10 @@ import {
 import { PersistenceOutbox } from "./persistence-outbox";
 import { InflightCheckpointer } from "./inflight-checkpoint";
 import { AgentSidecar } from "./agent-sidecar";
-import { PluginRuntime } from "./plugin-runtime";
+import { PluginRuntime, resolveInsidePlugin as resolveInsidePluginRoot } from "./plugin-runtime";
 import { ClipboardHistory } from "./clipboard-history";
 import { createFsConsentService } from "./plugin-fs-consent";
+import { createDesktopConsentService } from "./plugin-desktop-consent";
 import { UserMcpRuntime } from "./user-mcp";
 import {
   MCP_CALL_TIMEOUT_MS,
@@ -169,12 +171,17 @@ import { PluginViewHost, pluginViewKey } from "./plugin-view-host";
 import { parseAllowedExternalUrl } from "./safe-open-external";
 import type { PluginAppearance } from "../shared/plugin-panel-chrome";
 import { Logger, ignoreBrokenStdio } from "./logger";
-import { BootTiming } from "./boot-timing";
 import {
   GLIBC_UNSUPPORTED_STATUS,
   assertLinuxGlibcSupported,
   isGlibcUnsupportedError,
 } from "./linux-glibc";
+import {
+  DB_SCHEMA_TOO_NEW_STATUS,
+  detectRuntimeArch,
+  isDbSchemaTooNewError,
+  schemaTooNewOf,
+} from "./host-boot-diagnostics";
 import { collectWorkspaceDiff } from "./git-diff";
 import { BrowserPane, resolveLocalFile } from "./browser-view";
 import {
@@ -293,7 +300,6 @@ function stripWinLongPrefix(p: string): string {
 // A closed stdout/stderr (Linux AppImage, GUI launch without a TTY) must not
 // surface as Electron's "Uncaught Exception: write EPIPE" dialog.
 ignoreBrokenStdio();
-const processStartedAt = Date.now();
 
 app.setName(APP_NAME);
 if (process.platform === "win32") {
@@ -338,6 +344,7 @@ let pluginLauncherWindow: BrowserWindow | null = null;
 let pluginLauncherCreationPromise: Promise<BrowserWindow> | null = null;
 let pluginLauncherAccelerator: string | null = null;
 let pluginLauncherBinding: string | null = null;
+let summonWindowAccelerator: string | null = null;
 let windowCreationPromise: Promise<void> | null = null;
 let applicationBooted = false;
 const isDevelopmentBuild =
@@ -568,7 +575,13 @@ const pluginPanels = new PluginPanelHost(
       data: { api: "panel.egress", ok: false, url, ts: Date.now() },
     });
   },
-
+  (pluginId, channel, error) => {
+    logger.app("plugin", "warn", "plugin.panel.bridge", {
+      pluginId,
+      code: (error as { code?: string })?.code ?? "PANEL_BRIDGE_FAILED",
+      data: { channel, error: String(error) },
+    });
+  },
 );
 const callPluginSessionHost = async (
   method: string,
@@ -654,29 +667,10 @@ const plugins: PluginRuntime = new PluginRuntime({
   closePanel: async (pluginId) => {
     await pluginPanels.close(pluginId);
   },
-  fetch: async (input) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 15000);
-    try {
-      const res = await fetch(input.url, {
-        method: input.method ?? "GET",
-        headers: input.headers,
-        body: input.body,
-        signal: controller.signal,
-      });
-      const headers: Record<string, string> = {};
-      res.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
-      return {
-        status: res.status,
-        headers,
-        bodyText: await res.text(),
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  },
+  // `net.fetch` is deliberately not overridden here: the runtime's own
+  // implementation follows redirects by hand and re-checks the manifest
+  // egress allowlist before every hop. A plain `fetch` service would let an
+  // allowlisted host 30x the request straight out to an undeclared one.
   audit: (entry) => {
     logger.app("plugin", "info", "plugin.api", entry);
   },
@@ -684,6 +678,13 @@ const plugins: PluginRuntime = new PluginRuntime({
   // and synchronously: the plugin's call is still waiting on the answer, so
   // there is no window in which the access happens before consent.
   confirmFsAccess: createFsConsentService({
+    getWindow: () => mainWindow,
+    getLocale: () => updaterLocale,
+  }),
+  // A dangerous desktop operation (session delete, permission-mode change,
+  // tool approval) requested by a plugin is decided by the user in a native
+  // dialog that names the catalog operation, never plugin-authored text.
+  confirmDesktopControl: createDesktopConsentService({
     getWindow: () => mainWindow,
     getLocale: () => updaterLocale,
   }),
@@ -977,9 +978,6 @@ const logger = new Logger(
   dataDir,
   process.env.NODE_ENV === "production" ? "info" : "debug",
 );
-const bootTiming = new BootTiming((message, data) => {
-  logger.app("timing", "info", message, data ? { data } : undefined);
-}, processStartedAt);
 const persistenceOutbox = new PersistenceOutbox(dataDir, (level, message, data) => {
   logger.app("persistence", level, message, { data });
 });
@@ -1825,6 +1823,11 @@ async function resolveAgentRuntimeLaunch(
             ...(tool.risk === "low" || tool.risk === "medium" || tool.risk === "high"
               ? { risk: tool.risk as Risk }
               : {}),
+            // Plan-safe action list is forwarded to host-core so it can
+            // admit the tool in Plan/Goal modes (ADR 0211).
+            ...(tool.planSafeActions && tool.planSafeActions.length > 0
+              ? { planSafeActions: tool.planSafeActions }
+              : {}),
           })),
         ...userMcpTools.map((tool) => ({
           name: tool.fullName,
@@ -2055,6 +2058,14 @@ function executeNativeMenuAction(
   action: NativeMenuAction,
   target: BrowserWindow | null = mainWindow,
 ) {
+  if (action === "restoreMainWindow") {
+    restoreMainWindow();
+    const window = mainWindow;
+    return {
+      maximized: Boolean(window && !window.isDestroyed() && window.isMaximized()),
+      fullScreen: Boolean(window && !window.isDestroyed() && window.isFullScreen()),
+    };
+  }
   if (!target || target.isDestroyed()) {
     return { maximized: false, fullScreen: false };
   }
@@ -2203,6 +2214,7 @@ function applyApplicationMenuSettings(settings?: {
       ? (settings.keybindings as KeybindingOverrides)
       : undefined;
   applyPluginLauncherShortcut(keybindings);
+  applySummonWindowShortcut(keybindings);
   const devMode = settings?.developerMode === true;
   const signature = JSON.stringify({ locale, keybindings, devMode });
   if (appliedMenuSettings === signature) return;
@@ -2656,24 +2668,11 @@ function createPluginLauncherWindow(): Promise<BrowserWindow> {
 }
 
 function prewarmPluginLauncher(): void {
-  const started = Date.now();
-  void createPluginLauncherWindow().then(
-    () => {
-      bootTiming.mark("plugin-launcher-prewarm", {
-        durationMs: Date.now() - started,
-        ok: true,
-      });
-    },
-    (error) => {
-      bootTiming.mark("plugin-launcher-prewarm", {
-        durationMs: Date.now() - started,
-        ok: false,
-      });
-      logger.app("diagnostics", "warn", "plugin launcher warm-up failed", {
-        data: String(error),
-      });
-    },
-  );
+  void createPluginLauncherWindow().catch((error) => {
+    logger.app("diagnostics", "warn", "plugin launcher warm-up failed", {
+      data: String(error),
+    });
+  });
 }
 
 async function showPluginLauncher(): Promise<void> {
@@ -2754,6 +2753,43 @@ function applyPluginLauncherShortcut(keybindings?: KeybindingOverrides) {
   }
 }
 
+/**
+ * Register the summon-window shortcut (D384). The default `Mod+Shift+W`
+ * brings a hidden/minimized-to-tray window back into focus; this is the
+ * symmetrical counterpart to `closeWindow` (`Mod+W`).
+ */
+function applySummonWindowShortcut(keybindings?: KeybindingOverrides) {
+  const shortcut = KEYBOARD_SHORTCUTS.find(
+    (candidate) => candidate.id === "summonWindow",
+  );
+  if (!shortcut || !app.isReady()) return;
+  const platform: ShortcutPlatform =
+    process.platform === "darwin"
+      ? "darwin"
+      : process.platform === "win32"
+        ? "win32"
+        : "linux";
+  const binding = resolveKeybinding(shortcut, keybindings, platform);
+  const accelerator = keybindingToElectronAccelerator(binding, platform);
+
+  if (summonWindowAccelerator && summonWindowAccelerator !== accelerator) {
+    globalShortcut.unregister(summonWindowAccelerator);
+    summonWindowAccelerator = null;
+  }
+
+  if (!accelerator || accelerator === summonWindowAccelerator) return;
+  const registered = globalShortcut.register(accelerator, () => {
+    restoreMainWindow();
+  });
+  if (registered) {
+    summonWindowAccelerator = accelerator;
+  } else {
+    logger.app("diagnostics", "warn", "summon window shortcut unavailable", {
+      data: { accelerator, platform: process.platform },
+    });
+  }
+}
+
 async function createWindow() {
   notificationViewingSessionId = null;
   requestedWorkPanelReservation = 0;
@@ -2809,13 +2845,7 @@ async function createWindow() {
       additionalArguments: [`--pi-desktop-locale=${app.getLocale()}`],
     },
   });
-  bootTiming.mark("window-created");
   const window = mainWindow;
-  window.webContents.on("console-message", (_event, _level, message) => {
-    if (typeof message === "string" && message.startsWith("[timing] ")) {
-      logger.app("timing", "info", message);
-    }
-  });
   const initialBounds = window.getBounds();
   workPanelBaseBounds = savedState ? { ...savedState } : { ...initialBounds };
   workPanelLastAppliedBounds = { ...initialBounds };
@@ -3544,7 +3574,6 @@ async function createWindow() {
     ensureStableBounds(process.env.PI_DESKTOP_CAPTURE === "1");
     window.show();
     window.focus();
-    bootTiming.mark("window-shown");
     // Burst re-assert only while Stage Manager initially settles / shelves us.
     for (const ms of [100, 250, 500, 1000, 2000, 3500, 5000, 8000, 12000]) {
       setTimeout(() => ensureStableBounds(false), ms);
@@ -4458,7 +4487,6 @@ async function createWindow() {
     }
   });
 
-  const loadStarted = Date.now();
   if (process.env.ELECTRON_RENDERER_URL) {
     await window.loadURL(process.env.ELECTRON_RENDERER_URL);
     if (process.env.PI_DESKTOP_DEVTOOLS === "1") {
@@ -4467,7 +4495,6 @@ async function createWindow() {
   } else {
     await window.loadFile(join(__dirname, "../renderer/index.html"));
   }
-  bootTiming.mark("window-loaded", { durationMs: Date.now() - loadStarted, ok: true });
 }
 
 const RESTART_WINDOW_MS = 120_000;
@@ -4533,6 +4560,7 @@ function wireHost(h: HostProcess) {
           toolCallId?: string;
           toolName: string;
           args: unknown;
+          mode?: string;
         };
         const projectPath = q.sessionId
           ? (sessionProjects.get(q.sessionId) ?? null)
@@ -4574,12 +4602,28 @@ function wireHost(h: HostProcess) {
           try {
             let modelKey: string | undefined;
             let thinkingLevel: string | undefined;
-            if (q.sessionId && host) {
+            // Host-core sends the session mode; fall back to a session.get
+            // call when it is missing (legacy callers). The plugin-runtime
+            // uses the mode to enforce plan-safe action restrictions
+            // (ADR 0211).
+            let sessionMode: "agent" | "plan" | "goal" | undefined;
+            const normalizedMode = typeof q.mode === "string" ? q.mode : undefined;
+            if (normalizedMode === "agent" || normalizedMode === "plan" || normalizedMode === "goal") {
+              sessionMode = normalizedMode;
+            } else if (q.sessionId && host) {
               try {
                 const detail = await host.call<{
-                  session?: { providerId?: string; modelId?: string; thinkingLevel?: string };
+                  session?: {
+                    mode?: string;
+                    providerId?: string;
+                    modelId?: string;
+                    thinkingLevel?: string;
+                  };
                 }>("session.get", { id: q.sessionId });
                 const session = detail?.session;
+                if (session?.mode === "agent" || session?.mode === "plan" || session?.mode === "goal") {
+                  sessionMode = session.mode;
+                }
                 if (session?.providerId && session?.modelId) {
                   modelKey = `${session.providerId}/${session.modelId}`;
                 }
@@ -4590,6 +4634,7 @@ function wireHost(h: HostProcess) {
             }
             const result = await tool.execute(q.args, {
               sessionId: q.sessionId,
+              mode: sessionMode,
               modelKey,
               thinkingLevel,
             });
@@ -4599,10 +4644,14 @@ function wireHost(h: HostProcess) {
               content: result ?? null,
             };
           } catch (e) {
+            const code =
+              e && typeof e === "object" && "code" in e && typeof e.code === "string"
+                ? e.code
+                : "TOOL_FAILED";
             payload = {
               executionId: q.executionId,
               ok: false,
-              errorCode: "TOOL_FAILED",
+              errorCode: code === "PERMISSION_DENIED" ? "PERMISSION_DENIED" : "TOOL_FAILED",
               content: { error: e instanceof Error ? e.message : String(e) },
             };
           }
@@ -4667,20 +4716,11 @@ function wireHost(h: HostProcess) {
 
 async function startHost(): Promise<void> {
   assertLinuxGlibcSupported();
-  const spawnStarted = Date.now();
   const h = new HostProcess(dataDir, (text) => logger.child("host", text));
-  const spawnedMs = Date.now() - spawnStarted;
   wireHost(h);
   host = h;
   try {
-    const handshakeStarted = Date.now();
     await h.handshake();
-    bootTiming.mark("host", {
-      spawnedMs,
-      handshakeMs: Date.now() - handshakeStarted,
-      durationMs: Date.now() - spawnStarted,
-      ok: true,
-    });
     logger.app("runtime", "info", "host-core handshake ok", {
       data: { generation: h.generation },
     });
@@ -4699,11 +4739,6 @@ async function startHost(): Promise<void> {
       });
     }
   } catch (error) {
-    bootTiming.mark("host", {
-      spawnedMs,
-      durationMs: Date.now() - spawnStarted,
-      ok: false,
-    });
     if (host === h) host = null;
     logger.flushChild("host");
     await h.dispose();
@@ -4807,9 +4842,7 @@ function wireSidecar(s: AgentSidecar) {
 }
 
 async function startSidecar(): Promise<void> {
-  const spawnStarted = Date.now();
   const s = new AgentSidecar((text) => logger.child("agent", text));
-  const spawnedMs = Date.now() - spawnStarted;
   wireSidecar(s);
   s.setProjectInstructionResolver(async ({ projectPath, path }) => {
     // The root is registered by Electron main from the host-owned session
@@ -5051,17 +5084,10 @@ async function startSidecar(): Promise<void> {
   });
   sidecar = s;
   if (host) s.setHost(host);
-  const configureStarted = Date.now();
   await s.call("sidecar.configure", {
     hostBinary: host?.binaryPath,
     dataDir,
     networkProxy: currentNetworkProxy(),
-  });
-  bootTiming.mark("sidecar", {
-    spawnedMs,
-    configureMs: Date.now() - configureStarted,
-    durationMs: Date.now() - spawnStarted,
-    ok: true,
   });
   logger.app("runtime", "info", "agent sidecar configured");
 }
@@ -5694,6 +5720,21 @@ async function superviseRestartLoop(kind: RestartKind): Promise<void> {
       });
       return;
     } catch (e) {
+      const schema = schemaTooNewOf(e);
+      if (schema) {
+        logger.app("runtime", "error", "local data schema is newer than this build", {
+          code: ErrorCodes.HOST_UNAVAILABLE,
+          data: schema,
+        });
+        sendToRenderer(IPC.event.hostStatus, {
+          ok: false,
+          component: kind,
+          fatal: true,
+          message: DB_SCHEMA_TOO_NEW_STATUS,
+          schema,
+        });
+        return;
+      }
       if (isGlibcUnsupportedError(e)) {
         logger.app("runtime", "error", "linux glibc is below the packaged host floor", {
           code: ErrorCodes.HOST_UNAVAILABLE,
@@ -5712,12 +5753,56 @@ async function superviseRestartLoop(kind: RestartKind): Promise<void> {
   }
 }
 
+/**
+ * Boot outcome pushed once the renderer has mounted. Known unrecoverable
+ * failures travel as status tokens the UI can phrase; anything else is the
+ * raw error. The architecture check rides along even on success so an Intel
+ * build under Rosetta gets a hint instead of silently running slower.
+ */
+function bootHostStatus(bootError: unknown): HostStatusEvent {
+  const status: HostStatusEvent = { ok: !bootError };
+  if (bootError) {
+    status.component = "host";
+    status.fatal = true;
+    const schema = schemaTooNewOf(bootError);
+    if (schema) {
+      status.message = DB_SCHEMA_TOO_NEW_STATUS;
+      status.schema = schema;
+    } else if (isGlibcUnsupportedError(bootError)) {
+      status.message = GLIBC_UNSUPPORTED_STATUS;
+    } else {
+      status.message = String(bootError);
+    }
+  }
+  const arch = runtimeArch();
+  if (arch.mismatch) {
+    status.archMismatch = {
+      platform: arch.platform,
+      processArch: arch.processArch,
+      machineArch: arch.machineArch,
+    };
+  }
+  return status;
+}
+
+let runtimeArchCache: ReturnType<typeof detectRuntimeArch> | null = null;
+function runtimeArch() {
+  if (!runtimeArchCache) {
+    runtimeArchCache = detectRuntimeArch();
+    if (runtimeArchCache.mismatch) {
+      logger.app("lifecycle", "warn", "build is not native to this cpu", {
+        data: runtimeArchCache,
+      });
+    }
+  }
+  return runtimeArchCache;
+}
+
 async function bootBackends() {
   mkdirSync(join(dataDir, "logs"), { recursive: true });
   logger.app("lifecycle", "info", `app boot ${APP_NAME} ${APP_VERSION}`, {
     data: { protocolVersion: PROTOCOL_VERSION },
   });
-  bootTiming.mark("backends-start");
   await startHost();
   try {
     const stored = await host!.call("settings.get");
@@ -5752,7 +5837,6 @@ async function bootBackends() {
     rememberPluginScopes(listed.plugins ?? []);
     for (const p of listed.plugins ?? []) {
       if (p.enabled && p.path) {
-        const pluginStarted = Date.now();
         try {
           await plugins.loadFromPath(p.path, p.permissions ?? [], {
             development: p.source === "dev",
@@ -5760,18 +5844,8 @@ async function bootBackends() {
           // Dev plugins keep hot reload across restarts: the folder was picked
           // once, and the edit loop should not have to pick it again.
           if (p.source === "dev") plugins.watchDevPlugin(p.id);
-          bootTiming.mark("plugin-restore", {
-            pluginId: p.id,
-            durationMs: Date.now() - pluginStarted,
-            ok: true,
-          });
           logger.app("plugin", "info", "plugin restored", { pluginId: p.id });
         } catch (e) {
-          bootTiming.mark("plugin-restore", {
-            pluginId: p.id,
-            durationMs: Date.now() - pluginStarted,
-            ok: false,
-          });
           logger.app("plugin", "error", "plugin restore failed", {
             pluginId: p.id,
             data: String(e),
@@ -5786,15 +5860,12 @@ async function bootBackends() {
   // The user's MCP servers are only *registered* here; each one connects the
   // first time a session that can see it is assembled, so a project-scoped
   // server costs nothing until that project is open.
-  const mcpStarted = Date.now();
   await refreshUserMcp();
-  bootTiming.mark("mcp-refresh", { durationMs: Date.now() - mcpStarted, ok: true });
   await drainApprovedPlanExecutions().catch((error) =>
     logger.app("runtime", "warn", "queued approved plan drain failed", {
       data: String(error),
     }),
   );
-  bootTiming.mark("backends-ready");
 }
 
 function registerIpc() {
@@ -8798,20 +8869,18 @@ function registerIpc() {
   );
 
   /**
-   * Show a definition document in the OS file manager. Registry entries resolve
-   * through the registry; project documents pass their own path, since main
-   * never records them.
+   * Show a definition document in the OS file manager. The path always comes
+   * from the host registry: a renderer-supplied path is never handed to the
+   * shell, so this channel cannot be used to reveal arbitrary locations.
    */
   handle(IPC.invoke.subagentReveal, async (payload: { id?: string; path?: string }) => {
-    let path = payload.path;
-    if (!path) {
-      if (!host) throw new Error("host unavailable");
-      const res = await host.call<{ subagent: UserSubagentRecord | null }>(
-        "agents.read",
-        { id: payload.id },
-      );
-      path = res.subagent?.path;
-    }
+    if (!host) throw new Error("host unavailable");
+    if (!payload.id) throw new Error("subagent id required");
+    const res = await host.call<{ subagent: UserSubagentRecord | null }>(
+      "agents.read",
+      { id: payload.id },
+    );
+    const path = res.subagent?.path;
     if (!path) throw new Error("subagent not found");
     shell.showItemInFolder(stripWinLongPrefix(path));
     return { ok: true };
@@ -8825,6 +8894,8 @@ function registerIpc() {
     if (!(loaded.permissions.has("ui.panel"))) {
       throw new Error("PERMISSION_DENIED: ui.panel");
     }
+    const htmlPath = resolveInsidePluginRoot(loaded.path, manifest.ui.panel);
+    if (!htmlPath) throw new Error("plugin panel must stay inside the plugin");
     await pluginPanels.open({
       pluginId: id,
       title: resolvePluginLocalizedString(manifest.ui.title, updaterLocale, manifest.name),
@@ -8832,7 +8903,7 @@ function registerIpc() {
       theme: pluginPanelTheme,
       width: manifest.ui.width ?? 480,
       height: manifest.ui.height ?? 360,
-      htmlPath: join(loaded.path, manifest.ui.panel),
+      htmlPath,
     });
     return { ok: true };
   });
@@ -9135,12 +9206,32 @@ function registerIpc() {
   };
 }
 
+// A rejected promise nobody awaited must land in the log with its stack, not
+// in Electron's default handler. Main must keep running: the renderer, the
+// host, and the sidecar are supervised separately and a stray rejection from
+// one plugin bridge or IPC handler is not a reason to lose all of them.
+process.on("unhandledRejection", (reason) => {
+  logger.app("runtime", "error", "unhandled promise rejection in main", {
+    data: reason instanceof Error ? `${reason.stack ?? reason.message}` : String(reason),
+  });
+});
+
+// Default hardening for every web contents Electron creates, applied before
+// the owning surface can wire its own handlers (which replace these). A new
+// window that forgets to set a window-open handler therefore denies popups
+// and cannot attach a <webview> instead of inheriting Chromium's defaults.
+app.on("web-contents-created", (_event, contents) => {
+  contents.setWindowOpenHandler(() => ({ action: "deny" }));
+  contents.on("will-attach-webview", (event) => {
+    event.preventDefault();
+  });
+});
+
 app.whenReady().then(async () => {
   // A launch that lost the single-instance lock is already quitting. Never
   // create a window, a tray, or a child process on top of the running app.
   if (!hasSingleInstanceLock) return;
   applyDevelopmentBranding();
-  bootTiming.mark("when-ready");
   // Load the close-behavior preference before the first window exists: the
   // close handler reads `closeBehavior` synchronously, and a window created
   // while it still held the "ask" default would prompt a user who already
@@ -9218,13 +9309,14 @@ app.whenReady().then(async () => {
       // Keep the OS-locale menu until settings can be read again, while
       // retaining the historical default launcher fallback for this failure.
       applyPluginLauncherShortcut();
+      applySummonWindowShortcut();
     }
   } else {
     // If the backend never started, retain the default focused/global path.
     applyPluginLauncherShortcut();
+    applySummonWindowShortcut();
   }
   await ensureWindow();
-  bootTiming.mark("window-ready");
   if (process.env.PI_DESKTOP_MCP_CONTROL === "1") {
     try {
       mcpControl = new McpControlServer({
@@ -9254,18 +9346,7 @@ app.whenReady().then(async () => {
   // did-finish-load), so the page is up; give React a beat to mount its
   // event subscriptions before pushing the boot outcome.
   setTimeout(() => {
-    sendToRenderer(IPC.event.hostStatus, {
-      ok: !bootError,
-      ...(bootError
-        ? {
-            component: "host",
-            fatal: true,
-            message: isGlibcUnsupportedError(bootError)
-              ? GLIBC_UNSUPPORTED_STATUS
-              : String(bootError),
-          }
-        : {}),
-    });
+    sendToRenderer(IPC.event.hostStatus, bootHostStatus(bootError));
     applicationBooted = true;
     flushPendingApplicationMenuCommands();
   }, 300);
@@ -9436,6 +9517,10 @@ app.on("before-quit", (event) => {
   if (pluginLauncherAccelerator) {
     globalShortcut.unregister(pluginLauncherAccelerator);
     pluginLauncherAccelerator = null;
+  }
+  if (summonWindowAccelerator) {
+    globalShortcut.unregister(summonWindowAccelerator);
+    summonWindowAccelerator = null;
   }
   shutdownPromise = (async () => {
     // Replies still streaming are stopped through the sidecar first so their

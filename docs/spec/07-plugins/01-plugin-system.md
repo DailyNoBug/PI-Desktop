@@ -60,10 +60,11 @@ In one sentence:
 5. **Theme plugins**: ship a CSS file that overrides the design tokens
 
 ### Beyond the MVP scope (implemented)
-6. **MCP server plugins**: declare stdio or remote HTTP MCP servers whose tools
+6. **Work panel view plugins**: dock isolated HTML views in the app's work panel
+7. **MCP server plugins**: declare stdio or remote HTTP MCP servers whose tools
    join the agent's tool set
-7. **Background service plugins**: keep a supervised resident worker alive
-8. **Inter-plugin message bus**: publish/subscribe over declared topics
+8. **Background service plugins**: keep a supervised resident worker alive
+9. **Inter-plugin message bus**: publish/subscribe over declared topics
 
 ### Later
 - Billing / signed plugins

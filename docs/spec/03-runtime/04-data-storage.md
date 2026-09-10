@@ -853,13 +853,19 @@ CREATE TABLE secrets_meta (
   owner_kind TEXT NOT NULL DEFAULT 'provider',
   owner_id   TEXT,
   kind       TEXT NOT NULL DEFAULT 'api_key',
-  backend    TEXT NOT NULL,                -- safe_storage | file_fallback
+  backend    TEXT NOT NULL,                -- file_fallback (safe_storage reserved)
   updated_at INTEGER NOT NULL
 ) WITHOUT ROWID;
 ```
 
-Secret *values* never enter the DB (D028/D031): OS safeStorage primary,
-AES-GCM file fallback under `secrets/`.
+Secret *values* never enter the DB (D028/D031). The shipped backend is the
+host-core file store: AES-256-GCM ciphertexts under `secrets/`, keyed by a
+machine key that host-core generates once and keeps beside them as
+`secrets/.machine-key` (owner-only file mode). host-core records
+`file_fallback` for every write; the `safe_storage` value is reserved for an
+OS keychain backend that neither host-core nor Electron main implements today,
+so a same-user process that can read the data directory can also decrypt the
+secrets.
 
 ### 4.13 audit_log
 
@@ -1161,7 +1167,9 @@ columns for anything the host filters, joins, sums, or indexes.
 ## 10. Secrets rules (unchanged)
 
 1. The renderer never persists secrets
-2. OS safeStorage primary; explicit encrypted-file fallback with risk warning
+2. OS safeStorage remains the target primary backend; the shipped store is the
+   encrypted-file backend (`file_fallback`) with its machine key beside the
+   ciphertexts, and Settings must state that risk
 3. Secret values never in SQLite; only `secrets_meta` bookkeeping
 4. Exported sessions exclude secrets by default
 

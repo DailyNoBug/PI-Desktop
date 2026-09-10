@@ -818,13 +818,16 @@ CREATE TABLE secrets_meta (
   owner_kind TEXT NOT NULL DEFAULT 'provider',
   owner_id   TEXT,
   kind       TEXT NOT NULL DEFAULT 'api_key',
-  backend    TEXT NOT NULL,                -- safe_storage | file_fallback
+  backend    TEXT NOT NULL,                -- file_fallback (safe_storage reserved)
   updated_at INTEGER NOT NULL
 ) WITHOUT ROWID;
 ```
 
-秘密*值*永远不会进入数据库（D028/D031）：操作系统安全存储主，
-`secrets/` 下的 AES-GCM 文件回退。
+秘密*值*永远不会进入数据库（D028/D031）。实际交付的后端是 host-core 的文件存储：
+`secrets/` 下的 AES-256-GCM 密文，密钥是 host-core 一次性生成并与密文放在一起的
+机器密钥 `secrets/.machine-key`（仅属主可读写的文件模式）。host-core 对每次写入都记录
+`file_fallback`；`safe_storage` 值为尚未实现的操作系统钥匙串后端保留，host-core 与
+Electron main 目前都没有实现它，因此能读取数据目录的同用户进程也能解密这些秘密。
 
 ### 4.13 audit_log
 
@@ -1103,7 +1106,7 @@ outbox 排空。渲染器侧的停止绝不重写已有已开始回复的转录
 ## 10. 秘密规则（不变）
 
 1.渲染器从不保守秘密
-2. 操作系统 safeStorage 主；带有风险警告的显式加密文件后备
+2. 操作系统 safeStorage 仍是目标主后端；实际交付的是加密文件后端（`file_fallback`），机器密钥与密文放在一起，设置中必须说明这一风险
 3. SQLite 中不存在秘密值；仅 `secrets_meta` 记账
 4. 导出的会话默认排除机密
 

@@ -2,7 +2,7 @@
 
 ## 1. Goal
 
-Applied decisions: **D002/D003/D008/D158/D189/D190/D193/D194/D278**.
+Applied decisions: **D002/D003/D008/D158/D189/D190/D193/D194/D278/D378**.
 
 
 Wrap pi into a product runtime that desktop layers can consume safely.
@@ -98,9 +98,9 @@ No host RPC or storage schema change is required.
 7. snapshot the effective shell ID and dialect for the turn
 8. start pi turn with the resolved session configuration and effective
    thinking level; HTTP 429 setup and stream failures use the runtime-owned
-   silent five-retry budget, while other transient transport/provider failures
-   share a runtime-owned bounded four-retry budget across the setup and stream
-   phases (D127, D186, D245, D258)
+   silent ten-retry budget, while other transient transport/provider failures
+   share a runtime-owned bounded ten-retry budget across the setup and stream
+   phases (D127, D186, D245, D258, D378)
 9. stream normalized answer and thinking events to UI
 10. on tool calls, delegate to Rust host bridge with the durable `sessionId`;
     host resolves the session-bound workspace root
@@ -128,14 +128,14 @@ not select a second model, planner service, permission implementation, or
 runtime. The same Agent changes its planning state and tool registry after a
 host-confirmed transition.
 
-### 5d. Bounded provider recovery and diagnostics (D186, D245, D259, ADR 0091, ADR 0128)
+### 5d. Bounded provider recovery and diagnostics (D186, D245, D259, D378, ADR 0091, ADR 0128, ADR 0206)
 
 Provider request setup and stream delivery are separate failure phases, but
 HTTP 429 handling is one logical-turn policy. pi-ai's nested adapter retry is
 disabled for this path so the runtime can share one budget across both phases.
 
-`PROVIDER_RATE_LIMITED` receives at most five retries after the initial
-attempt, for six provider attempts total. A setup 429 is retried inside the
+`PROVIDER_RATE_LIMITED` receives at most ten retries after the initial
+attempt, for eleven provider attempts total. A setup 429 is retried inside the
 provider stream adapter. A mid-stream 429 removes the failed assistant from
 the next model context and calls `continue()` in the same turn. Both phases
 claim the same counter, so a setup 429 followed by a stream 429 cannot reset or
@@ -160,8 +160,8 @@ server or calculated value is capped at 30 seconds. The runtime captures the
 failed response status and headers from fetch because pi-ai's ordinary response
 callback only covers an established response.
 
-Non-429 transient failures share their own bounded logical-turn budget of four
-retries after the initial attempt, for five provider attempts total. The budget
+Non-429 transient failures share their own bounded logical-turn budget of ten
+retries after the initial attempt, for eleven provider attempts total. The budget
 is shared by request setup and stream delivery, so a fault that moves between
 phases cannot reset or multiply it, and it is separate from the 429 budget. It
 admits exactly `NETWORK_ERROR`, `TIMEOUT`, `STREAM_FAILED`, and retryable
@@ -183,11 +183,12 @@ The non-429 delay honors the server first: `retry-after-ms`, `retry-after`
 seconds, then `retry-after` HTTP-date, capped at 8 seconds. Captured headers are
 retained for every status that can carry a usable delay (429, 408, 409, and
 5xx), not for 429 alone. Without a usable header the wait is a plain doubling
-schedule of 1, 2, 4, then 8 seconds, identical in the request and stream phases
-so a fault that moves between them keeps one predictable rhythm. The schedule is
-deterministic — no jitter — because it paces one failed request rather than a
-synchronized rate-limit burst. A server-stated delay wins outright, including one
-shorter than the scheduled wait.
+schedule of 1, 2, 4, then remains at the 8-second cap for later retries. The
+schedule is identical in the request and stream phases so a fault that moves
+between them keeps one predictable rhythm. It is deterministic — no jitter —
+because it paces one failed request rather than a synchronized rate-limit burst.
+A server-stated delay wins outright, including one shorter than the scheduled
+wait.
 
 Only the failed request is replayed. The session, its transcript, and its tool
 state are untouched: the failed assistant is removed from the next model context
@@ -199,13 +200,14 @@ bounded/redacted provider message, and the HTTP status when known. The main
 session, builtin subagents, and one-shot composer enhancement use the same
 codes, budget size, and precedence.
 
-When the 429 budget is exhausted, the final assistant error and lifecycle
+When the retry budget is exhausted, the final assistant error and lifecycle
 `error` are emitted once. Provider failures carry bounded diagnostics in
 `AppError.details` when available: `phase` (`request` or `stream`),
 `providerStatus`, `providerCode`, `providerWaitMs`, `streamMs`, and
-`retryAttempt`. For a persistent 429, `retryAttempt` is `5`; for a persistent
-non-429 transient failure it is `4`. Credentials and unrestricted response
-bodies never enter the event or log.
+`retryAttempt`. For a persistent 429 or non-429 transient failure,
+`retryAttempt` is `10`. Credentials and unrestricted response bodies never
+enter the event or log. The active-turn status shows the remaining backoff and
+the retry budget as `Retrying in 0s · attempt 9/10` in English.
 
 ### 5e. Silent-turn recovery
 
@@ -231,11 +233,14 @@ Recovery is armed inside `message_end` and carried out once the loop is idle,
 so it belongs to every entry point that drives the loop — a user prompt and an
 approved plan or goal execution alike. Each entry point clears the recovery
 state before it starts and runs the pending recovery after `waitForIdle`,
-through one shared implementation of each half. Skipping either half ends the
-run with its lifecycle still suppressed and no recovery attempted, which
-reaches the user as a session that stopped mid-work with no error and no retry
-action. §5d overflow and provider-stream retry ride the same contract, and a
-suppression flag left behind would swallow the *next* run's terminal events.
+through one shared implementation of each half. The shared drain also handles
+recoveries armed by a recovery attempt before it returns, so a chained failure
+cannot leave lifecycle suppression active with no recovery or terminal event.
+Skipping either half ends the run with its lifecycle still suppressed and no
+recovery attempted, which reaches the user as a session that stopped mid-work
+with no error and no retry action. §5d overflow and provider-stream retry ride
+the same contract, and a suppression flag left behind would swallow the
+*next* run's terminal events.
 
 The one-shot instruction rides on the agent's system prompt rather than the
 `prepareNextTurn` hook, because that hook only shapes turns inside a live run
@@ -248,6 +253,31 @@ retriable `EMPTY_MODEL_RESPONSE`, which gives the transcript its normal retry
 action. No empty assistant message is persisted in either case.
 
 Decision D193; see E2E-146.
+
+### 5e.1. Progress-only recovery for approved Plan/Goal execution
+
+An approved Plan or Goal can still stop after a visible progress update when
+the model puts its narration in a text-only assistant message and emits the
+tool call in a later message. Ordinary Agent prompts do not use this recovery.
+The runtime only arms it for a successful, non-aborted message with no tool
+call whose visible text has a clear forward-looking action signal such as
+"Writing the remaining note" or "the next step is ...". A normal completion
+report such as "Implemented the approved plan" is terminal and is not nudged.
+
+The recovery is bounded to one attempt per approved execution. The progress
+text remains in the current assistant bubble, while its assistant message is
+removed from model context before `continue()` so the provider never receives
+an invalid assistant-to-assistant transcript. The first attempt's
+`agent_start`, `turn_start`, `turn_end`, and `agent_end` are suppressed; the
+continuation reuses the same bubble id and emits the single terminal lifecycle.
+The progress nudge is attached to the system prompt for that continuation and
+removed afterwards. If the continuation produces a tool call, the normal
+autonomous loop proceeds; if it produces another text-only response, that
+response is terminal and cannot trigger a second progress nudge. A silent
+recovery that already ran in the same execution also prevents the recovered
+final report from being misclassified as progress.
+
+See E2E-146a.
 
 ### 5.1 Context checkpoint protection (D158/D203, ADR 0030/0049/0061/0064)
 
@@ -622,7 +652,14 @@ per-definition backstop (maximum 80); omitted, `none`, or `0` means unlimited
 turns. The built-ins declare one sized to their job — `explorer` 60,
 `code-reviewer` 50, `test-runner` 40, `fixer` 80 — so a delegate that loops
 without converging ends as `truncated` with its partial report instead of
-running until the duration limit. The built-in `explorer` declares `Read`,
+running until the duration limit. `maxTokens` is an optional per-definition
+output cap (maximum 200000); omitted, `none`, or `0` follows the model's
+published limit. It overrides `maxTokens` on the model built for that delegate,
+so the adapter's derived `max_tokens` / `max_completion_tokens` /
+`max_output_tokens` carry it, and it binds that delegate's own responses only —
+the session's requests keep the model binding. A value past the ceiling is a
+typo and is clamped rather than forwarded to the provider.
+The built-in `explorer` declares `Read`,
 `Glob`, `Grep`, and `Bash`, while `code-reviewer` remains read-only. Its statuses are `completed`,
 `truncated`, `failed`, `aborted`, `timed_out` and the registry-only `stopped`;
 the terminal ones surface through `TaskWait`, whose text is
@@ -800,8 +837,8 @@ only relevant line, and a reasoning model executed it as saying nothing at all.
 Required behaviours, each one an observed failure inverted:
 
 - answer in the language the user writes in
-- one sentence before each tool batch, and no silence longer than one tool
-  batch or 60 seconds of work
+- one sentence before each tool batch in the same assistant message as the
+  tool calls, and no silence longer than one tool batch or 60 seconds of work
 - anything the user asked is answered in visible text; reasoning is not shown
   to them and does not count as an answer
 - the final message is self-contained
@@ -969,10 +1006,8 @@ out-of-root files are skipped. The combined UTF-8 content is capped at 32 KiB
 and source paths are labelled under `# Project instructions`.
 The sidecar never reads workspace instructions directly. A changed root chain
 recreates an idle runtime on its next prompt; nested instructions are resolved
-again when a relevant file tool runs. The sidecar timing line records
-`instructionResolveMs`, `instructionCacheHit`, and `instructionFallback`
-separately from `hostRttMs` so a slow preflight cannot be mistaken for a slow
-command body.
+again when a relevant file tool runs. The resolver's timeout and fallback
+are operational safeguards; they do not emit a separate timing log record.
 
 Settings provides dedicated management for the fixed global path. The Projects
 view project-list menu provides an `AGENTS.md` editor for its corresponding

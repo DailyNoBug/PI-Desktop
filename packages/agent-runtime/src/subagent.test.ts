@@ -8,7 +8,10 @@ import {
 } from "./subagent.js";
 import type { RuntimeProviderConfig } from "./provider-binding.js";
 import { classifyAgentError } from "./agent-errors.js";
-import { PROVIDER_TRANSIENT_MAX_RETRIES } from "./provider-retry.js";
+import {
+  PROVIDER_RATE_LIMIT_MAX_RETRIES,
+  PROVIDER_TRANSIENT_MAX_RETRIES,
+} from "./provider-retry.js";
 
 const provider: RuntimeProviderConfig = {
   id: "local",
@@ -304,7 +307,7 @@ describe("SubagentRun reporting", () => {
 });
 
 describe("SubagentRun provider rate-limit recovery", () => {
-  it("retries five 429s silently and reuses one assistant row", async () => {
+  it("retries ten 429s silently and reuses one assistant row", async () => {
     const { run, events } = createRun();
     const failure = {
       ...assistantMessage({
@@ -340,7 +343,7 @@ describe("SubagentRun provider rate-limit recovery", () => {
       await vi.runAllTimersAsync();
       const result = await resultPromise;
 
-      expect(continueRun).toHaveBeenCalledTimes(5);
+      expect(continueRun).toHaveBeenCalledTimes(PROVIDER_RATE_LIMIT_MAX_RETRIES);
       expect(result.status).toBe("failed");
       expect(result.error?.code).toBe("PROVIDER_RATE_LIMITED");
       expect(events.filter((event) => event.event.type === "message_start")).toHaveLength(1);
@@ -448,20 +451,20 @@ describe("SubagentRun watchdogs", () => {
     );
 
     // The stream phase used to be refused outright for a delegate.
-    expect(claim(gateway502, "stream")).toBe(1);
-    expect(claim(gateway502, "request")).toBe(2);
-    expect(claim(gateway502, "stream")).toBe(3);
-    expect(claim(gateway502, "request")).toBe(4);
-    expect(PROVIDER_TRANSIENT_MAX_RETRIES).toBe(4);
+    for (let attempt = 1; attempt <= PROVIDER_TRANSIENT_MAX_RETRIES; attempt += 1) {
+      expect(claim(gateway502, attempt % 2 === 1 ? "stream" : "request")).toBe(
+        attempt,
+      );
+    }
     expect(claim(gateway502, "stream")).toBeUndefined();
 
     const { run: fresh } = createRun();
     const freshClaim = (error: unknown, phase: string) =>
       (fresh as any).claimProviderRetry(error, phase);
-    // Rate limits keep their own separate five-retry budget.
+    // Rate limits keep their own separate ten-retry budget.
     const rateLimited = classifyAgentError("429: too many requests");
     expect(freshClaim(gateway502, "request")).toBe(1);
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
+    for (let attempt = 1; attempt <= PROVIDER_RATE_LIMIT_MAX_RETRIES; attempt += 1) {
       expect(freshClaim(rateLimited, "stream")).toBe(attempt);
     }
     expect(freshClaim(rateLimited, "stream")).toBeUndefined();
