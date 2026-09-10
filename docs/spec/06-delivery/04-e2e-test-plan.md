@@ -7687,11 +7687,10 @@ This test plan spec is accepted when:
 
 #### E2E-199: Subagent editor offers preset templates and a provider-bounded model picker
 
-- **Preconditions**: A project-bound Agent session. At least one provider
-  exists in Settings with at least one model flagged `Available for AI
-  delegation`, and one configured provider with that flag turned off for one
-  of its models. The `~/.agents/subagents` directory is empty. Builtins are
-  present but no project subagent file overrides them.
+- **Preconditions**: A project-bound Agent session. At least one configured,
+  runnable provider with model bindings exists in Settings. The
+  `~/.agents/subagents` directory is empty. Builtins are present but no project
+  subagent file overrides them.
 - **Steps**:
   1. Open Settings → Agent → Subagents, click **New subagent**, and confirm
      the sheet opens with a "Start from template" row of compact name
@@ -7711,33 +7710,34 @@ This test plan spec is accepted when:
      mutating-hint line appears under the tools row. Expand Advanced and
      confirm max turns 80.
   4. Expand Advanced. Open the model picker. Confirm the picker lists every
-     `availableForSubagents` model from every provider, grouped by provider
-     name; confirm a model whose flag is off is absent. Choose one and
-     confirm the draft's `model` field becomes
+     model of every configured, runnable provider, grouped by provider
+     name. Choose one and confirm the draft's `model` field becomes
      `<vendorKey-or-name>/<modelId>` (matches what the runtime resolver
      accepts in `BUILTIN_SUBAGENT_DOCUMENTS`).
-  5. Switch the picker to **Custom (provider/model)…**, type
-     `anthropic/claude-haiku-4-5`, save the subagent, and confirm the
-     runtime accepts it (no diagnostic in the sidecar). Switch the picker
-     to **Inherit session model**, save again, and confirm the draft's
-     `model` field is empty and the sidecar falls back to the session
-     model.
-  6. Disable the providers that contribute a delegate-bound model. Reopen
-     the editor, expand Advanced, and confirm the picker falls back to a
-     single free-text input with the `modelPickEmpty` hint pointing the
-     user to Models. Save and confirm the sheet still validates a
-     hand-typed `provider/model` value.
+  4a. Configure a custom endpoint whose display name contains a space (for
+     example **My Gateway**). Confirm the picker offers it, select it, and
+     confirm the sheet saves with the pin `<display name>/<modelId>` and the
+     save button enabled. The picker and the draft check must never disagree
+     about what is saveable.
+  5. Confirm the picker offers no **Custom (provider/model)…** entry and the
+     field renders no free-text input, so a model id can only come from the
+     configured catalog. Switch the picker to **Inherit session model**, save,
+     and confirm the draft's `model` field is empty and the sidecar falls back
+     to the session model.
+  6. Disable every provider that contributes a model. Reopen
+     the editor, expand Advanced, and confirm the model field renders an
+     empty state with an action button instead of a free-text input, and that
+     the action opens Models.
   7. Switch the locale to Simplified Chinese. Confirm the preset chips
      render the translated names (`探索者`, `代码审查员`, `测试执行者`,
      `修复者`, `空白开始`) and the picker labels (`沿用当前会话的模型`,
-     `自定义（provider/model）…`) resolve; no raw i18n keys appear in
+     `前往模型设置`) resolve; no raw i18n keys appear in
      either locale.
-- **Expected**: The editor never asks for a model id the user cannot
-  resolve — only providers the user has configured and explicitly opted in
-  for subagent delegation appear in the picker. A model whose
-  `availableForSubagents` flag is off cannot be selected through the
-  picker, and a Custom entry that points at a provider the user has not
-  configured is still accepted so the user is never locked out. Picking a
+- **Expected**: The editor offers only models the user already configured, so
+  the picker is the only way to set a model and every saved pin is resolvable.
+  No free-text model id is accepted. When no provider offers a runnable model
+  the field explains that and links to Models instead of asking the user to
+  type an id the runtime could not resolve. Picking a
   preset overwrites the draft wholesale (description, tools, body, max
   turns) but never silently clears the user's other choices (model,
   thinking level, scope).

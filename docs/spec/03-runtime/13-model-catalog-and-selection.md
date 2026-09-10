@@ -94,15 +94,21 @@ rows and shows the same summary as a compact banner.
 
 The Subagents create/edit sheet reuses the configured, runnable models the
 Composer already offers (enabled providers with a credential or `authKind:
-none`), but only bindings explicitly marked `availableForSubagents`. The
-control is a grouped select: inherit-session is the empty value, options are
-`vendorKey-or-name/modelId` grouped by provider display name, and a pin that is
-no longer configured stays as an extra option so an edit cannot silently drop
-it. The thinking selector offers inherit-session (empty), do-not-send, and the
+none`). The control is a grouped select: inherit-session is the empty value,
+options are `vendorKey-or-name/modelId` grouped by provider display name, and a
+pin that is no longer configured stays as an extra option so an edit cannot
+silently drop it. Every option comes from the configured provider catalog, so a
+saved pin is always resolvable; the sheet deliberately offers no free-text
+model id, and when no provider has a runnable model it shows an empty state with
+an action that opens Models instead of a hand-typed field. Only the slash in a
+pin is structural: the provider half is matched by a normalized alias, and a
+custom endpoint's display name may contain spaces, so the picker and the draft
+check share one splitter and can never disagree about what is saveable. The
+thinking selector
+offers inherit-session (empty), do-not-send, and the
+offers inherit-session (empty), do-not-send, and the
 seven canonical levels; inherit keeps the session level, while do-not-send
-leaves the provider adapter's own default untouched. A **Custom
-(provider/model)** option opens a free-text field, and the same field is shown
-directly when no delegation model is configured. When a generic or duplicate
+leaves the provider adapter's own default untouched. When a generic or duplicate
 vendor key would be ambiguous, the option uses a unique provider display name;
 if the names also collide, it uses the stored provider id so no configured
 provider disappears from the picker.

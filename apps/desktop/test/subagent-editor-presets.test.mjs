@@ -100,10 +100,14 @@ test("the model picker keeps existing pins visible", () => {
   assert.match(editorSource, /orphanModel \? \(/);
 });
 
-test("the model picker keeps custom ids available without exposing opted-out bindings", () => {
-  assert.match(editorSource, /CUSTOM_SUBAGENT_MODEL_VALUE/);
-  assert.match(editorSource, /extensions\.subagents\.modelPickCustom/);
-  assert.match(editorSource, /extensions\.subagents\.modelPickCustomHint/);
+test("the model picker offers every configured provider model, with no free-text path", () => {
+  // The picker is the only way to set a model: every option comes from the
+  // configured provider catalog, so a saved pin is always resolvable.
+  assert.match(editorSource, /subagentModelChoices\(providers\)/);
+  assert.match(editorSource, /groupSubagentModelChoices\(modelChoices\)/);
+  assert.match(editorSource, /subagentModelOrphanPin\(draft\.model, modelChoices\)/);
+  assert.doesNotMatch(editorSource, /CUSTOM_SUBAGENT_MODEL_VALUE/);
+  assert.doesNotMatch(editorSource, /modelPickCustom/);
 });
 
 test("the editor styles ship with the picker", () => {
