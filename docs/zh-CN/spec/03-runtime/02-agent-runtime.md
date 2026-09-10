@@ -852,10 +852,8 @@ sidecar 无法选择不同的根。在一次提示期间，路径解析
 源路径标记在 `# Project instructions` 下。
 sidecar 从不直接读取工作区指令。改变的根链
 在下一个提示时重新创建空闲运行时；嵌套指令已解决
-当相关文件工具运行时再次。 sidecar 计时线记录
-`instructionResolveMs`、`instructionCacheHit` 和 `instructionFallback`
-与 `hostRttMs` 分开，因此慢速预检不能被误认为是慢速预检
-指挥机构。
+当相关文件工具运行时再次。解析器的超时和 fallback 是运行时保护措施；
+它们不会输出独立的 timing 日志记录。
 
 设置为固定全局路径提供专门的管理。项目
 查看项目列表菜单为其相应的项目提供了 `AGENTS.md` 编辑器

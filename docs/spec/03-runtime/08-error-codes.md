@@ -317,9 +317,9 @@ error. The assistant error message shows a localized summary and stable code,
 with an accessible details disclosure containing the redacted provider response,
 provider ID, and model ID. Provider detail is capped at 600 characters and
 common credential/header values are redacted before event emission or
-persistence. When available, the details disclosure and timing logs may also
-show bounded `phase`, `providerStatus`, `providerCode`, `providerWaitMs`,
-`streamMs`, and `retryAttempt` fields. The assistant error card offers a localized
+persistence. When available, the details disclosure may also show bounded
+`phase`, `providerStatus`, `providerCode`, `providerWaitMs`, `streamMs`, and
+`retryAttempt` fields. The assistant error card offers a localized
 Continue action that resends the continuation prompt (`继续当前任务` /
 `Continue the current task`) in the same session without truncating the failed
 turn. The session-scoped failed-turn recovery card is used only when no

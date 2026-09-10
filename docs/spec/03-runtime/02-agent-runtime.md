@@ -1006,10 +1006,8 @@ out-of-root files are skipped. The combined UTF-8 content is capped at 32 KiB
 and source paths are labelled under `# Project instructions`.
 The sidecar never reads workspace instructions directly. A changed root chain
 recreates an idle runtime on its next prompt; nested instructions are resolved
-again when a relevant file tool runs. The sidecar timing line records
-`instructionResolveMs`, `instructionCacheHit`, and `instructionFallback`
-separately from `hostRttMs` so a slow preflight cannot be mistaken for a slow
-command body.
+again when a relevant file tool runs. The resolver's timeout and fallback
+are operational safeguards; they do not emit a separate timing log record.
 
 Settings provides dedicated management for the fixed global path. The Projects
 view project-list menu provides an `AGENTS.md` editor for its corresponding

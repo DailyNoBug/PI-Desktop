@@ -167,7 +167,6 @@ import { PluginViewHost, pluginViewKey } from "./plugin-view-host";
 import { parseAllowedExternalUrl } from "./safe-open-external";
 import type { PluginAppearance } from "../shared/plugin-panel-chrome";
 import { Logger, ignoreBrokenStdio } from "./logger";
-import { BootTiming } from "./boot-timing";
 import {
   GLIBC_UNSUPPORTED_STATUS,
   assertLinuxGlibcSupported,
@@ -295,7 +294,6 @@ function stripWinLongPrefix(p: string): string {
 // A closed stdout/stderr (Linux AppImage, GUI launch without a TTY) must not
 // surface as Electron's "Uncaught Exception: write EPIPE" dialog.
 ignoreBrokenStdio();
-const processStartedAt = Date.now();
 
 app.setName(APP_NAME);
 if (process.platform === "win32") {
@@ -954,9 +952,6 @@ const logger = new Logger(
   dataDir,
   process.env.NODE_ENV === "production" ? "info" : "debug",
 );
-const bootTiming = new BootTiming((message, data) => {
-  logger.app("timing", "info", message, data ? { data } : undefined);
-}, processStartedAt);
 const persistenceOutbox = new PersistenceOutbox(dataDir, (level, message, data) => {
   logger.app("persistence", level, message, { data });
 });
@@ -2644,24 +2639,11 @@ function createPluginLauncherWindow(): Promise<BrowserWindow> {
 }
 
 function prewarmPluginLauncher(): void {
-  const started = Date.now();
-  void createPluginLauncherWindow().then(
-    () => {
-      bootTiming.mark("plugin-launcher-prewarm", {
-        durationMs: Date.now() - started,
-        ok: true,
-      });
-    },
-    (error) => {
-      bootTiming.mark("plugin-launcher-prewarm", {
-        durationMs: Date.now() - started,
-        ok: false,
-      });
-      logger.app("diagnostics", "warn", "plugin launcher warm-up failed", {
-        data: String(error),
-      });
-    },
-  );
+  void createPluginLauncherWindow().catch((error) => {
+    logger.app("diagnostics", "warn", "plugin launcher warm-up failed", {
+      data: String(error),
+    });
+  });
 }
 
 async function showPluginLauncher(): Promise<void> {
@@ -2834,13 +2816,7 @@ async function createWindow() {
       additionalArguments: [`--pi-desktop-locale=${app.getLocale()}`],
     },
   });
-  bootTiming.mark("window-created");
   const window = mainWindow;
-  window.webContents.on("console-message", (_event, _level, message) => {
-    if (typeof message === "string" && message.startsWith("[timing] ")) {
-      logger.app("timing", "info", message);
-    }
-  });
   const initialBounds = window.getBounds();
   workPanelBaseBounds = savedState ? { ...savedState } : { ...initialBounds };
   workPanelLastAppliedBounds = { ...initialBounds };
@@ -3569,7 +3545,6 @@ async function createWindow() {
     ensureStableBounds(process.env.PI_DESKTOP_CAPTURE === "1");
     window.show();
     window.focus();
-    bootTiming.mark("window-shown");
     // Burst re-assert only while Stage Manager initially settles / shelves us.
     for (const ms of [100, 250, 500, 1000, 2000, 3500, 5000, 8000, 12000]) {
       setTimeout(() => ensureStableBounds(false), ms);
@@ -4468,7 +4443,6 @@ async function createWindow() {
     }
   });
 
-  const loadStarted = Date.now();
   if (process.env.ELECTRON_RENDERER_URL) {
     await window.loadURL(process.env.ELECTRON_RENDERER_URL);
     if (process.env.PI_DESKTOP_DEVTOOLS === "1") {
@@ -4477,7 +4451,6 @@ async function createWindow() {
   } else {
     await window.loadFile(join(__dirname, "../renderer/index.html"));
   }
-  bootTiming.mark("window-loaded", { durationMs: Date.now() - loadStarted, ok: true });
 }
 
 const RESTART_WINDOW_MS = 120_000;
@@ -4638,7 +4611,6 @@ function wireHost(h: HostProcess) {
               content: { error: e instanceof Error ? e.message : String(e) },
             };
           }
-          }
         }
         logger.app("plugin", "info", "plugin tool executed", {
           toolCallId: q.toolCallId,
@@ -4700,20 +4672,11 @@ function wireHost(h: HostProcess) {
 
 async function startHost(): Promise<void> {
   assertLinuxGlibcSupported();
-  const spawnStarted = Date.now();
   const h = new HostProcess(dataDir, (text) => logger.child("host", text));
-  const spawnedMs = Date.now() - spawnStarted;
   wireHost(h);
   host = h;
   try {
-    const handshakeStarted = Date.now();
     await h.handshake();
-    bootTiming.mark("host", {
-      spawnedMs,
-      handshakeMs: Date.now() - handshakeStarted,
-      durationMs: Date.now() - spawnStarted,
-      ok: true,
-    });
     logger.app("runtime", "info", "host-core handshake ok", {
       data: { generation: h.generation },
     });
@@ -4732,11 +4695,6 @@ async function startHost(): Promise<void> {
       });
     }
   } catch (error) {
-    bootTiming.mark("host", {
-      spawnedMs,
-      durationMs: Date.now() - spawnStarted,
-      ok: false,
-    });
     if (host === h) host = null;
     logger.flushChild("host");
     await h.dispose();
@@ -4834,9 +4792,7 @@ function wireSidecar(s: AgentSidecar) {
 }
 
 async function startSidecar(): Promise<void> {
-  const spawnStarted = Date.now();
   const s = new AgentSidecar((text) => logger.child("agent", text));
-  const spawnedMs = Date.now() - spawnStarted;
   wireSidecar(s);
   s.setProjectInstructionResolver(async ({ projectPath, path }) => {
     // The root is registered by Electron main from the host-owned session
@@ -5051,17 +5007,10 @@ async function startSidecar(): Promise<void> {
   });
   sidecar = s;
   if (host) s.setHost(host);
-  const configureStarted = Date.now();
   await s.call("sidecar.configure", {
     hostBinary: host?.binaryPath,
     dataDir,
     networkProxy: currentNetworkProxy(),
-  });
-  bootTiming.mark("sidecar", {
-    spawnedMs,
-    configureMs: Date.now() - configureStarted,
-    durationMs: Date.now() - spawnStarted,
-    ok: true,
   });
   logger.app("runtime", "info", "agent sidecar configured");
 }
@@ -5777,7 +5726,6 @@ async function bootBackends() {
   logger.app("lifecycle", "info", `app boot ${APP_NAME} ${APP_VERSION}`, {
     data: { protocolVersion: PROTOCOL_VERSION },
   });
-  bootTiming.mark("backends-start");
   await startHost();
   try {
     const stored = await host!.call("settings.get");
@@ -5812,7 +5760,6 @@ async function bootBackends() {
     rememberPluginScopes(listed.plugins ?? []);
     for (const p of listed.plugins ?? []) {
       if (p.enabled && p.path) {
-        const pluginStarted = Date.now();
         try {
           await plugins.loadFromPath(p.path, p.permissions ?? [], {
             development: p.source === "dev",
@@ -5820,18 +5767,8 @@ async function bootBackends() {
           // Dev plugins keep hot reload across restarts: the folder was picked
           // once, and the edit loop should not have to pick it again.
           if (p.source === "dev") plugins.watchDevPlugin(p.id);
-          bootTiming.mark("plugin-restore", {
-            pluginId: p.id,
-            durationMs: Date.now() - pluginStarted,
-            ok: true,
-          });
           logger.app("plugin", "info", "plugin restored", { pluginId: p.id });
         } catch (e) {
-          bootTiming.mark("plugin-restore", {
-            pluginId: p.id,
-            durationMs: Date.now() - pluginStarted,
-            ok: false,
-          });
           logger.app("plugin", "error", "plugin restore failed", {
             pluginId: p.id,
             data: String(e),
@@ -5846,15 +5783,12 @@ async function bootBackends() {
   // The user's MCP servers are only *registered* here; each one connects the
   // first time a session that can see it is assembled, so a project-scoped
   // server costs nothing until that project is open.
-  const mcpStarted = Date.now();
   await refreshUserMcp();
-  bootTiming.mark("mcp-refresh", { durationMs: Date.now() - mcpStarted, ok: true });
   await drainApprovedPlanExecutions().catch((error) =>
     logger.app("runtime", "warn", "queued approved plan drain failed", {
       data: String(error),
     }),
   );
-  bootTiming.mark("backends-ready");
 }
 
 function registerIpc() {
@@ -9149,7 +9083,6 @@ app.whenReady().then(async () => {
   // create a window, a tray, or a child process on top of the running app.
   if (!hasSingleInstanceLock) return;
   applyDevelopmentBranding();
-  bootTiming.mark("when-ready");
   // Load the close-behavior preference before the first window exists: the
   // close handler reads `closeBehavior` synchronously, and a window created
   // while it still held the "ask" default would prompt a user who already
@@ -9220,7 +9153,6 @@ app.whenReady().then(async () => {
     applySummonWindowShortcut();
   }
   await ensureWindow();
-  bootTiming.mark("window-ready");
   if (process.env.PI_DESKTOP_MCP_CONTROL === "1") {
     try {
       mcpControl = new McpControlServer({

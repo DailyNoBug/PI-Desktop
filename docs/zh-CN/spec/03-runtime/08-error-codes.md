@@ -309,9 +309,8 @@ UI/host 超时在内部发出 `PERMISSION_TIMEOUT`，工具结果向代理显示
 包含经过编辑的提供商响应的可访问详细信息披露，
 提供商 ID 和模型 ID。提供商详细信息上限为 600 个字符，并且
 公共 credential/header 值在事件发射之前进行编辑或
-坚持。如果有的话，详细信息披露和计时日志也可能
-显示有界 `phase`、`providerStatus`、`providerCode`、`providerWaitMs`、
-`streamMs` 和 `retryAttempt` 字段。
+详细信息披露也可能显示有界的 `phase`、`providerStatus`、`providerCode`、
+`providerWaitMs`、`streamMs` 和 `retryAttempt` 字段。
 
 ## 6. i18n 按键约定
 

@@ -130,7 +130,6 @@ import {
   type PluginSkillDef,
 } from "./plugin-skills-prompt.js";
 import { pluginSkillsDigest } from "./plugin-skills.js";
-import { logTiming } from "./timing.js";
 import {
   openCodeEndpointFromProvider,
   withOpenCodeSessionHeaders,
@@ -504,12 +503,6 @@ type ToolCatalogEntry = {
 
 type PathInstructionResolution = {
   instructions?: ProjectInstructions;
-  fallback: boolean;
-};
-
-type PathInstructionTiming = {
-  durationMs: number;
-  cacheHit: boolean;
   fallback: boolean;
 };
 
@@ -1588,18 +1581,6 @@ Delegation rules:
                 retryDelayMs: delayMs,
                 error: this.retryActivityError(error),
               });
-              logTiming("model", {
-                model: this.provider.modelId,
-                providerId: this.provider.id,
-                sessionId: this.sessionId,
-                turnId: this.turnId,
-                phase,
-                outcome: "retry",
-                errorCode: error.code,
-                retryAttempt: attempt,
-                retryDelayMs: delayMs,
-                providerStatus: this.providerResponseStatus,
-              });
             },
           },
         );
@@ -2140,8 +2121,7 @@ Delegation rules:
         signal,
         onUpdate,
       ) => {
-        const instructionTiming = await this.loadPathInstructions(toolName, params);
-        const startedAt = Date.now();
+        await this.loadPathInstructions(toolName, params);
         const isBash = toolName === "Bash";
         const timeoutMs = isBash ? commandTimeoutMs(params) : undefined;
         let progress = "";
@@ -2289,9 +2269,6 @@ Delegation rules:
         if (abortError) throw abortError;
         if (executionFailed) throw executionError;
         if (!result) throw new Error("tool execution returned no result");
-        // hostRttMs spans approval + execution + IPC. Compare it against the
-        // host's own "tool timing" line for the same toolCallId: the gap is
-        // the stdio hops, and permissionWaitMs there explains a large value.
         const recordParams = isRecord(params) ? params : undefined;
         const failedToolExecution = !result.ok && result.denied !== true;
         const failedEditPath =
@@ -2371,24 +2348,6 @@ Delegation rules:
               : {}),
           };
         }
-        logTiming("tool", {
-          tool: toolName,
-          toolCallId,
-          sessionId: this.sessionId,
-          turnId: this.turnId,
-          hostRttMs: Date.now() - startedAt,
-          instructionResolveMs: instructionTiming?.durationMs,
-          instructionCacheHit: instructionTiming?.cacheHit,
-          instructionFallback: instructionTiming?.fallback ? "base" : undefined,
-          ok: result.ok,
-          errorCode: result.errorCode,
-          ...(mutationFailureKind ? { mutationFailureKind } : {}),
-          ...(mutationFailureAttempt !== undefined
-            ? { mutationFailureAttempt }
-            : {}),
-          ...(grantedRecoveryGrace ? { mutationFailureGrace: true } : {}),
-          ...(terminateAfterMutationFailure ? { terminate: true } : {}),
-        });
         const rawContent = result.content;
         const imageBlocks: Array<{ type: "image"; data: string; mimeType: string }> = [];
         let text: string;
@@ -3204,14 +3163,6 @@ Delegation rules:
             // guard only keeps an unexpected rejection from leaving the
             // delegation stuck in "running" forever.
             (error: unknown) => {
-              logTiming("subagent", {
-                agent: definition.name,
-                toolCallId,
-                sessionId: this.sessionId,
-                turnId: this.turnId,
-                status: "failed",
-                errorCode: "UNEXPECTED_DELEGATION_REJECTION",
-              });
               this.settleDelegation(record, {
                 agentName: definition.name,
                 modelId: provider.modelId,
@@ -3290,17 +3241,6 @@ Delegation rules:
     if (result.usage) {
       this.turnSubagentUsage = addUsage(this.turnSubagentUsage, result.usage);
     }
-    logTiming("subagent", {
-      agent: result.agentName,
-      delegationId: record.delegationId,
-      sessionId: this.sessionId,
-      turnId: this.turnId,
-      status: result.status,
-      turns: result.turns,
-      toolCalls: result.toolCalls,
-      durationMs: record.completedAt - record.startedAt,
-      errorCode: result.error?.code,
-    });
     record.resolveCompletion();
     this.refreshDelegationWait();
     this.pruneFinishedDelegations();
@@ -4012,7 +3952,7 @@ Delegation rules:
   private async loadPathInstructions(
     toolName: string,
     params: unknown,
-  ): Promise<PathInstructionTiming | undefined> {
+  ): Promise<void> {
     if (!PATH_SCOPED_INSTRUCTION_TOOLS.has(toolName)) {
       return undefined;
     }
@@ -4022,9 +3962,7 @@ Delegation rules:
     if (!path) return undefined;
 
     const key = `${this.projectPath ?? ""}\u0000${pathInstructionScope(path)}`;
-    const startedAt = Date.now();
     let resolution = this.pathInstructionClaims.get(key);
-    const cacheHit = resolution !== undefined;
     if (!resolution) {
       resolution = this.host
         .call<ProjectInstructions | undefined>(
@@ -4052,11 +3990,6 @@ Delegation rules:
     this.applyProjectInstructions(
       resolved.fallback ? this.baseProjectInstructions : resolved.instructions,
     );
-    return {
-      durationMs: Date.now() - startedAt,
-      cacheHit,
-      fallback: resolved.fallback,
-    };
   }
 
   private applyProjectInstructions(resolved: ProjectInstructions | undefined): void {
@@ -5521,17 +5454,6 @@ Delegation rules:
               ...(usage ? { usage } : {}),
             };
             this.emit({ type: "message_update", message: this.currentAssistant });
-            logTiming("model", {
-              model: this.provider.modelId,
-              providerId: this.provider.id,
-              sessionId: this.sessionId,
-              turnId: this.turnId,
-              providerWaitMs,
-              streamMs,
-              thinkingLevel: this.thinkingLevel,
-              outcome: "silent",
-              thinkingOnly: nextThinking.trim().length > 0,
-            });
             this.streamStartedAt = undefined;
             break;
           }
@@ -5579,16 +5501,6 @@ Delegation rules:
               ...(usage ? { usage } : {}),
             };
             this.emit({ type: "message_update", message: this.currentAssistant });
-            logTiming("model", {
-              model: this.provider.modelId,
-              providerId: this.provider.id,
-              sessionId: this.sessionId,
-              turnId: this.turnId,
-              providerWaitMs,
-              streamMs,
-              thinkingLevel: this.thinkingLevel,
-              outcome: "progress_only",
-            });
             this.streamStartedAt = undefined;
             break;
           }
@@ -5619,19 +5531,6 @@ Delegation rules:
               ...(usage ? { usage } : {}),
             };
             this.emit({ type: "message_update", message: this.currentAssistant });
-            logTiming("model", {
-              model: this.provider.modelId,
-              providerId: this.provider.id,
-              sessionId: this.sessionId,
-              turnId: this.turnId,
-              providerWaitMs,
-              streamMs,
-              thinkingLevel: this.thinkingLevel,
-              outcome: "retry",
-              errorCode: diagnosticError.code,
-              retryAttempt: retryProviderAttempt,
-              providerStatus: this.providerResponseStatus,
-            });
             this.streamStartedAt = undefined;
             break;
           }
@@ -5671,27 +5570,6 @@ Delegation rules:
               : {}),
           };
           this.emit({ type: "message_end", message: this.currentAssistant });
-          logTiming("model", {
-            model: this.provider.modelId,
-            providerId: this.provider.id,
-            sessionId: this.sessionId,
-            turnId: this.turnId,
-            // Time from "the agent could send the request" to the first
-            // streamed message: provider queue + network + first token.
-            providerWaitMs,
-            streamMs,
-            thinkingLevel: this.thinkingLevel,
-            outcome: failed || emptyResponse
-              ? "error"
-              : aborted
-                ? "aborted"
-                : "ok",
-            errorCode: diagnosticError?.code,
-            providerStatus: this.providerResponseStatus,
-            ...(this.activeProviderRetryAttempt > 0
-              ? { retryAttempt: this.activeProviderRetryAttempt }
-              : {}),
-          });
           this.activeProviderRetryAttempt = 0;
           this.streamStartedAt = undefined;
           this.currentAssistant = undefined;
@@ -5889,18 +5767,6 @@ Delegation rules:
     this.emit({ type: "message_end", message: this.currentAssistant });
     // The failure path is where a slow turn matters most: a provider that
     // burns its retries before giving up shows here as a large providerWaitMs.
-    logTiming("model", {
-      model: this.provider.modelId,
-      providerId: this.provider.id,
-      sessionId: this.sessionId,
-      turnId: this.turnId,
-      providerWaitMs:
-        this.requestStartedAt !== undefined
-          ? Date.now() - this.requestStartedAt
-          : undefined,
-      outcome: status,
-      errorCode: error?.code,
-    });
     this.streamStartedAt = undefined;
     this.currentAssistant = undefined;
   }
