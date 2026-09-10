@@ -3758,3 +3758,10 @@ D193 和 D194。
 - 超长控制管道行以 `LIMIT_EXCEEDED` 应答，不再结束 stdin 读取器。
 - 决策 D390 与 ADR 0216。见 E2E-246。
 
+## 2026-09-11 —— 主机 stdout 发送端不得比 serve 更长寿
+
+- ADR 0216 让重试不再整包传输 transcript，超长行也不再结束 stdin 读取器。在 Windows 上这还不够：Alt+Space 钩子持有 stdout 发送端的强引用，stdin 结束后写线程不退出，host-core 变成僵尸，Electron 报 `host RPC timeout: session.replaceMessages`（issue #211）。
+- 钩子改为只保留弱引用。serve 最多等写线程 5 秒。Electron 在写入前拒绝超过 64 MiB 的请求行。主机侧 `LIMIT_EXCEEDED` 从截断前缀里取出 JSON-RPC id。
+- 决策 D391 与 ADR 0217。见 `03-runtime/07-process-model.md`、`03-runtime/06-host-rpc-protocol.md` §7 与 E2E-247。
+
+

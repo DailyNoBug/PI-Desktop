@@ -65,6 +65,7 @@ This log freezes previously open questions into concrete decisions.
 | D306 | Search/read truncation is a cut, not a window | **Amend D033 / D194: Read/Glob/Grep `truncated` is true only when the host cut content the caller asked for (byte budget, per-line clip, Grep/Glob match cap). A Read that returned the requested or default window of a longer file is complete for that window; `totalLines`/`offset`/`lineCount` and a next-offset `notice` describe the remainder. Default Read window is 2000 lines (max 4000). `BUDGET_SEARCH` is 128KB / 4000 lines. Per-line clip is 16,384 characters. The UI truncated chip follows this flag.** | The 48KB / 500-line window marked almost every source and spec file truncated, including successful paged reads, which hid real cuts and forced the agent to re-search what it already had. |
 | D307 | Revision payloads follow the live branch | **Amend D109: a regenerate branch keeps growing after its archive (later prompts, error-ended turns that never reach `agent_end`), so every operation that discards the live branch first writes it back over the variant it belongs to. `session.activateRevision` re-archives the live branch of the family from the durable transcript before switching and takes the prefix from there; the regenerate path refreshes the stamped variant via `session.saveRevision { revisionIndex }`; `session.saveActiveRevision` refreshes an already-archived index instead of skipping it. The variant refreshed is the one the live root's `activeRevision` stamp names; a stamped variant with no index row yet is stored as its own variant, never over a previous one. Switching also carries each surviving message's owning `turn_id` and keeps checkpoints whose anchors survive.** | The archive was written once and reused forever: paging away from a branch that had grown since its agent_end archive, then back, restored the stale copy and silently deleted every later turn from the transcript and its JSONL. |
 | D390 | Host-owned regenerate truncate | **Amend D199 / D258 / D307: `agent/prompt` truncates through `session.truncateFrom` under the host lock (identity-first cut, abort leftover running turn, archive discarded tail, rewrite prefix). The kept transcript does not cross JSON-RPC. An NDJSON request line over 64 MiB is `LIMIT_EXCEEDED` and does not end the stdin reader. Protocol version stays at 11. See ADR 0216 and E2E-246.** | Retrying a multi-thousand-message session timed out at 130 s on `session.replaceMessages` and could kill host stdin at 64 MiB (issue #211). |
+| D391 | Host stdout sender must not outlive serve | **Amend D390 / ADR 0216: the Windows Alt+Space hook retains only a weak clone of the stdout sender. After stdin EOF, dropping serve's sender closes the writer channel and host-core exits. Electron rejects an NDJSON request over 64 MiB before writing, with `LIMIT_EXCEEDED`. A host-side oversize reply peeks the JSON-RPC id from the truncated prefix so the client does not wait 130 s. Serve waits at most 5 s for the stdout writer after stdin ends. Protocol version stays at 11. See ADR 0217 and E2E-247.** | On Windows v0.14.6 a 64 MiB stdin cap ended the reader, but a strong keyboard sender kept the writer thread alive, so host-core became a zombie and Electron reported `host RPC timeout: session.replaceMessages` (issue #211). |
 
 
 | D244 | Compact context usage summary | **Amend D103 / D184 / ADR 0047: keep the context inspector's remaining-capacity trigger, used/window counts, turn total, completed-turn speed, exact provider values, aggregate tool types/calls/tokens, and checkpoint summary, but render them as a short summary. Remove the per-tool rows, share bars, source badges, explanatory estimate paragraph, and used-capacity meter from the default panel. No protocol, storage, runtime accounting, or model metadata changes.** *(Amended by D347: the trigger moves to the composer toolbar.)* | The prior diagnostic layout made a routine capacity check tall and visually dense. Keeping the aggregate signal while removing drill-down chrome makes the default status surface scannable without changing the underlying usage data. See ADR 0103 and E2E-060d / US-UI-61. |
@@ -4460,5 +4461,20 @@ D193, and D194.
   `03-runtime/04-data-storage.md` §4.9/§7,
   `03-runtime/06-host-rpc-protocol.md` §4, `03-runtime/01-ipc-protocol.md`,
   and E2E-246.
+
+
+## 2026-09-11 — Host stdout sender must not outlive serve
+
+- ADR 0216 stopped regenerate from shipping the kept transcript and stopped an
+  oversize line from killing the stdin reader. On Windows that was not enough:
+  the Alt+Space hook held a strong stdout sender, so after stdin ended the
+  writer thread never stopped, host-core stayed alive, and Electron reported
+  `host RPC timeout: session.replaceMessages` (issue #211).
+- The hook now stores a weak sender. Serve waits at most 5 s for the stdout
+  writer. Electron rejects a request line over 64 MiB before writing.
+  Host-side `LIMIT_EXCEEDED` peeks the JSON-RPC id from the truncated prefix.
+- Decision D391 and ADR 0217 define this. See
+  `03-runtime/07-process-model.md`, `03-runtime/06-host-rpc-protocol.md` §7,
+  and E2E-247.
 
 

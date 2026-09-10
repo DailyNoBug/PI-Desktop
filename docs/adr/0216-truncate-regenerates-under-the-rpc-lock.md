@@ -63,3 +63,6 @@ read-modify-write from a snapshot taken outside the lock.
   the following `beginTurn` is not `AGENT_BUSY` and UI failure cannot leave
   sqlite `running`.
 - Oversized control-pipe lines no longer take down host-core.
+- On Windows, a leftover strong stdout sender in the Alt+Space hook could
+  still keep host-core alive after stdin ended (the 130 s timeout in issue
+  #211). See ADR 0217.

@@ -5033,6 +5033,30 @@ Each scenario is documented in this format:
   `truncate_from_rpc_cuts_without_shipping_the_kept_prefix`. Desktop journey
   remains Draft.
 
+#### E2E-247: Windows host-core exits after stdin EOF and oversize RPCs fail immediately
+
+- **Preconditions**: Windows host-core with the Alt+Space keyboard hook
+  installed; a JSON-RPC request whose NDJSON line exceeds 64 MiB.
+- **Steps**: 1) Send stdin EOF to a running host-core. 2) From Electron, call
+  a host method whose stringified payload exceeds 64 MiB. 3) If a line still
+  reaches host-core, inspect the `LIMIT_EXCEEDED` reply id.
+- **Expected**: After stdin EOF, host-core exits without waiting 130 s. The
+  Windows keyboard hook does not keep the stdout writer alive. Electron
+  rejects the oversize call with `LIMIT_EXCEEDED` before `stdin.write`. A
+  host-side oversize reply uses the request id peeked from the prefix, not
+  `null`. The UI error is not `host RPC timeout`.
+- **Specs linked**: `03-runtime/07-process-model.md`,
+  `03-runtime/06-host-rpc-protocol.md` §7, ADR 0217, D391
+- **Acceptance**: Quality
+- **Milestone**: M6
+- **Status**: Covered by unit and source-contract tests (2026-09-11):
+  `start_does_not_keep_the_stdout_channel_open`,
+  `peek_jsonrpc_id_reads_a_string_id_from_a_truncated_prefix`,
+  `apps/desktop/test/windows-host-runtime.test.mjs` (weak sender),
+  `apps/desktop/test/rpc-lifecycle-contract.test.mjs` (client precheck),
+  `packages/shared/src/rpc-limits.test.ts`. Desktop journey remains Draft.
+
+
 
 #### E2E-119: Parallel subagents report back without entering the parent's context
 

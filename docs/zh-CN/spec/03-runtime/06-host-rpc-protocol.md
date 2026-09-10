@@ -873,7 +873,7 @@ JSON-RPC 错误携带一个数字 `code` 以及 `data.errorCode`，后者是来�
 | -32029 | HOST_OVERLOADED | RPC 调度程序容量已耗尽 |
 | -32601 | — | 未知方法 |
 | -32700 | — | 无法解析的请求行 |
-| 1002 | LIMIT_EXCEEDED | 超过 64 MiB 的 NDJSON 请求行；读完该行余下部分后 stdin 读取器继续运行 |
+| 1002 | LIMIT_EXCEEDED | 超过 64 MiB 的 NDJSON 请求行；Electron 在写入管道前拒绝；若主机仍读到该行，则读完余下部分、尽量从截断前缀取出请求 id 再应答，stdin 读取器继续运行 |
 
 
 工具结果（`TOOL_DENIED`、`TOOL_TIMEOUT`、`PATH_OUTSIDE_WORKSPACE`、

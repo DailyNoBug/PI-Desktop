@@ -948,7 +948,7 @@ numeric slot; the string is the contract, the number is transport detail.
 | -32029 | HOST_OVERLOADED | RPC dispatcher capacity exhausted |
 | -32601 | — | unknown method |
 | -32700 | — | unparseable request line |
-| 1002 | LIMIT_EXCEEDED | an NDJSON request line over 64 MiB; the remainder of the line is drained and the stdin reader keeps running |
+| 1002 | LIMIT_EXCEEDED | an NDJSON request line over 64 MiB; Electron rejects the write before it reaches the pipe; if the host still sees it, the remainder of the line is drained, the reply keeps the request id when it can be peeked from the prefix, and the stdin reader keeps running |
 
 
 Tool outcomes (`TOOL_DENIED`, `TOOL_TIMEOUT`, `PATH_OUTSIDE_WORKSPACE`,

@@ -6462,3 +6462,14 @@ IPC 请求无法关闭。
 - **里程碑**：M6
 - **状态**：由 host-core 单元测试覆盖（2026-09-10）：`truncate_from_drops_the_tail_and_archives_the_discarded_branch`、`truncate_from_rejects_an_unknown_message`、`truncate_from_refreshes_the_stamped_revision`、`truncate_from_rpc_cuts_without_shipping_the_kept_prefix`。桌面行程仍为草稿。
 
+#### E2E-247：Windows 上 stdin EOF 后 host-core 退出，超大 RPC 立即失败
+
+- **前提条件**：已安装 Alt+Space 键盘钩子的 Windows host-core；一条超过 64 MiB 的 JSON-RPC NDJSON 请求。
+- **步骤**：1）向正在运行的 host-core 发送 stdin EOF。2）从 Electron 调用一条序列化后超过 64 MiB 的主机方法。3）若该行仍到达 host-core，检查 `LIMIT_EXCEEDED` 应答的 id。
+- **预期**：stdin EOF 后 host-core 在 130 秒内退出。Windows 键盘钩子不会让 stdout 写线程一直活着。Electron 在 `stdin.write` 之前以 `LIMIT_EXCEEDED` 拒绝超大调用。主机侧超大应答使用从截断前缀取出的请求 id，而不是 `null`。UI 错误不是 `host RPC timeout`。
+- **链接规格**：`03-runtime/07-process-model.md`、`03-runtime/06-host-rpc-protocol.md` §7、ADR 0217、D391
+- **验收**：Quality
+- **里程碑**：M6
+- **状态**：由单元测试与源码契约覆盖（2026-09-11）：`start_does_not_keep_the_stdout_channel_open`、`peek_jsonrpc_id_reads_a_string_id_from_a_truncated_prefix`、`apps/desktop/test/windows-host-runtime.test.mjs`（弱引用）、`apps/desktop/test/rpc-lifecycle-contract.test.mjs`（客户端预检）、`packages/shared/src/rpc-limits.test.ts`。桌面行程仍为草稿。
+
+

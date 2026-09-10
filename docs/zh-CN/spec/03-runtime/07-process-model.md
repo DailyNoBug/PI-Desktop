@@ -92,6 +92,8 @@ Windows 安装包目标为 x64。Windows host-core 使用
 监管参数（在Electron main中实现）：
 
 - 子进程退出立即拒绝该子进程的所有正在进行的 RPC（无 130 秒超时等待）。
+- 超过 64 MiB 的 NDJSON 请求行以 `LIMIT_EXCEEDED` 应答，不结束 stdin 读取器（ADR 0216）。Electron 在写入 stdin 前拒绝同样大小的载荷（ADR 0217）。
+- Windows Alt+Space 钩子只保留 stdout 发送端的弱引用。stdin EOF 后 serve 丢弃最后一个强引用，host-core 退出；泄漏的发送端不能把关闭卡住超过 5 秒（ADR 0217）。
 - 使用指数退避 `0.5s → 1s → 2s` 自动重启（上限 4 秒）。
 - 每个孩子最多**每 2 分钟窗口** 3 次重新启动；除此之外，该应用程序
   保持降级并发出 `hostStatus { ok: false, component, fatal: true }`。
