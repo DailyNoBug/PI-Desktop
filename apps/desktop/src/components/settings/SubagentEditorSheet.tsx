@@ -326,9 +326,14 @@ function ManagementScope({
   );
 }
 
-const CUSTOM_SUBAGENT_MODEL_VALUE = "__custom__";
-
-/** Model and thinking controls for a subagent definition. */
+/**
+ * Model and thinking controls for a subagent definition.
+ *
+ * The model list offers only models the user already configured, so the value
+ * saved is always resolvable in Settings; there is no free-text escape hatch.
+ * When no provider offers a runnable model the field explains that and links to
+ * Models instead of accepting a hand-typed id the runtime could not resolve.
+ */
 function ModelField({
   draft,
   setDraft,
@@ -343,10 +348,7 @@ function ModelField({
   orphanModel: string | null;
 }) {
   const { t } = useTranslation();
-  const [customModel, setCustomModel] = useState(false);
-  const modelValue = customModel
-    ? CUSTOM_SUBAGENT_MODEL_VALUE
-    : subagentModelSelectValue(draft.model, modelChoices);
+  const modelValue = subagentModelSelectValue(draft.model, modelChoices);
 
   return (
     <>
@@ -360,28 +362,25 @@ function ModelField({
           }
         >
           {modelChoices.length === 0 ? (
-            <Input
-              value={draft.model}
-              placeholder={t("extensions.subagents.modelPickPlaceholder")}
-              aria-label={t("extensions.subagents.model")}
-              onChange={(event) =>
-                setDraft({ ...draft, model: event.target.value })
-              }
-            />
+            <div className="ext-field-empty">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  const store = useAppStore.getState();
+                  store.setSettingsTab("agent");
+                }}
+              >
+                {t("extensions.subagents.modelPickEmptyAction")}
+              </Button>
+            </div>
           ) : (
             <Select
               value={modelValue}
               aria-label={t("extensions.subagents.model")}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (value === CUSTOM_SUBAGENT_MODEL_VALUE) {
-                  setCustomModel(true);
-                  setDraft({ ...draft, model: "" });
-                } else {
-                  setCustomModel(false);
-                  setDraft({ ...draft, model: value });
-                }
-              }}
+              onChange={(event) =>
+                setDraft({ ...draft, model: event.target.value })
+              }
             >
               <option value="">{t("extensions.subagents.modelInherit")}</option>
               {modelGroups.map((group) => (
@@ -396,9 +395,6 @@ function ModelField({
               {orphanModel ? (
                 <option value={orphanModel}>{orphanModel}</option>
               ) : null}
-              <option value={CUSTOM_SUBAGENT_MODEL_VALUE}>
-                {t("extensions.subagents.modelPickCustom")}
-              </option>
             </Select>
           )}
         </Field>
@@ -427,21 +423,6 @@ function ModelField({
           </Select>
         </Field>
       </div>
-      {modelChoices.length > 0 && customModel ? (
-        <Field
-          label={t("extensions.subagents.modelPickCustom")}
-          hint={t("extensions.subagents.modelPickCustomHint")}
-        >
-          <Input
-            value={draft.model}
-            placeholder={t("extensions.subagents.modelPickPlaceholder")}
-            aria-label={t("extensions.subagents.modelPickCustom")}
-            onChange={(event) =>
-              setDraft({ ...draft, model: event.target.value })
-            }
-          />
-        </Field>
-      ) : null}
     </>
   );
 }

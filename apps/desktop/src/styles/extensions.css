@@ -1167,6 +1167,12 @@
   min-width: 0;
 }
 
+/* A field with nothing to pick yet: the action replaces the control. */
+.ext-field-empty {
+  display: flex;
+  align-items: center;
+}
+
 /* The transport choice is two cards, not a select: it changes the whole form. */
 .ext-transport-pick {
   display: grid;

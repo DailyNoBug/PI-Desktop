@@ -89,7 +89,10 @@ test("the sheet lists configured models from enabled, credentialed providers", (
   );
 });
 
-test("the sheet only lists bindings explicitly enabled for subagents", () => {
+test("the sheet lists every configured binding regardless of the delegation flag", () => {
+  // The editor no longer consults `availableForSubagents`: a model the user
+  // configured in Settings is selectable, so the list cannot be empty while a
+  // runnable provider exists.
   const choices = subagentModelChoices([
     provider({
       models: [
@@ -104,7 +107,7 @@ test("the sheet only lists bindings explicitly enabled for subagents", () => {
   ]);
   assert.deepEqual(
     choices.map((choice) => choice.modelId),
-    ["claude-haiku-4-5"],
+    ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6"],
   );
 });
 
@@ -222,7 +225,7 @@ test("a pin that is no longer configured stays selectable", () => {
   assert.equal(subagentModelOrphanPin("openai/gpt-5", choices), "openai/gpt-5");
 });
 
-test("the editor model field offers configured, custom, and empty-list paths", async () => {
+test("the editor model field is a configured-only select with an empty-state action", async () => {
   const source = await readFile(
     new URL("../src/components/settings/SubagentEditorSheet.tsx", import.meta.url),
     "utf8",
@@ -234,11 +237,13 @@ test("the editor model field offers configured, custom, and empty-list paths", a
   assert.match(modelField, /<Select/);
   assert.match(modelField, /<optgroup/);
   assert.match(modelField, /extensions\.subagents\.modelInherit/);
-  assert.match(modelField, /extensions\.subagents\.modelPickCustom/);
   assert.match(modelField, /extensions\.subagents\.modelPickEmpty/);
+  assert.match(modelField, /extensions\.subagents\.modelPickEmptyAction/);
+  assert.match(modelField, /setSettingsTab\("agent"\)/);
+  // No hand-typed model id: the field never renders a free-text input.
+  assert.doesNotMatch(modelField, /<Input/);
+  assert.doesNotMatch(modelField, /modelPickCustom/);
   assert.match(source, /subagentModelChoices\(providers\)/);
-  assert.match(source, /CUSTOM_SUBAGENT_MODEL_VALUE/);
-  assert.match(source, /extensions\.subagents\.modelPickCustomHint/);
   assert.match(source, /resetSubagentTemplate\(draft\)/);
 });
 

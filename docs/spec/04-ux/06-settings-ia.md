@@ -361,10 +361,10 @@ system while preserving their different data ownership:
 - The Subagents create/edit sheet pins a model with a select of the same
   configured, runnable models the Composer offers, grouped by provider, plus
   an inherit-session option. Its thinking selector offers inherit-session,
-  do-not-send, and the seven canonical levels. Only bindings explicitly marked
-  `availableForSubagents` appear. A **Custom (provider/model)** option opens a
-  free-text field for a model outside the list; when no delegation model is
-  configured, the sheet shows that field directly with a hint to open Models.
+  do-not-send, and the seven canonical levels. Every option comes from the
+  configured provider catalog, so the sheet never accepts a hand-typed model
+  id; when no provider offers a runnable model it shows an empty state whose
+  action opens Models.
   A pin that is no longer configured remains visible so editing does not
   silently drop it. The stored frontmatter value is still
   `vendorKey-or-name/modelId`; generic or colliding provider aliases use a
@@ -395,12 +395,10 @@ system while preserving their different data ownership:
   separate from the model binding's Advanced **Max output** because the binding
   caps every caller of that model, while this caps one delegate's own
   responses. The model field
-  is a picker over the configured providers' models flagged "Available for
-  AI delegation"; a model whose flag is off cannot be picked through the
-  picker (issue #60). The picker groups entries by provider and adds a
-  "Custom (provider/model)…" entry plus a free-text input for hand-typed
-  pins; with no providers configured it falls back to the single free-text
-  input that points the user to Models. Builtins and project shadows stay
+  is a picker over the configured providers' models; the picker groups entries
+  by provider and every option comes from the configured catalog, so there is
+  no hand-typed pin entry (issue #60). With no providers configured it shows
+  an empty state whose action opens Models. Builtins and project shadows stay
   on the existing read-only rows; the picker is for new and user-owned
   subagents only.
 

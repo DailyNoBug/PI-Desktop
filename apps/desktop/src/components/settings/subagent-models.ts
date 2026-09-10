@@ -122,17 +122,6 @@ export function subagentModelChoices(
   for (const { provider, modelId } of defaultModelOptions(
     runnableProviders,
   )) {
-    // Delegation is an explicit per-binding opt-in. The Composer can use every
-    // runnable model, but a subagent must not be able to select a binding that
-    // the user has not exposed to AI delegation in Models.
-    if (
-      !provider.models?.some(
-        (binding) =>
-          modelIdsMatch(binding.id, modelId) && binding.availableForSubagents === true,
-      )
-    ) {
-      continue;
-    }
     const value = `${uniqueProviderPart(provider, runnableProviders)}/${modelId}`;
     if (seen.has(value.toLowerCase())) continue;
     seen.add(value.toLowerCase());
