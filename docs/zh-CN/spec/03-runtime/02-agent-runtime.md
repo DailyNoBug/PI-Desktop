@@ -534,6 +534,11 @@ Frontmatter 新增 `permission: inherit | ask | accept-edits | auto`（默认
 使用该定义的系统提示、其（可能已固定的）provider/model、其声明的工具，
 以及与父级相同的主机连接，并遵循与父级相同的有界提供程序重试策略。
 `maxTurns` 是可选的按定义兜底（最大 80）；省略、`none` 或 `0` 表示不限轮数。
+`maxTokens` 是可选的按定义输出上限（最大 200000）；省略、`none` 或 `0` 表示跟随模型
+已发布的上限。它会覆盖为该委托构建的模型上的 `maxTokens`，因此适配器派生出的
+`max_tokens` / `max_completion_tokens` / `max_output_tokens` 都会带上它；它只约束该
+委托自身的响应 —— 会话自己的请求仍沿用模型绑定。超过天花板的值属于笔误，会被钳制
+而不会转发给 provider。
 内置委托各自声明与其工作量相称的值 —— `explorer` 60、`code-reviewer` 50、
 `test-runner` 40、`fixer` 80 —— 因此始终无法收敛的委托会以 `truncated`
 连同其部分报告结束，而不是一直跑到时长上限。内置的 `explorer` 声明 `Read`、

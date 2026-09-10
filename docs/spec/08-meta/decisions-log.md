@@ -4295,3 +4295,26 @@ D193, and D194.
   a completed or running delegate never shows one. No runtime, IPC, storage, or
   tool-result change: the runtime already reported the error, and this stops
   discarding it. See `04-ux/08-component-spec.md` §5.7 and E2E-198.
+
+## 2026-09-10 — A delegate can declare its own output limit (D383)
+
+- A subagent definition could bound its turns but not its response length.
+  `maxTurns` ran through the frontmatter, the record, the input, the editor
+  draft and the runtime, while the only output bound a delegate had was the
+  one its model binding published: `ModelBinding.maxTokens` in
+  `packages/agent-runtime/src/model-capabilities.ts` caps every caller of that
+  model, so raising it for one long-winded delegate raised it for the session
+  too. `SubagentDefinition`, `SubagentDraft` and `UserSubagentRecord` had no
+  `maxTokens`, and `SubagentRun` never passed one.
+- Decision D383 (ADR 0210): a definition may declare `maxTokens`, parsed under
+  the same loose key spellings as `maxTurns` and bounded by a 200000 ceiling.
+  Omitting it, `none` or `0` follows the model's published limit; a value
+  outside 1–200000 is treated as a typo that is reported and ignored or
+  clamped rather than forwarded. The declared value overrides `maxTokens` on
+  the model the delegate builds for itself, so the adapter's derived
+  `max_tokens` / `max_completion_tokens` / `max_output_tokens` carry it while
+  the session's own requests keep the model binding. It is stored in the
+  capability document's frontmatter and edited beside the turn limit in the
+  editor's existing Advanced disclosure. No new IPC, tool-result, or storage
+  shape: the field rides the existing subagent record and input. See E2E-119 /
+  E2E-155.

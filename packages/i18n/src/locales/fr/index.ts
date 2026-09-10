@@ -1755,6 +1755,9 @@ export const fr = {
       "maxTurns": "Limite de tours",
       "maxTurnsHint": "Arrête un délégué qui ne termine jamais. 1–{{max}}, ou laissez vide pour aucune limite.",
       "maxTurnsUnlimited": "Aucune limite",
+      "maxTokens": "Limite de sortie",
+      "maxTokensHint": "Limite une réponse du délégué. 1–{{max}}, ou laissez vide pour suivre le modèle.",
+      "maxTokensDefault": "Valeur du modèle",
       "body": "Instructions",
       "bodyHint": "Markdown, utilisé comme invite système complète du délégué. Écrivez-le sous forme d’instructions au délégué.",
       "bytes": "{{used}} / {{max}} Ko",
@@ -1765,6 +1768,7 @@ export const fr = {
       "errorTools": "Accordez au moins un outil.",
       "errorModel": "Écrivez le modèle en tant que fournisseur/modèle, par ex. anthropique/claude-haïku-4-5.",
       "errorMaxTurns": "La limite de tour doit être un nombre entier compris dans la plage autorisée.",
+      "errorMaxTokens": "La limite de sortie doit être un nombre entier dans la plage autorisée.",
       "errorBody": "Les instructions sont vides.",
       "errorTooBig": "Les instructions dépassent la taille limite."
     }

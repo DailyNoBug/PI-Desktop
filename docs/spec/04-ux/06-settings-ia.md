@@ -387,8 +387,14 @@ system while preserving their different data ownership:
   replaces the draft's description, tools, max turns and body wholesale.
   The chip uses the same accent-tint pill as the tool grant row. Create
   omits the long subtitle and the per-chip Apply label; model, thinking,
-  turn limit and scope sit behind an Advanced disclosure that starts
-  closed on create and open on edit. The model field
+  turn limit, output limit and scope sit behind an Advanced disclosure that
+  starts closed on create and open on edit. The output limit caps one delegate
+  response (issue #171). It defaults to an empty field, which reads as "follow
+  the model" rather than "no limit" — empty is the only spelling of that, so
+  the placeholder is the model default and not an unlimited label. It is
+  separate from the model binding's Advanced **Max output** because the binding
+  caps every caller of that model, while this caps one delegate's own
+  responses. The model field
   is a picker over the configured providers' models flagged "Available for
   AI delegation"; a model whose flag is off cannot be picked through the
   picker (issue #60). The picker groups entries by provider and adds a

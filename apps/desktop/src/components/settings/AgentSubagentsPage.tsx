@@ -117,6 +117,8 @@ export function AgentSubagentsPage() {
       model: draft.model.trim(),
       thinkingLevel: draft.thinkingLevel,
       maxTurns: draft.maxTurns,
+      // `0` clears the output cap, so the delegate follows the model again.
+      maxTokens: draft.maxTokens,
       enabled: draft.enabled,
       scope: draft.scope,
     };

@@ -5654,7 +5654,8 @@ Each scenario is documented in this format:
       project-level controls. Confirm the group header carries the global level
       label and item count, that create/edit/delete/reveal all work from the
       page, that leaving the turn limit empty writes a definition with no
-      `maxTurns`, and that an empty directory resolves
+      `maxTurns`, that leaving the output limit empty writes a definition with
+      no `maxTokens`, and that an empty directory resolves
       `settings.subagentsEmpty` to localized empty-state copy rather than
       displaying a raw translation key. Open New subagent and confirm the
       Model field is a select of the same configured, runnable models as the
@@ -5697,7 +5698,11 @@ Each scenario is documented in this format:
     select of configured runnable models plus inherit-session, not a free-typed
     id; saving writes `vendorKey-or-name/modelId` (using a unique provider name
     or id when aliases collide), and an unconfigured existing pin remains
-    selected.
+    selected. The Advanced disclosure also carries the delegate's own output
+    limit beside its turn limit: it starts empty, shows the model-default
+    placeholder rather than an unlimited one, and a value round-trips through
+    the document's `maxTokens` frontmatter and back into the field — while
+    clearing it removes the key so the delegate follows the model again.
   - Capability files contain configuration/frontmatter only; enablement is
     persisted in the app-local `agent-capabilities` state files.
   - Project records shadow global records by id or name even when disabled,
@@ -5717,7 +5722,10 @@ Each scenario is documented in this format:
 - **Status**: Source/unit covered by
   `apps/desktop/test/agent-capability-settings.test.mjs`,
   `apps/desktop/test/extensions-page.test.mjs`,
-  `apps/desktop/test/subagent-models.test.mjs`, and host-core capability tests;
+  `apps/desktop/test/subagent-models.test.mjs`,
+  `apps/desktop/test/subagent-output-limit.test.mjs` (the output cap's path from
+  the editor draft through host-core to the built delegate model), and host-core
+  capability tests;
   full native-picker, rendered modal, project-switch, and runtime journey remain
   Draft (do not run E2E locally unless explicitly requested)
 
@@ -7811,7 +7819,9 @@ This test plan spec is accepted when:
   still returns `truncated`; `maxTurns: none` is unlimited. 7) Start a
   delegate on another model, exhaust the parent HTTP 429 budget, and click
   Continue; confirm leftover delegates abort, the session is idle, Continue
-  is accepted, and the failed assistant error surface stays visible.
+  is accepted, and the failed assistant error surface stays visible. 8) Define
+  a delegate with an explicit `maxTokens` and one without, run both, and read
+  the two outgoing provider requests.
 - **Expected**: Idle and duration watchdogs never fire. Parent idle does not
   abort delegates. Completion reports are delivered into the same durable
   turn. `TaskWait` expiry reports “Still running after Ns”, includes a
@@ -7819,13 +7829,20 @@ This test plan spec is accepted when:
   (`explorer` 60, `code-reviewer` 50, `test-runner` 40, `fixer` 80) still end
   a non-converging delegate as `truncated`. Explorer's catalog includes
   `Bash` while code-reviewer remains read-only. A terminal parent 429 aborts
-  leftover delegates and Continue is not `AGENT_BUSY` (D352).
+  leftover delegates and Continue is not `AGENT_BUSY` (D352). In step 8 the
+  capped delegate's request carries the declared output limit and the uncapped
+  one carries the model's published limit, so the cap overrides the derived
+  `max_tokens` / `max_completion_tokens` / `max_output_tokens` without
+  disturbing the session's own requests (D383).
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §5f,
   `03-runtime/08-error-codes.md`, `03-runtime/09-logging-and-observability.md`,
-  ADR 0166, ADR 0189, decisions-log D328 / D352
+  ADR 0166, ADR 0189, decisions-log D328 / D352 / D383
 - **Acceptance**: C (conversation), E (tools & permissions), H (diagnostics), Quality
 - **Milestone**: M6+
-- **Status**: Covered by unit tests; full desktop journey pending
+- **Status**: Covered by unit tests; full desktop journey pending. The output
+  cap's parse and clamp are covered in `packages/shared`
+  `subagent-definition.test.ts`, and its document round-trip in host-core
+  `user_subagents` tests; the request-level assertion in step 8 stays manual.
 
 #### E2E-157: Sidebar scrollbars stay quiet while remaining discoverable
 

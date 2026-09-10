@@ -3680,3 +3680,20 @@ D193 和 D194。
   字段，因此已完成或仍在运行的委派永远不会显示它。不改运行时、IPC、存储或工具结果：
   运行时早就在上报该错误，这里只是不再丢弃它。参见 `04-ux/08-component-spec.md` §5.7
   与 E2E-198。
+
+## 2026-09-10 —— 子代理可以声明自己的输出上限（D383）
+
+- 子代理定义此前只能限制轮数，不能限制响应长度。`maxTurns` 贯穿 frontmatter、
+  记录、输入、编辑器草稿与运行时，而委托唯一拥有的输出上限来自其模型绑定：
+  `packages/agent-runtime/src/model-capabilities.ts` 中的 `ModelBinding.maxTokens`
+  会限制该模型的所有调用方，因此为一个话多的委托调高它，会话自身也会被一起调高。
+  `SubagentDefinition`、`SubagentDraft` 与 `UserSubagentRecord` 都没有 `maxTokens`，
+  `SubagentRun` 也从不传入。
+- 决策 D383（ADR 0210）：定义可以声明 `maxTokens`，按与 `maxTurns` 相同的宽松键名
+  解析，并以 200000 为天花板。省略、`none` 或 `0` 表示跟随模型已发布的上限；
+  超出 1–200000 的值视为笔误，会被报告并忽略或钳制，而不会转发。声明的值会覆盖委托
+  为自己构建的模型上的 `maxTokens`，因此适配器派生出的 `max_tokens` /
+  `max_completion_tokens` / `max_output_tokens` 都会带上它，而会话自身的请求仍沿用
+  模型绑定。它存储在能力文档的 frontmatter 中，并在编辑器既有 Advanced 折叠区的
+  轮次上限旁编辑。不新增 IPC、工具结果或存储结构：该字段沿用既有的子代理记录与输入。
+  见 E2E-119 / E2E-155。

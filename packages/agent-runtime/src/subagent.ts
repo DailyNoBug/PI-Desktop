@@ -199,7 +199,17 @@ export class SubagentRun {
 
   constructor(opts: SubagentRunOptions) {
     this.opts = opts;
-    const model = buildProviderModel(opts.provider);
+    // A definition may cap the delegate's own output (issue #171). The
+    // catalog's published limit keeps applying otherwise, so this is an
+    // override on the built model, never a substituted default. The adapters
+    // derive max_tokens / max_completion_tokens / max_output_tokens from this
+    // field, which is why the sibling `thinkingLevelMap` override below can
+    // share the same object.
+    const builtModel = buildProviderModel(opts.provider);
+    const model =
+      opts.definition.maxTokens !== undefined
+        ? { ...builtModel, maxTokens: opts.definition.maxTokens }
+        : builtModel;
     const models = createProviderModels(opts.provider, model);
     const omitThinking = opts.thinkingLevel === "omit";
     const agentThinkingLevel =

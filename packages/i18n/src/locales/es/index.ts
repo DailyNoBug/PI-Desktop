@@ -1755,6 +1755,9 @@ export const es = {
       "maxTurns": "Límite de turnos",
       "maxTurnsHint": "Detiene a un delegado que nunca termina. 1–{{max}}, o déjelo vacío para que no haya límite.",
       "maxTurnsUnlimited": "Sin límite",
+      "maxTokens": "Límite de salida",
+      "maxTokensHint": "Limita una respuesta del delegado. 1–{{max}}, o déjelo vacío para seguir al modelo.",
+      "maxTokensDefault": "Valor del modelo",
       "body": "Instrucciones",
       "bodyHint": "Markdown, utilizado como indicador completo del sistema del delegado. Escríbalo como instrucciones para el delegado.",
       "bytes": "{{used}} / {{max}} KB",
@@ -1765,6 +1768,7 @@ export const es = {
       "errorTools": "Otorgar al menos una herramienta.",
       "errorModel": "Escriba el modelo como proveedor/modelo, p.e. antrópico/claude-haiku-4-5.",
       "errorMaxTurns": "El límite de turnos debe ser un número entero dentro del rango permitido.",
+      "errorMaxTokens": "El límite de salida debe ser un número entero dentro del rango permitido.",
       "errorBody": "Las instrucciones están vacías.",
       "errorTooBig": "Las instrucciones superan el límite de tamaño."
     }
