@@ -1,7 +1,7 @@
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { connect, createServer, type Server } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyNodeNetworkProxy } from "./node-proxy.js";
+import { applyNodeNetworkProxy, proxyBypassMatcher } from "./node-proxy.js";
 
 type TestServer = Server | HttpServer;
 
@@ -78,6 +78,10 @@ describe("Node network proxy", () => {
       response.end("model response");
     });
     const proxy = createSocks5Proxy();
+    let proxiedConnections = 0;
+    proxy.on("connection", () => {
+      proxiedConnections += 1;
+    });
     const targetPort = await listen(target);
     const proxyPort = await listen(proxy);
 
@@ -85,6 +89,9 @@ describe("Node network proxy", () => {
       applyNodeNetworkProxy({
         mode: "custom",
         url: `socks5://127.0.0.1:${proxyPort}`,
+        // The default list bypasses loopback; pin one that does not so the
+        // request has to go through the proxy.
+        bypass: "nothing.invalid",
       });
       const response = await fetch(`http://127.0.0.1:${targetPort}/v1/chat/completions`, {
         signal: AbortSignal.timeout(3_000),
@@ -92,9 +99,95 @@ describe("Node network proxy", () => {
 
       expect(response.status).toBe(200);
       await expect(response.text()).resolves.toBe("model response");
+      expect(proxiedConnections).toBe(1);
     } finally {
       await close(proxy);
       await close(target);
     }
+  });
+
+  it("routes loopback origins around the proxy by default", async () => {
+    const target = createHttpServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end("direct");
+    });
+    // A proxy that drops every connection: anything routed through it fails.
+    const proxy = createServer((socket) => socket.destroy());
+    let proxiedConnections = 0;
+    proxy.on("connection", () => {
+      proxiedConnections += 1;
+    });
+    const targetPort = await listen(target);
+    const proxyPort = await listen(proxy);
+
+    try {
+      applyNodeNetworkProxy({
+        mode: "custom",
+        url: `http://127.0.0.1:${proxyPort}`,
+      });
+      const response = await fetch(`http://127.0.0.1:${targetPort}/v1/models`, {
+        signal: AbortSignal.timeout(3_000),
+      });
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toBe("direct");
+      expect(proxiedConnections).toBe(0);
+
+      applyNodeNetworkProxy({
+        mode: "custom",
+        url: `http://127.0.0.1:${proxyPort}`,
+        bypass: "example.invalid",
+      });
+      await expect(
+        fetch(`http://127.0.0.1:${targetPort}/v1/models`, {
+          signal: AbortSignal.timeout(3_000),
+        }),
+      ).rejects.toThrow();
+      expect(proxiedConnections).toBeGreaterThan(0);
+    } finally {
+      await close(proxy);
+      await close(target);
+    }
+  });
+});
+
+describe("proxyBypassMatcher", () => {
+  it("matches suffix rules in every Chromium and NO_PROXY spelling", () => {
+    for (const rule of [".example.com", "*.example.com", "example.com"]) {
+      const matches = proxyBypassMatcher(rule);
+      expect(matches("api.example.com", 443), rule).toBe(true);
+      expect(matches("a.b.example.com", 443), rule).toBe(true);
+      expect(matches("example.com", 443), rule).toBe(true);
+      expect(matches("notexample.com", 443), rule).toBe(false);
+      expect(matches("example.com.evil.net", 443), rule).toBe(false);
+    }
+    const glob = proxyBypassMatcher("*example.com");
+    expect(glob("notexample.com", 443)).toBe(true);
+    expect(glob("example.com", 443)).toBe(true);
+    expect(glob("example.org", 443)).toBe(false);
+  });
+
+  it("honours host:port, IP literals, CIDR blocks and <local>", () => {
+    const matches = proxyBypassMatcher(
+      "localhost,127.0.0.1,::1,<local>,intranet.corp:8080,[fd00::1]:9000,10.0.0.0/8",
+    );
+    expect(matches("localhost", 80)).toBe(true);
+    expect(matches("LOCALHOST.", 443)).toBe(true);
+    expect(matches("127.0.0.1", 11434)).toBe(true);
+    expect(matches("[::1]", 443)).toBe(true);
+    expect(matches("printer", 9100)).toBe(true);
+    expect(matches("intranet.corp", 8080)).toBe(true);
+    expect(matches("intranet.corp", 443)).toBe(false);
+    expect(matches("fd00::1", 9000)).toBe(true);
+    expect(matches("fd00::1", 9001)).toBe(false);
+    expect(matches("10.20.30.40", 443)).toBe(true);
+    expect(matches("11.0.0.1", 443)).toBe(false);
+    expect(matches("api.openai.com", 443)).toBe(false);
+  });
+
+  it("ignores blank entries and never matches an empty host", () => {
+    const matches = proxyBypassMatcher(" , ,localhost, ");
+    expect(matches("localhost", 80)).toBe(true);
+    expect(matches("", 80)).toBe(false);
+    expect(proxyBypassMatcher("")("localhost", 80)).toBe(false);
   });
 });

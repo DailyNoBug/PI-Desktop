@@ -6,10 +6,12 @@ import {
   type AssistantActivityItem,
 } from "../../lib/assistant-turns";
 import {
+  collectDelegationFailures,
   collectDelegationStatuses,
   collectDelegationTimings,
   isDelegationActivityItem,
   type DelegationActivityItem,
+  type DelegationFailure,
   type SubagentOutcome,
   type SubagentTiming,
 } from "../../lib/subagent-topology";
@@ -78,6 +80,13 @@ export function SubagentPanel({ selection }: { selection: SubagentPanelSelection
         : new Map(),
     [isRunning, selected],
   );
+  const delegationFailures = useMemo<ReadonlyMap<string, DelegationFailure>>(
+    () =>
+      selected
+        ? collectDelegationFailures(selected.turnActivityItems)
+        : new Map(),
+    [selected],
+  );
   const delegationTimings = useMemo<ReadonlyMap<string, SubagentTiming>>(
     () =>
       selected
@@ -126,6 +135,7 @@ export function SubagentPanel({ selection }: { selection: SubagentPanelSelection
                 ? { delegate: selected.item.delegate }
                 : {})}
               delegationStatuses={delegationStatuses}
+              delegationFailures={delegationFailures}
               delegationTimings={delegationTimings}
             />
           ) : (

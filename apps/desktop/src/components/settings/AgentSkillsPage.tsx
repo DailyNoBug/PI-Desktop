@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   GLOBAL_SCOPE,
@@ -7,6 +7,7 @@ import {
 } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
+import { useHostCollection } from "../../hooks/use-host-collection";
 import {
   AgentCapabilityPage,
   AgentProjectPicker,
@@ -52,14 +53,38 @@ type SkillEditorState = {
   level: AgentCapabilityLevel;
 };
 
+type SkillCollection = {
+  global: UserSkillRecord[];
+  project: UserSkillRecord[];
+};
+
+const EMPTY_SKILL_COLLECTION: SkillCollection = { global: [], project: [] };
+
 export function AgentSkillsPage() {
   const { t } = useTranslation();
   const showToast = useAppStore((state) => state.showToast);
   const { selectedProjectPath, setSelectedProjectPath, options } = useAgentProjects();
-  const [globalSkills, setGlobalSkills] = useState<UserSkillRecord[]>([]);
-  const [projectSkills, setProjectSkills] = useState<UserSkillRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const fetchSkills = useCallback(async (): Promise<SkillCollection> => {
+    const [global, project] = await Promise.all([
+      api.listUserSkills({
+        level: "global",
+        ...(selectedProjectPath ? { projectPath: selectedProjectPath } : {}),
+      }),
+      selectedProjectPath
+        ? api.listUserSkills({ level: "project", projectPath: selectedProjectPath })
+        : Promise.resolve({ skills: [] as UserSkillRecord[] }),
+    ]);
+    return { global: global.skills ?? [], project: project.skills ?? [] };
+  }, [selectedProjectPath]);
+  const {
+    data: { global: globalSkills, project: projectSkills },
+    setData: setSkills,
+    loading,
+    refreshing,
+    reload: load,
+  } = useHostCollection(fetchSkills, EMPTY_SKILL_COLLECTION, (error) =>
+    showToast(error instanceof Error ? error.message : String(error), { variant: "error" }),
+  );
   const [filter, setFilter] = useState<CapabilityFilter>("all");
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -67,46 +92,6 @@ export function AgentSkillsPage() {
   const [editor, setEditor] = useState<SkillEditorState | null>(null);
   const [saving, setSaving] = useState(false);
   const { armed, setArmed } = useArmedDelete();
-  // First paint gets skeletons; everything after keeps the rows on screen.
-  const hydrated = useRef(false);
-
-  const load = useCallback(async () => {
-    if (hydrated.current) setRefreshing(true);
-    else setLoading(true);
-    try {
-      const [global, project] = await Promise.all([
-        api.listUserSkills({
-          level: "global",
-          ...(selectedProjectPath ? { projectPath: selectedProjectPath } : {}),
-        }),
-        selectedProjectPath
-          ? api.listUserSkills({ level: "project", projectPath: selectedProjectPath })
-          : Promise.resolve({ skills: [] as UserSkillRecord[] }),
-      ]);
-      setGlobalSkills(global.skills ?? []);
-      setProjectSkills(project.skills ?? []);
-      hydrated.current = true;
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : String(error), { variant: "error" });
-      setGlobalSkills([]);
-      setProjectSkills([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [selectedProjectPath, showToast]);
-
-  useEffect(() => {
-    void load();
-    const offPluginChanged = api.onPluginChanged(() => void load());
-    const offHostStatus = api.onHostStatus((status) => {
-      if (status.ok) void load();
-    });
-    return () => {
-      offPluginChanged();
-      offHostStatus();
-    };
-  }, [load]);
 
   const rowKey = (level: AgentCapabilityLevel, id: string) => `${level}:${id}`;
 
@@ -115,10 +100,10 @@ export function AgentSkillsPage() {
     id: string,
     patch: Partial<UserSkillRecord>,
   ) => {
-    const apply = (rows: UserSkillRecord[]) =>
-      rows.map((row) => (row.id === id ? { ...row, ...patch } : row));
-    if (level === "global") setGlobalSkills(apply);
-    else setProjectSkills(apply);
+    setSkills((current) => ({
+      ...current,
+      [level]: current[level].map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    }));
   };
 
   const levelQuery = (level: AgentCapabilityLevel) => ({

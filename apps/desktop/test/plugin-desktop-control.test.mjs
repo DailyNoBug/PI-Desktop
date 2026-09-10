@@ -36,7 +36,7 @@ function writePlugin(id, permissions, main) {
   return dir;
 }
 
-function createRuntime(t, calls) {
+function createRuntime(t, calls, extraServices = {}) {
   const runtime = new PluginRuntime({
     hostEntry: hostProcessEntry,
     spawnProcess: forkPluginProcess,
@@ -50,12 +50,70 @@ function createRuntime(t, calls) {
         return { ok: true };
       },
     },
+    ...extraServices,
   });
   t.after(async () => {
     for (const loaded of runtime.listLoaded()) await runtime.unload(loaded.manifest.id);
   });
   return runtime;
 }
+
+const DANGEROUS_PLUGIN = `
+  module.exports = {
+    onPanelInvoke: async (channel, payload) => {
+      try {
+        return { ok: true, result: await pi.desktop.invoke({ operation: "session/delete", args: ["s1"], confirm: payload?.confirm !== false }) };
+      } catch (error) {
+        return { ok: false, code: error.code, message: error.message };
+      }
+    },
+  };
+`;
+
+test("dangerous desktop operations are refused without a host consent service", async (t) => {
+  const calls = [];
+  const runtime = createRuntime(t, calls);
+  const dir = writePlugin("demo.dangerous.headless", ["desktop.control"], DANGEROUS_PLUGIN);
+  await runtime.loadFromPath(dir, ["desktop.control"]);
+  const result = await runtime.invokePanelBridge("demo.dangerous.headless", "desktop.test", {});
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "PERMISSION_DENIED");
+  assert.deepEqual(calls, [], "the controller must never see an unconfirmed dangerous call");
+});
+
+test("dangerous desktop operations need the user's native consent, not just confirm=true", async (t) => {
+  const calls = [];
+  const prompts = [];
+  let answer = false;
+  const runtime = createRuntime(t, calls, {
+    confirmDesktopControl: async (request) => {
+      prompts.push(request);
+      return answer;
+    },
+  });
+  const dir = writePlugin("demo.dangerous", ["desktop.control"], DANGEROUS_PLUGIN);
+  await runtime.loadFromPath(dir, ["desktop.control"]);
+
+  const declined = await runtime.invokePanelBridge("demo.dangerous", "desktop.test", {});
+  assert.equal(declined.ok, false);
+  assert.equal(declined.code, "PERMISSION_DENIED");
+  assert.deepEqual(calls, []);
+  assert.equal(prompts.length, 1);
+  assert.equal(prompts[0].pluginId, "demo.dangerous");
+  assert.equal(prompts[0].operation, "session/delete");
+  assert.equal(prompts[0].description, "Delete a session");
+  assert.deepEqual(prompts[0].args, ["s1"]);
+
+  answer = true;
+  const granted = await runtime.invokePanelBridge("demo.dangerous", "desktop.test", {});
+  assert.equal(granted.ok, true, JSON.stringify(granted));
+  assert.deepEqual(calls, [{ operation: "session/delete", args: ["s1"], confirm: true }]);
+
+  // A plugin that does not even acknowledge the risk never reaches the user.
+  const unacknowledged = await runtime.invokePanelBridge("demo.dangerous", "desktop.test", { confirm: false });
+  assert.equal(unacknowledged.code, "CONFIRMATION_REQUIRED");
+  assert.equal(prompts.length, 2, "no consent prompt for an unacknowledged call");
+});
 
 test("desktop control is permission-gated and uses the shared controller", async (t) => {
   const calls = [];

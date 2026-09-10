@@ -18,6 +18,12 @@ declare const pi: PiPluginHostApi;
 
 ## 3. API overview (MVP)
 
+> Status legend: every section below is **shipped** and enforced by
+> `PluginRuntime` unless its heading or text says **Planned**. A planned
+> surface is documented ahead of implementation so plugin authors can see the
+> direction; it throws `UNSUPPORTED` until it lands (see §9 for the
+> per-surface list).
+
 ### app
 ```ts
 pi.app.getVersion(): Promise<string>
@@ -481,6 +487,56 @@ pi.net.fetch(input: {
 }): Promise<{ status: number; headers: Record<string, string>; bodyText: string }>
 ```
 
+### desktop control (requires `desktop.control`)
+
+```ts
+pi.desktop.listOperations(): Promise<Array<{
+  id: string
+  description: string
+  risk: "read" | "write" | "dangerous"
+}>>
+
+pi.desktop.invoke(input: {
+  operation: string
+  args?: unknown[]
+  confirm?: boolean
+}): Promise<unknown>
+```
+
+This is the first-party plugin gateway to the same reviewed operation catalog
+used by the opt-in local MCP control plane (ADR 0203 / D370). The returned
+catalog omits Electron channel names and the plugin never receives the MCP
+bearer token. Invocation reuses the controller, IPC handler, lifecycle checks,
+completion event, and audit boundary; a plugin cannot reach arbitrary Electron
+IPC.
+
+A `dangerous` operation (session delete, permission-mode change, tool
+approval) needs two answers. `confirm: true` is the plugin's acknowledgement
+and is required first (`CONFIRMATION_REQUIRED` otherwise). The host then asks
+the user in a native dialog that names the catalog operation id, its catalog
+description, and an argument preview; the dialog never shows plugin- or
+model-authored text, so a prompt-injected transcript cannot relabel
+`session/delete` as something benign. A dismissed dialog, a declined dialog,
+or a host without a dialog service all fail with `PERMISSION_DENIED` before
+the controller is reached. Calls are logged with the plugin id, operation,
+risk, and result status; argument values are not copied into the audit entry.
+
+### microphone panels (requires `ui.microphone`)
+
+An isolated panel may request microphone audio through the browser media API
+only when the manifest declares and the user grants `ui.microphone`:
+
+```ts
+navigator.mediaDevices.getUserMedia({ audio: true })
+```
+
+The host permission handler allows the `media` permission for that panel and
+continues to deny camera and every other device permission. The plugin does
+not receive a native microphone handle or a host secret; browser speech
+recognition and speech synthesis remain page-owned. A panel should provide a
+text fallback and announce permission or recognition failures through its
+accessible status.
+
 ## 4. Error model
 
 ```ts
@@ -493,6 +549,7 @@ type PluginApiError = {
  | "UNSUPPORTED"
  | "LIMIT_EXCEEDED" // a per-plugin cap is full (e.g. bus subscriptions)
  | "RATE_LIMITED" // a rolling window is exhausted (e.g. bus publishes)
+ | "CONFIRMATION_REQUIRED" // a dangerous desktop operation without confirm: true
  | "INTERNAL"
  message: string
 }
@@ -507,7 +564,11 @@ pi.events.on(event, handler)
 pi.events.off(event, handler)
 ```
 
-The host pushes events to the plugin process as one-way frames. Delivered today:
+The host pushes events to the plugin process as one-way frames. `pi.events`
+is not a separate channel: it is an alias over the same per-plugin bus stream
+that `pi.bus.subscribe` consumes (`plugin-host-process.mjs`), so an `on`
+handler sees every frame the host delivers to this plugin and nothing else.
+Delivered today:
 
 - `bus.message` — a bus delivery, with the `PluginBusMessage` as the single
   argument. `pi.bus.subscribe` is the normal way to receive these; `events.on`

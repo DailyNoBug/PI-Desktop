@@ -471,7 +471,16 @@ impl Database {
                 tx.commit()?;
             }
             7 => {
-                migrate_v7_to_v8(&conn)?;
+                // v7 is the oldest in-place migration; back it up like every
+                // later step so a failed rewrite never leaves a file with no
+                // pre-migration copy.
+                let backup = create_migration_backup(&conn, path, 7)?;
+                migrate_v7_to_v8(&conn).with_context(|| {
+                    format!(
+                        "apply schema v7 to v8 migration; backup {} remains",
+                        backup.display()
+                    )
+                })?;
                 migrate_v8_to_v14(&conn, path)?;
             }
             8 => {

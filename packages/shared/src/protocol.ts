@@ -1,8 +1,8 @@
 export const PROTOCOL_VERSION = 11 as const;
-export const SCHEMA_VERSION = 13 as const;
+export const SCHEMA_VERSION = 14 as const;
 export const APP_ID = "com.pi-desktop.app";
 export const APP_NAME = "PI-Desktop";
-export const APP_VERSION = "0.14.6-rc.4";
+export const APP_VERSION = "0.14.6";
 
 export const APP_MENU_COMMANDS = [
   "newTask",

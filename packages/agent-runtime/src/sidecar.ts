@@ -362,7 +362,7 @@ async function runtimeFor(
     }
   }
   const runtime = new DesktopAgentRuntime({
-    host: hostProxy as any,
+    host: hostProxy,
     sessionId,
     mode,
     turnId: params.turnId,
@@ -574,6 +574,18 @@ rl.on("line", async (line) => {
       data: { errorCode: err.errorCode ?? "INTERNAL" },
     });
   }
+});
+
+// A rejected promise nobody awaits (a stray async event handler, a background
+// host call) must not take every session's runtime down with it: Node's
+// default for `unhandledRejection` is to exit the process. Log and carry on;
+// the affected session surfaces its own error through the normal event path.
+process.on("unhandledRejection", (reason) => {
+  const detail =
+    reason instanceof Error
+      ? `${reason.name}: ${reason.message}${reason.stack ? `\n${reason.stack}` : ""}`
+      : String(reason);
+  process.stderr.write(`[agent-sidecar] unhandled promise rejection: ${detail}\n`);
 });
 
 const bootProxy = process.env.PI_DESKTOP_PROXY_JSON;

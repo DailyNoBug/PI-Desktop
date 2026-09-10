@@ -29,6 +29,23 @@ export type ChangelogEntry = {
 
 const enEntries: ChangelogEntry[] = [
   {
+    version: "0.14.6",
+    date: "2026-09-10",
+    highlights: [
+      "Warn when this build is older than your local data, or is the Intel build running on Apple Silicon, instead of failing silently.",
+      "Add a local MCP desktop control plane, and let reviewed plugins drive the desktop only after native consent.",
+      "Add subagent preset templates, a provider-bounded model picker, and the effective thinking level on delegation cards.",
+      "Alias configured models, copy model IDs, and honor a model's own wire API over the provider-wide style.",
+      "Replace textual Edit matching with line-anchored operations, with error-specific recovery guidance.",
+      "Retry providers up to ten times with a visible countdown, and recover autonomous progress-only turns.",
+      "Redesign the macOS installer, add a Windows portable exe and Linux RPM package, and restore GNOME tray and dock icons.",
+      "Copy conversation IDs and open session folders from the sidebar, with localized tooltips on icon-only actions.",
+      "Show live process status and quiet intervals on the activity row, and add a viewport-fixed work panel toggle.",
+      "Enforce workspace ignore rules, resolve dangling symlinks, and re-check plugin network egress on every redirect.",
+      "Honor proxy bypass rules, keep pasted private-use glyphs, and load file previews without blocking the composer.",
+    ],
+  },
+  {
     version: "0.14.5",
     date: "2026-09-09",
     highlights: [
@@ -727,6 +744,23 @@ const enEntries: ChangelogEntry[] = [
 
 const zhCNEntries: ChangelogEntry[] = [
   {
+    version: "0.14.6",
+    date: "2026-09-10",
+    highlights: [
+      "当安装的版本比本地数据更旧，或在 Apple Silicon 上运行 Intel 版本时给出明确提示，而不是静默失败。",
+      "新增本地 MCP 桌面控制平面，经审核的插件只有在原生确认后才能控制桌面。",
+      "新增子智能体预设模板、按服务商限定的模型选择器，并在委派卡片上显示实际思考级别。",
+      "可为已配置模型设置别名并复制模型 ID，模型自身的接口协议优先于服务商级设置。",
+      "Edit 工具改为按行锚定的操作，取代文本匹配，并提供针对具体错误的恢复指引。",
+      "服务商请求最多重试十次并显示倒计时，自主模式下仅有进展的回合也能继续恢复。",
+      "重新设计 macOS 安装器，新增 Windows 便携版和 Linux RPM 包，恢复 GNOME 托盘与 Dock 图标。",
+      "可从侧边栏复制会话 ID 或打开会话文件夹，仅图标的操作均有本地化提示。",
+      "活动行显示实时进程状态与安静间隔，新增固定在视口的工作面板切换按钮。",
+      "强制执行工作区忽略规则，解析悬空符号链接，并在每次重定向时重新检查插件网络出口。",
+      "遵循代理绕过规则，保留粘贴的私用区字形，文件预览不再阻塞输入区。",
+    ],
+  },
+  {
     version: "0.14.5",
     date: "2026-09-09",
     highlights: [
@@ -1423,6 +1457,23 @@ const zhCNEntries: ChangelogEntry[] = [
 ];
 
 const zhTWEntries: ChangelogEntry[] = [
+  {
+    version: "0.14.6",
+    date: "2026-09-10",
+    highlights: [
+      "當安裝的版本比本機資料更舊，或在 Apple Silicon 上執行 Intel 版本時給出明確提示，而不是靜默失敗。",
+      "新增本機 MCP 桌面控制平面，經審核的外掛只有在原生確認後才能控制桌面。",
+      "新增子智慧體預設範本、按服務商限定的模型選擇器，並在委派卡片上顯示實際思考級別。",
+      "可為已設定模型設定別名並複製模型 ID，模型自身的介面協定優先於服務商層級設定。",
+      "Edit 工具改為按行錨定的操作，取代文字比對，並提供針對具體錯誤的恢復指引。",
+      "服務商請求最多重試十次並顯示倒數，自主模式下僅有進展的回合也能繼續恢復。",
+      "重新設計 macOS 安裝器，新增 Windows 可攜版和 Linux RPM 套件，恢復 GNOME 系統匣與 Dock 圖示。",
+      "可從側邊欄複製會話 ID 或開啟會話資料夾，僅圖示的操作均有本地化提示。",
+      "活動列顯示即時程序狀態與安靜間隔，新增固定在視口的工作面板切換按鈕。",
+      "強制執行工作區忽略規則，解析懸空符號連結，並在每次重新導向時重新檢查外掛網路出口。",
+      "遵循代理略過規則，保留貼上的私用區字形，檔案預覽不再阻塞輸入區。",
+    ],
+  },
   {
     version: "0.14.5",
     date: "2026-09-09",

@@ -4779,7 +4779,7 @@ Each scenario is documented in this format:
   make a persisted choice unavailable, and a project-bound Agent session is
   idle. The Windows lane exercises the multi-choice ordering.
 - **Steps**: 1) Inspect the catalog for the platform-valid IDs
-  `windows-powershell`, `cmd`, `git-bash`, and `bash`. 2) Verify settings
+  `windows-powershell`, `windows-pwsh`, `cmd`, `git-bash`, and `bash`. 2) Verify settings
   rejects an unavailable or wrong-platform ID. 3) Select an available shell
   and persist `defaultCommandShell`. 4) Make that persisted choice unavailable,
   restart, and verify the catalog selects the first available platform shell
@@ -5654,7 +5654,8 @@ Each scenario is documented in this format:
       project-level controls. Confirm the group header carries the global level
       label and item count, that create/edit/delete/reveal all work from the
       page, that leaving the turn limit empty writes a definition with no
-      `maxTurns`, and that an empty directory resolves
+      `maxTurns`, that leaving the output limit empty writes a definition with
+      no `maxTokens`, and that an empty directory resolves
       `settings.subagentsEmpty` to localized empty-state copy rather than
       displaying a raw translation key. Open New subagent and confirm the
       Model field is a select of the same configured, runnable models as the
@@ -5697,7 +5698,11 @@ Each scenario is documented in this format:
     select of configured runnable models plus inherit-session, not a free-typed
     id; saving writes `vendorKey-or-name/modelId` (using a unique provider name
     or id when aliases collide), and an unconfigured existing pin remains
-    selected.
+    selected. The Advanced disclosure also carries the delegate's own output
+    limit beside its turn limit: it starts empty, shows the model-default
+    placeholder rather than an unlimited one, and a value round-trips through
+    the document's `maxTokens` frontmatter and back into the field — while
+    clearing it removes the key so the delegate follows the model again.
   - Capability files contain configuration/frontmatter only; enablement is
     persisted in the app-local `agent-capabilities` state files.
   - Project records shadow global records by id or name even when disabled,
@@ -5717,7 +5722,10 @@ Each scenario is documented in this format:
 - **Status**: Source/unit covered by
   `apps/desktop/test/agent-capability-settings.test.mjs`,
   `apps/desktop/test/extensions-page.test.mjs`,
-  `apps/desktop/test/subagent-models.test.mjs`, and host-core capability tests;
+  `apps/desktop/test/subagent-models.test.mjs`,
+  `apps/desktop/test/subagent-output-limit.test.mjs` (the output cap's path from
+  the editor draft through host-core to the built delegate model), and host-core
+  capability tests;
   full native-picker, rendered modal, project-switch, and runtime journey remain
   Draft (do not run E2E locally unless explicitly requested)
 
@@ -7725,9 +7733,13 @@ This test plan spec is accepted when:
   where one `explorer` delegate has a Task description and emits thinking,
   tool, and answer rows over time. The work panel is initially closed.
 - **Steps**: 1) Expand the activity group if needed and click the `explorer`
-  topology node. 2) Observe the right-side dock while the delegate streams.
-  3) Scroll the task/process conversation upward and then return to the latest
-  output. 4) Switch sessions and return to the original session.
+  topology node. 2) Click the selected `explorer` node again and confirm the
+  right-side dock closes, then click it once more to reopen it. 3) Observe the
+  right-side dock while the delegate streams. 4) Scroll the task/process
+  conversation upward and then return to the latest output. 5) Switch sessions
+  and return to the original session. 6) Let a delegate start and then fail,
+  open its node, and read the foot of the dock; repeat with a delegate that
+  completes and one that is still running.
 - **Expected**: The right dock shows a sticky identity header (avatar, name,
   and model caption on the left; status capsule and elapsed time trailing on
   the same row without wrapping), the Task call's description
@@ -7736,6 +7748,8 @@ This test plan spec is accepted when:
   the delegate's live thinking/tool/answer process under an Activity section
   on one subtle vertical timeline using the same row components as the main
   conversation.
+  The selected topology node is a full-row toggle without an extra disclosure
+  chevron: its first click opens the dock and its second click closes it.
   New rows appear without a reload and follow the bottom while pinned. The
   panel has one body scrollbar; the process does not create a nested scrollbar
   or a second elevated card. At the minimum supported panel width, long
@@ -7744,11 +7758,23 @@ This test plan spec is accepted when:
   jump-to-latest. The transcript remains the same height and keeps its own
   scroll state. Session switching hides the selection and returning never
   shows another session's task.
+  In step 6, a delegate that starts and then fails closes the dock with an
+  error card rather than a bare `Failed` capsule: the localized summary (the
+  registered `errors.<code>` sentence when the runtime reported a known code,
+  the localized `chat.subagentStatus.*` outcome otherwise), the stable code,
+  the raw provider message behind a Show details / Hide details disclosure, and
+  a copy control. The disclosure control stays reachable while the details are
+  collapsed, and the delegate that completed or is still running shows no card
+  at all.
 - **Specs linked**: `04-ux/08-component-spec.md` §5.7,
   `04-ux/09-interaction-patterns.md` §9.1
 - **Acceptance**: C (conversation), Quality
 - **Milestone**: M6+
-- **Status**: Documented; desktop journey pending
+- **Status**: Documented; desktop journey pending. The failure card's data
+  source is unit-tested in `subagent-topology.test.mjs`: a settled delegation's
+  `error: { code, message }` read from `TaskWait` `delegations[]` and `TaskStop`
+  `stopped[]`, last-write-wins across rows, entries without an error, and the
+  `Task` row that must never carry one.
 
 #### E2E-161: A delegation lifecycle row reads as a subagent row
 
@@ -7793,7 +7819,9 @@ This test plan spec is accepted when:
   still returns `truncated`; `maxTurns: none` is unlimited. 7) Start a
   delegate on another model, exhaust the parent HTTP 429 budget, and click
   Continue; confirm leftover delegates abort, the session is idle, Continue
-  is accepted, and the failed assistant error surface stays visible.
+  is accepted, and the failed assistant error surface stays visible. 8) Define
+  a delegate with an explicit `maxTokens` and one without, run both, and read
+  the two outgoing provider requests.
 - **Expected**: Idle and duration watchdogs never fire. Parent idle does not
   abort delegates. Completion reports are delivered into the same durable
   turn. `TaskWait` expiry reports “Still running after Ns”, includes a
@@ -7801,13 +7829,20 @@ This test plan spec is accepted when:
   (`explorer` 60, `code-reviewer` 50, `test-runner` 40, `fixer` 80) still end
   a non-converging delegate as `truncated`. Explorer's catalog includes
   `Bash` while code-reviewer remains read-only. A terminal parent 429 aborts
-  leftover delegates and Continue is not `AGENT_BUSY` (D352).
+  leftover delegates and Continue is not `AGENT_BUSY` (D352). In step 8 the
+  capped delegate's request carries the declared output limit and the uncapped
+  one carries the model's published limit, so the cap overrides the derived
+  `max_tokens` / `max_completion_tokens` / `max_output_tokens` without
+  disturbing the session's own requests (D383).
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §5f,
   `03-runtime/08-error-codes.md`, `03-runtime/09-logging-and-observability.md`,
-  ADR 0166, ADR 0189, decisions-log D328 / D352
+  ADR 0166, ADR 0189, decisions-log D328 / D352 / D383
 - **Acceptance**: C (conversation), E (tools & permissions), H (diagnostics), Quality
 - **Milestone**: M6+
-- **Status**: Covered by unit tests; full desktop journey pending
+- **Status**: Covered by unit tests; full desktop journey pending. The output
+  cap's parse and clamp are covered in `packages/shared`
+  `subagent-definition.test.ts`, and its document round-trip in host-core
+  `user_subagents` tests; the request-level assertion in step 8 stays manual.
 
 #### E2E-157: Sidebar scrollbars stay quiet while remaining discoverable
 
@@ -9103,6 +9138,142 @@ are withdrawn with ADR 0165.
 - **Status**: MCP protocol/unit-covered by `apps/desktop/test/mcp-control.test.mjs`;
   full Electron journey documented and remains deferred by the no-local-E2E
   policy
+
+#### E2E-234: Workspace security denylist and ignore layers
+
+- **Preconditions**: A project containing `.env`, `.env.example`,
+  `server.pem`, `keys/id_rsa`, `notes.txt`, `node_modules/pkg/index.js`,
+  `generated/out.txt`, `debug.log`, and a root `.pi-desktopignore` with
+  `generated/`. Every file contains the word `needle`. The session is Agent
+  in `auto` permission mode.
+- **Steps**: 1) Ask for `Read` of `.env`, then of `.env.example`. 2) Ask for
+  `Write` to `keys/id_rsa`. 3) Run an unscoped `Grep` and `Glob` for `needle`.
+  4) Run `Grep` with `path: node_modules/pkg` and with `path: generated`.
+  5) Repeat step 1 with a system `rg` installed and with
+  `PI_DESKTOP_DISABLE_RG=1`.
+- **Expected**: Steps 1 and 2 fail with `WORKSPACE_PATH_DENIED`, the
+  `.env.example` read succeeds, and no `keys/id_rsa` file is created. The
+  unscoped search lists `notes.txt` and `.env.example` only: `.env`,
+  `server.pem`, `node_modules`, `generated`, and `debug.log` are absent. The
+  explicit-path searches return one hit each. The in-process walker and the
+  `rg` fast path produce the same file set.
+- **Specs linked**: `03-runtime/15-workspace-ignore-rules.md`,
+  `03-runtime/08-error-codes.md` §3.3, D032
+- **Acceptance**: B (workspace tools), Security
+- **Milestone**: M3+
+- **Status**: unit-covered by `crates/host-core/src/tools/mod.rs`
+  (`security_denylist_blocks_read_write_edit_and_hides_search_results`,
+  `default_ignores_and_workspace_ignore_file_hide_unscoped_walks_only`) and
+  `tools/ignore_rules.rs`; the Electron journey is documented and deferred by
+  the no-local-E2E policy
+
+#### E2E-235: Dangling symlinks cannot write outside the workspace
+
+- **Preconditions**: A project containing `dangling -> /tmp/outside/planted.txt`
+  where the target does not exist, and `inner -> ./not-yet.txt`. Agent mode,
+  `auto` permission.
+- **Steps**: 1) Ask for `Write` to `dangling`. 2) Ask for `Write` to
+  `dangling-dir/new.txt` where `dangling-dir -> /tmp/outside/dir`. 3) Ask for
+  `Write` to `inner`.
+- **Expected**: Steps 1 and 2 fail with `PATH_OUTSIDE_WORKSPACE` and nothing
+  appears under `/tmp/outside`. Step 3 creates `not-yet.txt` inside the
+  project. A symlink loop fails with a canonicalize error rather than hanging.
+- **Specs linked**: `03-runtime/03-tools-and-permissions.md`,
+  `03-runtime/15-workspace-ignore-rules.md` §3
+- **Acceptance**: B, Security
+- **Milestone**: M3+
+- **Status**: unit-covered by `crates/host-core/src/workspace.rs`
+  (`blocks_dangling_symlink_escape`,
+  `dangling_symlink_inside_workspace_resolves_to_its_target`,
+  `dangling_symlink_loop_is_rejected`)
+
+#### E2E-236: Plugin desktop control needs the user's native consent
+
+- **Preconditions**: A dev plugin granted `desktop.control` whose panel calls
+  `pi.desktop.invoke({ operation: "session/delete", args: [id], confirm })`.
+  One disposable session exists.
+- **Steps**: 1) Invoke with `confirm: false`. 2) Invoke with `confirm: true`
+  and press Escape on the dialog. 3) Invoke with `confirm: true` and click
+  Deny. 4) Invoke with `confirm: true` and click Allow once. 5) Invoke a
+  `read` operation.
+- **Expected**: Step 1 fails with `CONFIRMATION_REQUIRED` and no dialog
+  appears. Steps 2 and 3 fail with `PERMISSION_DENIED`; the session still
+  exists. The dialog names `session/delete` and the catalog description, never
+  panel-authored text. Step 4 deletes the session and the sidebar refreshes.
+  Step 5 shows no dialog. Every invocation is audited with plugin id,
+  operation, and risk.
+- **Specs linked**: `07-plugins/03-plugin-api.md` (desktop control),
+  `07-plugins/04-plugin-security.md` §8.2,
+  `07-plugins/13-plugin-permissions-matrix.md`, ADR 0203, ADR 0208, D370,
+  D372, D377
+- **Acceptance**: D (plugins), Security
+- **Milestone**: M6+
+- **Status**: runtime-covered by
+  `apps/desktop/test/plugin-desktop-control.test.mjs`; the native dialog
+  journey is documented and deferred by the no-local-E2E policy
+
+#### E2E-237: Plugin fetch re-checks egress on every redirect
+
+- **Preconditions**: A dev plugin with `net.domains: ["allowed.test"]` and
+  `net.fetch`. A local server on `allowed.test` answers `/hop` with a 302 to
+  `http://undeclared.test/leak` and `/ok` with 200.
+- **Steps**: 1) Call `pi.net.fetch({ url: "https://allowed.test/ok" })`. 2)
+  Call `pi.net.fetch({ url: "https://allowed.test/hop" })`.
+- **Expected**: Step 1 returns 200. Step 2 fails with `PERMISSION_DENIED`
+  naming `undeclared.test`, and the undeclared server records no request. The
+  audit log shows the denied hop.
+- **Specs linked**: `07-plugins/04-plugin-security.md` §8.0
+- **Acceptance**: D, Security
+- **Milestone**: M4+
+- **Status**: runtime-covered by `apps/desktop/test/plugin-egress.test.mjs`
+
+#### E2E-238: Tool requests for an unknown session do not fall back
+
+- **Preconditions**: host-core running; a JSON-RPC probe attached to its
+  stdio.
+- **Steps**: 1) Send `tools.execute` with `sessionId: "missing"` and a `Read`
+  of `README.md`. 2) Send `plans.enter` with the same id.
+- **Expected**: Both fail with `SESSION_NOT_FOUND` (numeric `1007` and
+  `PLAN_SESSION_NOT_FOUND` respectively); no file under the last-opened
+  workspace is read.
+- **Specs linked**: `03-runtime/06-host-rpc-protocol.md` §7,
+  `03-runtime/08-error-codes.md` §3.1
+- **Acceptance**: B, Security
+- **Milestone**: M3+
+- **Status**: unit-covered by `crates/host-core/src/rpc/mod.rs`
+  (`temporary_session_uses_its_own_scratch_workspace`)
+
+#### E2E-239: An older build names the newer data schema instead of looping
+
+- **Preconditions**: a data directory last opened by a newer PI-Desktop whose
+  host-core migrated it past the schema this build supports.
+- **Steps**: 1) Launch the older packaged app on that data directory.
+  2) Observe the banner and `logs/app/runtime.log`.
+- **Expected**: host-core exits once; no further restart attempts are logged.
+  The fatal banner says this PI-Desktop is older than the local data, shows
+  both schema numbers, and tells the user to install the newer version. The
+  data directory is not modified.
+- **Specs linked**: `03-runtime/07-process-model.md` (boot outcomes)
+- **Acceptance**: B
+- **Milestone**: M3+
+- **Status**: source-contract covered by
+  `apps/desktop/test/host-boot-diagnostics.test.mjs`
+
+#### E2E-240: An Intel macOS build on Apple Silicon points at the native download
+
+- **Preconditions**: Apple Silicon Mac; the x64 macOS package installed and
+  running under Rosetta 2.
+- **Steps**: 1) Launch the app. 2) Read the banner under the title bar.
+  3) Click its dismiss action.
+- **Expected**: The app boots normally. A dismissible hint says this is the
+  Intel build on an Apple Silicon machine and asks the user to install the
+  Apple Silicon build. Dismissing hides it for the session; the native arm64
+  package shows no hint.
+- **Specs linked**: `03-runtime/07-process-model.md` (boot outcomes)
+- **Acceptance**: B
+- **Milestone**: M3+
+- **Status**: source-contract covered by
+  `apps/desktop/test/host-boot-diagnostics.test.mjs`
 
 ## Remote Agent Control target scenarios (post-MVP)
 

@@ -23,6 +23,8 @@
 | D008 | Node 运行时打包 | **开发人员使用系统 Node；版本通过 `ELECTRON_RUN_AS_NODE=1` 在 Electron 二进制文件上运行捆绑的 sidecar（未提供单独的 Node）** | 疏通M1–M4；在 M5 处解决，请参阅 03-runtime/07-process-model §6 |
 | D009 | 插件运行时隔离 | **目标=单独的进程； M4 可以使用主机管理的沙盒运行时** | 在不削弱 API 网关的情况下实用地发布插件基础 |
 | D010 | 首个发布平台 | **仅限 macOS arm64** | 重点验收及包装 |
+| D373 | 远程 Agent 控制的 Host 边界 | *(由 D374 与 D375 修订)* **远程控制（MVP 之后）经由一个逻辑 Agent Host 运行，它拥有 Sessions、Turns、事件游标、审批、附件、工作区策略与崩溃恢复；生产 Gateway 拥有身份、路由、限流、吊销与审计，Agent Host 向外连接。现有 Electron IPC、`host.proxy` 与 host-core stdio 边界永不暴露。** | 远程表面需要自己的边界，而不是通往本地 IPC 或 host-core stdio 契约的隧道（ADR 0205，E2E-221 至 E2E-230） |
+| D374 | 远程 Agent 控制 v1 目标修订 | **修订 D373 / ADR 0205：`RACP-WS` 是 v1 唯一规范绑定（`RACP-HTTP` 为浏览器 profile，`RACP-GRPC` 保留）；`packages/shared` 中的 typebox 是唯一契约来源；无头的 `packages/agent-host` 模块是首个交付物，桌面 IPC、本地 MCP 与 RACP 共同调用；游标为 `{ epoch, sequence }` 且增量为临时数据；回合队列移入 Host；host-core 暴露 `permissions.pending`；远程审批携带完整本地决策词汇并默认 `ask` 上限；浏览器客户端使用 cookie profile；首个部署为单租户。** | 对照已交付桌面审查 D373 草案发现远程审批词汇比本地契约窄、待处理请求被当作连接状态、逐 token 增量会耗尽重放窗口、绑定数量超过 v1 承载能力（ADR 0205） |
 
 ## B. 辅助实现默认值
 
@@ -81,8 +83,8 @@
 | D339 | 按提供商覆盖 User-Agent | **已被 D341 取代。** 每个 AI 服务和 OAuth 行可存可选 `config_json.userAgent`。空值保留适配器默认。非空值作为该行出站 HTTP 的最后写入 User-Agent。** | 用户需要覆盖默认 UA，但任意请求头随后由 D341 承接。 |
 | D341 | 按提供商自定义 HTTP 请求头 | **修订 D339 / ADR 0176：每个 AI 服务和 OAuth 行存可选 `config_json.headers`。空或 `{}` 保留适配器默认。非空映射对该行出站 HTTP 最后写入。残留 `userAgent` 迁到 `headers["User-Agent"]`。最多 32 个头；键值有长度和保留键限制。见 ADR 0178 与 E2E-005G。** | 用户需要的是任意非密钥请求头，而不只是 User-Agent。 |
 
-| D241 | 带标题的设置导航视觉分组 | **设置目录保持八个目的地、扁平且可搜索，但显示四个非交互式本地化分组标题：Personal / 个人（基础、全局 AI、快捷键）、Agent / 智能体（说明、模型配置）、Workspace / 工作区（导入、项目存档）和 About / 关于（信息）。标题之间使用留白，不绘制分割线。搜索过滤时，空分组及其标题一并消失。本决策仅覆盖 D238 对分组标题的禁止，不改变目的地顺序、ID、搜索归属或市场位置。** | 扁平行缺少扫描锚点，视觉上过于紧密。柔和标题可以恢复分组，同时保持单层导航和既有目的地归属。 |
 | D242 | 内置子智能体继承父会话权限模式 | **内置子智能体默认使用 `permission: inherit`。内置 `fixer` 不再覆盖父会话，因此 `auto` 会覆盖其工作区内和明确外部路径调用，避免第二张授权卡；合格的内置或用户定义仍可显式声明非 `inherit` scope。** | 观察到的弹窗来自内置 `fixer` 将 `auto` 父会话替换为 `accept-edits`；继承父会话可以修复体验，同时不削弱 host-core 的 containment 和外部路径权限规则（ADR 0100）。 |
+| D241 | 带标题的设置导航视觉分组 | **设置目录保持八个目的地、扁平且可搜索，但显示四个非交互式本地化分组标题：Personal / 个人（基础、全局 AI、快捷键）、Agent / 智能体（说明、模型配置）、Workspace / 工作区（导入、项目存档）和 About / 关于（信息）。标题之间使用留白，不绘制分割线。搜索过滤时，空分组及其标题一并消失。本决策仅覆盖 D238 对分组标题的禁止，不改变目的地顺序、ID、搜索归属或市场位置。** | 扁平行缺少扫描锚点，视觉上过于紧密。柔和标题可以恢复分组，同时保持单层导航和既有目的地归属。 |
 
 ## D. 法典视觉平等决策 (0.3.5+)
 
@@ -208,6 +210,7 @@
 | D258 | 记录布局索引、统一的窗口坐标系与身份截断 | **细化 ADR 0120：host-core 为每个会话维护一份记录布局（每条消息和压缩行的字节偏移，以及这些偏移所基于的 `file_len`），并通过定位到所选的第一行来提供有界窗口，因此打开会话的代价是窗口而不是整段历史。该布局是派生数据的内存缓存：增长只扫描尾部，收缩或替换则重扫，任何重写/删除路径都会丢弃条目；被截断的尾行同时排除在偏移和 `file_len` 之外。行的分类依靠一次感知深度的扫描来找顶层 `type` 键而不是解析整行，因此开放式工具结果或检查点细节里嵌套的 `type` 无法决定行类型；`type` 现在写在最前面，扫描通常在第一个键就停止，而把它写在负载之后的旧行由同一次扫描读取。读窗口是物理消息行位置，按布局而不是按 `last_seq` 夹取——只要某次追加的索引提交丢失，去重后的计数就会永久低于文件实际内容，而这一直在把最新消息从尾部切掉。压缩链仍然随任意窗口整体返回。`agent/prompt` 新增 `truncateFromMessageId`，由主机对自己的记录解析、未知时以 `NOT_FOUND` 拒绝，取代了把文件偏移与渲染器数组下标混在一起的 `messageStart + userIndex` 求和。记录一个分叉出的子会话（列表行、缓存记录、检查点标记）变为无条件执行，只有可见的切换仍受 D139 的导航意图约束。** | ADR 0120 限定了负载大小，但仍然留下一次完整的顺序扫描来定位每一页，因此长会话打开依然缓慢并随增长而恶化；而两处坐标系混淆一直在静默丢失最新消息，并在分页记录上截断了错误的回合（ADR 0127） |
 | D259 | 瞬时提供商故障的有界共享预算 | **修订 D186 / D245 与 ADR 0050 / ADR 0091：非 429 的瞬时提供商故障共享一份有界的逻辑回合预算，即首次尝试之后四次重试、总计五次提供商尝试，由请求建立与流传输共享。该预算只接纳 `NETWORK_ERROR`、`TIMEOUT`、`STREAM_FAILED` 和可重试的 `PROVIDER_ERROR`；`PROVIDER_ERROR` 现在在流阶段也会重试而不只是建立阶段，因此上游网关的 502/503/504 无论落在哪里都能恢复。非 429 的延迟依次遵循 `retry-after-ms`、`retry-after` 秒数、HTTP 日期，然后走确定性的 1s/2s/4s/8s 时间表，上限 8 秒；任何能声明延迟的状态（429、408、409、5xx）都会保留捕获到的头部。只重放失败的那次请求；会话、记录和已完成的工具调用不受影响。主会话、内置子代理和一次性输入框增强共享同一套错误码、预算大小与优先级。429 的五次重试预算保持独立，两者互不占用。耗尽时记录 `retryAttempt: 4`。不改动 IPC、存储、主机协议或提供商配置。** | 一个中继返回 `OpenAI API error (502): {"type":"api_error","message":"Upstream API request failed."}` 说明的是上游短暂中断，但按阶段各自一次重试的策略把第二个 502 变成了终止性错误卡，而且完全不会重放流中的 502，子代理则拒绝任何非请求阶段的瞬时重试。一份共享的有界预算能从普通的网关抖动中恢复，同时不隐藏持续性中断。 |
 | D164 | 双区域设置应用内产品变更日志 | **应用程序更新的产品“新增功能”文本作为 `packages/shared` (`CHANGELOG`) 中的双 EN/zh-CN 目录进行维护。 Electron 使用产品 UI 区域设置对发现的 `availableVersion` 进行主要格式注释，并将其作为可选 `UpdateState.releaseNotes` 纯文本附加到现有更新 IPC/event 路径上。当注释存在时，环境横幅和“设置”→“信息更新”行会显示一个紧凑的“新增功能”部分。英语是真理的源泉； zh-CN 镜像版本和突出显示计数。 GitHub 自动生成的发布主体仍然仅限于网络，而不是应用程序内源。未引入新的提要 URL、注释通道或渲染器拥有的远程获取（扩展 D120 / ADR 0022）。** | 用户在更新时需要双语发布亮点，而无需第二个网络表面或削弱 Main 对更新交付的唯一所有权。 |
+| D357 | 视口固定的工作面板开关 | **修订 D128 / D207 / D221 与 ADR 0068 / ADR 0085：AppShell 在每个非设置路由右上角拥有一个视口固定开关，等价于 Cmd/Ctrl+J：显示活动会话保留的面板上下文、收起可见面板、无会话时禁用。它是唯一的面板级收起控件。Windows/Linux 窗口控件保持视口固定。不改主机协议或 IPC。见 ADR 0195 与 E2E-056。** | 仅快捷键入口让指针用户发现不了面板。 |
 
 ## L. 成绩单呈现决策
 
@@ -237,15 +240,17 @@
 | D353 | 区分 Intel macOS 发布工件 | **修订 D285 / ADR 0145：原生 macOS x64 发布通道使用目标特定 electron-builder 模式，公开资产为 `PI-Desktop-<version>-Intel.dmg` 和 `PI-Desktop-<version>-Intel-mac.zip`。生成的 `latest-mac-x64.yml` 保留这些 URL 与校验和。arm64 通道仍用通用版本名。只改发布资产命名。** | 两个架构都用通用版本名时，用户无法可靠区分 Intel 下载。 |
 | D329 | 由智能体选择的 Bash 超时 | **修订 D190 / D273 / ADR 0054：Bash 默认仍是 60 秒。显式 `timeout` 为 1 到 21600 秒。超过 21600 的值按毫秒读取、换算并钳到 21600 秒。范围内的 600 和 1800 仍是秒。超时/中止仍杀掉整棵进程树。** | 300 秒上限会杀掉合法构建，并拒绝 `timeout: 600` / `1800`。 |
 | D331 | 由宿主拥有的已完成回合 token 历史 | **修订 D103：父级 `message.usage` 仍是该助手消息的 pi-ai Usage。子智能体花费只累计在持久回合上。Electron 把父级 `message_end` 用量加上 `turn_end.subagentUsage` 写入 `session.endTurn.usage`。`stats.getTokenUsageHistory` 按本地日历窗口汇总。用户可见仪表盘是插件 `pi.token-insights`（D335）。** | turns 表已是用量汇总，但 Electron 从未发送 `usage`，把子智能体 token 并进消息芯片会误导上下文检查器。 |
+| D335 | Token 用量仪表盘由插件拥有 | **修订 D331 / ADR 0171：设置没有「用量」目的地。全局 token 历史由市场插件 `pi.token-insights` 展示。宿主仍持久化 `session.endTurn.usage` 并暴露 `stats.getTokenUsageHistory`。插件可以把宿主已完成回合中超出转录本助手 `meta.usage` 的差额（含子智能体）折入 PI-Desktop 事实立方，且不改写 `message.usage`。不升协议或 schema。** | 设置页重复了插件已有的更弱热力图。见 ADR 0173 与 E2E-186。 |
+| D326 | 撤回 A2A 与 Peer 协作栈 | **移除 Agent2Agent 代理、`a2a.*` RPC 域、残留 `SubagentMailbox` / `Peer` 工具以及父/委托 `A2A` 工具。并发委托只通过父级 `Task*` 报告协作。握手 `PROTOCOL_VERSION` 10→11，存储 `SCHEMA_VERSION` 12→13。ADR 0165 取代 0147 / 0162 / 0164。** | 兄弟通道和父到父通道与 `Task*` 并列却没有产品需求，模型也容易误用。 |
 | D318 | 从记录文件 / outbox 恢复缺失的 sessions 行 | **在 host-core 与 Electron 主进程中修订 ADR 0041 / D119：活着的 `sessions/<id>.jsonl` 若 SQLite sessions 行已不在，则在主机启动时（`recover_orphaned_sessions`）以及 `session.appendMessage` 时恢复。恢复会重新插入该行并根据文件重建搜索索引，使追加保持幂等。若行和文件都不在，append 会用同一个 id 插入占位行，以便排队的 outbox 能排空。`session.delete` 丢掉该会话的 outbox 条目，以免占位重建把用户已删除的对话救回来。不改协议版本、schema 或渲染器。** | 长会话可能丢掉 `sessions` 行（WAL/索引丢失），回合却仍堆在 `session-message-outbox.json`。`appendMessage` 于是因 `session not found` 失败，outbox 卡在队头，侧边栏列不出会话，聊天只剩第一条已刷入的用户行。把该行插回去后 outbox 才能排空（issue #39）。 |
+| D262 | 大段 Composer 文本粘贴写入会话临时目录 | **不超过持久化 `largePasteThreshold` 的纯文本 Composer 粘贴仍使用原生文本区域输入；默认值为 600 个字符，有效值为 1 至 1,000,000 的整数。超过阈值时，渲染器通过现有会话粘贴桥发送准确的 UTF-8 `text/plain` 字节，Electron 将其保存到 `<data_dir>/scratch/<sessionId>/pasted/`，Composer 在原始选择处插入生成的 `@<temporary-name> ` 标记。渲染器保留会话范围内的标记到规范路径映射，在发送前只解析一次，并排除重复附件/回退序列化。现有剪贴板文件/图像芯片和桥接边界不变；不修改工作区、工件存储、主机协议或 schema。** | 超大的原生粘贴难以编辑且会压迫输入框；现有会话临时目录已经提供有界、隔离的存储和规范路径语义，不会弄脏项目（ADR 0131）。** |
+| D265 | 单个委派也读作一张卡片，与扇出一致 | **在渲染层修订 D201 / ADR 0062：活动分组里的每个 `Task` 调用都渲染为整宽委派卡片——主智能体根节点、连接线、每个委派一个节点——单个委派同样如此，不再退回紧凑工具行。聚合标头按数量措辞，因此单个委派不会被说成复数：英文新增 `_one` 形式，中文只有一个复数类别，故去掉英文复数标记。卡片的其余部分保持不变，不涉及 IPC、存储、主机协议或委派运行时改动。** | 把卡片保留给两个及以上委派，会让同一件事看起来像两个不同功能，而单个这一常见情形恰恰丢失了结果、记录的运行时长和委派的步骤数（ADR 0062 §6）。 |
+| D319 | 委托卡只承载 Task 扇出 | **修订 D201 / D265 / ADR 0062：连续 `Task` 启动自成活动组，并且是委托卡内仅有的行。父级思考、工作区工具和生命周期行（`TaskWait`/`TaskList`/`TaskStop`）留在普通处理组，不进拓扑卡片。渲染器专用。** | 连续思考和工具行曾共用一个活动组，父级在 `Task` 之后的工作会被画进子智能体瓷砖。 |
 | D320 | 已发送的文件引用保持芯片并可点击打开 | **在渲染器和 Electron 主进程中修订 D209 / ADR 0070：已发送的用户回合解析序列化的 `@path` / `@"带空格的路径"` 标记，并把每一项画成与输入框一致的叶子名芯片（图标、省略号文件名、工具提示/无障碍名中的规范路径）。工作区内的 `.html`/`.htm` 芯片打开工作面板浏览器；其余允许的文件通过 `pi-desktop/fs/open` 用系统默认应用打开。该通道把相对路径限制在工作区，把绝对路径限制在工作区、`<data_dir>/scratch/` 或 `<data_dir>/attachments/`。HTTP(S) URL 仍是文本链接。工具行预览不变。不改主机协议或存储 schema。** | 序列化后的完整路径一发送就把输入框里的紧凑节点打散了，而且文件页既不能把 HTML 当页面预览，也不能打开按后缀走系统默认应用的文件（ADR 0163）。 |
 | D322 | 相对转录路径可预览并打开 | **修订聊天/markdown 文件链接解析：无前缀相对路径仍以工作区为根；`./` 和 `../` 在聊天中相对工作区根，预览 markdown 时相对被查看文件的目录。走出工作区的路径保持惰性。助手 markdown 会把带已知扩展名的裸文件词链接化。不改主机协议、IPC 或存储 schema。** | 智能体写工作区相对路径，markdown 文件用 `./` / `../` 链接；这些要么不可点，要么被当成工作区根下的路径。 |
 | D323 | 进行中的父级回合保持透明 | **修订 D101 / D297：流式助手回合不坐在 `--ds-tile` 上，也不预留 14px 内边或左侧栏。思考、工作区工具和回答片段像已完成回合一样铺在页面背景上。瓷砖只属于子智能体/委托卡。** | 流式父级回合成了整块瓷砖，和子智能体卡抢视觉层级。 |
-| D262 | 大段 Composer 文本粘贴写入会话临时目录 | **不超过持久化 `largePasteThreshold` 的纯文本 Composer 粘贴仍使用原生文本区域输入；默认值为 600 个字符，有效值为 1 至 1,000,000 的整数。超过阈值时，渲染器通过现有会话粘贴桥发送准确的 UTF-8 `text/plain` 字节，Electron 将其保存到 `<data_dir>/scratch/<sessionId>/pasted/`，Composer 在原始选择处插入生成的 `@<temporary-name> ` 标记。渲染器保留会话范围内的标记到规范路径映射，在发送前只解析一次，并排除重复附件/回退序列化。现有剪贴板文件/图像芯片和桥接边界不变；不修改工作区、工件存储、主机协议或 schema。** | 超大的原生粘贴难以编辑且会压迫输入框；现有会话临时目录已经提供有界、隔离的存储和规范路径语义，不会弄脏项目（ADR 0131）。** |
-| D263 | 跨显示器拖动是用户意图，而非系统调整 | **工作面板保留的协调不再把所有显示器变化视为同一种情况。`os-adjusted`（窗口管理器重新适配我们请求的边界，或显示器拓扑发生变化）保持 ADR 0122 的行为不变；`user-moved`（用户把窗口拖到另一块显示器）以当前位置作为新的基边界，仅将原点规范化进目标工作区域，尺寸保持不变。归属依据未被消费的本机 `move` 流而非时间期限，协调推迟到移动流稳定之后，因此拖动过程中不会重排边界。跨显示器拖动会推进记住的显示器键并被持久化。不改动 IPC、存储或主机协议。** | 旧逻辑复用原显示器的基边界，再被目标显示器工作区域夹到边缘，导致松开鼠标后窗口跳动，并把过期坐标写入 `window-state.json`（issue #18、ADR 0132）。** |
-| D265 | 单个委派也读作一张卡片，与扇出一致 | **在渲染层修订 D201 / ADR 0062：活动分组里的每个 `Task` 调用都渲染为整宽委派卡片——主智能体根节点、连接线、每个委派一个节点——单个委派同样如此，不再退回紧凑工具行。聚合标头按数量措辞，因此单个委派不会被说成复数：英文新增 `_one` 形式，中文只有一个复数类别，故去掉英文复数标记。卡片的其余部分保持不变，不涉及 IPC、存储、主机协议或委派运行时改动。** | 把卡片保留给两个及以上委派，会让同一件事看起来像两个不同功能，而单个这一常见情形恰恰丢失了结果、记录的运行时长和委派的步骤数（ADR 0062 §6）。 |
-| D319 | 委托卡只承载 Task 扇出 | **修订 D201 / D265 / ADR 0062：连续 `Task` 启动自成活动组，并且是委托卡内仅有的行。父级思考、工作区工具和生命周期行（`TaskWait`/`TaskList`/`TaskStop`）留在普通处理组，不进拓扑卡片。渲染器专用。** | 连续思考和工具行曾共用一个活动组，父级在 `Task` 之后的工作会被画进子智能体瓷砖。 |
 | D268 | 生命周期行就是子智能体行 | **在渲染层细化 D201 / D265 / ADR 0062 与 ADR 0089：委派生命周期行（`TaskWait`/`TaskList`/`TaskStop`）仍是紧凑工具行，仍不计入拓扑数量，但呈现为子智能体行。它们从运行时返回的名册生成摘要——子智能体名称读自 `details.delegations[]` 或 `details.stopped[]`，重复者以计数而非列两遍呈现——绝不使用自身的 `delegationIds` 参数；徽标沿用既有 `chat.subagentStatus.*` 文案汇总该名册；标签说明对子智能体采取的动作，而不是“已委派”；正文是名册构成的命名表格，前置合并后的报告，而不是 `delegations[]` 原始 JSON。不涉及 IPC、存储、主机协议或委派运行时改动。** | 生命周期行承载着 `Task` 卡片无法知道的最终结果（ADR 0089），却渲染为通用工具调用：摘要是一串裸 UUID，正文是 JSON 转储——在一个卡片本应最易读的功能里，它成了最难读的部分。读取它本就返回的名册没有额外成本，却能让整个委派作为一件事被扫读。 |
+| D263 | 跨显示器拖动是用户意图，而非系统调整 | **工作面板保留的协调不再把所有显示器变化视为同一种情况。`os-adjusted`（窗口管理器重新适配我们请求的边界，或显示器拓扑发生变化）保持 ADR 0122 的行为不变；`user-moved`（用户把窗口拖到另一块显示器）以当前位置作为新的基边界，仅将原点规范化进目标工作区域，尺寸保持不变。归属依据未被消费的本机 `move` 流而非时间期限，协调推迟到移动流稳定之后，因此拖动过程中不会重排边界。跨显示器拖动会推进记住的显示器键并被持久化。不改动 IPC、存储或主机协议。** | 旧逻辑复用原显示器的基边界，再被目标显示器工作区域夹到边缘，导致松开鼠标后窗口跳动，并把过期坐标写入 `window-state.json`（issue #18、ADR 0132）。** |
 | D269 | 历史续接让会话大纲保持可达 | **在渲染器中修订 D108 / D261 / ADR 0130：当已加载的行被扣在挂载窗口之上，或主机报告还有更早的一页时，会话大纲保持存在并带一条虚线的「更早历史」续接项，即使挂载的尾部标记少于两个或并未溢出。该续接项走同一条先扩窗再取页的两级路径，普通消息刻度仍然只来自已挂载的行，因此每个消息刻度都有真实的 DOM 目标。记录顶部的加载边界既在滚动时检查也被观察；在尾部填充不足、取回但被扣住的一页或窗口过渡之后，只要该边界仍然可见，历史就会继续推进而不必等待原生滚动事件。一旦不再有更早的历史，D108 的「两个标记加溢出」可见性规则原样生效。不改动 IPC、存储、主机协议或分页。** | 有界的尾部可能只包含一个工具密集的回合而塌缩到不足一屏，而取回更早的一页可能让所有新行都落在尾部挂载窗口之外。这两种过渡都不一定改变 `scrollTop`，因此只依赖滚动的触发器把更早的历史搁在了那里，也让大纲整体消失。一条显式的续接项诚实地表达了尚不可用的导航，而边界可见性在不编造幽灵消息刻度、也不急切加载整段记录的前提下闭合了推进循环。 |
 | D270 | 两种凭据共用一个模型选择器 | **在渲染层细化 D237 / D240：模型选择器是一个共享渲染组件，由 AI 服务对话框与厂商账户对话框共同渲染。因此厂商账户获得同一份已发现模型列表、同一种 `ModelBinding` 形状、同样的按模型上下文窗口与输出上限编辑、同样的已发布思考等级按钮，以及保存时同样把每个绑定收敛到所解析 models.dev 记录已发布等级的处理。两个对话框之间只有左栏标题不同。仅渲染层：不涉及 IPC、存储、主机协议或提供商配置架构改动，也不需要 ADR。** | 这两处界面本是同一个选择器的两份拷贝，而拷贝那一份悄悄丢掉了高级设置与收敛处理，于是厂商账户的绑定可能保留运行时会丢弃的思考等级，而对话框却仍把它算作已启用。用一个组件让这项保证成为结构性的，而不是两个文件都得记住的约定。 |
 | D271 | 展开的委托运行过程在原处滚动 | **在渲染层细化 D201 / D268 / ADR 0062：委托的嵌套行渲染在高度受限的 `.subagent-run-rows` 滚动区内，高度 `min(420px, 48dvh)`，并设 `overscroll-behavior-y: contain`；滚动挂在该内层容器而非 `.subagent-run` 上，以免裁掉绝对定位的折叠导轨。运行标题留在滚动区之外，该区域为带标签、可获焦的分组。`fields` 表格获得其他细节块早已具备的 260px 上限；生命周期行合并后的报告渲染为受限的 `output` 块，而不是无上限的提示块。仅涉及呈现：不改动 IPC、存储、主机协议或运行时。** | 展开一个委派可能在一次提交中新增数十行——执行了四十次工具调用的委托会让转录长出四十行——阅读位置因此跳动，父级自己的下一行被顶出视野。`fields` 是唯一没有高度上限的细节块，而 D268 把最多 50k 字符的合并报告放进了同样没有上限的 `note`。 |
@@ -255,6 +260,7 @@
 | D274 | 不变的已编辑提示也执行重试 | **修订 D137（渲染层）：确认一个有效的用户提示编辑后，始终分派现有的编辑-重发/重新生成路径，即使修剪后的文本与原文相同。内联控件使用本地化的“重试”和“取消”；重试保留现有的修订存档、按身份截断、斜杠命令展开和附件行为。仅涉及渲染层和 i18n：不改动 IPC、存储、主机协议或运行时契约。** | 把未变化的确认视为无操作会让“编辑并重新发送”看起来像坏了（issue #23），而旧的“发送”标签暗示这是一个普通的新提示，而不是重放选中的回合。 |
 | D275 | 在上下文压缩期间保留活动任务边界 | **修订 D203 / ADR 0064（代理运行时）：检查点记录不透明的 `details.retainedTailMode`。当提供商必须在工具结果、`toolUse` 或溢出恢复后继续时，活动回合检查点只保留最新的用户消息（沿用现有 20,000 令牌上限）。在终止边界、发送新提示之前和手动压缩时，已完成回合检查点的保留尾部为空，摘要是已完成工作的权威内容。没有该模式的旧记录归一化为最新的用户消息。不改变可见转录本、存储 schema、主机所有权或协议形状。** | 压缩掉完成消息却保留多个最近用户提示，会让下一条提示看起来像旧任务的延续（issue #22）。恢复时必须显式保留任务边界，同时活动工具循环仍需保留继续当前任务所需的提示。 |
 | D278 | 子代理模型选择 | **Task.model 覆盖定义中固定的模型；只有带 `availableForSubagents` 的模型出现在委托目录中；启动时未预解析的模型由按需 RPC 解析** | 父代理需要按任务选择模型，又不能暴露完整的服务商配置。选择加入的标志让委托目录保持有界且有意为之，按需解析则避免 sidecar 启动后新增模型的绑定过期。参见 §3/02 §5f、§3/11 §7 与 E2E-166。 |
+| D365 | 为实时活动行的每个安静间隔命名 | **修订 D338 / ADR 0175：`AgentActivity` 增加 `preparing`、`compacting`、`recovering`；`starting` 显示独立标签；`waiting-subagents` 携带实时运行快照（`name`、`lastPhase`、`lastToolName`），随子级工具/思考变化更新而非逐 token 更新。该行保持为一条紧凑的内联状态，不恢复活动分组胶囊。** | 压缩、静默回合恢复、工具后间隙与启动都像卡住的通用等待，父级等待也隐藏了委托在做什么（ADR 0198，E2E-008c / E2E-094） |
 
 ## M0. 模型目录决策
 
@@ -274,25 +280,21 @@
 | D183 | 分段工具和模型延迟日志 *（UI 子句被 D184 取代）* | **每个 `tools.execute` 调用都按分段计时，而不是一个不透明的持续时间：host-core 在 `host` 通道上发出 `tool timing` 行，并在现有通道旁边保留 `prompted`、`permissionWaitMs`、`overheadMs` 和 `totalMs` `durationMs` 在 `tool_execute` / `tool_denied` 审核行上； sidecar 将 grepable `[timing] kind=tool …` (`hostRttMs`) 和 `[timing] kind=model …` (`providerWaitMs`、`streamMs`，包括 failed/aborted 匝) 线写入 `agent` 通道，可通过 `PI_DESKTOP_TIMING=0` 进行抑制。原来的 no-UI 条款被 D184 取代；日志记录保持不变。** | 从日志中无法诊断出“执行命令很慢”：批准等待、工具主体和提供程序往返无法区分，因此两个持续时间为 0 毫秒的审核行之间的 45 秒间隙无法说明是用户、模型还是主机。拆分阶段可以使答案可读，而无需重现运行。 |
 | D158 | 回合边界上下文检查点压缩*（软边界、模型工具和可见性条款被 D200 取代；模型工具和可见性由 D203 以 Codex 的形式恢复）* | **PI-Desktop 重用 pi-agent-core 的上下文估计、会话上下文和压缩原语，但拥有编排和持久性。在每个 `turn_end` 之后，在任何下一个提供程序请求之前，运行时都会评估模型感知的 soft/hard 预算。瞬态重复数据删除指令可以要求模型调用内部`CompactContext`工具；该工具的正常活动行是 visible/durable，而指令则不是。跨越硬预算会强制生成检查点并阻止失败的请求。达到硬预算一半的最终原子工具批次仅在检查点副本中相当 head/tail-truncated，具有显式标记并保留每个 call/result 信封；原始成绩单行保持完整。精确提供程序溢出会从模型上下文中删除失败的助手，创建一个检查点，然后重试一次。主机协议 v6 在未触及的可见 JSONL 转录本旁边附加检查点记录；重新启动、后期截断和包含边界分叉保留最新的有效检查点。禁用自动压缩会删除该工具和所有自动 threshold/overflow 恢复，而 `/compact` 仍然可用。 OpenCode DCP 仅是 AGPL-3.0 行为参考，既不链接也不复制 (ADR 0030)。** | pi 的仅运行结束行为无法保护长工具循环，并且仅靠模型提醒无法保证提供程序的安全。重用 pi 的经过测试的压缩格式，同时添加确定性 `turn_end` 门，可以防止另一个提供商请求跨越已知窗口，保留用户可见的历史记录，并避免导入不兼容的 plugin/runtime 和许可证边界。 |
 | D185 | 惰性每转刀具激活 *（始终有效的 `CompactContext` 子句在 D200 下无效，在 D203 下再次适用于 `new_context`）* | **sidecar 保留完整的本地工具注册表，但在每个新提示上仅发送模式核心集和本地 `ToolSearch`。 `BrowserPreview`、插件工具、`Skill` 和插件开发助手显示为有界紧凑目录条目，并通过精确名称或功能搜索激活；下一轮接收其架构，在支持时使用本机 pi-ai 延迟搜索，并且该集合在下一个用户提示之前重置。主机权限、遏制、超时和审核保持不变。** | 完整的工具模式使得简单的第一个请求变得不成比例地大，并且跨轮重复的可选功能成本。 pi 风格的活动集保留了核心编码人体工程学，同时使辅助工具按需付费且独立于提供商。 |
-| D200 | 难以察觉的后台上下文压缩*（后台预计算、增量触发、静默和由 D203 取代的无模型工具子句）* | **压缩成为主机拥有的后台活动，没有用户可见的表面。 `contextBudget()` 保留 D158 硬限制和请求余量，从模型窗口（`clamp(hardLimit * 0.2, 8k, 64k)`，仍然上限为硬预算的一半）而不是设置导出保留尾部目标，并添加 `backgroundLimit = floor(hardLimit * 0.7)` 作为预计算触发器；软边界被删除。检查点生成与安装分开：`buildCheckpoint` 生成一个而不保留或激活它，安装重新估计，通过 host-core 附加，并发出 `compaction_end`。预计算仅在提供程序空闲窗口中运行 - 当工具执行时和运行结束后 - 并且仅当上下文超过后台限制**并且**自最新检查点的基线以来至少增长了保留尾部目标，因此大尾部不能每次都触发摘要。仅当其底座仍处于活动状态、其 `throughMessageId` 锚点仍然存在且仍符合当前模型的预算时，预先计算的检查点才会安装在下一回合边界或提示处；任何未命中都会进入未更改的阻塞路径，并且失败的后台构建将被丢弃，没有事件，没有持久性，也没有 ADR 0049 回退。 `CompactContext` 工具、`<context_management>` 微移和主机无确认白名单条目均已删除，因此触发完全是确定性的。 `compaction_start`/`compaction_end` 获得可选的 `phase` (`background` | `blocking`，缺席意味着 `blocking`)，并且 `compaction_end` 获得可选的 `status { generation, summaryTokens }`；两者都是协议 v9 中的附加内容。成功的自动压缩不会产生任何提示，不会发生运行状态更改，也不会产生转录行；只有 `retained_tail` 回退、溢出重试和手动 `/compact` 仍会通知。上下文使用检查器是单个可见跟踪，读取 `status` 和持久的 `SessionDetail.compaction`，生成计数器包含在检查点的不透明 `details` 内，因此不需要更改记录模式。设置不公开任何压缩控件，并且持久的 `contextCompaction` 值将被忽略 (ADR 0061)。**  压缩是正确的，但具有侵入性：它进行烘烤，移动运行状态，在工具调用上花费模型转动，留下记录行，并且总是在用户等待时运行。 Codex 的分级触发和增量范围阈值显示可以在关键路径之外支付摘要，并且其仅主机触发消除了一类浪费的回合。从模型窗口导出预算还修复了将一对绝对令牌计数应用于 32k 和 1M 窗口的问题；保持硬边界不受影响意味着这一切都不会牺牲用户体验的提供商安全。 |
+| D200 | 难以察觉的后台上下文压缩*（后台预计算、增量触发、静默和由 D203 取代的无模型工具子句）* | **压缩成为主机拥有的后台活动，没有用户可见的表面。 `contextBudget()` 保留 D158 硬限制和请求余量，从模型窗口（`clamp(hardLimit * 0.2, 8k, 64k)`，仍然上限为硬预算的一半）而不是设置导出保留尾部目标，并添加 `backgroundLimit = floor(hardLimit * 0.7)` 作为预计算触发器；软边界被删除。检查点生成与安装分开：`buildCheckpoint` 生成一个而不保留或激活它，安装重新估计，通过 host-core 附加，并发出 `compaction_end`。预计算仅在提供程序空闲窗口中运行 - 当工具执行时和运行结束后 - 并且仅当上下文超过后台限制**并且**自最新检查点的基线以来至少增长了保留尾部目标，因此大尾部不能每次都触发摘要。仅当其底座仍处于活动状态、其 `throughMessageId` 锚点仍然存在且仍符合当前模型的预算时，预先计算的检查点才会安装在下一回合边界或提示处；任何未命中都会进入未更改的阻塞路径，并且失败的后台构建将被丢弃，没有事件，没有持久性，也没有 ADR 0049 回退。 `CompactContext` 工具、`<context_management>` 微移和主机无确认白名单条目均已删除，因此触发完全是确定性的。 `compaction_start`/`compaction_end` 获得可选的 `phase` (`background` | `blocking`，缺席意味着 `blocking`)，并且 `compaction_end` 获得可选的 `status { generation, summaryTokens }`；两者都是协议 v9 中的附加内容。成功的自动压缩不会产生任何提示，不会发生运行状态更改，也不会产生转录行；只有 `retained_tail` 回退、溢出重试和手动 `/compact` 仍会通知。上下文使用检查器是单个可见跟踪，读取 `status` 和持久的 `SessionDetail.compaction`，生成计数器包含在检查点的不透明 `details` 内，因此不需要更改记录模式。设置不公开任何压缩控件，并且持久的 `contextCompaction` 值将被忽略 (ADR 0061)。** | 压缩是正确的，但具有侵入性：它进行烘烤，移动运行状态，在工具调用上花费模型转动，留下记录行，并且总是在用户等待时运行。 Codex 的分级触发和增量范围阈值显示可以在关键路径之外支付摘要，并且其仅主机触发消除了一类浪费的回合。从模型窗口导出预算还修复了将一对绝对令牌计数应用于 32k 和 1M 窗口的问题；保持硬边界不受影响意味着这一切都不会牺牲用户体验的提供商安全。 |
 | D201 | `Task` 工具背后的有界子代理 | **当目录包含四个内置函数之一或 `~/.agents/subagents/*.md` 下的已启用全局文档时，Agent 模式提供 `Task`。Electron main 为下一次提示加载目录，上限为 16，并且委托报告不会进入父级模型上下文。没有项目级子代理能力目录；不会扫描 `.pi/agents`。** | 将委托保留为有界工具可以保持父级对上下文和权限的所有权，而全局用户目录使个人委托可跨项目使用 (ADR 0062、ADR 0112)。 |
 | D202 | 管理全局子代理定义 | *(页面形态条款已由 D257 / ADR 0126 取代；全局唯一的数据边界依然有效)* **host-core 扫描 `~/.agents/subagents` 下的全局 Markdown 文档，把启用状态存入 `<data>/agent-capabilities/subagents.json`，并通过设置 > 智能体 > 子代理页面暴露。页面是固定高度的单个全局列表，没有项目选择器或项目级来源。运行时把已启用的全局文档与内置定义合并；格式错误或删除的文档产生诊断或在扫描后消失，能力状态不写入 Markdown 文件。** | 个人委托可以跟随用户而不会修改仓库；明确的全局边界避免第二套项目优先级模型，并让扩展页专注于已安装和市场 (ADR 0063、ADR 0112)。  |
-| D203 | Codex 奇偶校验上下文压缩 | **压缩被重建以匹配 Codex 的机制，反转四个 D200 条款并保留其余部分。所有后台预计算和增量触发范围都被删除：当总上下文跨越 `hardLimit` 或模型要求新窗口时，`prepareNextTurn()` 同步压缩。检查点仅携带摘要和最近的 **用户** 消息 - pi 的切割点仍然标记边界，但其分叉前缀和最近的尾部被折叠回摘要输入中，因此摘要覆盖整个范围，并且保留的尾部是从最多 20,000 个令牌（上限为硬预算的一半）的用户消息中最新先重建的，交叉消息被截断而不是丢弃，然后恢复到时间顺序。两个系列运行相同的生命周期：`summary` 和 `fresh_window` 翻转，不请求摘要并存储固定标记文本，由构造选项或 `PI_DESKTOP_COMPACTION_STRATEGY` 选择，并且既不在设置中也不在 i18n 中公开。面向模型的 `new_context` 工具返回（无参数，Codex 的逐字描述，在主机上无确认白名单，永远不可分配给子代理）以及附加到当前回合系统提示的两个每个窗口预算提醒 - 一个在 `clamp(hardLimit * 0.15, 8k, 32k)` 剩余，一个在 2,000 - 每个声明一次并在安装时重置。 host-core 保留整个检查点链（`read_compactions`、`write_transcript_with_compactions`、每条记录分叉验证、`SessionDetail.compactions`），并将 `compaction` 保留为其最新元素。 `compaction_start`/`compaction_end` 删除 `phase`，并且 `compaction_end` 将 `status` 替换为 `mark { id, throughMessageId, generation, summaryTokens, summarized }`；记录在其覆盖的消息之后为每次压缩绘制一个分隔行，结束其落在内部的辅助回合并删除锚消失的标记，并且每次成功的压缩都会在 fallback/overflow/manual toast 之上引发一个警告 toast。故意偏离 Codex：摘要位于保留用户之前，因为 `buildSessionContext` 修复了该顺序，`hardLimit` 保持“窗口 - 输出保留”而不是窗口的 90%，该工具已在两个系列中注册，并且提醒是系统提示附加我们自己的阈值和措辞 (ADR 0064)。** | 上一轮引用了 Codex，同时在四个方面实现了相反的结果，其上下文部分声称，当 `new_context` 存在时，Codex 没有模型端压缩工具。用户在被告知 Codex 的机制会逆转不可察觉目标后，特别询问了 Codex 的机制。 Parity 还根据其自身优点购买了三件东西：仅保留用户消息的检查点要便宜得多，并且在没有结果的情况下无法搁置工具调用，可见行使有损操作可以再次从记录中进行审核，并且警告将“改为开始新会话”决策放在其所属的位置。成本被接受：用户再次等待压缩。  | |
+| D203 | Codex 奇偶校验上下文压缩 | **压缩被重建以匹配 Codex 的机制，反转四个 D200 条款并保留其余部分。所有后台预计算和增量触发范围都被删除：当总上下文跨越 `hardLimit` 或模型要求新窗口时，`prepareNextTurn()` 同步压缩。检查点仅携带摘要和最近的 **用户** 消息 - pi 的切割点仍然标记边界，但其分叉前缀和最近的尾部被折叠回摘要输入中，因此摘要覆盖整个范围，并且保留的尾部是从最多 20,000 个令牌（上限为硬预算的一半）的用户消息中最新先重建的，交叉消息被截断而不是丢弃，然后恢复到时间顺序。两个系列运行相同的生命周期：`summary` 和 `fresh_window` 翻转，不请求摘要并存储固定标记文本，由构造选项或 `PI_DESKTOP_COMPACTION_STRATEGY` 选择，并且既不在设置中也不在 i18n 中公开。面向模型的 `new_context` 工具返回（无参数，Codex 的逐字描述，在主机上无确认白名单，永远不可分配给子代理）以及附加到当前回合系统提示的两个每个窗口预算提醒 - 一个在 `clamp(hardLimit * 0.15, 8k, 32k)` 剩余，一个在 2,000 - 每个声明一次并在安装时重置。 host-core 保留整个检查点链（`read_compactions`、`write_transcript_with_compactions`、每条记录分叉验证、`SessionDetail.compactions`），并将 `compaction` 保留为其最新元素。 `compaction_start`/`compaction_end` 删除 `phase`，并且 `compaction_end` 将 `status` 替换为 `mark { id, throughMessageId, generation, summaryTokens, summarized }`；记录在其覆盖的消息之后为每次压缩绘制一个分隔行，结束其落在内部的辅助回合并删除锚消失的标记，并且每次成功的压缩都会在 fallback/overflow/manual toast 之上引发一个警告 toast。故意偏离 Codex：摘要位于保留用户之前，因为 `buildSessionContext` 修复了该顺序，`hardLimit` 保持“窗口 - 输出保留”而不是窗口的 90%，该工具已在两个系列中注册，并且提醒是系统提示附加我们自己的阈值和措辞 (ADR 0064)。** | 上一轮引用了 Codex，同时在四个方面实现了相反的结果，其上下文部分声称，当 `new_context` 存在时，Codex 没有模型端压缩工具。用户在被告知 Codex 的机制会逆转不可察觉目标后，特别询问了 Codex 的机制。 Parity 还根据其自身优点购买了三件东西：仅保留用户消息的检查点要便宜得多，并且在没有结果的情况下无法搁置工具调用，可见行使有损操作可以再次从记录中进行审核，并且警告将“改为开始新会话”决策放在其所属的位置。成本被接受：用户再次等待压缩。 |
 | D186 | 有界提供商流恢复和诊断 | **提供程序请求设置使用一次有界 pi-ai 重试。流式传输开始后的瞬态 `STREAM_FAILED`、`NETWORK_ERROR` 或 `TIMEOUT` 在可中止退避后的同一回合中重播一次；失败的助手将从模型上下文中删除，并重用其可见消息 ID。第二次失败是致命的。提供程序 `AppError.details` 仅携带有界阶段、计时、提供程序 status/code 和重试诊断。突变指导在 `Edit` 不匹配后使用一个新的 read/regeneration；同一路径的第二个失败的 `Edit` 或第二个失败的 shell patch 命令会返回终止工具提示，而不是修复旧的补丁工件。** | 无界或重新生成驱动的恢复使得瞬态流终止变得昂贵，并且使得补丁循环在没有新信息的情况下消耗轮次；有限的运行时间预算保留上下文和用户控制，同时保持故障可诊断（ADR 0050）。 |
 
 | D187 | 资源隔离主机 RPC stdio | **host-core 通过每个方向的一个专用命名操作系统线程读取 stdin 并序列化 stdout，而不是通过 Tokio 的动态阻塞池。线程重试中断和瞬态 `STREAM_FAILED`/`NETWORK_ERROR` 错误，同时保留 NDJSON 帧；无法创建控制线程是结构化启动失败。登录 shell 路径探测还将帮助程序线程创建视为尽力而为，并回退到继承的路径。 RPC/tool 入场限制保持不变。** | 当操作系统线程创建返回 `Resource temporarily unavailable`（macOS 上的错误号 35）时，Tokio stdio 可能会出现恐慌，从而将临时资源压力转变为 `HOST_UNAVAILABLE`；隔离控制管道会删除该进程级崩溃路径，同时保留有限的过载行为 (ADR 0051)。 |
-| D191 | 仅限代理模式；聊天已重命名为只读 | *（被 D188/D189 取代：模式选择器返回为 `Agent | Plan`, and `chat` migrates to `plan`)* **`agent` is the only session mode the product exposes. The former `chat` profile is renamed `只读` and keeps its `Read`/`Glob`/`Grep` hard deny in host-core, but it has no UI surface: no top-bar toggle, no composer chip, no Settings row, no palette command or slash alias, and no localized labels. The host normalizes `chat` to `只读` on every write path (`session.create`, `session.configure`, `session.import`) and the permission gate is negative — anything that is not `agent` gets the read-only surface — so an unknown or legacy value can never widen the tool set. Error codes become `BASH_DISABLED_IN_READ_ONLY` / `WRITE_DISABLED_IN_READ_ONLY`. A boot fix-up rewrites existing `sessions.mode =“聊天”` rows and a stored `defaultMode` of `chat` to `代理`。**  该产品从来不希望用户实现的模式切换是枪炮和沉重的 UI 重量：会话可能会滞留在只读配置文件上而无法返回，并且两个工具集使每个工具、提示和权限更改的表面增加了一倍，都必须进行推理。在主机端保持窄配置文件强制执行可以保留导入行和旧行的安全边界，而无需为其提供控件 (ADR 0055)。 |
+| D191 | 仅限代理模式；聊天已重命名为只读 | *（被 D188/D189 取代：模式选择器返回为 `Agent | Plan`, and `chat` migrates to `plan`)* **`agent` is the only session mode the product exposes. The former `chat` profile is renamed `只读` and keeps its `Read`/`Glob`/`Grep` hard deny in host-core, but it has no UI surface: no top-bar toggle, no composer chip, no Settings row, no palette command or slash alias, and no localized labels. The host normalizes `chat` to `只读` on every write path (`session.create`, `session.configure`, `session.import`) and the permission gate is negative — anything that is not `agent` gets the read-only surface — so an unknown or legacy value can never widen the tool set. Error codes become `BASH_DISABLED_IN_READ_ONLY` / `WRITE_DISABLED_IN_READ_ONLY`. A boot fix-up rewrites existing `sessions.mode =“聊天”` rows and a stored `defaultMode` of `chat` to `代理`。** | 该产品从来不希望用户实现的模式切换是枪炮和沉重的 UI 重量：会话可能会滞留在只读配置文件上而无法返回，并且两个工具集使每个工具、提示和权限更改的表面增加了一倍，都必须进行推理。在主机端保持窄配置文件强制执行可以保留导入行和旧行的安全边界，而无需为其提供控件 (ADR 0055)。 |
+| D369 | 有效的子智能体思考元数据 | **即时 `Task` 结果、`SubagentRunResult` 与生命周期快照携带传给每个子运行的有效 `modelId` 与 `thinkingLevel`；拓扑节点与侧栏标题在模型名后显示本地化的非 `off` 级别，`off`、`omit` 与不支持推理时仅显示模型。宿主协议、存储 schema、provider 请求与生命周期行为不变。** | 委托卡片需要目标模型钳制后实际发送的级别，而不是从父级或定义重新推导的值（ADR 0202，E2E-219） |
 
 ## N. 通知决定
 
 | 身份证号 | 主题 | 决定 | 基本原理 |
 |---|---|---|--- |
-| D117 | 持久任务通知收件箱（本机投递条款由 D350 修订） | **Rust host-core 独占拥有 schema-v6 `notifications` 表，并且仅在 Electron 报告结果尚未可见时，当 `session.endTurn` 将运行轮移至 completed/error 时，才会自动插入一个结构化 `task.completed` / `task.failed` 行。 Renderer 通过允许列表查看上下文 IPC 提供当前聊天会话；仅当其窗口为 visible/focused 并且该会话匹配时，Main 才会抑制插入，而未知、背景、隐藏或未聚焦状态无法安全通知。 `turn_id UNIQUE` 可以防止重复，中止是静默的，会话删除级联，并且只保留最新的 200 行。标题栏响铃显示准确的未读计数、All/Unread、行 mark-read/session 激活、标记所有已读以及通过完整的 keyboard/accessibility 行为进行清除。协议 v4 添加了单数 `notification.list/markRead/markAllRead/clear`； `session.endTurn` 返回插入的记录，Electron 发出渲染器 `notification.changed`，并且仅当主窗口未聚焦时，它才会显示本机系统通知，该通知单击 restores/focuses 窗口并发出 `notification.activated`。持久化行包含结构化 kind/session/turn/error 数据以及会话名称快照，从未本地化通知 title/body 散文。任务收件箱没有权限、计划提醒、偏好、云通知或插件通知源；插件本机通知是单独的 D213 表面。 D113 的个人资料页脚保持不变。** | 通知应该恢复用户没有看到的任务结果，而不是重复当前聊天中已经可见的结果。有界主机拥有的收件箱可保持 background/unfocused 结果的持久性和可导航性，而不会侵犯 SQLite 所有权、重复事件或将每个终端事件转变为通知历史记录。  | |
-
-| D350 | 按焦点区分本机通知投递 | **修订 D117 / ADR 0107：渲染器在 `notification/showNative` 终端结果调用中标记 `kind: "task"`，在 asktool、工具权限和 Plan 审批调用中标记 `kind: "interactive"`。缺失或未知值默认为 `task`。任务本机投递仍然仅在未聚焦时进行，包括聚焦的背景会话；交互投递仅在确切的询问会话已在聚焦窗口中可见时抑制，因此聚焦其他会话时可以收到横幅。交互询问从不创建持久任务收件箱行，插件本机通知仍使用独立的权限门控 API。不改变主机协议或存储架构版本。** | PR #84 扩展共享 handler 的门控时，使聚焦的背景终端完成也显示了本机横幅，同时实现了聚焦背景交互询问通知的目标。显式 `kind` 在同一个 Electron 边界隔离这两种用户可见策略。 |
-| D358 | 在进行中重试行显示 provider 原因 | **修订 ADR 0175：`AgentActivity.retrying` 可携带有界、已脱敏的错误详情。紧凑重试行在静止时保持原样；悬停或键盘聚焦揭示本地化摘要、稳定码/状态和 provider 消息。中间重试不会变成转录错误行。见 ADR 0196 与 US-UI-60d。** | 用户需要当前重试原因，又不能复制最终助手错误。 |
-| D359 | 用宿主一次性补全总结首轮会话标题 | **首轮提示回退保持同步。`agent_end` 后渲染器调用白名单 `session/summarizeTitle`。Electron 解析会话模型并跑关闭思考的一次性补全；有效结果经 `session.rename` 持久化。自动替换拒绝已持久的 `manualTitle`。见 ADR 0186 与 E2E-021a。** | 截断的首轮提示当侧栏标签很差，但标题生成不能挡住回合或把凭据暴露给渲染器。 |
-| D361 | 内联图片传输使用 10 MB 应用侧上限 | **修订 ADR 0101 / D197：`MAX_INLINE_IMAGE_BYTES` 为 10,000,000。具备视觉能力的模型把不超过该十进制 10 MB 上限的图片作为瞬时 base64 接收；更大的图片和非视觉模型保留 `@path` 回退。Electron main 和 sidecar 共用该常量。不改协议或 schema。** | MiniMax 的 OpenAI 兼容端点单张图上限是 10 MB；更高的应用上限会在 Composer 已经内联字节后被提供商拒绝。 |
+| D117 | 持久任务通知收件箱（本机投递条款由 D350 修订） | **Rust host-core 独占拥有 schema-v6 `notifications` 表，并且仅在 Electron 报告结果尚未可见时，当 `session.endTurn` 将运行轮移至 completed/error 时，才会自动插入一个结构化 `task.completed` / `task.failed` 行。 Renderer 通过允许列表查看上下文 IPC 提供当前聊天会话；仅当其窗口为 visible/focused 并且该会话匹配时，Main 才会抑制插入，而未知、背景、隐藏或未聚焦状态无法安全通知。 `turn_id UNIQUE` 可以防止重复，中止是静默的，会话删除级联，并且只保留最新的 200 行。标题栏响铃显示准确的未读计数、All/Unread、行 mark-read/session 激活、标记所有已读以及通过完整的 keyboard/accessibility 行为进行清除。协议 v4 添加了单数 `notification.list/markRead/markAllRead/clear`； `session.endTurn` 返回插入的记录，Electron 发出渲染器 `notification.changed`，并且仅当主窗口未聚焦时，它才会显示本机系统通知，该通知单击 restores/focuses 窗口并发出 `notification.activated`。持久化行包含结构化 kind/session/turn/error 数据以及会话名称快照，从未本地化通知 title/body 散文。任务收件箱没有权限、计划提醒、偏好、云通知或插件通知源；插件本机通知是单独的 D213 表面。 D113 的个人资料页脚保持不变。** | 通知应该恢复用户没有看到的任务结果，而不是重复当前聊天中已经可见的结果。有界主机拥有的收件箱可保持 background/unfocused 结果的持久性和可导航性，而不会侵犯 SQLite 所有权、重复事件或将每个终端事件转变为通知历史记录。 |
 
 ## O. 桌面 shell 决定
 
@@ -313,6 +315,10 @@
 | D345 | 繁体中文外壳语言 | **修订 D314 / ADR 0160：以独立完整外壳目录发布 `zh-TW`，本地名称为繁體中文。`zh-TW`、`zh-Hant`、`zh-HK` 和 `zh-MO` 解析到繁体中文外壳；通用 `zh` 和简体中文区域继续解析到 `zh-CN`。持久化的 `AppSettings.language` 加入 `zh-TW`，Electron 打包 `zh-TW` 与 `zh_TW` 语言环境目录；应用内变更日志加入对应的 `zh-TW` 目录，使发行说明跟随当前繁体中文外壳。不改变宿主协议或存储架构版本。** | 繁体中文用户需要独立的外壳和发行说明语言；复用简体中文目录会使自动检测和可见术语不正确。 |
 | D346 | P0 国际外壳语言 | **修订 D314 / ADR 0160 / ADR 0182：发布完整的 `de`、`es` 和 `fr` 外壳目录，本地名称为 Deutsch、Español 和 Français。`de-*`、`es-*` 和 `fr-*` 解析到对应基础目录；持久化的 `AppSettings.language` 接受三个新 ID；匹配的变更日志目录让发行说明跟随当前语言。不改变宿主协议、存储架构或 IPC 版本。** | 西班牙语、法语和德语是缺失的最高价值 P0 国际化覆盖，而现有注册表和可搜索选择器已经可以扩展到更多语言。 |
 | D349 | 韩语应用程序壳 | **修订 D314 / ADR 0160 / ADR 0183：提供完整 `ko` 外壳目录，本地名한국어，英文名 Korean。`ko` 和 `ko-*` 解析到韩语目录；持久化 `AppSettings.language` 接受 `ko`；Electron 打包韩语 Chromium locale，并有匹配的韩语发版日志。不改主机协议或存储 schema。** | 韩语用户需要独立完整外壳和发版说明语言。 |
+| D350 | 按焦点区分本机通知投递 | **修订 D117 / ADR 0107：渲染器在 `notification/showNative` 终端结果调用中标记 `kind: "task"`，在 asktool、工具权限和 Plan 审批调用中标记 `kind: "interactive"`。缺失或未知值默认为 `task`。任务本机投递仍然仅在未聚焦时进行，包括聚焦的背景会话；交互投递仅在确切的询问会话已在聚焦窗口中可见时抑制，因此聚焦其他会话时可以收到横幅。交互询问从不创建持久任务收件箱行，插件本机通知仍使用独立的权限门控 API。不改变主机协议或存储架构版本。** | PR #84 扩展共享 handler 的门控时，使聚焦的背景终端完成也显示了本机横幅，同时实现了聚焦背景交互询问通知的目标。显式 `kind` 在同一个 Electron 边界隔离这两种用户可见策略。 |
+| D358 | 在进行中重试行显示 provider 原因 | **修订 ADR 0175：`AgentActivity.retrying` 可携带有界、已脱敏的错误详情。紧凑重试行在静止时保持原样；悬停或键盘聚焦揭示本地化摘要、稳定码/状态和 provider 消息。中间重试不会变成转录错误行。见 ADR 0196 与 US-UI-60d。** | 用户需要当前重试原因，又不能复制最终助手错误。 |
+| D359 | 用宿主一次性补全总结首轮会话标题 | **首轮提示回退保持同步。`agent_end` 后渲染器调用白名单 `session/summarizeTitle`。Electron 解析会话模型并跑关闭思考的一次性补全；有效结果经 `session.rename` 持久化。自动替换拒绝已持久的 `manualTitle`。见 ADR 0186 与 E2E-021a。** | 截断的首轮提示当侧栏标签很差，但标题生成不能挡住回合或把凭据暴露给渲染器。 |
+| D361 | 内联图片传输使用 10 MB 应用侧上限 | **修订 ADR 0101 / D197：`MAX_INLINE_IMAGE_BYTES` 为 10,000,000。具备视觉能力的模型把不超过该十进制 10 MB 上限的图片作为瞬时 base64 接收；更大的图片和非视觉模型保留 `@path` 回退。Electron main 和 sidecar 共用该常量。不改协议或 schema。** | MiniMax 的 OpenAI 兼容端点单张图上限是 10 MB；更高的应用上限会在 Composer 已经内联字节后被提供商拒绝。 |
 | D316 | 可搜索主题选择器 | **修订 ADR 0160：设置 → 常规的主题是可搜索选择行（与语言相同的锚定菜单），不再是三张预览卡。系统 / 浅色 / 深色钉在顶部；插件主题在分隔线之后。`AppSettings.theme` 与插件主题回退不变。见 ADR 0161 与 E2E-091。** | 插件主题会撑破三列卡片网格，而语言选择器已经解决了可增长列表的控件问题。 |
 | D121 | 品牌macOS开发主机 | **macOS 上的 `pnpm dev` 通过 `.cache/electron-dev/` 下已安装的 Electron 主机包的指纹、临时签名的 PI-Desktop 副本启动 electro-vite。生成的捆绑包仅更改开发主机元数据、可执行文件名称、捆绑包标识符和 ICNS 资源；它永远不会改变 `node_modules`。 Windows/Linux 保持库存开发可执行，而打包通道仍归电子制造商所有。** | AppKit 会忽略顶级应用程序身份的运行时 app-name/menu 覆盖，并从主机包中获取本机菜单名称和“关于”图标；需要品牌开发主机才能与打包的 PI-Desktop 保持一致。 |
 | D129 | 无菜单 Windows/Linux 窗口镀铬 | **应用程序菜单仅为 macOS 系统菜单表面。 Windows/Linux 保留共享的无框架 46px 标题栏和渲染器绘制的 minimize/maximize-or-restore/close 控件，但在窗口内不渲染 File/Edit/View/Window/Help 菜单，并且不保留左侧标题栏空间。通过 renderer/native Web 内容处理，现有应用程序、编辑、缩放、全屏和关闭快捷方式仍然可用；仍然可以通过“设置”->“信息”访问更新检查。这仅取代 D118 和 ADR 0021 的 Windows/Linux 渲染器菜单部分。** | 窗口内桌面菜单会重复 macOS 特定的系统菜单镶边、占用导航空间，并且不属于 PI-Desktop 的无框 Windows/Linux 标题栏。 |
@@ -330,9 +336,13 @@
 | D232 | 自定义全局界面字体 | **设置 → 基础 → 外观新增可搜索的字体选择器（触发器以当前字体的字样预览）。选择结果持久化为 `AppSettings.fontFamily`（CSS 字体栈）；缺失时保持内置 `--font-sans` 令牌栈，渲染器通过覆盖根元素的 `--font-sans` 应用字体栈，无需重载。四款内置字体——Geist、Inter、Noto Sans SC、LXGW WenKai——以 woff2 格式按 SIL OFL 1.1 本地发布并附许可证文本；每个自定义字体栈都追加 CJK 回退层，等宽字体栈保持不变。系统已安装字体由 Electron 主进程仅使用平台工具枚举（macOS 用 `system_profiler`、Windows 用 PowerShell、Linux 用 `fc-list`），去重/排序/过滤并缓存 60 秒，通过新增的允许通道 `pi-desktop/app/systemFonts` 暴露；主机协议 v9 与存储架构 v10 不变。** | 用户需要 Codex/dbx 风格的全局字体偏好，但沙盒化渲染器无法枚举系统字体，而针对仅渲染器偏好不应扩大主机 RPC 面。内置 OFL 许可字体保证每个可选字体均商用安全且可离线使用，60 秒缓存限制了 macOS 枚举的耗时（ADR 0083）。 |
 | D230 | 用户可配置的关闭行为与关闭到托盘 | **Windows/Linux 的关闭行为是由 Electron 主进程存放在 `<data>/close-behavior.json` 的持久化偏好。`ask` 是尚未设置的过渡态：首次关闭弹出原生模态框（取消 / 关闭到托盘 / 退出），选定其一即永久保存，取消则保持窗口打开且偏好仍未设置。可设置的只有 `tray` 和 `quit` —— 设置 → 通用仅在 Windows/Linux 渲染两项单选段（关闭到托盘 / 退出应用），`pi-desktop/window/closeBehavior/set` 拒绝 `ask`，因此选择可以切换但无法退回到每次询问。`tray` 把窗口隐藏到 D216 常驻的托盘图标之下（点击恢复，菜单显示或退出）；切换到 `quit` 不会销毁该图标，因为最小化到托盘仍然需要它。除了已经获准的退出之外，每一次非 macOS 的关闭都会被拦截；`quitting` 与 macOS 的关闭直接放行，`quit` 分支自己调用 `app.quit()`，而 `window-all-closed` 只在 `tray` 下保持沉默，因此启动探针与显式退出不受影响，常驻托盘也不会让 `quit` 会话继续活着。在 macOS 上 `closeBehavior/set` 同样以 `INVALID_ARGUMENT` 失败。边界看门狗跳过最小化和隐藏的窗口，所以隐藏到托盘的窗口不会被强制恢复。macOS 保持原生 Dock 生命周期（D216、ADR 0078、ADR 0090）。** | 最小化本来就把窗口收进 D216 的托盘；缺口在关闭：它在 Windows/Linux 上直接退出。固定的关闭到托盘会让期待退出的用户意外，所以这个选择只问一次、记住、并可在设置里回访 —— 与 Codex 风格外壳让长时会话继续存活但不接管关闭按钮的做法一致。 |
 | D363 | 显式退出在关机前确认 | **修订 D230 / D216：Cmd+Q、应用菜单退出和托盘退出显示一次原生警告（取消 / 退出）。取消让应用继续运行，之后的退出会再次询问。确认走有序 `before-quit` 关机。已在 D230 对话框选择退出的关窗路径设置 `quitConfirmed`，不再问第二次。boot、supervision 和 capture 探针跳过对话框。见 E2E-204。** | 显式退出会拆掉 host-core、sidecar 和进行中的工作；一步确认避免误触 Cmd+Q 或托盘退出。 |
-| D357 | 视口固定的工作面板开关 | **修订 D128 / D207 / D221 与 ADR 0068 / ADR 0085：AppShell 在每个非设置路由右上角拥有一个视口固定开关，等价于 Cmd/Ctrl+J：显示活动会话保留的面板上下文、收起可见面板、无会话时禁用。它是唯一的面板级收起控件。Windows/Linux 窗口控件保持视口固定。不改主机协议或 IPC。见 ADR 0195 与 E2E-056。** | 仅快捷键入口让指针用户发现不了面板。 |
 | D252 | Windows 任务栏保留原生最小化/恢复 | *（显式的渲染器/菜单最小化条款被 D256 / ADR 0123 取代）* **修订 D216 / ADR 0078：当聚焦的 Windows 主窗口从它的任务栏按钮被切换时，Electron 让原生 `minimize` 过渡走完，而不是隐藏窗口。任务栏条目保持可用，下一次点击任务栏会恢复并聚焦它。显式的渲染器/菜单最小化操作仍然隐藏到常驻托盘；macOS/Linux 的原生最小化仍然驻留托盘。不改动 IPC、存储、主机协议或后台工作。** | D216 无条件的 `window.hide()` 把任务栏发起的 Windows `minimize` 事件当成托盘隐藏处理，意外移除了任务栏条目，只给用户留下托盘恢复这一条路。 |
 | D236 | 每个数据目录只允许一个桌面实例 | **Electron 主进程在模块求值期间调用 `app.requestSingleInstanceLock()` —— 在 `app.setName` 之后（锁位于由应用名派生的 `userData` 路径下），且在 logger、持久化 outbox 或任何其他数据目录访问之前。没有拿到锁的启动直接调用 `app.quit()` 且不引导任何东西：readiness 与 `before-quit` 处理器都提前返回，因此它不会在运行中实例的数据目录内创建窗口、托盘、子进程或日志行。持有锁的实例通过与托盘“显示”操作相同的路径响应 `second-instance`，恢复并聚焦主窗口，若窗口已关闭或隐藏到托盘则重新创建。只有在未设置 `PI_DESKTOP_DATA_DIR` 时才请求该锁，因此 E2E 测试装置、截图装置和有意并行的 profile 保持原有的随时启动行为。IPC 通道、宿主协议和存储架构均未变化。** | 第二次启动会引导出一个完整的第二份应用：在单写者 `pi.sqlite`（D002）上再开一个 host-core，在同一目录下再建一份 outbox 和日志树，再加一个托盘、一次启动器快捷键注册和一个更新器，导致两个 shell 在同一个数据库上出现分歧。再次启动应用是想看到已经在运行的那一个，把锁的作用域限定在安装本身也让使用独立数据目录的运行仍可启动（ADR 0094）。 |
+| D367 | 宿主拥有的插件会话导入与归属 API | **`pi.session` 增加 `import`、`importBatch`、`list`、`get`、`listMessages`、`rename`、`delete`；每个来源必须声明 `contributes.sessionSources`；host-core 生成 id，并把所有操作限定在 `(pluginId, source, externalId)` 归属内；导入永不激活项目/provider/模型绑定。Schema v14 增加 `session_import_origins` 与 `sessions.deleted_at`；协议 v11 不变。回收站保留转录，仅属主可清除。** | 外部历史插件需要持久的导入/读取/更新/删除，而进行中的 `session.getLlmContext` 与核心 `session.import` 边界不是安全的插件归属边界（ADR 0200，E2E-214 / E2E-215） |
+| D368 | 显式插件项目 id 与宿主拥有的会话刷新 | **受权限门控的 `pi.project.create({ path })` 创建或复用项目并返回宿主生成的 id，不激活工作区；导入项可绑定已有 `projectId`，省略则保持未绑定，历史来源路径永不成为工具根。Electron main 在插件导入、重命名、删除成功后发出 `pi-desktop/session/event/changed`；渲染器复用 `refreshSessions()`，跳过的导入不发事件，已关闭的项目标签不会重新打开。** | 向插件暴露 `workspace.set` 会改变用户的活动工作区，且插件写入需要宿主拥有的渲染器刷新路径（ADR 0201，E2E-216） |
+| D370 | 桌面操作的本地 MCP 控制平面 | *(由 D372 修订)* **Electron Main 内可选启用的 Streamable HTTP MCP 服务器绑定 `127.0.0.1`，用持久随机 bearer token 认证，按回环主机名校验 Origin，写入受模式限制的连接清单，并委托给渲染器使用的同一组已注册 IPC 处理器。命名工具覆盖项目/会话/Agent 流程；`pi_desktop_invoke` 可达带风险标记的操作目录；危险操作需要 `confirm: true`；成功的外部变更复用渲染器会话变更事件。仅本地且启动时失败软着陆。** | 外部 Agent 需要驱动运行中的桌面，又不能有第二套权限或持久化实现，也不能触碰推迟的远程 Gateway / WebUI 边界（ADR 0203，E2E-220） |
+| D372 | 收紧本地 MCP 控制平面边界 | **修订 D370 / ADR 0203：首版目录为项目/会话/Agent/工作区流程加已审阅的读取；剥离秘密形态的参数；`session/configure` 视为危险；监听地址断言为回环；协议版本协商而非回显；包含 `structuredContent` 的结果有界；渲染器会话刷新仅限变更操作。** | 首版目录仍暴露原生选择器、写秘密的 provider/OAuth/MCP 路径与未确认的 `session/configure`，并把会话读取当作渲染器变更（E2E-220） |
+| D377 | 插件桌面控制需要原生用户同意 | **通过 `pi.desktop.invoke` 调用的 `dangerous` 桌面操作，需要插件给出 `confirm: true`，然后由用户在宿主拥有的原生对话框中作答；该对话框只显示目录中的操作 id、描述和有界的参数预览；关闭对话框、拒绝，以及没有对话框服务的宿主都以 `PERMISSION_DENIED` 失败。`read`/`write` 操作与 MCP 契约（D372）不变。** | 控制器的 `confirm` 标志由调用方设置，因此插件（或其背后的模型）可以在没有人参与的情况下删除会话或把会话切到 `auto`，而任何由插件绘制的确认卡片都可能被提示注入的成绩单改换标签（ADR 0208，E2E-236） |
 
 ## P. 转录本存储决策
 
@@ -374,13 +384,11 @@
 |---|---|---|---|
 | D123 | Composer 斜线命令，三个来源 | **在编辑器的位置 0 处键入 `/` 将打开一个内联命令菜单，其中合并 (a) `<workspace>/.pi/prompts/*.md` 和 `~/.pi/agent/prompts/*.md` 中的 pi 提示模板（项目在名称冲突时覆盖用户全局；frontmatter `session.get`/`session.replaceMessages`），(b) 通过在与调色板搜索共享的一个注册表中定义的斜杠别名的内置调色板命令，以及 (c) 插件调色板命令。发送时，builtin/plugin 调用通过现有渲染器开关/`commandPalette/execute` 在本地执行，无需创建会话或提示模型；模板调用在持久化之前在 Electron 主 `agent/prompt` 处理程序中扩展（来自 pi-agent-core 的 `parseCommandArgs` + `substituteArgs`），持久化 `content = expanded` 加上一个携带键入表单的新可选 `command` 字段；未知的 `/foo` 作为文字文本发送。** | 重用 pi 的精确 CLI 语义和模板资源，保持代理重新设定种子的准确性（重新设定种子重播 `content`），并通过将键入的调用呈现为芯片（ADR 0024）来保持脚本的可读性。 |
 | D124 | `@` 文件引用是纯文本灯光引用 | **令牌边界处的 `@` 在工作区索引上打开一个模糊文件菜单，该索引由新的仅限 Electron 的通道 `pi-desktop/fs/index` 提供服务（文件+目录、具有忽略设置步行回退的 `git ls-files -co --exclude-standard` 快速路径、带截断标志的 8000 个条目上限、短 TTL 缓存、工作区根目录、无工作区软失败）。接受会为文件创建规范的 `@rel/path ` 引用（当路径有空格时引用 `@"a b.txt" `），并插入 `@dir/`，目录中不带尾随空格； D209 修改已完成的文件草稿演示，但不更改发送的纯文本路径。该模型遵循 Plan 和 Agent 中的读取工具的参考。没有提示内容内联或提供程序附件转换；剪贴板文件具体化由 D197 定义。** | 匹配 pi CLI 面向模型的语义，避免上下文膨胀和截断规则，并使用户驱动的文件浏览保持在每个 ADR 0019 的代理 tool/permission 路径之外。 |
-| D125 | Composer 自动完成交互和 IME 合约 | **一个菜单组件锚定在编辑器上方，完整的编辑器宽度，焦点始终保留在文本区域中。打开时的按键：↑/↓ 循环环绕，Enter/Tab 接受，Escape 仅关闭菜单（优先于输入框的 clear/blur Escape），实时输入过滤器；当某个项目突出显示时，Enter 永远不会发送，并且空结果列表将被视为已关闭。菜单在外部鼠标按下、模糊、删除超过触发字符或会话切换时关闭。所有按键处理和触发检测都位于 IME 防护后面（`isCompositing | keyCode === 229` 加上组合 start/end 跟踪）：在组合期间，不会触发、更新或拦截任何内容，并且在组合结束时重新评估状态。**  规范中第一个明确的 IME 规则 - zh-CN Enter-to-send 加上候选确认绝不能与菜单冲突；统一的插入然后分派使双输入流保持快速且可预测。 |
+| D125 | Composer 自动完成交互和 IME 合约 | **一个菜单组件锚定在编辑器上方，完整的编辑器宽度，焦点始终保留在文本区域中。打开时的按键：↑/↓ 循环环绕，Enter/Tab 接受，Escape 仅关闭菜单（优先于输入框的 clear/blur Escape），实时输入过滤器；当某个项目突出显示时，Enter 永远不会发送，并且空结果列表将被视为已关闭。菜单在外部鼠标按下、模糊、删除超过触发字符或会话切换时关闭。所有按键处理和触发检测都位于 IME 防护后面（`isComposing || keyCode === 229` 加上组合 start/end 跟踪）：在组合期间，不会触发、更新或拦截任何内容，并且在组合结束时重新评估状态。** | 规范中第一个明确的 IME 规则 - zh-CN Enter-to-send 加上候选确认绝不能与菜单冲突；统一的插入然后分派使双输入流保持快速且可预测。 |
 | D197 | Composer 剪贴板文件成为会话草稿引用 | **当 Composer 剪贴板包含一个或多个操作系统 files/images 时，渲染器会拦截文件粘贴，通过仅限 Electron 的 `pi-desktop/composer/pasteFiles` 通道传输有界字节和 name/MIME 元数据，并包含持久会话 ID。 Electron main 验证会话、清理名称并在 `<data_dir>/scratch/<sessionId>/pasted/` 下写入唯一文件； D209 修改呈现草稿，同时保留每个返回的绝对路径作为发送给代理的带引号或不带引号的 `@` 引用。纯文本粘贴仍然是原生的。家庭输入框首先创建或重用持久会话。剪贴板字节永远不会进入提示符、工作区或工件存储，并且会话删除会删除带有临时根的粘贴文件。** | 修复了损坏的 file/image 粘贴路径，而不会弄脏项目或发明特定于提供程序的二进制提示管道；它重用了现有的暂存遏制和生命周期合同。 |
-| D209 | Composer 文件引用将紧凑显示与规范提示路径分开 | **完成的工作区文件选择和物化剪贴板文件成为渲染器拥有的、会话范围的参考芯片。芯片始终仅显示叶名称，通过 tooltip/accessibility 元数据公开规范路径，并且可以在不删除临时字节的情况下将其删除。在提交之前，引用会在可见草稿之后以稳定的顺序序列化，并使用 D124 的精确引用，因此仅供引用的草稿、斜线模板和 Agent/Plan/Goal 模式别名保留其当前行为。接受的调度会清除活动编辑器，但保留仅渲染器、回合范围的预序列化快照，而智能停止仍然可以撤消未应答的发送。该撤消操作会恢复原始文本和碎片，而不是预填充序列化消息内容；回复开始后中止保留部分记录并且不恢复任何内容。 Rejected/failed 发送保留活动草稿。 `ComposerPastedFile.name` 是经过清理的原始叶标签，而 `path` 保留 UUID 支持的绝对存储身份。未添加二进制有效负载、提供程序附件、主机 RPC 或架构。** *（由 D362 修订：芯片是 contenteditable 草稿中的行内哨兵元素）* | 长相对路径和 UUID 支持的临时路径淹没了提示行，即使只有代理需要它们。将表示与序列化分离可以保留精确的工具可读路径、重复名称标识、textarea/IME 行为和纯文本提供程序合约 (ADR 0070)。  | | |
+| D209 | Composer 文件引用将紧凑显示与规范提示路径分开 | **完成的工作区文件选择和物化剪贴板文件成为渲染器拥有的、会话范围的参考芯片。芯片始终仅显示叶名称，通过 tooltip/accessibility 元数据公开规范路径，并且可以在不删除临时字节的情况下将其删除。在提交之前，引用会在可见草稿之后以稳定的顺序序列化，并使用 D124 的精确引用，因此仅供引用的草稿、斜线模板和 Agent/Plan/Goal 模式别名保留其当前行为。接受的调度会清除活动编辑器，但保留仅渲染器、回合范围的预序列化快照，而智能停止仍然可以撤消未应答的发送。该撤消操作会恢复原始文本和碎片，而不是预填充序列化消息内容；回复开始后中止保留部分记录并且不恢复任何内容。 Rejected/failed 发送保留活动草稿。 `ComposerPastedFile.name` 是经过清理的原始叶标签，而 `path` 保留 UUID 支持的绝对存储身份。未添加二进制有效负载、提供程序附件、主机 RPC 或架构。** *（由 D362 修订：芯片是 contenteditable 草稿中的行内哨兵元素）* | 长相对路径和 UUID 支持的临时路径淹没了提示行，即使只有代理需要它们。将表示与序列化分离可以保留精确的工具可读路径、重复名称标识、textarea/IME 行为和纯文本提供程序合约 (ADR 0070)。 |
 | D362 | 接受的 `@` 文件插入与粘贴相同的行内芯片 | **修订 D209 / D125：从 `@` 菜单接受已完成的工作区文件（Enter、Tab 或点击）会把触发标记替换为草稿中的一个私用区哨兵，并把该哨兵存到引用上，路径与剪贴板粘贴相同。芯片绘制在光标处；该确认不会发送。目录仍插入 `@dir/` 文本。无哨兵的引用不再是可见草稿表面。工作区相对芯片在切换项目时仍会丢弃；绝对 scratch/paste 路径保留。不改 IPC、存储、主机协议或 schema。** | 芯片改为行内后，文件接受仍会剥掉 `@query` 并存储无哨兵引用，因此不再绘制，Enter 会让文件消失。 |
 | D333 | 工作面板浏览器是随应用打包的 `pi.browser` 插件 | **工作面板 Browser 启动项、chrome 和代理 CDP 作为随应用打包的插件 `pi.browser` 交付（默认启用、可禁用、不可卸载）。访客 `WebContentsView` 和调试器仍由宿主拥有，只能通过受 `browser.cdp` 门控的公开 `pi.browser.*` 访问。访客页边界夹紧到调用插件视图。原始 CDP 走白名单（拒绝 cookies/storage/Target/Fetch）。宿主 `BrowserPreview` 仍是 Plan 安全门面，插件禁用时失败。不升协议/schema。** | 用户需要整个浏览器像 Files 一样可选，但不能把任意网页放进沙盒插件视图。见 ADR 0170。 |
-| D335 | Token 用量仪表盘由插件拥有 | **修订 D331 / ADR 0171：设置没有「用量」目的地。全局 token 历史由市场插件 `pi.token-insights` 展示。宿主仍持久化 `session.endTurn.usage` 并暴露 `stats.getTokenUsageHistory`。插件可以把宿主已完成回合中超出转录本助手 `meta.usage` 的差额（含子智能体）折入 PI-Desktop 事实立方，且不改写 `message.usage`。不升协议或 schema。** | 设置页重复了插件已有的更弱热力图。见 ADR 0173 与 E2E-186。 |
-| D326 | 撤回 A2A 与 Peer 协作栈 | **移除 Agent2Agent 代理、`a2a.*` RPC 域、残留 `SubagentMailbox` / `Peer` 工具以及父/委托 `A2A` 工具。并发委托只通过父级 `Task*` 报告协作。握手 `PROTOCOL_VERSION` 10→11，存储 `SCHEMA_VERSION` 12→13。ADR 0165 取代 0147 / 0162 / 0164。** | 兄弟通道和父到父通道与 `Task*` 并列却没有产品需求，模型也容易误用。 |
 | D211 | 全局插件启动器 | **可自定义的 `openPluginLauncher` 快捷方式在 macOS 上默认为 Option+Space，在 Windows/Linux 上默认为 Alt+Space。Electron main 在启动后全局注册它，并拥有一个在启动完成后预热的 620×440 无框工具窗口，以最靠近指针的显示器为中心；macOS 使用跨工作区面板，而 Windows 使用 host-core 低级钩子来保留默认 Alt+Space 组合键，并在该钩子不可用时保留聚焦窗口回退。沙盒渲染器仅列出已启用且就绪的面板插件，通过原始字符、无声调完整拼音或拼音首字母（加上规范化的 name/id/description）匹配中文名称，并通过现有插件面板主机打开选定结果。Up/Down 选择，Enter/click 打开，Escape/blur 隐藏，IME 组合输入期间从不分派。附加的 toggle/dismiss/shown IPC 仅存在于 Electron 本地；host-core 的附加快捷键 method/notification 仅携带绑定事件。** | 插件面板需要一个键盘优先的入口点，使其在 PI-Desktop 未聚焦时仍可工作，同时不恢复完整 shell，也不削弱现有面板的 sandbox/permission 边界（ADR 0072/0076/0080）。 |
 | D212 | 运行输入框阶段下一轮配置和停止轮保持吞吐量 | **在活动回合期间，草稿文本和 mode/thinking/permission 选择器保持可编辑。单一提交槽位仅在草稿为空时显示停止；有内容时显示可用的发送，并将下一条提示加入队列。渲染器会投影每个会话的最新完整配置，并仅在终端事件之后调用现有的仅空闲 `session/configure`，因此运行时保持固定状态；等待 Plan/Goal 批准仍可进行门编辑。用户停止的部分答案保留 `responseDurationMs`；当最终提供商输出使用不存在时，可见思考+答案文本被估计为每个标记的四个 Unicode 代码点到可选的 `responseOutputTokens` 中。 Rust 转录本元数据保留这两个字段，精确使用获胜，并且 UI 标记仅估计吞吐量。** | 准备下一个提示不应等待当前流，但主机安全需要不可变的运行中配置。停止的可见答案仍然具有足够的测量数据，可用于有用的、明确的近似生成速度（ADR 0073）。 |
 | D215 | Windows 保留的全局快捷方式回退 | **在 Windows 上，host-core 为有效的 `Alt+Space` 默认绑定安装一个狭窄的 `WH_KEYBOARD_LL` 挂钩，因为 shell 可能会从 Electron 的 `globalShortcut` 中保留它。 hook 仅消耗匹配的和弦并发出 `keyboard.shortcut({ binding: "Alt+Space" })`； Electron 切换现有插件启动器。每当设置更改时，Electron 都会调用附加的 `keyboard.setGlobalShortcut({ binding })`，而 host-core 仅针对该精确绑定启用挂钩。其他平台和自定义绑定保留在 Electron 的全局快捷路径上。** | 每当 PI-Desktop 未获得焦点时，Windows 的活动窗口系统菜单保留都会导致附带的全局启动器不可用。范围狭窄的主机回退会保留快捷方式，而不读取文本或扩展 plugin/renderer 权限 (ADR 0076)。 |
@@ -407,6 +415,7 @@
 | D126 | 三平台发布交付（电梯D010） | *(amended by D364)* **标签构建将矩阵生成的每个工件发布到 GitHub 版本：macOS dmg/zip (arm64)、Windows NSIS x64、Linux AppImage + deb (x64)，每个都有块图和平台的 `latest*.yml` 电子更新器提要。发布提要会激活 D120 的 Windows NSIS 和 Linux AppImage 的应用内更新通道； macOS 保持通知和链接模式，直到签名通道合格为止。 NSIS 工件名称固定为无空格 (`PI-Desktop-Setup-${version}.${ext}`)，因为 GitHub 资产 URL 会损坏空格。根据基线凹凸规则（基线 `0.4.7`），D010 的仅限 macOS 范围被提升；发布管道本身在 v0.1.1-rc.1/v0.1.1 上通过了端到端合格。** | 无论如何，管道都会在每个标签上构建并验证所有三个平台；将安装程序保留为过期的 Actions 工件（保留 90 天）会阻止用户安装它们，而不会增加安全性。发布更新源是交付的重点：具有应用程序内通道的平台会静默更新，并且未来的平台回归会通过实际安装而不是未使用的工件来呈现。 |
 | D364 | Windows portable exe without installer | **Amend D120 / D126 / ADR 0022: tag builds publish a Windows x64 portable exe `PI-Desktop-Portable-${version}.exe` alongside the NSIS installer `PI-Desktop-Setup-${version}.exe`. The portable target does not write `latest.yml`. Packaged portable runs (`PORTABLE_EXECUTABLE_FILE`) use notify-and-link delivery. NSIS installs keep in-app download and quit-and-install. Data stays in the existing application data directory. Portable requests user execution level.** | Company environments that whitelist a single executable cannot run the NSIS installer. Applying the NSIS updater to a portable run would install the app, so portable stays manual (ADR 0197, E2E-211). |
 | D260 | 发布文档是一个版本载体 | **稳定版本号提升必须在打标签之前更新每一处带版本号的载体：双语言的应用内变更日志及其测试清单、每个工作区的 `package.json`（包括之前被第三个工作区根 `scripts/release.mjs` 跳过的 `docs/package.json`）、Cargo 工作区版本与 `host-core` 的锁文件条目、`APP_VERSION`，以及 `README.md` 和 `README.zh-CN.md` 中声明的 `<major>.<minor>.x` 发布线。`scripts/check-release-docs.mjs` 校验全部这些；`scripts/release.mjs` 在提升版本号之后运行它，只要任一载体不一致就拒绝提交或打标签，`--skip-docs-check` 仅保留给刻意的非发布性版本提升。扩展 D164。** | 仅有应用内变更日志这道闸门，导致已发布的文档落后：版本已到 `0.10.8`，两个 README 仍在宣传 `0.5.x` 线，而 `docs/package.json` 停在 `0.5.8`。标签是不可逆的，所以这项检查在标签存在之前运行，而不是作为评审礼节。 |
+| D371 | 显式的未签名 macOS 首次启动助手 | **每个 macOS 分发都附带可执行的 `PI-Desktop-macOS-open.command`，放在 DMG 上拖入 Applications 手势下方的可见首启行。它只查找 `/Applications/PI-Desktop.app` 与 `~/Applications/PI-Desktop.app`，校验 `CFBundleIdentifier` 为 `com.pi-desktop.app`，仅在存在时移除 `com.apple.quarantine`，然后打开应用。永不使用 `sudo`，不接受任意路径，也不替代 Developer ID 签名或公证。** | 未签名的 macOS 通道可能被 quarantine 拦截并显示误导性的"已损坏"提示，而仅限终端的 `xattr -cr` 说明比启动失败所需的范围更宽（ADR 0204，E2E-196b） |
 
 ## V. 扩展激活决策
 
@@ -1672,6 +1681,21 @@ D193 和 D194。
   会话，所以没有什么可复用。协议 v9、主机 RPC 与存储架构 v11 保持不变；
   改动局限在渲染器 store、Composer 与 Sidebar。
 
+## 2026-08-21 — 新任务立即创建一个持久化的空槽位
+
+- 「新任务」现在按当前项目或「临时」分组最近一个未归档的会话来解析。最新会话
+  为空时直接选中并复用；最新会话非空时，先真正创建一个空会话、刷新进侧边栏
+  并选中，然后才接受第一条提示。
+- 渲染器对同一分组的「新任务」请求做串行化，因此快速连点不会竞争插入多个空
+  会话。这条规则由项目分组和无路径的「临时」会话共用；当最新会话是较新的
+  非空会话时，更早的空行会被有意保留不动。
+- `SessionSummary.messageCount` 由 host-core 从 `sessions.last_seq` 派生，取代
+  标题启发式作为「空」的判定。空行可见；标题本地化和手动重命名仍是展示层
+  关注点。
+- 决策 D252 取代 D220 与 ADR 0084。启动首页仍是未持久化的渲染器草稿，但显式
+  的「新任务」是急切且持久的。`messageCount` 在协议 v9 内属于增量字段；存储
+  架构 v11 不变。参见 ADR 0113 以及 E2E-011b / E2E-011d / E2E-011e。
+
 ## 2026-08-14 — 工作面板快捷键改为切换而不只是打开
 
 - `Cmd/Ctrl + J`（`openWorkPanel`）现在既能揭示关闭的工作面板，也能折叠
@@ -1814,6 +1838,24 @@ D193 和 D194。
 - 决策 D227 细化 D226，且仅涉及渲染器。协议、主机 RPC、IPC 通道与存储
   架构保持不变。参见 `04-ux/08-component-spec.md` §9.2/§9.3/§9.5/§9.10
   与 E2E-129。
+
+## 2026-08-14 — 流中限流走有界重试
+
+> 已于 2026-08-19 被 D245 取代；下面的「只重试一次」行为作为历史决策保留，
+> 不再是现行的 provider 策略。
+
+- 流中出现的 HTTP 429 现在被归类为可重试的 `PROVIDER_RATE_LIMITED`，与
+  `STREAM_FAILED`、`NETWORK_ERROR`、`TIMEOUT` 一起走运行时的同回合有界重放
+  路径：一次 750 ms 可中止的退避，把失败的助手消息从模型上下文移除，然后用同
+  一个可见的助手气泡把该回合重放一次。
+- 重试预算不变 —— 每条提示一次同回合重试。第二次 429 仍是终态，照常发出助手
+  错误以及带 `retryAttempt: 1` 与 `providerStatus: 429` 详情的生命周期 `error`
+  事件，因此转录保留手动重试操作。
+- 请求建立阶段的 429 此前已由 pi-ai 的一次有界重试覆盖（尊重 `Retry-After`，
+  上限 8 秒）；本决策补上流开始之后那层包装无法再介入的空档。
+- 决策 D233 细化 D186，仅涉及运行时。协议、主机 RPC、IPC 通道和存储架构不变。
+  参见 `03-runtime/02-agent-runtime.md` §5d、`03-runtime/08-error-codes.md`、
+  ADR 0091 和 E2E-149。
 
 ## 2026-08-15 — 被停止的修改循环要把话说出来
 
@@ -1974,6 +2016,18 @@ D193 和 D194。
   主进程、代理运行时的 provider binding 以及设置界面。参见 ADR 0095 与
   `03-runtime/14-secrets-storage.md`。
 
+## 2026-08-18 —— 相互独立的厂商 OAuth 账户
+
+- D240 修订 D237 / ADR 0095。提供商行 id 就是 OAuth 账户身份，每次登录都创建
+  一个新行，即使 `vendorKey` 与已有账户相同。每一行各自拥有自己的 pi-ai
+  集合、凭据存储、刷新串行化链和 `secret:provider:<id>:oauth` 引用。
+- 设置现在每个概念只有一个归属：「厂商账户」渲染并移除 OAuth 行；「AI 服务」
+  只渲染 API 密钥 / 自定义行。已连接的 OAuth 行仍可在默认模型控件中被选中，
+  移除它则会清空或修复指向已删除 id 的默认值。
+- sidecar 绑定一组精确的 OAuth 提供商 id，main 按该 id 解析认证。子智能体的
+  厂商 / 名称别名只在唯一时才被接受，因此重复的厂商账户不会被误选。参见
+  ADR 0098、`03-runtime/11-provider-model-system.md` 和 E2E-151。
+
 ## 2026-08-18 —— 内置子智能体继承父会话权限模式
 
 - 内置 `fixer` 不再声明 `permission: accept-edits`；与其他内置定义一样，默认
@@ -1984,6 +2038,37 @@ D193 和 D194。
 - 决策 D242 修订 D231 / ADR 0089。host-core 的外部路径门禁和 containment 检查不变；
   修复移除了意外的内置 scope 覆盖，而没有放宽安全边界。参见 ADR 0100、
   `03-runtime/02-agent-runtime.md` §5f/§5f.1 和 E2E-142。
+
+## 2026-08-18 —— 按模型能力选择图片附件的传输方式
+
+- 剪贴板图片仍是紧凑的结构化输入框引用，不会被插成 base64，也不会被强制变成
+  可见的 `@path` 文本。Electron main 依据会话根目录校验来源，并把图片字节存
+  在 `<data>/attachments/<sha256>` 下；持久化的用户消息只存引用、类型、名称、
+  MIME 类型和大小。
+- 精确的 pi-ai 模型记录决定视觉能力。`input.includes("image")` 的模型通过
+  sidecar 以瞬态 image block 收到合格的图片。未知 / 自定义模型、非视觉模型以及
+  超过 10 MB 内联上限的图片改走安全的 scratch / 项目路径回退；重放的内容存储
+  图片使用会话内的 `replayed/` 副本。渲染器的发现流程不能把未知模型提升为
+  视觉模型。
+- 决策 D243 修订 D197 / ADR 0059 中关于图片的部分。它修复了观察到的 GPT 视觉
+  缺口，既没有把 provider 逻辑搬进渲染器，也没有把二进制数据放进主机持久化。
+  参见 ADR 0101、`03-runtime/01-ipc-protocol.md` §5.1/§13c、
+  `03-runtime/04-data-storage.md`、`04-ux/08-component-spec.md` §11.7–11.8
+  和 E2E-102c–102e。
+
+## 2026-08-19 —— models.dev 成为首选模型目录
+
+- D266 修订 D136 / ADR 0027。Electron main 以有界超时加载公开的
+  `https://models.dev/api.json` 目录，并按厂商 key 或归一化后的 API URL 匹配
+  提供商记录。设置、Composer 和运行时的模型元数据优先使用匹配到的记录。
+- 目录把显示名、上下文 / 输出上限、输入模态、推理选项、工具调用与结构化输出
+  标志以及价格映射到既有的模型界面。请求从不携带 API 密钥或 OAuth 凭据。
+  `catalogSource` 在渲染器元数据里区分 models.dev 与 pi-ai 回退，不改动主机
+  schema。
+- 若远程目录无法加载或没有匹配记录，则由钉住版本的 pi-ai 目录提供已知的原生
+  模型和适配器兼容性。回退之后，自定义或账户特定的提供商发现以及显式 ID 仍然
+  可用。参见 ADR 0133、`03-runtime/11-provider-model-system.md`、
+  `03-runtime/13-model-catalog-and-selection.md` 和 E2E-066/E2E-080/E2E-154。
 
 ## 2026-08-19 — 工作面板成为插件扩展点
 
@@ -2011,6 +2096,35 @@ D193 和 D194。
 - 参见 ADR 0104、ADR 0105、`07-plugins/02-plugin-manifest-schema.md` §4/§5/§7、
   `07-plugins/03-plugin-api.md` §6、`07-plugins/13-plugin-permissions-matrix.md`
   §2/§3、`04-ux/08-component-spec.md` §5 与 E2E-152。
+
+## 2026-08-18 —— 紧凑的上下文用量摘要
+
+- 上下文检查器保留点击 / 键盘触发、剩余百分比、已用 / 窗口计数、本轮合计、
+  已完成回合速度、精确的 provider 数值、聚合工具摘要、检查点摘要、body 级
+  portal、定位、点击外部关闭以及 Escape 焦点返回。
+- 默认面板变成一段简短摘要：回合 / 速度数值去掉外框，provider 与工具用量变成
+  紧凑的行内行；逐工具行、占比条、来源徽章、解释估算的段落和已用容量表盘全部
+  移除。聚合工具总数前的 `~` 仍表示这是估算值。
+- 决策 D244 修订 D103 / D184 / ADR 0047。协议、存储、运行时计量和模型元数据
+  保持不变。参见 ADR 0103、`04-ux/08-component-spec.md` 和 E2E-060d / US-UI-61。
+
+## 2026-08-19 —— OpenCode 风格的有界 provider 429 重试
+
+- HTTP 429 现在在请求建立和流恢复两个阶段都由运行时拥有的同一套策略处理。
+  预算为首个请求之后五次重试，跨阶段共享，并在 pi-ai 内嵌的重试包装里禁用。
+- 重试保持静默且可中止。`retry-after-ms`、`retry-after` 秒数和 HTTP 日期值
+  优先于 2 秒起步的指数退避；正向 25% 抖动与 30 秒上限保证客户端有界。失败
+  响应的状态和头部从 fetch 捕获，因为 pi-ai 常规的响应回调不暴露建立阶段的
+  失败。
+- 主会话与内置子智能体复用可见的助手行，并抑制中间的生命周期 / 错误事件。
+  预算耗尽时发出一个终态 `PROVIDER_RATE_LIMITED` 错误，带
+  `retryAttempt: 5` 与 `providerStatus: 429`；在等待期间中止不会再发起任何
+  后续 provider 请求。
+- 认证、模型选择、请求格式错误和上下文失败仍是终态。其他瞬时 provider 失败
+  仍保留一次建立阶段或流中重试，直到 D258 为它们提供独立的共享有界预算。
+- 决策 D245 修订 D186 与 D233。参见 ADR 0091、
+  `03-runtime/02-agent-runtime.md` §5d、`03-runtime/08-error-codes.md` 和
+  E2E-149。
 
 ## 2026-08-19 — 文件成为第一个内置插件
 
@@ -2073,6 +2187,71 @@ D193 和 D194。
   不变。本次移除只删除 PTY UI、IPC、类型、依赖、打包配置和相关测试。
 - 不新增插件 PTY 权限或内置插件私有替代通道。参见 ADR 0108、E2E-058。
 
+## 2026-08-24 —— Windows 任务栏最小化保留任务栏条目
+
+- 决策 D252 针对 Windows 原生任务栏路径修订 D216 / ADR 0078。点击已聚焦窗口的
+  任务栏按钮完成普通的原生最小化，并保留 PI-Desktop 的任务栏条目。再次点击
+  恢复并聚焦窗口；窗口只是被遮挡时点击该条目仍保持现有的置前行为。
+- 渲染器 / 菜单发起的显式最小化操作仍驻留托盘，macOS / Linux 的原生最小化
+  路径也一样。常驻托盘、后台进程、窗口边界、IPC 和存储契约不变。
+- 参见 ADR 0117、`03-runtime/07-process-model.md`、
+  `04-ux/09-interaction-patterns.md` 和 E2E-124。
+
+## 2026-08-24 —— 渲染器拥有的排队提示与平滑的「立即发送」
+
+- 决策 D253 为智能体运行期间发送的提示增加一个按会话、仅存于渲染器的 FIFO
+  队列。队列保存可见的提示及其草稿快照，支持单独移除，切换会话后依然存在，
+  并有意不做持久化、重启后不重放。
+- 输入框只有一个提交槽位。运行进行中时，非空草稿显示「发送」并追加到队列；
+  空草稿显示「停止」，因此用户清空草稿即可露出立即停止操作。所属会话的
+  `agent_end` 之后，渲染器通过既有的 `agent/prompt` 路径排出一项。「立即发送」
+  把一项提升到队首并调用增量的 `pi-desktop/agent/stop`；sidecar 设置
+  pi-agent-core 的一次性 `shouldStopAfterTurn` 标志，于是当前的助手回复 / 工具
+  批次跑完、持久化回合正常关闭之后，优先的提示才开始。立即中止保持现有行为，
+  且从不清空队列。
+- 这改变了渲染器状态归属并新增一个公开的 Electron IPC 通道，但不改动 host-core
+  协议 v9、存储架构 v11 或「同时只有一个运行中回合」的约束。参见 ADR 0118 和
+  E2E-011f。
+
+## 2026-08-24 —— 子智能体采用事件驱动的空闲与总时长超时
+
+- 决策 D254 用 600 秒的空闲看门狗和 21,600 秒的总时长上限取代默认的子智能体
+  回合数上限。空闲计时器在回合、消息和工具生命周期事件时重置，并在工具执行
+  期间暂停；总时长计时器包含工具执行。（由 D260 修订：空闲默认值现为 300 秒，
+  且每个智能体事件都会重置计时器。）
+- 超时返回 `timed_out`，并带 `SUBAGENT_IDLE_TIMEOUT` 或
+  `SUBAGENT_DURATION_TIMEOUT`，尽可能保留最新的部分助手输出。provider 致命
+  错误、父级中止和按定义显式设置的 `maxTurns` 保持不变。
+- `maxTurns` 现在可选（`none`、`0` 和省略都表示无限制），显式值上限 80。定义
+  可以在文档给出的范围内通过 `idle-timeout` 和 `max-duration` 覆盖看门狗；非法
+  值告警并回退到默认。（由 D260 修订：各内置定义都声明一个显式的兜底回合数，
+  而不是无限运行。）
+- 内置 `explorer` 获得 `Bash` 用于有界的仓库检查，`code-reviewer` 仍为只读。
+  共享状态类型、运行时计时、委托拓扑、i18n 和 E2E 覆盖都暴露新的超时结果。
+- 参见 ADR 0119、`03-runtime/02-agent-runtime.md` §5f、
+  `03-runtime/08-error-codes.md`、`03-runtime/09-logging-and-observability.md`
+  和 E2E-155。
+
+## 2026-08-25 —— 折叠工作面板恢复基础窗口边界
+
+- 决策 D255 取代 ADR 0033。渲染器仍把工作面板布局为文档流内的 flex 列，但在
+  呈现它之前先请求一份等于已提交面板宽度的原生预留。退出时面板保持挂载，直到
+  零宽度预留成功为止，因此折叠右侧面板会让应用窗口回到仅聊天的边界，而不是
+  让 MainChat 吞掉释放出来的那一列。
+- 目标状态预留规划器、受限显示器下的行为、Browser 的测量边界同步、由 Main
+  拥有的原生边缘调整大小，以及会话作用域的面板状态都保持不变。参见 ADR 0122
+  和 E2E-056。
+
+## 2026-08-25 —— 窗口控件使用原生任务栏最小化
+
+- 决策 D256 针对 Windows / Linux 的渲染器与原生菜单最小化操作修订 D216 /
+  D252。自定义的右上角最小化按钮现在使用操作系统原生的最小化过渡，因此任务栏
+  条目仍可用于恢复；关闭到托盘仍只由记住的关闭行为控制。
+- macOS 的原生最小化仍驻留托盘；常驻托盘、关闭偏好、IPC 形状、主机协议和后台
+  生命周期在其他方面不变。
+- 参见 ADR 0123、`03-runtime/01-ipc-protocol.md`、
+  `04-ux/09-interaction-patterns.md` 和 E2E-124。
+
 ## 2026-08-27 —— 智能体能力页面合并为一个工作台
 
 - 决策 D257 细化 D193 / D194，并取代 D202 中关于设置 > 智能体 > 技能 / MCP /
@@ -2087,6 +2266,76 @@ D193 和 D194。
   或 schema 变更。D193 / D194 / D202 里关于能力状态、优先级和 `.agents` 路径的
   规则全部不变。
 - 参见 ADR 0126、`04-ux/06-settings-ia.md` 和 E2E-103。
+
+## 2026-08-27 —— 发布文档是版本面（D260）
+
+- 稳定版应用的版本提升 / 打标签**必须**在打标签之前更新每一个带版本的面：
+  已发布语言的变更日志及其测试清单、所有工作区包的版本（包括此前被跳过的
+  `docs/package.json`）、Cargo 工作区 + `host-core` 锁文件的版本、`APP_VERSION`，
+  以及 `README.md` / `README.zh-CN.md` 中声明的发布线（D260，扩展 D164）。
+- `scripts/check-release-docs.mjs` 校验整套内容；`scripts/release.mjs` 在提升
+  版本后调用它，失败时拒绝提交或打标签。
+- 已写入发布运行手册 §4.1、AI 开发工作流矩阵 + 完成定义 + 禁止做法、变更清单
+  和 `AGENTS.md`。
+
+## 2026-08-26 —— 瞬时 provider 失败共享一份有界重试预算
+
+- 决策 D259 修订 D186 / D245 与 ADR 0050 / ADR 0091。非 429 的瞬时 provider
+  失败现在在请求建立和流传输两个阶段共享一份有界预算：首次尝试之后四次重试，
+  因此上游网关的 502/503/504 无论出现在响应头之前还是流中都能恢复。只重放
+  失败的那次请求；会话及其工具状态不受影响。
+- 该预算接纳 `NETWORK_ERROR`、`TIMEOUT`、`STREAM_FAILED` 和可重试的
+  `PROVIDER_ERROR`。非 429 的延迟依次尊重 `retry-after-ms`、`retry-after` 秒数、
+  HTTP 日期，然后才是确定性的 1s/2s/4s/8s 序列，上限 8 秒；凡是能声明延迟的
+  状态都会保留捕获到的头部。
+- 主会话、内置子智能体和一次性输入框增强共用同一策略。429 的五次重试预算
+  保持独立。预算耗尽记录 `retryAttempt: 4`。
+- 认证、模型选择、请求格式错误和上下文失败仍是终态。不改动 IPC、存储、主机
+  协议或 provider 配置。
+- 参见 ADR 0128、`03-runtime/02-agent-runtime.md` §5d、
+  `03-runtime/08-error-codes.md`、E2E-096 和 E2E-149。
+
+## 2026-08-27 —— 子智能体空闲看门狗限制的是沉默，不是慢
+
+- 决策 D260 修订 D254。每个智能体事件都会重新武装空闲计时器，包括以
+  `message_update` 到达的单个流式 token，因此看门狗只在完全无响应时触发。
+  持续产出的委托无论回合多慢都不会被空闲终止，工具执行期间的暂停不变。
+- 由于这个窗口现在度量的是「空气死寂」而不是工作量，默认空闲超时从 600 秒
+  降到 300 秒；它按实测的委托最后一个流式 token 到下一次响应之间 174 秒的
+  p99.9 等待来定，而不是按工作可能需要多久。它必须低于 600 秒的 `TaskWait`
+  默认值，这样真正卡住的委托能在一次等待内落定为 `timed_out`，而不是拖住
+  父级整整一个窗口甚至更久。21,600 秒的总时长上限和 10–21,600 的覆盖范围
+  不变。
+- `TaskWait` 到期现在报告「Still running after Ns」，并说明这不是失败、委托
+  仍在工作，这样父级不再把一次普通的未完成等待当成失败的委托。
+- 各内置定义获得与其职责匹配的回合兜底 —— `explorer` 60、`code-reviewer` 50、
+  `test-runner` 40、`fixer` 80 —— 取代无限回合，因此循环不收敛的委托会以
+  `truncated` 结束并带上部分报告，而不是一直跑到总时长上限。
+- 不改动 IPC、存储、主机协议或 provider 配置。参见 ADR 0129、
+  `03-runtime/02-agent-runtime.md` §5f、`03-runtime/08-error-codes.md` 和
+  E2E-155。
+
+## 2026-08-27 —— 已挂载的转录是一个窗口，而不是已加载的历史（D261）
+
+- 决策 D261 在渲染器中细化 ADR 0120 / D258。它们限定了什么可以跨过 IPC 边界、
+  定位一页要花多少代价；但渲染器仍然把分页取回的每一行都挂载出来，并在会话
+  整个生命周期里保持挂载。
+- 已挂载的历史变成一个尾部窗口：会话切换后的第一次提交挂 15 行，稳态 60 行，
+  每次增长 40 行。到达顶部时，窗口未满则先增长；只有当窗口覆盖了全部已加载
+  历史，才去取更早的一页。
+- `content-visibility: auto` 本来已经跳过了这些屏外行的布局与绘制，但它保留
+  了它们的 React 树、Markdown AST 和 Shiki token 数组 —— 在低内存的 Windows
+  机器上这是错的资源，而报告聊天区在长会话中越来越迟钝的正是这种机器。
+  窗口化同时限制了驻留内存和每帧的协调开销。
+- 窗口增长与取回一页采用相同的绘制前滚动锚定，因为两者都在阅读位置上方增加
+  高度。窗口按会话重置并钳制在已加载历史之内，因此过期的预算不会过度挂载。
+  水合占位条只作用于第一次提交：稳态窗口下方若有永久占位条，会在增长触发点
+  之前放一个空白视口。
+- 会话小地图由已挂载的条目构建。它通过在滚动容器里找到标记对应的节点来响应
+  点击，因此若用完整集合，画出的短线会跳到无处。代价是浏览器自带的页内查找
+  只能触及已挂载的行。
+- 不改动 IPC、存储、主机协议或分页。参见 ADR 0130、
+  `04-ux/08-component-spec.md` §8 和 E2E-159。
 
 ## 2026-08-28 —— 大段文本粘贴成为会话临时文件引用（D262）
 
@@ -2239,6 +2488,29 @@ D193 和 D194。
 - 参见 `04-ux/06-settings-ia.md`、`04-ux/07-ui-design-system.md`、E2E-038 和
   US-UI-23。
 
+## 2026-08-29 —— 历史续接让会话大纲始终可达（D269）
+
+- 决策 D269 在渲染器中修订 D108 / D261 / ADR 0130。D261 把已挂载历史变成尾部
+  窗口，并把已挂载条目喂给小地图，因此没有短线能指向被扣留的行。这在短线上
+  是对的，但让大纲对它藏起来的历史无话可说；随后 D108 的可见性规则又在已
+  挂载尾部少于两个标记或能放进一个视口时把整条导轨移除。
+- 两种过渡让这种情况在正常使用中就会出现：有界尾部可能是一个塌缩到不足一屏
+  的工具密集回合，取回的更早一页也可能整体落在尾部挂载窗口之外。两者都不一定
+  改变 `scrollTop`，而唯一的升级触发是原生滚动事件，于是向上的行程可能在磁盘
+  上还有更早历史、却没有导轨可用的情况下停下。
+- 现在只要还有更早的历史 —— 已加载但被扣留的行（`hiddenAbove > 0`）或主机上
+  更早的一页（`hasMoreBefore`）—— 大纲就保持存在，并在顶部带一条点状的
+  「更早历史」续接项。它是真正的控件，不是消息短线：走同样的两阶段先增长后
+  取页路径，页在加载时禁用并标注，从不声称有消息预览。普通消息短线仍只由
+  已挂载行构建，因此 D261 的可达性规则严格成立。
+- 推进不再依赖滚动事件。转录既有的顶部加载行就是被观察的边界：在尾部不足一
+  屏、取回但被扣留的一页或窗口过渡之后，只要它仍停在近顶带内，转录就持续
+  升级。近顶滚动检查不变，且现在与观察器共用一个阈值常量。
+- 一旦不再有更早历史，D108 的「两个标记 + 溢出」规则原样适用，因此已完成的
+  短会话仍不显示导轨。仅涉及渲染器：不改动 IPC、存储、主机协议或分页，挂载
+  窗口预算也不动。
+- 参见 `04-ux/08-component-spec.md` §7 与 §8、ADR 0130 和 E2E-159。
+
 ## 2026-08-30 —— 两种凭据共用一个模型选择器（D270）
 
 - 决策 D270 在渲染层细化 D237 / D240。设置 → 模型配置此前带着同一个模型选择器的
@@ -2335,6 +2607,51 @@ D193 和 D194。
   `04-ux/08-component-spec.md`、`04-ux/09-interaction-patterns.md`、
   E2E-011、E2E-071d 和 E2E-071g。
 
+## 2026-08-31 —— 并发子智能体可以直接互相传递消息（D277）
+
+- 决策 D277 扩展 D201 / ADR 0062 / ADR 0089，不修订它们。一个会话作用域的邮箱
+  让并发的委托通过一个可选加入的工具 —— `Peer(action=...)` —— 交换有界文本，
+  可在定义的 `tools:` 列表中声明。`action` 参数选择操作：`send`（带 `to?`、
+  `text`、`topic?`、`inReplyTo?`）、`inbox`（带 `from?`）或 `wait`（带
+  `timeoutSeconds?`、`from?`）。这三个操作最初是三个工具
+  （`PeerSend` / `PeerInbox` / `PeerWait`）；ADR 0140 把它们并成一个工具，
+  让对等消息在计数和阅读上都是单一能力。
+- 它存在的原因是父级在任何委托开始之前就写好了每一份简报，因此不可能总是
+  知道各方向彼此独立。路径锁能防止撕裂写入，却防不住过期前提；而通过一个
+  阻塞在 `TaskWait` 里的父级转发便条，会耗掉委托本来要保护的上下文。
+- 可选加入且默认关闭：没有内置定义声明 `Peer`，因此每个现有定义都保持
+  ADR 0062 的隔离。只声明 `Peer` 而没有任何工作工具的定义在 `Task` 时被拒绝。
+- 按智能体名称寻址，从不按委托 id；发送者由运行时在 spawn 时绑定，因此
+  `from` 不是模型输入。`Peer` 工具按委托单独构建，不进入会话工具目录，因此
+  父级没有通往委托的第二条通道。
+- 消息在进程内：没有 `permissionScope`、没有 host-core 调用、不占工具预算。
+  上限为每条消息 2,000 字符、每个收件箱 64 条（丢弃最旧的并报告丢失）、每次
+  运行 60 次发送，以及低于 300 秒空闲看门狗的 120 秒等待上限。排空是破坏性的。
+- 对等流量从不进入父级的模型上下文，委托会被告知它的报告仍是父级唯一读取的
+  内容。没有跨会话消息、没有与父级的消息、没有嵌套委托、没有持久历史。
+- 仅涉及运行时和 shared：不改动 IPC、存储、主机协议或渲染器，也不改动
+  `AgentEventEnvelope` —— 对等消息本来就是一次由 `parentToolCallId` 和
+  `agentName` 归属的委托工具调用。参见 ADR 0138、ADR 0140、
+  `03-runtime/02-agent-runtime.md` §5f.2 和 E2E-165。
+
+## 2026-09-01 —— 子智能体模型选择（D278）
+
+- 决策 D278 在智能体运行时和 provider 模型系统中扩展 D201 / ADR 0062 /
+  ADR 0089。`Task` 工具获得可选的 `model` 参数（`"provider/modelId"`），在该次
+  运行中覆盖委托 frontmatter 钉住的模型。解析优先级：Task.model → 定义
+  frontmatter 钉住值 → 会话模型。
+- `ModelBinding.availableForSubagents`（布尔值，默认 false）是 provider 模型
+  绑定上的可选加入标志。启用后，该模型出现在注入父智能体系统提示的委托目录
+  里。父级看到的模型摘要列出所有可用于委托的模型。
+- 父级指定的模型未配置或未启用委托时，Task 工具返回一个列出可用模型的工具
+  错误。与当前会话 provider/model 完全相同的重复视为继承，等价于省略
+  `model`，因此空的委托目录不会把父级模型变成一个假的「模型不可用」错误。
+- sidecar 启动时未预解析的模型通过发往 Electron main 的
+  `provider.resolveSubagentModel` RPC 按需解析，凭据和 models.dev 快照都在
+  那里。
+- 参见 `03-runtime/02-agent-runtime.md` §5f、
+  `03-runtime/11-provider-model-system.md` §7 和 E2E-166。
+
 ## 2026-09-01 —— 原生窗口边缘调整大小在恢复前等待稳定（D279）
 
 - 决策 D279 保留 Electron 在所有平台上的原生窗口边缘和角落调整大小所有权，
@@ -2380,6 +2697,18 @@ D193 和 D194。
 - 自定义标题会继续阻止首条 prompt 的自动标题生成。保存及重启后，侧边栏、顶栏、
   项目存档和搜索都从当前摘要显示标题。参见 ADR 0143 和 E2E-021a。
 
+## 2026-09-01 —— 用户可配置的思考等级覆盖（D283）
+
+- `ModelInfo` 仍是原始的 models.dev 记录。已有的 `ModelBinding` 不再覆盖其
+  发布的推理字段或能力标签，因此目录中的推理模型在设置里仍按推理模型显示。
+- 设置始终渲染七个规范思考等级。发布的等级为新的已知模型绑定提供初始值；
+  未知模型和目录中的非推理模型显示同一组未选中的选项，可以为兼容端点显式
+  启用。
+- 精确的模型绑定决定有效的思考能力。它的显式等级在保存时被保留，并由
+  Composer、Electron main 和 sidecar 直接使用，不与目录求交集。空或仅 `off`
+  的绑定解析为 `off`；没有自动的推理推断。不改动 IPC、存储或主机协议。参见
+  ADR 0144 和 E2E-005/E2E-050/E2E-162/E2E-163。
+
 ## 2026-09-01 —— 设置导轨采用紧凑标签层级（D284）
 
 - 设置导航使用简洁且处于同一层级的目的地标签：常规、AI、快捷键、指令、模型、
@@ -2400,6 +2729,17 @@ D193 和 D194。
   与矩阵条目不匹配的运行器架构。
 - macOS 更新源会在上传工件前按架构重命名，并在发布阶段合并为一个
   `latest-mac.yml`。在签名的应用内通道完成资格验证前，macOS 仍使用通知和链接模式。
+
+## 2026-09-02 —— 工作面板外侧与内侧调整大小的归属（D286）
+
+- 右侧工作面板打开时，外侧的原生右边缘和右侧角落调整的是面板目标宽度
+  （`244..720px`），同时保持基础会话宽度不变。Main 通过一个 Electron 本地事件
+  预览并提交该目标；左侧和其他原生边缘仍调整基础聊天宽度。
+- 内侧的渲染器分隔条通过有界的 `window/setWorkPanelChatWidth` 通道
+  （`1040..10000px`）调整基础会话宽度，面板预留保持不变。指针更新被串行化，
+  取消时恢复按下时的目标值。
+- 这是 Electron 本地的行为改动；主机协议仍为 v9。参见 ADR 0146 和
+  E2E-056/E2E-167。
 
 ## 2026-09-03 —— 转录落定遮罩与绘制前贴底（D287）
 
@@ -2435,6 +2775,66 @@ D193 和 D194。
   排空）插入其渲染缓存，回显也落在那里。
 - 编辑重发走同一路径：改写后的提示立刻替换旧行，主机回显再将其落定。参见
   E2E-071i。
+
+## 2026-09-03 —— 显式禁用应用键盘快捷键（D289）
+
+- 应用快捷键覆盖有三种状态：属性缺失使用平台默认值，合法的可移植绑定字符串
+  表示自定义，显式的 JSON `null` 表示「未绑定」（Unbound）且不派发任何操作。
+  非法字符串保留现有的安全回退到默认值。
+- 设置把「禁用」与「恢复默认」分开展示，并渲染本地化的未绑定状态。未绑定的
+  操作不参与冲突检测，且仍可编辑。这份共享状态驱动渲染器匹配、macOS 菜单
+  加速键和全局插件启动器。
+- 解绑 `openPluginLauncher` 会注销任何先前的 Electron 全局快捷键、禁用 Windows
+  宿主钩子并移除聚焦窗口回退。宿主钩子在 Electron 应用有效设置之前保持禁用。
+  可配置的 macOS 原生角色菜单项在解绑时变为无角色的可点击项，使 Electron 无法
+  恢复其默认加速键。
+- 现有的设置 JSON、IPC 方法、协议版本、存储架构和插件本地快捷键契约保持不变。
+  参见 ADR 0148 和 E2E-072。
+
+## 2026-09-04 —— 转录中平静的运行状态动效（D290）
+
+- 用静态可读文本加紧凑的状态标记，取代「工作中」指示器和实时活动标签所用的
+  高对比文字闪光。流开始前的「工作中」指示器使用三个错开的小圆点；活动中的
+  活动标签使用一个小脉冲标记，而工具旋转指示和既有的助手流式导轨保留各自的
+  状态反馈。
+- 标记脉冲对合成器友好，循环上限一秒，并在 `prefers-reduced-motion` 下禁用；
+  状态仍以静态文本和圆点保持可见。不改动协议、存储或运行时行为。参见 ADR
+  0149 和 E2E-053/E2E-083。
+
+## 2026-09-04 —— 用平静的行内智能体标记取代空首页的吉祥物精灵图（D291）
+
+- 用一个 100px 的行内 SVG 取代空首页主视觉里随机的位图姿势图集，SVG 包含一个
+  紧凑的中性智能体、一圈细轨道和一个信号点。核心缓慢呼吸，眼睛偶尔眨动。
+- 该标记是确定性的装饰元素。指针悬停不改变它的节奏或几何；减少动效时冻结其
+  CSS 动画，同时保持同样的尺寸、位置和语义颜色。
+- 不改动协议、存储或运行时行为。参见 ADR 0150 和 E2E-046/E2E-099/US-UI-17。
+
+## 2026-09-04 —— 让工作面板留在固定的应用窗口内（D292）
+
+- 工作面板仍是文档流内的右侧列。打开与折叠通过在现有客户区内做 flex 分配
+  动画完成，而不是扩大或缩小原生 BrowserWindow。
+- 渲染器拥有的内侧分隔条调整持久化的 `244..720px` 面板宽度；原生窗口边缘只
+  调整应用窗口，从不改写面板偏好。Escape、取消和丢失指针捕获都恢复按下时的
+  面板宽度。
+- `window/setWorkPanelReservation` 接缝为兼容而保留，但把每个合法请求归一化为
+  `{ requested: 0, reserved: 0 }`。原生 Browser 视图仍跟随渲染器测量的面板
+  矩形。参见 ADR 0151 和 E2E-056/E2E-160/E2E-167。
+
+## 2026-09-04 —— 空首页播放八帧挥手吉祥物（D293）
+
+- 用一张经处理的八帧 GIF 取代空首页的行内 SVG 智能体标记，占用现有的 100px
+  槽位。循环先短暂停留在待机帧，然后播放挥手；指针悬停不改变节奏。
+- 减少动效时通过 CSS 把 GIF 换成静态的第一帧 PNG。该标记保持装饰性，没有随机
+  选择、JavaScript 计时器或悬停状态。
+- 不改动协议、存储或运行时行为。参见 ADR 0152 和 E2E-046/E2E-099/US-UI-17。
+
+## 2026-09-04 —— 按主题区分的空首页吉祥物 GIF（D294）
+
+- 用专门的浅色和深色八帧素材加对应的静态 PNG 取代单一的空首页吉祥物 GIF。
+  CSS 跟随 `document.documentElement[data-theme]`；除 `light` 以外的值都使用
+  深色那一对。
+- 减少动效时仍换成当前主题的第一帧 PNG。播放、悬停和装饰角色不变。
+- 不改动协议、存储或运行时行为。参见 ADR 0152 和 E2E-046/E2E-099/US-UI-17。
 
 ## 2026-09-04 —— 通知收件箱只列出失败（D295）
 
@@ -2632,6 +3032,37 @@ D193 和 D194。
   不变，`revisionIndex` 是可选参数。见 `03-runtime/04-data-storage.md` §4.9
   与 `03-runtime/06-host-rpc-protocol.md`。
 
+## 2026-09-05 —— 智谱 / Z.AI 命名端点预设（D308）
+
+- 添加智谱要先知道四个 URL 中该粘贴哪一个。添加提供商对话框现在提供一个
+  「服务」选择器，包含中国区和国际标准 API 以及 GLM Coding Plan。选中一项会
+  填入名称、锁定公布的 Base URL，并存储 models.dev 的 `vendorKey`。
+- 行仍是 `openai_compatible` + `chat_completions`。pi-ai 已经能与这些主机对话；
+  PI-Desktop 不新增智谱 apiStyle 或 SDK。
+- 匹配 URL 或 vendorKey 的补全请求会设置 `thinkingFormat: "zai"` 与
+  `zaiToolStream: true`，因为存储的提供商 id 是 UUID，无法使用 pi-ai 按
+  `zai` / `zai-coding-cn` 提供商名的检测。
+- 决策 D308 修订 D024。参见 ADR 0155、`03-runtime/11-provider-model-system.md`、
+  `03-runtime/12-provider-config-schema.md` 和 E2E-005D。
+
+## 2026-09-05 —— 添加提供商的常见路径是「服务 + 密钥」（D309）
+
+- 添加提供商表单原先把服务、名称、Base URL、API 密钥和 API 格式堆在一起。
+  命名端点本来就知道名称、URL 和线路格式。
+- 新对话框从「服务」开始。命名的智谱 / Z.AI 和 OpenCode Go 随后显示服务 +
+  API 密钥和一段主机摘要。自定义端点随后显示名称、Base URL 和 API 密钥。
+  「高级」保留名称（命名端点）和 API 格式（自定义端点）。
+- OpenCode Go 移入「服务」选择器，用户不必再到 API 格式下面找它。
+- 决策 D309 修订 D308。参见 ADR 0156、`04-ux/06-settings-ia.md` 和
+  E2E-005 / E2E-005B / E2E-005D。
+
+## 2026-09-05 —— 自定义格式放在密钥旁；models.dev 头部厂商（D310）
+
+- 自定义端点现在把 API 格式放在 API 密钥旁边，而不是「高级」里。
+- 「服务」先列出由 models.dev 支撑的国际与中国一方端点，每个都带公布的 URL
+  和线路风格。
+- 决策 D310 修订 D309。参见 `04-ux/06-settings-ia.md` 和 E2E-005。
+
 ## 2026-09-05 —— 可搜索的服务选择器，发现不再卡顿（D311）
 
 - 「服务」原先是带分组的原生下拉框，在对话框里打开很卡，也无法过滤约 20 个厂商。
@@ -2667,6 +3098,22 @@ D193 和 D194。
 - `AppSettings.theme` 以及不可用插件主题回退到 `system` 不变。
 - 决策 D316 修订 ADR 0160。见 ADR 0161、`04-ux/06-settings-ia.md` 与 E2E-091。
 
+## 2026-09-05 —— A2A 寻址跨越同一宿主上的会话（D318）
+
+- 决策 D318 修订 ADR 0147。本地 A2A broker 仍留在 host-core，带能力令牌认证和
+  持久化任务；「仅限同一上下文」的发现与发送限制被解除，因此两个处于不同打开
+  会话中、具备 A2A 能力的委托可以协作。
+- `a2a.agents.list` 返回所有其他活跃智能体；卡片携带 `contextId`。
+  `a2a.message.send` 可以寻址任何已注册的对端（省略 `to` 时仍优先同会话对端）。
+  任务访问按成员资格 —— 请求方或执行方 —— 而不是按上下文。
+  `A2A_CROSS_CONTEXT_DENIED` 保留在线路列表中，但不再产生。
+- 活跃对端 id 在整个注册表内唯一：冲突的 `card.name` 在注册时加后缀去重，运行
+  时采用返回的 `agentId`。`a2a.task.event` / `a2a.push` 增加
+  `recipientContextId`；每个会话运行时只在该字段与自己的 `sessionId` 匹配时才
+  投递事件。
+- 不变：父级不能调用 `A2A`，已落定的委托会注销，没有嵌套委托，没有远程智能体。
+  参见 ADR 0162、`03-runtime/02-agent-runtime.md` §5f.2 和 E2E-165c。
+
 ## 2026-09-05 —— 实时/持久化记录合并保持时间顺序（D317）
 
 - 再验证一个仍在跑的会话时，曾把有界持久化页当作数组前缀，把每条实时独有行追加在后面。长会话一旦积累超过最新 100 条，D261 的尾部挂载窗口就会把旧历史画在底部，刚发送的用户提示被藏起来，回合却继续跑。停止后再切换一次看起来像“恢复”，是因为空闲路径跳过了这次合并，只显示持久化页。
@@ -2679,11 +3126,42 @@ D193 和 D194。
 - 主机启动现在会恢复每一个 sessions 行缺失的活 JSONL，重新插入该行并根据文件重建搜索索引。`session.appendMessage` 做同样的恢复；文件也不在时用同一个 id 插入占位行，以便排队的 outbox 能排空。`session.delete` 丢掉该会话的 outbox 条目，以免占位把用户已删除的对话救回来。
 - 决策 D318 修订 ADR 0041 / D119。见 `03-runtime/04-data-storage.md`、`03-runtime/07-process-model.md` 与 E2E-178。
 
+## 2026-09-05 —— 父智能体跨对话协作（D321）
+
+- 决策 D321 修订 ADR 0147 / ADR 0162。Agent 模式的会话运行时在其生命周期内
+  注册一张 `kind: "parent"` 的 A2A 卡片，并把 `A2A` 作为核心父级工具暴露出来，
+  因此同一宿主上的两个对话可以协作。
+- 发现与发送按 kind 划定范围：父级看到其他父级，子智能体看到其他子智能体。
+  父级不能寻址子智能体，包括它自己的，因此 `Task*` 仍是通往委托的唯一通道。
+- 入站的父级事件排队；空闲会话把它们前置到下一条用户提示，而不是自动开始
+  一个回合。一个对话在本进程拥有 Agent 运行时之后才可达。
+- 参见 ADR 0164、`03-runtime/02-agent-runtime.md` §5f.2 和 E2E-165d。
+
 ## 2026-09-05 —— 已发送的文件引用保持芯片并可点击打开（D320）
 
 - 输入框芯片发送后变成完整 `@path` 文本，用户刚放进输入框的节点被挤成一长串路径；临时目录的绝对路径也无法点击。
 - 对话区现在把这些标记画成与输入框一致的叶子名芯片。工作区 HTML 在侧边浏览器预览；其余允许的文件通过 `pi-desktop/fs/open` 用系统默认应用打开。
 - 决策 D320 修订 D209 / ADR 0070。见 ADR 0163、`04-ux/08-component-spec.md` §8.3 / §11.8、`04-ux/09-interaction-patterns.md` §8a.2、`03-runtime/01-ipc-protocol.md` 的 fs，以及 E2E-180。
+
+## 2026-09-05 —— 转录中的相对路径可预览并打开（D322）
+
+- 助手 Markdown 里的相对文件路径经常不可点击，而在查看的 Markdown 文档中，
+  `./` / `../` 链接是从工作区根目录而不是该文件所在目录解析的。
+- 渲染器现在把 Markdown 中裸露的工作区文件标记链接化，并在文件标签页预览
+  Markdown 时把 `./` / `../` 相对于当前查看的文件解析。向上逃逸的父路径保持
+  惰性。remark 插件是一个 unified attacher，因此打开会话不会因 `tree.type`
+  崩溃。
+- 决策 D322。参见 `04-ux/08-component-spec.md` §8.3 和 E2E-182。
+
+## 2026-09-05 —— 实时的父级回合保持透明（D323）
+
+- D297 用整回合的 `--ds-tile` 取代了流式左导轨，这样色调淡入淡出不会让文本
+  重排。但这把普通的思考、工具和答案片段像子智能体卡片一样装进了盒子。
+- 正在流式输出的父级回合现在与已完成回合一样留在页面背景上：没有导轨、没有
+  预留的 14px 缩进、没有整回合的 tile。tile 只保留在委托卡片（D319）和嵌套
+  的 `.subagent-run` 上。
+- 决策 D323 修订 D101 / D297。参见 `04-ux/08-component-spec.md` §8.4 / §9.9 和
+  E2E-059a / US-UI-60。
 
 ## 2026-09-05 —— 空闲切换保留尚未刷入的已完成尾巴（D324）
 
@@ -2691,12 +3169,55 @@ D193 和 D194。
 - `selectSession` 现在对仍有实时来源的空闲会话也合并实时行，和仍在运行的会话一样。只有当持久化页包含每一个实时 id 时才清掉实时标记。
 - 决策 D324 修订 D317 / ADR 0137。见 `04-ux/09-interaction-patterns.md` 的会话隔离，以及 E2E-183。
 
+## 2026-09-05 —— 父级 A2A 始终在 Agent 目录中（D325）
+
+- D321 只在 broker 成功签发令牌之后才注册父级，然后把 `A2A` 注入目录。注册
+  迟到或失败会让模型没有 `A2A` 工具。`ToolSearch` 也从不列出核心工具，于是
+  模型把按需查找未命中当成「A2A 不存在」。
+- Agent 模式现在在运行时构造时就把 `A2A` 放进核心目录。首次调用（或首条
+  提示）签发令牌。该工具从不延迟。只要模式是 Agent，跨对话指引就在 Agent
+  系统提示里，而不只在注册之后。
+- 决策 D325 修订 ADR 0164 / D321。参见 `03-runtime/02-agent-runtime.md` §5f.2
+  和 E2E-165d。
+
+## 2026-09-05 —— 撤回 A2A 与 Peer 协作（D326）
+
+- 进程内的 `Peer` 邮箱（D277 / ADR 0138 / ADR 0140）和 host-core 的 A2A 栈
+  （ADR 0147 / ADR 0162 / ADR 0164 / D318 / D321 / D325）被撤回。没有兄弟通道，
+  也没有父级到父级的通道。
+- `A2A` 与 `Peer` 不是核心工具、不是可分配的子智能体工具，也不是 `ToolSearch`
+  的结果。命名了任一者的定义被视为未知工具，带解析告警丢弃。
+- 握手协议版本从 10 升到 11，不再宣告 `"a2a"`。存储架构从 12 升到 13，并删除
+  A2A 表。v10/v11 混合配对在握手时被拒绝。
+- 决策 D326 记录为 ADR 0165，它取代 ADR 0147、ADR 0162 和 ADR 0164。参见
+  `03-runtime/02-agent-runtime.md` §5f.2、
+  `03-runtime/03-tools-and-permissions.md` §10.2、
+  `03-runtime/06-host-rpc-protocol.md` §3–§4 和 E2E-165。
+
 ## 2026-09-06 —— 已完成回复在进程重启后仍然存在（D327）
 
 - 回合结束后关闭应用再打开，只剩用户提示（issue #42）。用户行在模型运行前就落盘；助手/工具行走异步 outbox，在 `message_end` 之后才写入。D324 在同进程切会话时缝上了这些实时行；进程退出后渲染器内存没了。
 - `message_end` 现在在 outbox 追加之前检查点完成快照，`settleIf` 不会清掉写入期间开始的新回合。`completed`/`error` 的 `session.endTurn` 仅在该 id 已索引时才删除 `.inflight.json`。启动恢复把回合已是 `completed` 的残留检查点提升为 `complete` 助手行，而不是 `aborted`。
 - 主机握手在渲染器能够 `session.get` 之前等待 outbox 排空，然后 `session.recoverInflightMessages` 提升 outbox 未能落盘的已完成残留检查点。启动恢复会跳过已完成残留，以便完整的 outbox 行先写入。
 - 决策 D327 修订 D299 / ADR 0153 / ADR 0041。见 `03-runtime/04-data-storage.md` §2.1 和 §5、`03-runtime/07-process-model.md` §5、`03-runtime/10-session-state-machine.md` §4、E2E-171 和 E2E-184。
+
+## 2026-09-06 —— 由父级判断子智能体寿命（D328）
+
+- 父智能体之前会中止未完成的委托：`TaskWait` 到期、模型收尾，然后 `agent_end`
+  杀掉残留的运行。空闲和总时长看门狗则是第二条独立的杀死路径。
+- 决策 D328 修订 ADR 0089 / ADR 0119 / ADR 0129。运行时不再武装空闲或总时长
+  计时器。父级空闲不会中止委托。委托完成时，运行时在同一个持久化回合内把
+  它们的报告作为提示交给父级。`TaskList` / 超时的 `TaskWait` 携带心跳。只有
+  `TaskStop` 和用户的「停止」会中止委托。
+- 参见 ADR 0166、`03-runtime/02-agent-runtime.md` §5f 和 E2E-155。
+
+## 2026-09-06 —— 由智能体选择的 Bash 超时（D329）
+
+- 300 秒的 Bash 覆盖上限会杀掉长构建，并拒绝显式的 `timeout: 600` / `1800`。
+  默认 60 秒不变。
+- 决策 D329 修订 D190 / D273 / ADR 0054：接受 1–21,600 秒；超过该上限的值视为
+  毫秒，转换后再钳制。超时和中止仍会杀掉整个进程树。
+- 参见 ADR 0167、`03-runtime/03-tools-and-permissions.md` §5 和 E2E-115。
 
 ## 2026-09-06 —— 主进程拥有的 openExternal 白名单（D330）
 
@@ -2753,6 +3274,52 @@ D193 和 D194。
 - 随应用打包的 `pi.advisor` 证明这条通道：默认关闭，用户启用后用 `/advisor` 选择评审模型；执行模型调用 `plugin_pi_advisor_advisor` 获取第二意见。
 - 决策 D336 记录为 ADR 0174。见 `07-plugins/03-plugin-api.md`、`07-plugins/13-plugin-permissions-matrix.md` 与 E2E-188 / E2E-189。
 
+## 2026-09-07 —— OpenCode Go 会话路由头（D337）
+
+- OpenCode Go 会拒绝缺少 `x-opencode-session` 的 LLM 请求（`MissingSessionID`）。
+  pi-ai 0.85 不发这个头；官方 Pi coding-agent 在智能体层注入它。
+- 决策 D337 修订 ADR 0116：agent-runtime 在发往 OpenCode Go 及任何 `opencode.ai`
+  主机的会话、子智能体、提示增强和插件一次性请求上发送 `x-opencode-session`、
+  `x-opencode-client: pi-desktop` 和 PI-Desktop 的 `User-Agent`，使用持久化的
+  对话 id。
+- 参见 `03-runtime/02-agent-runtime.md` §6.2、`03-runtime/11-provider-model-system.md`、
+  `03-runtime/12-provider-config-schema.md`、ADR 0116 和 E2E-005D。
+
+## 2026-09-07 —— 用实时智能体活动状态解释安静的活动回合（D338）
+
+- 转录在第一个事件之前显示一个通用的运行计时器，但 provider 等待、重试退避
+  或父级等待委托工作时仍可能没有任何一行来解释延迟。用户只能从「停止」按钮
+  推断还在活动。
+- 既有的归一化 `status` 事件现在携带一个可选的、由运行时拥有的 `AgentActivity`
+  阶段：`starting`、`waiting-model`、`retrying` 或 `waiting-subagents`。渲染器
+  按会话保存它，并渲染一条带已用时间的紧凑本地化状态行；不增加百分比、不
+  重复进度卡片，也不改变中止语义。
+- 决策 D338 记录为 ADR 0175。参见 `03-runtime/01-ipc-protocol.md`、
+  `03-runtime/02-agent-runtime.md`、`04-ux/09-interaction-patterns.md` 和
+  E2E-008c / E2E-094。
+
+## 2026-09-07 —— 按提供商覆盖 User-Agent（D339）
+
+- 网关和厂商订阅会检查 User-Agent。pi-ai、Anthropic OAuth、OpenCode 和 Codex
+  各自打上不同的默认值，Codex 还会在额外头部之后覆盖 User-Agent。schema 列出
+  了 `headers`，却从未存储或发送它们。
+- 决策 D339：每个 AI 服务和 OAuth 行可以存储可选的 `config_json.userAgent`。
+  为空时保留适配器默认值。非空值通过 fetch 包装加流选项头部，成为该行出站
+  HTTP 上最后写入的 `User-Agent`。仅在高级 UI 中提供；首次 OAuth 登录不收集它。
+  `matches()` 包含 `userAgent`。
+- 参见 ADR 0176、`03-runtime/12-provider-config-schema.md` 和 E2E-005G。
+
+## 2026-09-08 —— 按提供商自定义 HTTP 头（D341）
+
+- 网关需要的不只是 User-Agent。ADR 0176 留下了未实现的 schema `headers` 映射，
+  并使用一个稀疏的单字段高级编辑器。
+- 决策 D341：每个 AI 服务和 OAuth 行可以存储可选的 `config_json.headers`。
+  为空时保留适配器默认值。非空映射通过 fetch 包装加流选项头部，在该行出站
+  HTTP 上最后写入。遗留的 `userAgent` 迁移到 `headers["User-Agent"]`。保留的
+  认证键和逐跳键被拒绝。高级 UI 是一个紧凑的键 / 值编辑器。首次 OAuth 登录
+  不收集头部。`matches()` 包含该映射。
+- 参见 ADR 0178、`03-runtime/12-provider-config-schema.md` 和 E2E-005G。
+
 ## 2026-09-08 —— 用户可配置的出站代理（D340）
 
 - 模型请求、市场下载、更新和内置浏览器各自走不同 HTTP 栈，都没有产品设置。sidecar 里的 Node `fetch` 不使用系统代理。
@@ -2777,11 +3344,29 @@ D193 和 D194。
 - 决策 D351 修订 D342 和 ADR 0179，记录为 ADR 0188，并由 E2E-192 覆盖。
   不改变主机协议或存储 schema。
 
+## 2026-09-08 —— 主进程拥有的选择器能力（D344）
+
+- 输入框的文件选择器此前把原生绝对路径返回给渲染器，渲染器随后可以通过
+  `composer/importFiles` 重放任意路径；它还宣称支持文件夹，而导入器拒绝目录。
+- 选择器 IPC 现在把用户选中的路径存在 Electron main 里，放在一个短期、绑定
+  发送方、一次性的令牌之后。导入只接受该令牌和持久化的会话 id，MVP 选择器
+  只提供常规文件。
+- 决策 D344 记录为 ADR 0181。参见 `03-runtime/01-ipc-protocol.md`、
+  `04-ux/08-component-spec.md` §11.7–11.8 和 E2E-102h。
+
 ## 2026-09-08 —— 自定义全局文字缩放（D343）
 
 - `--text-*` 阶是一组相对尺寸。窗口缩放会把布局一起放大，不是文字偏好。只改阅读区的 px 会让同一窗口出现两套字号。
 - 设置 → 常规 → 外观增加字体大小：杯型档位中杯 / 大杯 / 超大杯 / 超超大杯，加上 80%–150% 滑杆，持久化为可选 `AppSettings.fontScale`（`1` = 产品字号阶）。渲染器设置 `--font-scale`，全部 `--text-*` 台阶和共享 Lucide 图标按比例缩放。
 - 决策 D343 记录为 ADR 0180。见 `04-ux/06-settings-ia.md`、`04-ux/07-ui-design-system.md` 与 E2E-193。
+
+## 2026-09-08 —— P0 国际外壳语言（D346）
+
+- 发布完整的德语、西班牙语和法语外壳目录、可搜索的本地语言名、区域到基础语言
+  的解析，以及匹配的应用内变更日志目录。`AppSettings.language` 扩展 `de`、`es`
+  和 `fr`，不改动主机协议、存储架构或 IPC 版本。
+- 决策 D346 记录为 ADR 0183。参见 `04-ux/02-i18n-english-first.md`、
+  `04-ux/06-settings-ia.md` 和 E2E-091。
 
 ## 2026-09-08 —— 输入框工具栏中的上下文用量检查器（D347）
 
@@ -2862,6 +3447,27 @@ D193 和 D194。
 - 仅渲染器改动。宿主已完成回合汇总和 Token Insights 仍做账单累加。
   参见 ADR 0193 与 E2E-060d。
 
+## 2026-09-09 —— 可选的子智能体思考覆盖与可读的已选等级（D356）
+
+- 子智能体编辑器现在提供「继承会话」、「不发送」和七个规范思考等级。「不发送」
+  存储为 `thinkingLevel: omit`。
+- `omit` 让智能体的记账状态保持 `off`，但使用底层 provider 流，因此不会合成
+  任何思考覆盖。现有的继承和显式 `off` 仍然是不同的。
+- 模型配置里的思考芯片在两种主题下都使用强调色 / 反色文字的选中态，让已启用
+  的等级一目了然。不需要改动存储架构或协议版本。参见 ADR 0194 和 E2E-203。
+
+## 2026-09-09 —— 固定在视口的工作面板切换按钮（D357）
+
+- 决策 D357 修订 D128 / D207 / D221 以及 ADR 0068 / ADR 0085。AppShell 在每个
+  非设置路由的右上角拥有一个固定在视口的切换按钮。它是 `Cmd/Ctrl + J` 的指针
+  等价物：揭示当前会话保留的上下文而不创建标签页，折叠可见面板而不删除标签页。
+  没有会话时它被禁用。
+- 该切换按钮是唯一的面板级折叠控件。工作面板头部只保留资源关闭。Windows /
+  Linux 的窗口控件仍固定在窗口右边缘；面板打开时，头部预留该带加切换按钮，
+  以便关闭标签页仍可触及。
+- 没有主机协议、IPC 通道或原生应用菜单命令。Artifact 触发器和会话作用域的
+  上下文不变。参见 ADR 0195 和 E2E-056 / E2E-070 / US-UI-57。
+
 ## 2026-09-09 —— Windows 免安装便携版 exe（D364）
 
 - Windows 标签发布此前只提供 `PI-Desktop-Setup-<version>.exe`，公司环境若只能
@@ -2887,6 +3493,9 @@ D193 和 D194。
 - 参见 ADR 0198、`03-runtime/01-ipc-protocol.md`、
   `03-runtime/02-agent-runtime.md`、`04-ux/09-interaction-patterns.md`，
   以及 E2E-008c / E2E-094。
+
+> D366 未分配。它先被用于插件会话导入决策，该决策在与 `main` 同步时重编号为 D367 / ADR 0200；随后又被用于"仅在发版时部署文档站"决策（配 ADR 0199），该决策已于 2026-09-09 回退。D366 与 ADR 0199 均已退役，不要复用。D376 同样未分配：`main` 将其短暂承载的远程控制修订重编号为 D374，并把 D375 分配给了发布排序决策，因此 D376 也保持退役。
+
 ## 2026-09-09 —— 宿主拥有的插件会话导入与归属 API（D367）
 
 - 外部历史迁移插件需要持久的导入/读取/更新/删除能力，但现有的进行中
@@ -2905,6 +3514,15 @@ D193 和 D194。
 - 导入会话需要显式归属持久化项目，但向插件暴露 `workspace.set` 还会改变用户当前工作区；插件写入也需要由宿主拥有的渲染器刷新路径。
 - 决策 D368 / ADR 0201 增加受权限保护的 `pi.project.create({ path })`。它创建或复用项目并返回宿主生成的 id，但不会激活工作区。导入项可以提供已有的 `projectId`；省略时仍保持未绑定，历史来源路径不会变成工具根目录。list/get 投影会报告显式绑定。
 - Electron 主进程在插件导入、重命名和删除成功后发送 `pi-desktop/session/event/changed`；渲染器复用 `refreshSessions()`，跳过的导入不发送事件，已关闭的项目标签页不会被重新打开。参见 E2E-216。
+
+## 2026-09-09 —— 子智能体的有效思考元数据（D369）
+
+- 委托卡片需要的是实际传给每个子运行的思考等级，而不是在目标模型钳制之后
+  从父级或定义重新推导出来的值。
+- 决策 D369 / ADR 0202 把有效的 `modelId` 和 `thinkingLevel` 加进 `Task` 的即时
+  结果、`SubagentRunResult` 和生命周期快照。拓扑节点和侧边停靠栏头部在模型名
+  之后显示本地化的非 `off` 等级；`off`、`omit` 和不支持的推理仍只显示模型。
+  不改动主机协议、存储架构、provider 请求或生命周期行为。参见 E2E-219。
 
 ## 2026-09-09 —— 未签名 macOS 首次启动助手（D371）
 
@@ -2987,6 +3605,21 @@ D193 和 D194。
   Gateway、浏览器 profile 和 gRPC 绑定保留规格但不排期，Gateway 身份源定为 pi-backend
   规格中的 PI 账号服务。参见修订后的远程规格以及 E2E-231 / E2E-232。
 
+## 2026-09-10 — 启动时明确指出降级安装与非原生构建（D380）
+
+- 在被 0.14.6-rc.4 迁移到 schema 14 的数据目录上安装 0.14.5，会静默重启 host
+  三次并显示“无法连接本地服务”；只有 `logs/host/runtime.log` 写着 `database
+  schema version 14 is newer than supported 13`。Intel macOS 构建在 Apple
+  Silicon 上同样通过 Rosetta 运行而没有任何提示。
+- 决策 D380 扩展 Linux glibc 守卫模式（E2E-195）：Electron 从最后一段
+  stderr 解析 host-core 的 schema 拒绝信息，首次失败即停止监管，并推送带
+  `DB_SCHEMA_TOO_NEW` 和两个 schema 版本号的 `hostStatus`，横幅据此说明应安装
+  哪个版本。启动时还会检测非原生构建（macOS 用 `sysctl.proc_translated`，其他
+  平台用 `os.machine()`），并在启动状态上附带 `archMismatch`；渲染层显示可关闭
+  的提示，标注 Intel / Apple Silicon。不新增错误码：两者都沿用
+  `HOST_UNAVAILABLE`，复用 `message` 的状态令牌通道。不尝试向下迁移。见
+  E2E-239 / E2E-240。
+
 ## 2026-09-10 — 同一路径允许三次突变恢复失败（D379）
 
 - 之前的重复保护会在同一个 `Edit` 路径或已识别的 shell 修补键累计两次失败后结束提示。
@@ -2995,3 +3628,72 @@ D193 和 D194。
   累计三次失败。可恢复错误代码仍各有一次宽限，成功突变会清除该路径历史，第 3 次计数
   的失败返回 `terminate: true` 与 `MUTATION_RETRY_BUDGET_EXHAUSTED`。已识别的 shell
   修补命令使用同一上限。不改变 IPC、存储、主机协议或工具结果结构。见 E2E-140 / E2E-141。
+
+## 2026-09-10 —— 插件桌面控制需要原生用户同意（D377）
+
+- 一次代码与文档评审发现：持有 `desktop.control` 的插件可以在没有人参与的情况下
+  运行 `dangerous` 目录操作（删除会话、更改权限模式、批准工具）：共享控制器的
+  `confirm: true` 由插件自己设置，唯一的确认只是插件选择绘制的任何卡片。同一次评审
+  还发现 Electron 的 `fetch` 服务允许白名单中的主机把插件请求重定向到未声明的主机，
+  `manifest.main` 与 `ui.panel` 跳过了路径包含检查，而规格 15 的安全拒绝名单与忽略
+  层从未在 host-core 中实现。
+- 决策 D377（ADR 0208）：来自插件的 `dangerous` 桌面操作需要插件给出
+  `confirm: true`，然后由用户在宿主拥有的原生对话框中作答；该对话框只写明目录中的
+  操作、描述和有界的参数预览；拒绝与无界面的宿主都以 `PERMISSION_DENIED` 失败。
+  MCP 契约（D372）不变。
+- 同一变更中不新增决策的部分：`pi.net.fetch` 只有一条路径，即在每次重定向前重新
+  检查 `net.domains` 的运行时跳转循环；`manifest.main` 与 `ui.panel` 在插件内部
+  校验并解析；host-core 对未限定范围的遍历强制执行规格 15 的安全拒绝名单
+  （`WORKSPACE_PATH_DENIED`）、应用默认值、`.pi-desktopignore` 和
+  `<data_dir>/ignore`；路径解析器会跟随悬空符号链接，因此经由它的写入无法离开工作区；
+  对未知会话的 `tools.execute` 返回 `SESSION_NOT_FOUND`，而不是继承全局工作区。
+  参见 E2E-234 至 E2E-238。
+
+## 2026-09-10 — 将 PowerShell 7 作为 Windows 可选命令 Shell (D381)
+
+- 问题 #151：Windows 用户安装 PowerShell 7（`pwsh.exe`）后无法让 `Bash` 在它下面
+  运行。PowerShell 7 与 ADR 0054 中 `windows-powershell` 条目所解析的随系统内置
+  5.1 并排安装，且从不替换它，而目录中没有其它可选条目：
+  `crates/host-core/src/tools/shell.rs` 没有 `pwsh.exe` 解析路径，
+  `COMMAND_SHELL_IDS` 只列出四个 ID。
+- 决策 D381（ADR 0209）在 Windows 目录中新增稳定 ID `windows-pwsh`
+  （"PowerShell 7"），并修订 ADR 0054 §1。解析顺序为
+  `%ProgramFiles%\PowerShell\7\pwsh.exe`（宿主进程为 32 位时追加
+  `%ProgramW6432%`），再到 PATH 上的 `pwsh.exe`；解析失败返回
+  `SHELL_NOT_FOUND` 并列出两处已搜索位置。它沿用 `powershell` 方言与既有的
+  非交互式脚本，且从不会被隐式选中，因此平台默认值与既有用户的 shell 保持不变。
+- 协议、存储与工具面均为增量改动：`CommandShellId` 新增一个成员，而折叠的
+  设置校验与首个可用回退无需新代码路径，也没有新增 RPC 方法、工具名或schema 迁移。
+  参见 E2E-112。
+
+## 2026-09-10 —— 已结束的 Subagent 会读回自己失败的原因（D382）
+
+- 以 `failed`、`timed_out` 或 `aborted` 结束的委派，只显示结果胶囊和耗时。原因其实
+  存在但没有读者：`SubagentRunResult.error` 挂在委派名册条目上，而拓扑节点及其侧边
+  栏详情渲染的是 `Task` 行自身的结果——按 ADR 0089，它在委派启动的那一刻就被固定为
+  `running`。因此在发出任何消息行之前就死掉的委派，只会留下一个满是步骤、毫无解释的
+  面板。
+- 决策 D382：从生命周期行的 `details.delegations[]` 与 `details.stopped[]` 收集委派的
+  `error: { code, message }`，使用与已定状态相同的"后写覆盖"规则；侧边栏详情的结尾
+  用一张错误卡片收束，复用转录错误卡片的视觉语言与 `errors.<code>` 词表，代码未登记时
+  回退到本地化的 `chat.subagentStatus.*` 结果标签。卡片跟随"非成功终态"而非仅跟随错误
+  字段，因此已完成或仍在运行的委派永远不会显示它。不改运行时、IPC、存储或工具结果：
+  运行时早就在上报该错误，这里只是不再丢弃它。参见 `04-ux/08-component-spec.md` §5.7
+  与 E2E-198。
+
+## 2026-09-10 —— 子代理可以声明自己的输出上限（D383）
+
+- 子代理定义此前只能限制轮数，不能限制响应长度。`maxTurns` 贯穿 frontmatter、
+  记录、输入、编辑器草稿与运行时，而委托唯一拥有的输出上限来自其模型绑定：
+  `packages/agent-runtime/src/model-capabilities.ts` 中的 `ModelBinding.maxTokens`
+  会限制该模型的所有调用方，因此为一个话多的委托调高它，会话自身也会被一起调高。
+  `SubagentDefinition`、`SubagentDraft` 与 `UserSubagentRecord` 都没有 `maxTokens`，
+  `SubagentRun` 也从不传入。
+- 决策 D383（ADR 0210）：定义可以声明 `maxTokens`，按与 `maxTurns` 相同的宽松键名
+  解析，并以 200000 为天花板。省略、`none` 或 `0` 表示跟随模型已发布的上限；
+  超出 1–200000 的值视为笔误，会被报告并忽略或钳制，而不会转发。声明的值会覆盖委托
+  为自己构建的模型上的 `maxTokens`，因此适配器派生出的 `max_tokens` /
+  `max_completion_tokens` / `max_output_tokens` 都会带上它，而会话自身的请求仍沿用
+  模型绑定。它存储在能力文档的 frontmatter 中，并在编辑器既有 Advanced 折叠区的
+  轮次上限旁编辑。不新增 IPC、工具结果或存储结构：该字段沿用既有的子代理记录与输入。
+  见 E2E-119 / E2E-155。

@@ -1097,8 +1097,10 @@ When drag/drop is implemented, these patterns should apply:
   new process rows stay in view; a real upward gesture pauses follow and shows
   the standard jump-to-latest control. This keeps the process readable without
   a second scrollbar or an empty tail.
-- Clicking a delegation topology node opens an inset grouped side sheet in the
-  right-side work-panel dock instead of expanding the transcript. The dock has
+- Clicking a delegation topology node toggles an inset grouped side sheet in the
+  right-side work-panel dock instead of expanding the transcript. Clicking the
+  selected node again closes the side sheet; selecting another node replaces
+  the current detail in place. The dock has
   a sticky identity header (avatar, name, and model caption on the left; status
   capsule and elapsed time trailing on the same row), the Task call's selectable description as a full-width grouped
   card under a Task section label, capped at four lines with an inline Show

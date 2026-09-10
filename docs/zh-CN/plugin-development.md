@@ -682,6 +682,30 @@ Agent 还可以在每种操作模式下运行 `PluginCheck`。 `PluginScaffold`
 和 `PluginPack` 是代理模式工具，仅限于当前
 工作区。
 
+### 用 `pi-plugin publish` 准备插件中心提交
+
+`publish` 会打包插件，并把包固定到构建它的 git 提交上，
+以便插件中心能够重新构建并比对工件：
+
+```bash
+pnpm pi-plugin publish ../my-first-plugin [--out <dir>] [--ref <ref>] [--channel stable|beta] [--allow-dirty]
+```
+
+该命令先执行与 `check`、`pack` 相同的步骤，然后读取插件仓库的 `origin`
+远程和 `HEAD`。SSH 远程会被改写为规范的 `https://` 形式；内嵌凭据或
+非 HTTPS 协议的远程会被拒绝。除非传入 `--allow-dirty`，否则工作树必须干净；
+传入后生成的提交无法被插件中心复现，并会打印警告。固定的 `ref` 优先取
+`--ref`，否则取指向 `HEAD` 的标签（写成 `refs/tags/<tag>`）；没有标签时提交裸
+commit 并给出警告。插件相对仓库根目录的路径也会被记录，因此插件可以位于子目录中。
+
+结果是 `dist/<id>-<version>.submission.json`（或 `--out` 指定的目录），一个
+`schemaVersion: 1` 的载荷，包含 `pluginId`、`version`、`channel`、`source`
+固定信息（`repository`、`ref`、`commit`、`path`）、`artifact`（`publisher-release`
+模式、文件名、SHA-256、大小）、声明的 `permissions`，以及按插件、版本、提交和工件
+稳定的 `idempotencyKey`，因此重试提交不会成为新的发布。把 `.piplug` 附到该提交
+的 release 上，再把载荷提交给插件中心。插件中心会从代码托管平台重新解析来源，
+不信任载荷中记录的值。
+
 ## 10. 准备发布
 
 共享包之前：

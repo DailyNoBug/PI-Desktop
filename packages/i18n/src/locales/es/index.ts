@@ -1,3 +1,5 @@
+import type { EnglishCatalog } from "../en/index.js";
+
 export const es = {
   "app": {
     "name": "PI-Desktop",
@@ -29,6 +31,14 @@ export const es = {
     "confirmQuitTitle": "¿Salir de PI-Desktop?",
     "confirmQuitBody": "¿Está seguro de que desea salir? Se detendrán todas las sesiones en ejecución y es posible que se pierdan los cambios no guardados.",
     "confirmQuit": "Salir"
+  },
+  "pluginDesktopConsent": {
+    "message": "{name} quiere ejecutar {operation}",
+    "arguments": "Argumentos: {args}",
+    "detail":
+      "Esta es una operación de escritorio peligrosa. El plugin reconoció el riesgo; que se ejecute depende de ti. Deniégala si no la esperabas.",
+    "allowOnce": "Permitir una vez",
+    "deny": "Denegar",
   },
   "pluginFsConsent": {
     "read": "{name} quiere leer un archivo fuera de lo que declaró",
@@ -1747,6 +1757,9 @@ export const es = {
       "maxTurns": "Límite de turnos",
       "maxTurnsHint": "Detiene a un delegado que nunca termina. 1–{{max}}, o déjelo vacío para que no haya límite.",
       "maxTurnsUnlimited": "Sin límite",
+      "maxTokens": "Límite de salida",
+      "maxTokensHint": "Limita una respuesta del delegado. 1–{{max}}, o déjelo vacío para seguir al modelo.",
+      "maxTokensDefault": "Valor del modelo",
       "body": "Instrucciones",
       "bodyHint": "Markdown, utilizado como indicador completo del sistema del delegado. Escríbalo como instrucciones para el delegado.",
       "bytes": "{{used}} / {{max}} KB",
@@ -1757,6 +1770,7 @@ export const es = {
       "errorTools": "Otorgar al menos una herramienta.",
       "errorModel": "Escriba el modelo como proveedor/modelo, p.e. antrópico/claude-haiku-4-5.",
       "errorMaxTurns": "El límite de turnos debe ser un número entero dentro del rango permitido.",
+      "errorMaxTokens": "El límite de salida debe ser un número entero dentro del rango permitido.",
       "errorBody": "Las instrucciones están vacías.",
       "errorTooBig": "Las instrucciones superan el límite de tamaño."
     }
@@ -1771,6 +1785,16 @@ export const es = {
     "fatal": "No se puede comunicar con el servicio local",
     "unsupportedGlibc":
       "Esta versión para Linux requiere glibc 2.35 o posterior (Ubuntu 22.04, Debian 12, Fedora 36+).",
+    "dbSchemaTooNew":
+      "Esta versión de PI-Desktop es más antigua que tus datos locales (esquema de datos {{found}}, esta versión admite {{supported}}). Instala la versión más reciente de PI-Desktop que abrió estos datos por última vez, o una posterior.",
+    "archMismatch":
+      "Esta es la versión {{buildArch}} ejecutándose en una máquina {{machineArch}}, por lo que corre mediante traducción y es más lenta. Instala la versión {{machineArch}}.",
+    "dismissArchMismatch": "Descartar",
+    "archNames": {
+      "darwin": { "x64": "Intel", "arm64": "Apple Silicon" },
+      "win32": { "x64": "x64", "arm64": "ARM64" },
+      "linux": { "x64": "x64", "arm64": "ARM64" },
+    },
     "openLogs": "Registros abiertos"
   },
   "toast": {
@@ -1828,6 +1852,12 @@ export const es = {
     "CONTEXT_COMPACTION_FAILED": "No se pudo compactar el contexto del modelo de esta conversación.",
     "AGENT_BUSY": "Este chat ya está funcionando. Espere a que termine o deténgalo primero.",
     "TURN_ABORTED": "Detenido.",
+    "workspaceActivationFailed": "No se pudo activar el espacio de trabajo del proyecto",
+    "sessionNotFound": "Sesión no encontrada",
+    "noActiveSession": "No hay ninguna sesión activa",
+    "sessionTitleEmpty": "El título de la sesión no puede estar vacío",
+    "projectNameLength": "El nombre del proyecto debe tener entre 1 y 80 caracteres",
+    "planApprovalUnavailable": "La aprobación del plan ya no está disponible",
     "action": {
       "openSettings": "Abrir configuración",
       "retry": "Inténtalo de nuevo",
@@ -1835,6 +1865,6 @@ export const es = {
       "dismiss": "Descartar"
     }
   }
-} as const;
+} satisfies EnglishCatalog;
 
 export default es;

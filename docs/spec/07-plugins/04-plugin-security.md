@@ -252,7 +252,10 @@ outbound path the host owns answers to it.
   runs a `webRequest` filter, refuses every device permission, and denies
   `window.open`, which would otherwise mint a window outside the filtered session
 - **`pi.net.fetch`.** Checks the allowlist and follows redirects by hand, because
-  an allowed host that 30x-es to an undeclared one would carry the request out
+  an allowed host that 30x-es to an undeclared one would carry the request out.
+  The runtime's hop loop is the only fetch path: Electron main supplies no
+  alternative `fetch` service, so nothing can follow a redirect without the
+  per-hop re-check
 - **Remote MCP endpoints.** Answer to the same list, not to their permission alone.
   HTTP endpoints may be on a trusted LAN, but plain HTTP is unencrypted and is
   called out during configuration or plugin permission review. The MCP client
@@ -290,6 +293,28 @@ manifest did not name:
 - Connection budget: 10s to complete `initialize`, 100s per `tools/call`, 8
   `tools/list` pages, 4MB per stdio line. Servers are connected lazily and torn
   down when the plugin unloads or is disabled.
+
+## 8.2 Desktop control and device access
+
+`desktop.control` hands a plugin the reviewed operation catalog the local MCP
+control plane exposes (ADR 0203 / D370): project, session, Agent, and
+workspace operations, each tagged `read`, `write`, or `dangerous`. The plugin
+sees ids, descriptions, and risk, never Electron channel names or the MCP
+bearer token, and every invocation crosses the same IPC validation, lifecycle
+checks, completion event, and audit entry as an MCP call.
+
+A `dangerous` operation is decided by the user, not by the caller. The
+controller's `confirm: true` is only the plugin's acknowledgement (MCP treats
+it the same way, D372). After it, the host shows a native dialog that names
+the catalog operation id, the catalog description, and a bounded argument
+preview, and it deliberately shows no text the plugin or a model behind it
+authored, so a prompt-injected transcript cannot relabel `session/delete` as
+something benign. Escape and dismissal are refusals. A headless host with no
+dialog service refuses every dangerous operation outright.
+
+`ui.microphone` allows only the `media` permission, for audio, inside the
+plugin's isolated panel session. Camera and every other device permission stay
+denied, and the plugin receives no native handle: capture stays page-owned.
 
 ## 9. Auditing and emergency response
 
@@ -351,6 +376,14 @@ Current enforcement:
     owns (§8.0)
 12. Plugin deletions go to the OS trash, are non-recursive, and are rate-braked
     (§6.1)
+13. `manifest.main` and `ui.panel` are validated as relative paths at install
+    and resolved with the same inside-the-plugin containment as skills and
+    theme CSS before the host loads them
+14. A `dangerous` desktop operation from a plugin needs the user's answer to a
+    host-owned native dialog after the plugin's own `confirm: true`; the
+    dialog shows only catalog text (§8.2)
+15. `ui.microphone` grants audio capture only, inside the isolated panel
+    session (§8.2)
 
 Not enforced yet:
 

@@ -652,7 +652,14 @@ per-definition backstop (maximum 80); omitted, `none`, or `0` means unlimited
 turns. The built-ins declare one sized to their job — `explorer` 60,
 `code-reviewer` 50, `test-runner` 40, `fixer` 80 — so a delegate that loops
 without converging ends as `truncated` with its partial report instead of
-running until the duration limit. The built-in `explorer` declares `Read`,
+running until the duration limit. `maxTokens` is an optional per-definition
+output cap (maximum 200000); omitted, `none`, or `0` follows the model's
+published limit. It overrides `maxTokens` on the model built for that delegate,
+so the adapter's derived `max_tokens` / `max_completion_tokens` /
+`max_output_tokens` carry it, and it binds that delegate's own responses only —
+the session's requests keep the model binding. A value past the ceiling is a
+typo and is clamped rather than forwarded to the provider.
+The built-in `explorer` declares `Read`,
 `Glob`, `Grep`, and `Bash`, while `code-reviewer` remains read-only. Its statuses are `completed`,
 `truncated`, `failed`, `aborted`, `timed_out` and the registry-only `stopped`;
 the terminal ones surface through `TaskWait`, whose text is

@@ -3690,7 +3690,7 @@ IPC 请求无法关闭。
   使持久选择不可用，并且项目绑定的 Agent 会话是
   闲置。 Windows 通道练习多选排序。
 - **步骤**：1) 检查目录中的平台有效 ID
-  `windows-powershell`、`cmd`、`git-bash` 和 `bash`。 2) 验证设置
+  `windows-powershell`、`windows-pwsh`、`cmd`、`git-bash` 和 `bash`。 2) 验证设置
   拒绝不可用或错误的平台 ID。 3）选择可用的shell
   并坚持 `defaultCommandShell`。 4）使坚持的选择不可用，
   重新启动，并验证目录选择第一个可用的平台 shell
@@ -6224,3 +6224,118 @@ IPC 请求无法关闭。
 - **里程碑**：M6+
 - **状态**：由 `apps/desktop/test/mcp-control.test.mjs` 覆盖 MCP 协议/单元；完整 Electron
   旅程已记录，仍按策略延后
+
+#### E2E-234：工作区安全拒绝名单与忽略层
+
+- **前提条件**：一个项目包含 `.env`、`.env.example`、`server.pem`、`keys/id_rsa`、
+  `notes.txt`、`node_modules/pkg/index.js`、`generated/out.txt`、`debug.log`，以及
+  根目录下写有 `generated/` 的 `.pi-desktopignore`。每个文件都包含单词 `needle`。
+  会话为 Agent 模式，权限模式 `auto`。
+- **步骤**：1）请求 `Read` `.env`，再请求 `Read` `.env.example`。2）请求 `Write`
+  到 `keys/id_rsa`。3）对 `needle` 运行无范围的 `Grep` 和 `Glob`。4）以
+  `path: node_modules/pkg` 和 `path: generated` 运行 `Grep`。5）分别在安装了系统 `rg`
+  和设置 `PI_DESKTOP_DISABLE_RG=1` 的情况下重复步骤 1。
+- **预期**：步骤 1 和 2 以 `WORKSPACE_PATH_DENIED` 失败，`.env.example` 的读取成功，
+  且不会创建 `keys/id_rsa` 文件。无范围搜索只列出 `notes.txt` 和 `.env.example`：
+  `.env`、`server.pem`、`node_modules`、`generated` 和 `debug.log` 都不出现。显式路径
+  搜索各返回一条命中。进程内遍历器与 `rg` 快速路径产生相同的文件集。
+- **链接规格**：`03-runtime/15-workspace-ignore-rules.md`、
+  `03-runtime/08-error-codes.md` §3.3、D032
+- **验收**：B（工作区工具）、安全
+- **里程碑**：M3+
+- **状态**：由 `crates/host-core/src/tools/mod.rs`
+  （`security_denylist_blocks_read_write_edit_and_hides_search_results`、
+  `default_ignores_and_workspace_ignore_file_hide_unscoped_walks_only`）和
+  `tools/ignore_rules.rs` 单元覆盖；Electron 旅程已记录，并按无本地 E2E 策略延后
+
+#### E2E-235：悬空软链无法写到工作区之外
+
+- **前提条件**：一个项目包含 `dangling -> /tmp/outside/planted.txt`（目标不存在）
+  和 `inner -> ./not-yet.txt`。Agent 模式，`auto` 权限。
+- **步骤**：1）请求 `Write` 到 `dangling`。2）请求 `Write` 到 `dangling-dir/new.txt`，
+  其中 `dangling-dir -> /tmp/outside/dir`。3）请求 `Write` 到 `inner`。
+- **预期**：步骤 1 和 2 以 `PATH_OUTSIDE_WORKSPACE` 失败，`/tmp/outside` 下没有任何
+  东西出现。步骤 3 在项目内创建 `not-yet.txt`。软链环路以 canonicalize 错误失败，
+  而不是挂起。
+- **链接规格**：`03-runtime/03-tools-and-permissions.md`、
+  `03-runtime/15-workspace-ignore-rules.md` §3
+- **验收**：B、安全
+- **里程碑**：M3+
+- **状态**：由 `crates/host-core/src/workspace.rs`
+  （`blocks_dangling_symlink_escape`、
+  `dangling_symlink_inside_workspace_resolves_to_its_target`、
+  `dangling_symlink_loop_is_rejected`）单元覆盖
+
+#### E2E-236：插件桌面控制需要用户的原生同意
+
+- **前提条件**：一个被授予 `desktop.control` 的开发插件，其面板调用
+  `pi.desktop.invoke({ operation: "session/delete", args: [id], confirm })`。
+  存在一个可丢弃的会话。
+- **步骤**：1）以 `confirm: false` 调用。2）以 `confirm: true` 调用并在对话框上按
+  Escape。3）以 `confirm: true` 调用并点击拒绝。4）以 `confirm: true` 调用并点击一次
+  允许。5）调用一个 `read` 操作。
+- **预期**：步骤 1 以 `CONFIRMATION_REQUIRED` 失败且不出现对话框。步骤 2 和 3 以
+  `PERMISSION_DENIED` 失败；会话仍然存在。对话框点名 `session/delete` 和目录描述，
+  绝不显示面板撰写的文本。步骤 4 删除会话且侧边栏刷新。步骤 5 不显示对话框。
+  每次调用都连同插件 id、操作和风险等级记入审计。
+- **链接规格**：`07-plugins/03-plugin-api.md`（桌面控制）、
+  `07-plugins/04-plugin-security.md` §8.2、
+  `07-plugins/13-plugin-permissions-matrix.md`、ADR 0203、ADR 0208、D370、D372、D377
+- **验收**：D（插件）、安全
+- **里程碑**：M6+
+- **状态**：由 `apps/desktop/test/plugin-desktop-control.test.mjs` 运行时覆盖；
+  原生对话框旅程已记录，并按无本地 E2E 策略延后
+
+#### E2E-237：插件 fetch 在每次重定向时重新检查出网
+
+- **前提条件**：一个声明 `net.domains: ["allowed.test"]` 和 `net.fetch` 的开发插件。
+  `allowed.test` 上的本地服务器对 `/hop` 返回 302 到 `http://undeclared.test/leak`，
+  对 `/ok` 返回 200。
+- **步骤**：1）调用 `pi.net.fetch({ url: "https://allowed.test/ok" })`。2）调用
+  `pi.net.fetch({ url: "https://allowed.test/hop" })`。
+- **预期**：步骤 1 返回 200。步骤 2 以点名 `undeclared.test` 的 `PERMISSION_DENIED`
+  失败，未声明的服务器没有记录到任何请求。审计日志显示被拒绝的那一跳。
+- **链接规格**：`07-plugins/04-plugin-security.md` §8.0
+- **验收**：D、安全
+- **里程碑**：M4+
+- **状态**：由 `apps/desktop/test/plugin-egress.test.mjs` 运行时覆盖
+
+#### E2E-238：未知会话的工具请求不会回退
+
+- **前提条件**：host-core 运行中；一个 JSON-RPC 探针接到其 stdio 上。
+- **步骤**：1）发送 `sessionId: "missing"` 的 `tools.execute`，请求 `Read`
+  `README.md`。2）以同一个 id 发送 `plans.enter`。
+- **预期**：两者都以 `SESSION_NOT_FOUND` 失败（分别对应数字码 `1007` 和
+  `PLAN_SESSION_NOT_FOUND`）；最近打开的工作区下没有任何文件被读取。
+- **链接规格**：`03-runtime/06-host-rpc-protocol.md` §7、
+  `03-runtime/08-error-codes.md` §3.1
+- **验收**：B、安全
+- **里程碑**：M3+
+- **状态**：由 `crates/host-core/src/rpc/mod.rs`
+  （`temporary_session_uses_its_own_scratch_workspace`）单元覆盖
+
+#### E2E-239：旧版构建会指出数据 schema 更新，而不是循环重启
+
+- **前提条件**：数据目录上次由更新版 PI-Desktop 打开，其 host-core 已把
+  schema 迁移到超出当前构建支持的版本。
+- **步骤**：1）用旧版打包应用打开该数据目录。2）观察横幅和
+  `logs/app/runtime.log`。
+- **预期**：host-core 只退出一次；日志中没有后续重启尝试。致命横幅说明当前
+  PI-Desktop 比本地数据更旧，显示两个 schema 版本号，并提示安装更新版本。数据
+  目录未被修改。
+- **链接规格**：`03-runtime/07-process-model.md`（启动结果）
+- **验收**：B
+- **里程碑**：M3+
+- **状态**：由 `apps/desktop/test/host-boot-diagnostics.test.mjs` 源码契约覆盖
+
+#### E2E-240：Apple Silicon 上的 Intel macOS 构建会指向原生下载
+
+- **前提条件**：Apple Silicon Mac；安装并通过 Rosetta 2 运行 x64 macOS 包。
+- **步骤**：1）启动应用。2）阅读标题栏下方的横幅。3）点击其关闭操作。
+- **预期**：应用正常启动。一条可关闭的提示说明当前是 Intel 构建运行在 Apple
+  Silicon 机器上，并要求安装 Apple Silicon 构建。关闭后本次会话不再显示；原生
+  arm64 包不显示任何提示。
+- **链接规格**：`03-runtime/07-process-model.md`（启动结果）
+- **验收**：B
+- **里程碑**：M3+
+- **状态**：由 `apps/desktop/test/host-boot-diagnostics.test.mjs` 源码契约覆盖

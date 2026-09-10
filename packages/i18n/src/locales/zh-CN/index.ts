@@ -34,6 +34,14 @@ export const zhCN = {
       "退出将停止所有正在进行的会话，未保存的内容可能会丢失。你确定要退出吗？",
     confirmQuit: "退出",
   },
+  pluginDesktopConsent: {
+    message: "{name} 想要执行 {operation}",
+    arguments: "参数：{args}",
+    detail:
+      "这是一个危险的桌面操作。插件已确认风险；是否执行由你决定。如果你没有预期到这个操作，请拒绝。",
+    allowOnce: "允许一次",
+    deny: "拒绝",
+  },
   pluginFsConsent: {
     read: "{name} 想读取声明范围之外的文件",
     write: "{name} 想写入声明范围之外的文件",
@@ -1760,6 +1768,9 @@ export const zhCN = {
       maxTurns: "轮次上限",
       maxTurnsHint: "用来兜住停不下来的子智能体。1–{{max}}，留空表示不限制。",
       maxTurnsUnlimited: "不限制",
+      maxTokens: "输出上限",
+      maxTokensHint: "限制子代理单次响应的输出长度。1–{{max}}，留空则跟随模型。",
+      maxTokensDefault: "跟随模型",
       body: "指令",
       bodyHint: "Markdown，会作为子智能体的全部系统提示词。请以对它下达指令的口吻书写。",
       bytes: "{{used}} / {{max}} KB",
@@ -1770,6 +1781,7 @@ export const zhCN = {
       errorTools: "至少授予一个工具。",
       errorModel: "模型请写成 provider/model，例如 anthropic/claude-haiku-4-5。",
       errorMaxTurns: "轮次上限必须是允许范围内的整数。",
+      errorMaxTokens: "输出上限必须是允许范围内的整数。",
       errorBody: "指令是空的。",
       errorTooBig: "指令超过了大小上限。",
     },
@@ -1784,6 +1796,16 @@ export const zhCN = {
     fatal: "无法连接本地服务",
     unsupportedGlibc:
       "当前 Linux 构建需要 glibc 2.35 或更高版本（Ubuntu 22.04、Debian 12、Fedora 36+）。",
+    dbSchemaTooNew:
+      "当前 PI-Desktop 比本地数据更旧（数据库 schema {{found}}，此版本仅支持 {{supported}}）。请安装上次打开这些数据的更新版本，或更高版本。",
+    archMismatch:
+      "当前安装的是 {{buildArch}} 版本，而这台机器是 {{machineArch}}，需要通过转译运行，速度更慢。请改装 {{machineArch}} 版本。",
+    dismissArchMismatch: "知道了",
+    archNames: {
+      darwin: { x64: "Intel", arm64: "Apple Silicon" },
+      win32: { x64: "x64", arm64: "ARM64" },
+      linux: { x64: "x64", arm64: "ARM64" },
+    },
     openLogs: "打开日志",
   },
   toast: {
@@ -1842,6 +1864,12 @@ export const zhCN = {
     CONTEXT_COMPACTION_FAILED: "无法压缩当前对话的模型上下文。",
     AGENT_BUSY: "此对话正在处理中。请等待完成，或先停止当前任务。",
     TURN_ABORTED: "已停止。",
+    workspaceActivationFailed: "无法激活项目工作区",
+    sessionNotFound: "未找到会话",
+    noActiveSession: "没有活动会话",
+    sessionTitleEmpty: "会话标题不能为空",
+    projectNameLength: "项目名称长度须为 1 到 80 个字符",
+    planApprovalUnavailable: "该计划审批已失效",
     action: {
       openSettings: "打开设置",
       retry: "重试",

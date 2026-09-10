@@ -331,8 +331,8 @@ Host execution baseline:
   `errorCode: TOOL_FAILED` while preserving its `exitCode`, stdout, and stderr
   in `content` so the agent can diagnose the command without blindly retrying.
 
-Shell catalog (D190) exposes the stable IDs `windows-powershell`, `cmd`,
-`git-bash`, and `bash` where supported by the platform. The host persists
+Shell catalog (D190) exposes the stable IDs `windows-powershell`, `windows-pwsh`,
+`cmd`, `git-bash`, and `bash` where supported by the platform. The host persists
 `defaultCommandShell`; if that persisted choice later becomes unavailable, the
 effective catalog selection intentionally falls back to the first available
 platform shell. A turn pins the effective shell ID and dialect. `Bash` remains
@@ -358,6 +358,12 @@ or executable path hash is accepted as shell identity.
 - No bash bundled in the installer: Git for Windows is the Windows prerequisite (the app requires git anyway)
 - Resolution failure returns stable `SHELL_NOT_FOUND` with install guidance
 - Windows PowerShell and cmd use their native non-interactive invocation.
+- PowerShell 7 resolves `pwsh.exe` from `%ProgramFiles%\PowerShell\7` (or
+  `ProgramW6432` when the host process is 32-bit), then PATH, which covers
+  machine-scope, Store, user-scope, and portable installs. It shares the
+  Windows PowerShell 5.1 invocation contract and is never selected implicitly,
+  so it cannot change an existing user's default shell. Resolution failure
+  returns `SHELL_NOT_FOUND` naming the locations that were searched.
 - Git Bash uses the discovered Git for Windows executable.
 - Unix Bash uses an approved system Bash entry.
 - User abort and timeout terminate the complete process tree before returning.

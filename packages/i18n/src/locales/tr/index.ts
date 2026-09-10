@@ -40,6 +40,14 @@ export const tr = {
    * declare. Lives here rather than in the renderer because the dialog is a
    * main-process `showMessageBox` — it has to block the plugin's call.
    */
+  pluginDesktopConsent: {
+    message: "{name}, {operation} işlemini çalıştırmak istiyor",
+    arguments: "Bağımsız değişkenler: {args}",
+    detail:
+      "Bu tehlikeli bir masaüstü işlemidir. Eklenti riski kabul etti; çalışıp çalışmayacağına siz karar verirsiniz. Beklemiyorsanız reddedin.",
+    allowOnce: "Bir kez izin ver",
+    deny: "Reddet",
+  },
   pluginFsConsent: {
     read: "{name}, bildirdiği kapsamın dışında bir dosya okumak istiyor",
     write: "{name}, bildirdiği kapsamın dışında bir dosyaya yazmak istiyor",
@@ -1786,6 +1794,9 @@ export const tr = {
       maxTurns: "Tur sınırı",
       maxTurnsHint: "Bitmeyen bir devri durdurur. 1–{{max}} veya sınır yoksa boş bırakın.",
       maxTurnsUnlimited: "Sınır yok",
+      maxTokens: "Çıktı sınırı",
+      maxTokensHint: "Temsilcinin tek bir yanıtını sınırlar. 1–{{max}}, veya modeli izlemek için boş bırakın.",
+      maxTokensDefault: "Model varsayılanı",
       body: "Yönergeler",
       bodyHint: "Markdown, devredilenin tüm sistem istemi olarak kullanılır. Devredilene yönerge olarak yazın.",
       bytes: "{{used}} / {{max}} KB",
@@ -1796,6 +1807,7 @@ export const tr = {
       errorTools: "En az bir araç verin.",
       errorModel: "Modeli sağlayıcı/model olarak yazın, örn. anthropic/claude-haiku-4-5.",
       errorMaxTurns: "Tur sınırı izin verilen aralıkta bir tam sayı olmalıdır.",
+      errorMaxTokens: "Çıktı sınırı izin verilen aralıkta bir tam sayı olmalıdır.",
       errorBody: "Yönergeler boş.",
       errorTooBig: "Yönergeler boyut sınırının üzerinde.",
     },
@@ -1810,6 +1822,16 @@ export const tr = {
     fatal: "Yerel servise ulaşılamıyor",
     unsupportedGlibc:
       "Bu Linux sürümü glibc 2.35 veya daha yenisini gerektirir (Ubuntu 22.04, Debian 12, Fedora 36+).",
+    dbSchemaTooNew:
+      "Bu PI-Desktop sürümü yerel verilerinizden daha eski (veri şeması {{found}}, bu sürüm {{supported}} destekliyor). Bu verileri en son açan daha yeni PI-Desktop sürümünü veya sonrasını yükleyin.",
+    archMismatch:
+      "Bu, {{machineArch}} makinede çalışan {{buildArch}} sürümü; çeviri üzerinden çalıştığı için daha yavaş. Bunun yerine {{machineArch}} sürümünü yükleyin.",
+    dismissArchMismatch: "Kapat",
+    archNames: {
+      darwin: { x64: "Intel", arm64: "Apple Silicon" },
+      win32: { x64: "x64", arm64: "ARM64" },
+      linux: { x64: "x64", arm64: "ARM64" },
+    },
     openLogs: "Günlükleri aç",
   },
   toast: {
@@ -1871,6 +1893,12 @@ export const tr = {
     CONTEXT_COMPACTION_FAILED: "Bu sohbetin model bağlamı sıkıştırılamadı.",
     AGENT_BUSY: "Bu sohbet zaten çalışıyor. Bitmesini bekleyin veya önce durdurun.",
     TURN_ABORTED: "Durduruldu.",
+    workspaceActivationFailed: "Proje çalışma alanı etkinleştirilemedi",
+    sessionNotFound: "Oturum bulunamadı",
+    noActiveSession: "Etkin oturum yok",
+    sessionTitleEmpty: "Oturum başlığı boş olamaz",
+    projectNameLength: "Proje adı 1 ile 80 karakter arasında olmalıdır",
+    planApprovalUnavailable: "Plan onayı artık kullanılamıyor",
     action: {
       openSettings: "Ayarları aç",
       retry: "Yeniden dene",

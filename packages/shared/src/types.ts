@@ -1555,6 +1555,8 @@ export type UserSubagentRecord = {
   model?: string;
   thinkingLevel?: SubagentThinkingLevel;
   maxTurns?: number;
+  /** Output-token cap for one delegate response; omitted follows the model. */
+  maxTokens?: number;
   /** Absolute path of the document, for revealing it. */
   path: string;
   sizeBytes: number;
@@ -1573,6 +1575,8 @@ export type UserSubagentInput = {
   thinkingLevel?: SubagentThinkingLevel | "";
   /** `0` clears the override; absent leaves it unchanged. */
   maxTurns?: number;
+  /** `0` clears the cap; absent leaves it unchanged. */
+  maxTokens?: number;
   enabled?: boolean;
   scope?: ActivationScope;
 };
@@ -1703,7 +1707,12 @@ export type HostStatusEvent = {
   restarting?: boolean;
   restarted?: boolean;
   fatal?: boolean;
+  /** Free text, or a status token such as `GLIBC_UNSUPPORTED` / `DB_SCHEMA_TOO_NEW`. */
   message?: string;
+  /** Schema numbers behind `DB_SCHEMA_TOO_NEW`. */
+  schema?: { found: number; supported: number };
+  /** Set on the boot status when the build is not native to this CPU. */
+  archMismatch?: { platform: string; processArch: string; machineArch: string };
 };
 
 /**

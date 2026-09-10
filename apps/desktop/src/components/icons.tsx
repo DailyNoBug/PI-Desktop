@@ -46,6 +46,7 @@ import {
   ListChecks,
   LogOut,
   Mic,
+  Minus,
   MessageSquare,
   MessageSquarePlus,
   Monitor,
@@ -175,6 +176,9 @@ export const IconCheckCheck = icon(CheckCheck);
 export const IconShield = icon(Shield);
 export const IconChevronDown = icon(ChevronDown);
 export const IconClose = icon(X);
+/* Frameless window chrome (WindowControls): minimize / maximize / restore. */
+export const IconMinus = icon(Minus);
+export const IconSquare = icon(Square);
 export const IconSliders = icon(SlidersHorizontal);
 export const IconConfig = icon(RefreshCcw);
 export const IconChevronLeft = icon(ChevronLeft);

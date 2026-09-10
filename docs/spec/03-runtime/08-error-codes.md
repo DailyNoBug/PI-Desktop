@@ -32,9 +32,11 @@ Rules:
 2. `message` is English source text (i18n key may map separately)
 3. UI should prefer i18n key derived from `code` when available
 
-The shared test suite verifies the newly emitted runtime and Edit codes added
-by this update are present in `ErrorCodes`; reserved codes in §3.7 remain
-intentionally absent until an implementation emits them.
+The desktop test suite (`apps/desktop/test/error-code-registry.test.mjs`) verifies
+that every `ErrorCodes` entry appears in this document and that every
+`errorCode` host-core emits from its RPC dispatcher and native tools is
+registered; reserved codes in §3.7 remain intentionally absent from
+`ErrorCodes` until an implementation emits them.
 
 ## 3. Code registry
 
@@ -49,10 +51,15 @@ intentionally absent until an implementation emits them.
 | `APP_DEGRADED` | yes | app running with limited capabilities |
 | `INTERNAL` | maybe | unexpected internal failure |
 | `INVALID_ARGUMENT` | no | request schema/args invalid, including a native-tool path of the wrong file/directory kind |
+| `INVALID_PARAMS` | no | host-core RPC parameter validation failed (numeric `1002`); the sidecar and renderer surface it unchanged |
 | `UNAUTHORIZED` | no | capability/auth boundary rejected call |
 | `NOT_FOUND` | no | entity not found |
+| `SESSION_NOT_FOUND` | no | a session-scoped RPC (including `tools.execute`) named a session the host does not have; an unknown id never inherits the global workspace |
 | `CONFLICT` | maybe | state conflict / busy resource |
 | `TIMEOUT` | yes | generic timeout |
+| `HOST_SHUTTING_DOWN` | yes | the host received EOF and is draining; the call was refused rather than started |
+| `RATE_LIMITED` | yes | a per-caller host budget (plugin session import, batch operations) was exceeded inside its window |
+| `LIMIT_EXCEEDED` | no | a payload exceeded a fixed host bound (item count, byte size) and was refused |
 
 `HOST_UNAVAILABLE` is reserved for a missing or broken host process/transport,
 not ordinary admission pressure. RPC capacity returns `HOST_OVERLOADED`, and
@@ -86,11 +93,15 @@ does not turn temporary thread pressure into a host process exit.
 | code | retriable | meaning |
 |---|---|---|
 | `WORKSPACE_REQUIRED` | no | no workspace bound |
-| `PATH_OUTSIDE_WORKSPACE` | no | path escapes sandbox before an explicit outside-path permission decision, a non-permissioned compatibility call reaches the resolver, or a prompt attachment is outside its session scratch/project/attachment roots |
+| `PATH_OUTSIDE_WORKSPACE` | no | path escapes sandbox before an explicit outside-path permission decision, or a prompt attachment is outside its session scratch/project/attachment roots |
+| `WORKSPACE_PATH_DENIED` | no | an explicit `Read`/`Write`/`Edit` path hit the always-on security denylist (private keys, `.env` files, credential bundles, `.git/objects`); an outside-path grant does not lift it (spec 15 §3) |
+| `READ_PATH_IS_DIRECTORY` | no | `Read` was given a directory; the result carries a `Glob` suggestion |
+| `TOOL_BINARY_CONTENT` | no | `Read` refused to dump a binary file into the model context |
 | `TOOL_NOT_FOUND` | no | unknown tool |
 | `TOOL_DENIED` | no | permission denied / mode forbidden |
 | `TOOL_TIMEOUT` | yes | tool execution timeout |
 | `TOOL_FAILED` | maybe | tool executed but failed |
+| `TOOL_ABORTED` | no | the tool was cancelled by a user stop or a turn abort before it finished |
 | `MUTATION_RETRY_BUDGET_EXHAUSTED` | yes | the repeat guard ended the turn after same-path `Edit` or shell patch failures; carries `details.kind` (`edit` or `patch-command`), the last tool error code, and a class-specific `details.recovery` hint |
 | `PROCESS_RESOURCE_EXHAUSTED` | yes | shell process could not start because the OS temporarily exhausted process resources |
 | `SHELL_NOT_FOUND` | no | no effective platform shell is available after catalog fallback; message carries guidance |
@@ -111,6 +122,36 @@ does not turn temporary thread pressure into a host process exit.
 | `PLAN_ARTIFACT_WRITE_FAILED` | no | host could not write exact bytes to a new `.pi/<kind>/*.md` artifact |
 | `PLAN_EXECUTION_INTERRUPTED` | no | approved queued/running Plan or Goal execution stopped without replay |
 | `PLAN_REQUIRES_INTERACTIVE_SESSION` | no | unattended/scheduled Plan or Goal run cannot request approval |
+| `PLAN_NOT_FOUND` | no | no approval row matches the proposal id |
+| `PLAN_SESSION_NOT_FOUND` | no | the Plan/Goal RPC named a session the host does not have |
+| `PLAN_WORKSPACE_REQUIRED` | no | the session has no persisted project; temporary sessions cannot enter Plan or Goal |
+| `PLAN_ALREADY_ACTIVE` | no | the session already has a contract being negotiated |
+| `PLAN_ALREADY_PENDING` | no | a submit arrived while an approval for the same turn is still pending |
+| `PLAN_ALREADY_RESOLVED` | no | a second approve/reject reached an already-resolved approval |
+| `PLAN_APPROVAL_CONFLICT` | no | the approval row changed underneath a version-guarded update |
+| `PLAN_INVALID_ACTION` | no | the approval response is neither `approve` nor `reject` |
+| `PLAN_INVALID_ARGUMENT` | no | submit/resolve arguments failed validation |
+| `PLAN_PERMISSION_MODE_REQUIRED` | no | approve did not select `ask`, `accept-edits`, or `auto` |
+| `PLAN_PERMISSION_MODE_INVALID` | no | the selected permission mode is not one of the three |
+| `PLAN_MARKDOWN_TOO_LARGE` | no | the submitted Markdown exceeds the artifact size bound |
+| `PLAN_REJECTED` | no | the user rejected the proposal; the turn ends without execution |
+| `PLAN_SUBMIT_FAILED` | maybe | the host could not record the proposal |
+| `PLAN_CONFIGURATION_BLOCKED` | no | `session.configure` was refused while a proposal or execution is live |
+| `PLAN_ARTIFACT_INVALID` | no | the checkpoint artifact failed validation before execution |
+| `PLAN_ARTIFACT_NOT_READY` | no | execution was claimed before the artifact was durably written |
+| `PLAN_ARTIFACT_PATH_UNSAFE` | no | the artifact path escaped `<workspaceRoot>/.pi/<kind>/` |
+| `PLAN_ARTIFACT_COLLISION_LIMIT` | no | the host ran out of unique artifact names |
+| `PLAN_ARTIFACT_HASH_MISMATCH` | no | artifact bytes no longer match the recorded hash at execution time |
+| `PLAN_EXECUTION_ACTIVE` | no | an approved execution is already running for the session |
+| `PLAN_EXECUTION_NOT_FOUND` | no | no queued execution matches the claim |
+| `PLAN_EXECUTION_ALREADY_CLAIMED` | no | another claimant took the queued execution first |
+| `PLAN_EXECUTION_STALE` | no | the execution epoch no longer matches the live session |
+| `PLAN_EXECUTION_STATUS_INVALID` | no | a status transition was not allowed from the current state |
+| `PLAN_EXECUTION_CONFLICT` | no | the execution row changed underneath a version-guarded update |
+| `PLAN_EXECUTION_FAILED` | maybe | the approved execution ended in an error |
+| `PLAN_INTERNAL` | maybe | a Plan/Goal host failure with no finer classification |
+| `WRITE_DISABLED_IN_CHAT` | no | historical (pre-D188 Chat profile); registered for stored transcripts, no longer emitted |
+| `BASH_DISABLED_IN_CHAT` | no | historical (pre-D188 Chat profile); registered for stored transcripts, no longer emitted |
 
 The `_IN_PLAN` suffix and the `PLAN_` prefix are historical: both contract modes
 (Plan and Goal) share these codes rather than duplicating a `_IN_GOAL` set
@@ -167,11 +208,21 @@ malformed.
 
 | code | retriable | meaning |
 |---|---|---|
-| `PLUGIN_NOT_FOUND` | no | plugin id missing (reserved) |
+| `PLUGIN_NOT_FOUND` | no | plugin id missing |
 | `PLUGIN_INVALID` | no | manifest/package invalid |
 | `PLUGIN_LOAD_FAILED` | maybe | enable/load failed |
 | `PLUGIN_DISABLED` | no | plugin disabled (reserved) |
-| `PLUGIN_PERMISSION_DENIED` | no | plugin lacks declared/granted permission (reserved) |
+| `PLUGIN_PERMISSION_DENIED` | no | plugin lacks the declared and granted permission the call needs |
+| `PLUGIN_INTEGRITY` | no | package checksum or signature did not match the catalog entry |
+| `PLUGIN_NETWORK` | yes | marketplace download or catalog fetch failed |
+| `PLUGIN_HOST_TOO_OLD` | no | the package's `engines.piDesktop` range excludes this host |
+| `PLUGIN_MARKET_INVALID` | no | the marketplace catalog is malformed or missing required release fields |
+| `PLUGIN_MARKET_UNTRUSTED_HOST` | no | the catalog or package URL is outside the trusted marketplace hosts |
+| `PLUGIN_MARKET_YANKED` | no | the requested release was withdrawn from the catalog |
+| `MCP_INVALID` | no | a user MCP server definition failed validation |
+| `SKILL_INVALID` | no | a user skill document failed validation |
+| `SUBAGENT_INVALID` | no | a user subagent document failed validation |
+| `CAPABILITY_INVALID` | no | an agent capability root or scope setting failed validation |
 | `PLUGIN_COMMAND_NOT_FOUND` | no | command id missing (reserved) |
 | `PLUGIN_CRASHED` | yes | plugin runtime crashed (reserved) |
 | `PLUGIN_CONTRACT_MISMATCH` | no | unsupported manifest/api version (reserved) |
@@ -189,8 +240,9 @@ Until emitted, implementations use the canonical parent code shown.
 | `PROVIDER_TIMEOUT` | `TIMEOUT` | network/server timeout (retriable) |
 | `PROVIDER_UNSUPPORTED_CAPABILITY` | `PROVIDER_ERROR` | tools/vision unsupported |
 | `PROVIDER_DISABLED` | `MODEL_NOT_CONFIGURED` | provider disabled |
-| `WORKSPACE_PATH_DENIED` | `PATH_OUTSIDE_WORKSPACE` | ignore/denylist block |
-| `TOOL_BINARY_CONTENT` | `TOOL_FAILED` | refused binary dump |
+
+`WORKSPACE_PATH_DENIED` and `TOOL_BINARY_CONTENT` left this table when the
+host started emitting them (§3.3).
 
 Historical aliases (never use in new code): `PROVIDER_AUTH_FAILED` →
 `PROVIDER_UNAUTHORIZED`; `PROVIDER_STREAM_INTERRUPTED` → `STREAM_FAILED`;

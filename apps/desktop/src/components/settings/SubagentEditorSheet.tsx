@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   DEFAULT_SUBAGENT_TOOLS,
   GLOBAL_SCOPE,
+  MAX_SUBAGENT_MAX_TOKENS,
   MAX_SUBAGENT_MAX_TURNS,
   SUBAGENT_ASSIGNABLE_TOOLS,
   SUBAGENT_PRESETS,
@@ -39,6 +40,11 @@ export type SubagentDraft = {
   thinkingLevel: SubagentThinkingLevel | "";
   /** `0` means no limit, which is what a definition without `maxTurns` gets. */
   maxTurns: number;
+  /**
+   * Output-token cap for one delegate response. `0` means "follow the model's
+   * published limit", which is what a definition without `maxTokens` gets.
+   */
+  maxTokens: number;
   body: string;
   enabled: boolean;
   scope: ActivationScope;
@@ -100,6 +106,7 @@ export function emptySubagentDraft(): SubagentDraft {
     model: "",
     thinkingLevel: "",
     maxTurns: 0,
+    maxTokens: 0,
     body: "",
     enabled: true,
     scope: GLOBAL_SCOPE,
@@ -115,6 +122,7 @@ export function draftFromRecord(record: UserSubagentRecord, body: string): Subag
     model: record.model ?? "",
     thinkingLevel: record.thinkingLevel ?? "",
     maxTurns: record.maxTurns ?? 0,
+    maxTokens: record.maxTokens ?? 0,
     body,
     enabled: record.enabled,
     scope: resolveScope(record.scope),
@@ -185,6 +193,17 @@ export function subagentDraftError(draft: SubagentDraft): string | null {
     draft.maxTurns > MAX_SUBAGENT_MAX_TURNS
   ) {
     return "extensions.subagents.errorMaxTurns";
+  }
+  // Same convention as the turn limit: cleared (`0`) is a valid state that
+  // means "no cap of our own", so only a value outside the accepted range is
+  // an error. The field only produces integers, so a fraction cannot reach
+  // here from the UI — the check keeps the draft honest anyway.
+  if (
+    !Number.isInteger(draft.maxTokens) ||
+    draft.maxTokens < 0 ||
+    draft.maxTokens > MAX_SUBAGENT_MAX_TOKENS
+  ) {
+    return "extensions.subagents.errorMaxTokens";
   }
   if (!draft.body.trim()) return "extensions.subagents.errorBody";
   if (new TextEncoder().encode(draft.body).length > MAX_SUBAGENT_BYTES) {
@@ -480,6 +499,26 @@ function AdvancedFields({
               setDraft({
                 ...draft,
                 maxTurns: Number.parseInt(event.target.value, 10) || 0,
+              })
+            }
+          />
+        </Field>
+        <Field
+          label={t("extensions.subagents.maxTokens")}
+          hint={t("extensions.subagents.maxTokensHint", {
+            max: MAX_SUBAGENT_MAX_TOKENS.toLocaleString(),
+          })}
+        >
+          <Input
+            type="number"
+            min={1}
+            max={MAX_SUBAGENT_MAX_TOKENS}
+            placeholder={t("extensions.subagents.maxTokensDefault")}
+            value={draft.maxTokens > 0 ? String(draft.maxTokens) : ""}
+            onChange={(event) =>
+              setDraft({
+                ...draft,
+                maxTokens: Number.parseInt(event.target.value, 10) || 0,
               })
             }
           />

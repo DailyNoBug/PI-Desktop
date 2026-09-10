@@ -1,4 +1,4 @@
-use std::io::{self, BufRead, BufReader as StdBufReader, Write};
+use std::io::{self, BufRead, BufReader as StdBufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
@@ -82,6 +82,11 @@ fn is_transient_io_error(error: &io::Error) -> bool {
     ) || matches!(error.raw_os_error(), Some(11) | Some(35))
 }
 
+/// Largest single NDJSON request line the host accepts. A Write payload of a
+/// few megabytes fits comfortably; anything past this is a framing fault, not
+/// a request, and must not be buffered into memory line by line.
+const MAX_STDIN_LINE_BYTES: u64 = 64 * 1024 * 1024;
+
 fn spawn_stdin_reader(tx: mpsc::UnboundedSender<StdinEvent>) -> io::Result<thread::JoinHandle<()>> {
     thread::Builder::new()
         .name("pi-host-stdin".into())
@@ -91,8 +96,17 @@ fn spawn_stdin_reader(tx: mpsc::UnboundedSender<StdinEvent>) -> io::Result<threa
             let mut line = String::new();
 
             loop {
-                match reader.read_line(&mut line) {
+                let read = (&mut reader)
+                    .take(MAX_STDIN_LINE_BYTES + 1)
+                    .read_line(&mut line);
+                match read {
                     Ok(0) => break,
+                    Ok(_) if line.len() as u64 > MAX_STDIN_LINE_BYTES => {
+                        let _ = tx.send(StdinEvent::Error(format!(
+                            "request line exceeds {MAX_STDIN_LINE_BYTES} bytes"
+                        )));
+                        break;
+                    }
                     Ok(_) => {
                         if tx
                             .send(StdinEvent::Line(std::mem::take(&mut line)))
@@ -617,9 +631,9 @@ fn resolve_persisted_project_workspace(
 ) -> Result<Option<String>, JsonRpcError> {
     match sessions::get_session(&state.db, session_id) {
         Ok(Some(detail)) => Ok(detail.summary.project_path),
-        // Compatibility fallback for old callers that did not persist a
-        // session before dispatching a tool request.
-        Ok(None) => Ok(state.workspace.path.clone()),
+        // A tool request must name a persisted session: an unknown id never
+        // inherits the mutable global workspace.
+        Ok(None) => Err(rpc_err(1007, "session not found", "SESSION_NOT_FOUND")),
         Err(error) => Err(rpc_err(1000, error.to_string(), "INTERNAL")),
     }
 }
@@ -639,9 +653,9 @@ fn resolve_tool_workspace(
                 .map_err(|error| rpc_err(1000, error.to_string(), "INTERNAL"))?;
             Ok(Some(scratch.to_string_lossy().into_owned()))
         }
-        // Compatibility fallback for old callers that did not persist a
-        // session before dispatching a tool request.
-        Ok(None) => Ok(state.workspace.path.clone()),
+        // A tool request must name a persisted session: an unknown id never
+        // inherits the mutable global workspace.
+        Ok(None) => Err(rpc_err(1007, "session not found", "SESSION_NOT_FOUND")),
         Err(error) => Err(rpc_err(1000, error.to_string(), "INTERNAL")),
     }
 }
@@ -4062,8 +4076,11 @@ mod tests {
             "PLAN_WORKSPACE_REQUIRED"
         );
         assert_eq!(
-            resolve_tool_workspace(&state, "legacy-missing-session").unwrap(),
-            state.workspace.path
+            resolve_tool_workspace(&state, "legacy-missing-session")
+                .expect_err("unknown sessions must not inherit the global workspace")
+                .data
+                .unwrap()["errorCode"],
+            "SESSION_NOT_FOUND"
         );
     }
 

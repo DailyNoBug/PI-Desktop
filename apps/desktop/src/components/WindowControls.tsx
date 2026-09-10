@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Copy, Minus, Square, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
+import { IconClose, IconCopy, IconMinus, IconSquare } from "./icons";
 
 /**
  * Renderer-drawn window controls for Windows/Linux (D-frameless chrome).
@@ -51,7 +51,7 @@ export function WindowControls({
         aria-label={t("window.minimize", "Minimize")}
         onClick={() => void api.windowControl("minimize")}
       >
-        <Minus size={12} strokeWidth={1.5} aria-hidden />
+        <IconMinus size={12} strokeWidth={1.5} aria-hidden />
       </button>
       <button
         type="button"
@@ -73,9 +73,9 @@ export function WindowControls({
         }
       >
         {maximized ? (
-          <Copy size={11} strokeWidth={1.4} aria-hidden />
+          <IconCopy size={11} strokeWidth={1.4} aria-hidden />
         ) : (
-          <Square size={10} strokeWidth={1.4} aria-hidden />
+          <IconSquare size={10} strokeWidth={1.4} aria-hidden />
         )}
       </button>
       <button
@@ -85,7 +85,7 @@ export function WindowControls({
         aria-label={t("window.close", "Close")}
         onClick={() => void api.windowControl("close")}
       >
-        <X size={12} strokeWidth={1.5} aria-hidden />
+        <IconClose size={12} strokeWidth={1.5} aria-hidden />
       </button>
     </div>
   );

@@ -762,6 +762,35 @@ The Agent can also run `PluginCheck` in every operating mode. `PluginScaffold`
 and `PluginPack` are Agent-mode tools and are restricted to the current
 workspace.
 
+### Prepare a plugin center submission with `pi-plugin publish`
+
+`publish` packs the plugin and pins the package to the git commit it was built
+from, so the plugin center can rebuild and compare the artifact:
+
+```bash
+pnpm pi-plugin publish ../my-first-plugin [--out <dir>] [--ref <ref>] [--channel stable|beta] [--allow-dirty]
+```
+
+The command runs the same `check` and `pack` steps, then reads the `origin`
+remote and `HEAD` of the plugin's repository. SSH remotes are rewritten to the
+canonical `https://` form; remotes with embedded credentials or a non-HTTPS
+scheme are rejected. The working tree must be clean unless you pass
+`--allow-dirty`, which produces a submission the center cannot reproduce and
+prints a warning. The pinned `ref` is `--ref` when given, otherwise the tag
+that points at `HEAD` as `refs/tags/<tag>`; without a tag the bare commit is
+submitted with a warning. The plugin's path relative to the repository root is
+recorded so a plugin may live in a subdirectory.
+
+The result is `dist/<id>-<version>.submission.json` (or `--out`), a
+`schemaVersion: 1` payload with `pluginId`, `version`, `channel`, the
+`source` pin (`repository`, `ref`, `commit`, `path`), the `artifact`
+(`publisher-release` mode, file name, SHA-256, size), the declared
+`permissions`, and an `idempotencyKey` that is stable per plugin, version,
+commit, and artifact so a retried submission is not a new release. Attach the
+`.piplug` to a release on that commit, then submit the payload to the plugin
+center. The center re-resolves the source from the forge and does not trust
+the recorded values.
+
 ## 10. Prepare a release
 
 Before sharing a package:

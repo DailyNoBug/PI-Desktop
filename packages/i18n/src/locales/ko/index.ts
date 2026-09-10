@@ -40,6 +40,14 @@ export const ko = {
    * declare. Lives here rather than in the renderer because the dialog is a
    * main-process `showMessageBox` — it has to block the plugin's call.
    */
+  pluginDesktopConsent: {
+    message: "{name}이(가) {operation}을(를) 실행하려고 합니다",
+    arguments: "인수: {args}",
+    detail:
+      "위험한 데스크톱 작업입니다. 플러그인은 위험을 확인했지만 실행 여부는 사용자가 결정합니다. 예상하지 못한 작업이라면 거부하세요.",
+    allowOnce: "한 번 허용",
+    deny: "거부",
+  },
   pluginFsConsent: {
     read: "{name}이(가) 선언한 범위 밖의 파일을 읽으려고 합니다",
     write: "{name}이(가) 선언한 범위 밖의 파일에 쓰려고 합니다",
@@ -1786,6 +1794,9 @@ export const ko = {
       maxTurns: "턴 제한",
       maxTurnsHint: "끝나지 않는 위임 작업을 중지합니다. 1–{{max}} 또는 제한 없이 비워 두세요.",
       maxTurnsUnlimited: "제한 없음",
+      maxTokens: "출력 한도",
+      maxTokensHint: "대리자의 응답 한 건을 제한합니다. 1–{{max}}, 비워 두면 모델을 따릅니다.",
+      maxTokensDefault: "모델 기본값",
       body: "지침",
       bodyHint: "위임 작업의 전체 시스템 프롬프트로 사용하는 Markdown입니다. 위임 작업에 전달할 지침으로 작성하세요.",
       bytes: "{{used}} / {{max}}KB",
@@ -1796,6 +1807,7 @@ export const ko = {
       errorTools: "하나 이상의 도구를 허용하세요.",
       errorModel: "모델은 provider/model 형식으로 입력하세요(예: anthropic/claude-haiku-4-5).",
       errorMaxTurns: "턴 제한은 허용 범위의 정수여야 합니다.",
+      errorMaxTokens: "출력 한도는 허용 범위 내의 정수여야 합니다.",
       errorBody: "지침이 비어 있습니다.",
       errorTooBig: "지침이 크기 제한을 초과했습니다.",
     },
@@ -1810,6 +1822,16 @@ export const ko = {
     fatal: "로컬 서비스에 연결할 수 없습니다",
     unsupportedGlibc:
       "이 Linux 빌드에는 glibc 2.35 이상이 필요합니다 (Ubuntu 22.04, Debian 12, Fedora 36+).",
+    dbSchemaTooNew:
+      "이 PI-Desktop은 로컬 데이터보다 오래된 버전입니다(데이터 스키마 {{found}}, 이 버전은 {{supported}}까지 지원). 이 데이터를 마지막으로 연 최신 PI-Desktop 또는 그 이후 버전을 설치하세요.",
+    archMismatch:
+      "{{machineArch}} 기기에서 {{buildArch}} 빌드를 실행 중이므로 변환을 거쳐 더 느리게 동작합니다. {{machineArch}} 빌드를 설치하세요.",
+    dismissArchMismatch: "닫기",
+    archNames: {
+      darwin: { x64: "Intel", arm64: "Apple Silicon" },
+      win32: { x64: "x64", arm64: "ARM64" },
+      linux: { x64: "x64", arm64: "ARM64" },
+    },
     openLogs: "로그 열기",
   },
   toast: {
@@ -1871,6 +1893,12 @@ export const ko = {
     CONTEXT_COMPACTION_FAILED: "이 대화의 모델 컨텍스트를 압축할 수 없습니다.",
     AGENT_BUSY: "이 채팅은 이미 작업 중입니다. 완료될 때까지 기다리거나 먼저 중지하세요.",
     TURN_ABORTED: "중지됨",
+    workspaceActivationFailed: "프로젝트 작업 공간을 활성화할 수 없습니다",
+    sessionNotFound: "세션을 찾을 수 없습니다",
+    noActiveSession: "활성 세션이 없습니다",
+    sessionTitleEmpty: "세션 제목은 비워 둘 수 없습니다",
+    projectNameLength: "프로젝트 이름은 1~80자여야 합니다",
+    planApprovalUnavailable: "계획 승인을 더 이상 사용할 수 없습니다",
     action: {
       openSettings: "설정 열기",
       retry: "다시 시도",

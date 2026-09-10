@@ -84,7 +84,7 @@ import {
   type ProposalKind,
   type SubagentPermission,
 } from "@pi-desktop/shared";
-import type { HostClient } from "./host-client.js";
+import type { RuntimeHost } from "./host-client.js";
 import { classifyAgentError } from "./agent-errors.js";
 import {
   assistantContent,
@@ -611,6 +611,13 @@ const CONTEXT_ROLLOVER_SUMMARY = [
  * its wording verbatim. The model cannot know how much room is left, so the
  * tool is only useful together with the budget reminders below.
  */
+/** An abort the error classifier recognizes structurally, not by message. */
+function turnAbortedError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
 const CONTEXT_COMPACTION_TOOL_NAME = "new_context";
 const CONTEXT_COMPACTION_TOOL_DESCRIPTION =
   "Start a new context window. Does not clear, reset, or otherwise affect environment state.";
@@ -689,7 +696,7 @@ export type PluginToolDef = {
 };
 
 export type AgentRuntimeOptions = {
-  host: HostClient;
+  host: RuntimeHost;
   sessionId: string;
   mode: Mode;
   /** Durable host turn ID for the current prompt, used by plan identity. */
@@ -1292,7 +1299,7 @@ export class DesktopAgentRuntime {
   private mode: Mode;
   private provider: RuntimeProviderConfig;
   private thinkingLevel: ThinkingLevel;
-  private host: HostClient;
+  private host: RuntimeHost;
   private onEvent: (envelope: AgentEventEnvelope) => void;
   private baseSystemPrompt: string;
   private planningState: PlanningState;
@@ -1410,6 +1417,8 @@ export class DesktopAgentRuntime {
   private turnEpoch = 0;
   private compactionAbort?: AbortController;
   private compactionInProgress = false;
+  /** The in-flight checkpoint was cut short by Stop/dispose, not by a failure. */
+  private compactionAborted = false;
   /** Set by the `new_context` tool, consumed at the next turn boundary. */
   private pendingModelCompaction = false;
   /** One-shot request to finish the current turn at the next boundary. */
@@ -1630,7 +1639,25 @@ Delegation rules:
       },
     });
 
-    this.agent.subscribe((event) => this.handleAgentEvent(event));
+    // pi awaits every listener, so a throw here would reject the run in
+    // progress and, with nothing awaiting that rejection, could take the whole
+    // sidecar down. Contain it: log with the session attached and let the
+    // loop continue; a handler that failed on one event still sees the next.
+    this.agent.subscribe((event) =>
+      this.handleAgentEvent(event).catch((error: unknown) => {
+        this.logEventHandlerFailure(event, error);
+      }),
+    );
+  }
+
+  private logEventHandlerFailure(event: AgentEvent, error: unknown): void {
+    const detail =
+      error instanceof Error
+        ? `${error.name}: ${error.message}${error.stack ? `\n${error.stack}` : ""}`
+        : String(error);
+    process.stderr.write(
+      `[agent-runtime] event handler failed (session=${this.sessionId} turn=${this.turnId} event=${event.type}): ${detail}\n`,
+    );
   }
 
   /** Switch the planning state on this Agent without creating another Agent. */
@@ -4326,6 +4353,15 @@ Delegation rules:
         );
         if (!compacted) {
           this.terminateParentTurn();
+          if (this.compactionAborted) {
+            // The user stopped the turn while the checkpoint was being written.
+            // That is an aborted turn, not a compaction failure: close it the
+            // way a stopped stream closes, with no error row.
+            this.finalizeCurrentAssistant("aborted");
+            this.emit({ type: "turn_end" });
+            this.emit({ type: "agent_end", messageIds: [] });
+            return false;
+          }
           this.emit({
             type: "error",
             error: {
@@ -4599,6 +4635,11 @@ Delegation rules:
     );
     if (!compacted) {
       if (!hardLimitReached) return { context };
+      // A user Stop that lands during the checkpoint aborts the compaction;
+      // pi's loop is already aborting, so surface it as the abort it is.
+      if (this.compactionAborted) {
+        throw new Error("Turn aborted while compacting context");
+      }
       // Continuing would immediately issue the provider request that this
       // guard exists to prevent. The Agent wrapper converts this failure to
       // the normal error/agent_end event sequence.
@@ -4667,6 +4708,7 @@ Delegation rules:
   ): Promise<boolean> {
     if (this.compactionInProgress) return false;
     this.compactionInProgress = true;
+    this.compactionAborted = false;
     const previous = this.agentActivity;
     this.setAgentActivity({
       phase: "compacting",
@@ -4693,13 +4735,18 @@ Delegation rules:
     tokensBefore: number | undefined,
     message: string,
   ): void {
+    // A checkpoint cut short by the user's Stop is not a failed compaction;
+    // it reports under the abort code so the turn reads as stopped.
+    const aborted = this.compactionAborted;
     this.emit({
       type: "compaction_end",
       reason,
       ok: false,
       ...(tokensBefore !== undefined ? { tokensBefore } : {}),
       willRetry: false,
-      error: { code: "CONTEXT_COMPACTION_FAILED", message },
+      error: aborted
+        ? { code: "TURN_ABORTED", message: "Context compaction was stopped" }
+        : { code: "CONTEXT_COMPACTION_FAILED", message },
     });
   }
 
@@ -5848,16 +5895,22 @@ Delegation rules:
     this.currentAssistant = undefined;
   }
 
-  private failBeforeProviderRequest(
-    incomingUserMessage: AgentMessage,
-    error: ReturnType<typeof classifyAgentError>,
-  ): void {
+  /** Keep a pre-flight user message in context so a reused runtime and the
+   * next turn both see it, even though no provider request was made. */
+  private keepPreflightUserMessage(incomingUserMessage: AgentMessage): void {
     const userMessageId = this.pendingUserMessageId || randomUUID();
     this.pendingUserMessageId = undefined;
     this.appendLiveEntry(userMessageId, incomingUserMessage);
     this.agent.state.messages = buildSessionContext(
       this.entriesWithCompaction(),
     ).messages;
+  }
+
+  private failBeforeProviderRequest(
+    incomingUserMessage: AgentMessage,
+    error: ReturnType<typeof classifyAgentError>,
+  ): void {
+    this.keepPreflightUserMessage(incomingUserMessage);
     this.terminateParentTurn();
     this.finalizeCurrentAssistant("error", error);
     this.emit({ type: "error", error });
@@ -5875,6 +5928,7 @@ Delegation rules:
     durableTurnId: string,
   ): Promise<{ turnId: string }> {
     if (this.disposed) throw new Error("runtime disposed");
+    this.assertNotRunning();
     if (execution.sessionId !== this.sessionId) {
       throw Object.assign(new Error("approved plan belongs to another session"), {
         errorCode: "PLAN_EXECUTION_NOT_FOUND",
@@ -5963,6 +6017,7 @@ Delegation rules:
     durableTurnId?: string,
   ): Promise<{ turnId: string }> {
     if (this.disposed) throw new Error("runtime disposed");
+    this.assertNotRunning();
     const nextTurnId = durableTurnId?.trim() || randomUUID();
     this.hostTurnId = nextTurnId;
     this.turnId = nextTurnId;
@@ -5989,6 +6044,13 @@ Delegation rules:
       if (this.automaticCompactionNeeded([incomingUserMessage])) {
         const compacted = await this.runCompaction("threshold", false);
         if (!compacted) {
+          if (this.compactionAborted) {
+            // Stop landed during the pre-flight checkpoint. Keep the user's
+            // message in context and end the turn as aborted, the same way a
+            // stop during the provider request ends it (the catch below).
+            this.keepPreflightUserMessage(incomingUserMessage);
+            throw turnAbortedError("Turn aborted while compacting context");
+          }
           this.failBeforeProviderRequest(incomingUserMessage, {
             code: "CONTEXT_COMPACTION_FAILED",
             message: "Automatic context compaction failed before the model request",
@@ -6042,6 +6104,20 @@ Delegation rules:
     return { turnId: this.turnId };
   }
 
+  /**
+   * Same rejection the sidecar gives a second `agent.prompt` while a turn is
+   * active, raised before any turn state is touched. pi's own busy check
+   * would throw later, after `turnId`/`turnEpoch` had already moved on, and
+   * that throw finalized the running assistant message as an error.
+   */
+  private assertNotRunning(): void {
+    if (!this.getStatus().isRunning) return;
+    throw Object.assign(new Error("session already has an active turn"), {
+      rpcCode: -32000,
+      errorCode: "AGENT_BUSY",
+    });
+  }
+
   async abort(): Promise<void> {
     this.gracefulStopRequested = false;
     this.runCancelled = true;
@@ -6050,6 +6126,7 @@ Delegation rules:
     this.turnSubagentUsage = undefined;
     this.agent.abort();
     this.providerRetryAbort?.abort();
+    if (this.compactionInProgress) this.compactionAborted = true;
     this.compactionAbort?.abort();
   }
 
@@ -6097,6 +6174,7 @@ Delegation rules:
     this.agent.abort();
     this.providerRetryAbort?.abort();
     this.cleanupActiveToolProgress();
+    if (this.compactionInProgress) this.compactionAborted = true;
     this.compactionAbort?.abort();
   }
 }

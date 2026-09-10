@@ -188,6 +188,8 @@ type PluginPermission =
  | "bus.publish"
  | "bus.subscribe"
  | "browser.cdp"
+ | "desktop.control"
+ | "ui.microphone"
  | "project.create"
  | "session.import"
  | "session.read.own"

@@ -84,7 +84,31 @@ test("release preparation overlaps independent work and avoids duplicate builds"
     releaseWorkflowSource,
     /pnpm --filter '@pi-desktop\/desktop\^\.\.\.' --fail-if-no-match build/,
   );
-  assert.doesNotMatch(releaseWorkflowSource, /run: pnpm build:js/);
+  // The full JS build belongs to the verify gate; the build matrix only
+  // builds the desktop app's workspace dependencies.
+  const buildJob = releaseWorkflowSource.match(/^  build:\n[\s\S]*?(?=^  publish:)/m)?.[0];
+  assert.ok(buildJob, "release build job is missing");
+  assert.doesNotMatch(buildJob, /run: pnpm build:js/);
+});
+
+test("release builds are gated on the CI checks and least-privilege permissions", () => {
+  assert.match(releaseWorkflowSource, /^permissions:\n  contents: read$/m);
+  assert.match(releaseWorkflowSource, /^  verify:/m);
+  assert.match(releaseWorkflowSource, /^  build:\n[\s\S]*?^    needs: verify$/m);
+  const verifyJob = releaseWorkflowSource.match(/^  verify:\n[\s\S]*?(?=^  build:)/m)?.[0];
+  assert.ok(verifyJob, "release verify job is missing");
+  for (const step of [
+    /run: pnpm build:js/,
+    /run: pnpm --filter @pi-desktop\/desktop typecheck/,
+    /run: pnpm lint/,
+    /run: pnpm -r --if-present test/,
+    /run: cargo test -p host-core --locked/,
+  ]) {
+    assert.match(verifyJob, step);
+  }
+  const publishJob = releaseWorkflowSource.match(/^  publish:\n[\s\S]*$/m)?.[0];
+  assert.ok(publishJob, "release publish job is missing");
+  assert.match(publishJob, /^    permissions:\n      contents: write$/m);
 });
 
 test("release artifacts bypass redundant Actions compression", () => {
