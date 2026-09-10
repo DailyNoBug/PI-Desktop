@@ -4,7 +4,7 @@
 - Date: 2026-08-18
 - Deciders: PI-Desktop runtime and desktop UI maintainers
 - Amends: D197, ADR 0059, ADR 0070
-- Amended by: D361 (inline bound is 10 MB, matching MiniMax's OpenAI-compatible cap)
+- Amended by: D361 (inline bound is 10 MB, matching MiniMax's OpenAI-compatible cap), D392 / ADR 0218 (binding image-input overrides)
 
 ## Context
 

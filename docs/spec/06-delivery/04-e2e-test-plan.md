@@ -5437,7 +5437,7 @@ Each scenario is documented in this format:
   `03-runtime/01-ipc-protocol.md` §13c,
   `03-runtime/03-tools-and-permissions.md` §4b,
   `03-runtime/04-data-storage.md`, `08-meta/decisions-log.md` (D197, D209,
-  D243), ADR 0059, ADR 0070, ADR 0101
+  D243, D392), ADR 0059, ADR 0070, ADR 0101, ADR 0218
 - **Acceptance**: C (conversation & stream), E (tools & permissions),
   F (persistence), Quality
 - **Milestone**: M5
@@ -5468,7 +5468,7 @@ Each scenario is documented in this format:
   write nothing.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md` §13c,
   `03-runtime/04-data-storage.md`, `04-ux/08-component-spec.md` §11.7–11.8,
-  ADR 0059, ADR 0101
+  ADR 0059, ADR 0101, ADR 0218
 - **Acceptance**: B (model config), C (conversation & stream), E (tools &
   permissions), F (persistence), Security, Quality
 - **Milestone**: M5
@@ -5609,7 +5609,8 @@ Each scenario is documented in this format:
 #### E2E-102e: Unknown model ids fail closed for vision transport
 
 - **Preconditions**: A custom provider/model id absent from the pi-ai catalog,
-  discovery data that incorrectly labels it `vision`, and a pasted PNG.
+  discovery data that incorrectly labels it `vision`, no explicit
+  `supportsImages` binding override, and a pasted PNG.
 - **Steps**:
   1. Refresh the provider model list and select the discovered custom id.
   2. Paste the PNG and inspect the model picker and Composer image chip.
@@ -5624,7 +5625,7 @@ Each scenario is documented in this format:
     can replay the image correctly.
 - **Specs linked**: `03-runtime/11-provider-model-system.md` §6.2/§11,
   `03-runtime/13-model-catalog-and-selection.md` §11.2,
-  `04-ux/08-component-spec.md` §11.8, ADR 0101
+  `04-ux/08-component-spec.md` §11.8, ADR 0101, ADR 0218
 - **Acceptance**: B (model config), C (conversation & stream), E (tools &
   permissions), Security
 - **Milestone**: M5
@@ -8208,7 +8209,8 @@ This test plan spec is accepted when:
 
 - **Preconditions**: One AI service with discoverable models, including a
   reasoning-capable model that publishes at least three thinking levels, a
-  vision-capable model, and a model models.dev describes as text-only.
+  vision-capable model, and a model models.dev describes as text-only. The
+  service must persist model-local `supportsImages` overrides.
 - **Steps**: 1) Open Settings → Model configuration, edit the service and expand
   a reasoning-capable model's Advanced disclosure. 2) Enable at least three
   thinking levels and pick a default that is not the lowest enabled level, then
@@ -8216,10 +8218,13 @@ This test plan spec is accepted when:
   currently chosen as default and read the selector again. 5) Start a new session
   on that model and open the composer reasoning menu. 6) Back in Advanced, on
   the text-only model, turn Image input on, save, reopen and confirm the switch
-  reports itself as overridden. 7) Attach an image in a session on that model.
-  8) Tick the same box back to the value models.dev publishes, save, and reopen.
-  9) Turn PDF input on for a model whose catalog entry omits it, save, and
-  attach a PDF. 10) Configure a model, then point the service at an endpoint that
+  reports itself as overridden. 7) Open the Composer model menu and confirm
+  that this model shows the vision badge. 8) On the published vision model,
+  turn Image input off and confirm its Composer row no longer shows the vision
+  badge. 9) Attach an image in a session on the text-only model. 10) Tick the
+  same box back to the value models.dev publishes, save, and reopen.
+  11) Turn PDF input on for a model whose catalog entry omits it, save, and
+  attach a PDF. 12) Configure a model, then point the service at an endpoint that
   no longer lists it, reopen the editor and read that model's capability boxes.
 - **Expected**: The default thinking level is selectable among the levels the
   binding enables and nothing else; it persists across reopen and is the level
@@ -8228,8 +8233,12 @@ This test plan spec is accepted when:
   level rather than leaving a level the runtime would clamp away, and the
   selector is absent when a binding enables one level or none. An answered
   Image input switch overrides the published capability in both directions and
-  survives reopen, so a model the catalog calls text-only transports the attached
-  image as an image content block. Ticking a box back to the published value
+  survives reopen. The Composer model menu shows the vision badge for the
+  effective `true` override on the published text-only model, hides it for an
+  explicit `false` override on the published vision model, and follows the
+  published value when the override is reset to `null`. The text-only model
+  transports the attached image as an image content block. Ticking a box back
+  to the published value
   stores "follow the catalog" rather than an equal-valued override, so a later
   catalog correction still reaches the binding without any separate reset
   control. All seven canonical thinking chips remain available even when the
@@ -8244,7 +8253,10 @@ This test plan spec is accepted when:
   from live discovery still shows its published capabilities rather than reading
   as undescribed.
 - **Specs linked**: `03-runtime/11-provider-model-system.md` §6.2,
-  `03-runtime/12-provider-config-schema.md`, `04-ux/08-component-spec.md` §19
+  `03-runtime/12-provider-config-schema.md`,
+  `03-runtime/13-model-catalog-and-selection.md` §11.2,
+  `04-ux/08-component-spec.md` §11.7–11.8,
+  `04-ux/06-settings-ia.md`, ADR 0218
 - **Acceptance**: B (model config), Quality
 
 #### E2E-164: Context compaction preserves the active task boundary

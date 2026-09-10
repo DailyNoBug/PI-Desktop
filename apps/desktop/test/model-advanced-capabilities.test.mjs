@@ -7,6 +7,10 @@ const pickerSource = await readFile(
   new URL("../src/components/settings/ModelSelectionPanes.tsx", import.meta.url),
   "utf8",
 );
+const composerSource = await readFile(
+  new URL("../src/components/Composer.tsx", import.meta.url),
+  "utf8",
+);
 const capabilitiesSource = await readFile(
   new URL(
     "../../../packages/agent-runtime/src/model-capabilities.ts",
@@ -68,6 +72,10 @@ test("the capability row carries no explanatory copy or extra controls", () => {
   assert.doesNotMatch(pickerSource, /followPublished/);
   assert.doesNotMatch(pickerSource, /capabilityPublished|capabilityUnknown/);
   assert.doesNotMatch(styles, /provider-chosen-capability-(reset|state|hint)/);
+});
+
+test("the Composer model rows use the provider binding for vision badges", () => {
+  assert.match(composerSource, /composerModelBadges\(model, group\.provider\)/);
 });
 
 test("capability overrides reach the transport modality arrays", () => {
