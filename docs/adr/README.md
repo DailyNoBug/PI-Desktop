@@ -226,3 +226,4 @@ Each ADR includes:
 | 0206 | Extend provider retries and show bounded progress | Accepted |
 | 0207 | Allow three same-path mutation recovery failures | Accepted (amends 0087 / D186) |
 | 0208 | Plugin desktop control requires native user consent | Accepted |
+| 0210 | Subagent output-token cap | Proposed (issue #171; extends 0062 / 0063) |
