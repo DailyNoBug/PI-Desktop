@@ -141,6 +141,7 @@ impl PermissionManager {
             permission_mode,
             session_grants,
             None,
+            None,
         )
     }
 
@@ -153,6 +154,7 @@ impl PermissionManager {
         permission_mode: &str,
         session_grants: &HashMap<String, Vec<String>>,
         declared_risk: Option<&str>,
+        plan_safe_actions: Option<&[String]>,
     ) -> Option<PermissionDecision> {
         self.evaluate_auto_with_permission_mode_and_risk_and_path(
             session_id,
@@ -162,6 +164,7 @@ impl PermissionManager {
             session_grants,
             declared_risk,
             false,
+            plan_safe_actions,
         )
     }
 
@@ -178,12 +181,33 @@ impl PermissionManager {
         session_grants: &HashMap<String, Vec<String>>,
         declared_risk: Option<&str>,
         requires_external_path_permission: bool,
+        plan_safe_actions: Option<&[String]>,
     ) -> Option<PermissionDecision> {
         // The contract modes' tool allowlist is authoritative. This check
         // intentionally precedes low-risk classification, auto, grants, and
         // scratch paths, and covers Goal as well as Plan (D198).
+        //
+        // Plugin tools get a narrow carve-out: a plugin may declare a
+        // non-empty `planSafeActions` list (ADR 0207). When the runtime
+        // forwards that list, host-core admits the plugin tool in
+        // contract modes and the plugin-runtime enforces the per-action
+        // restriction at execute time. Without the list the plugin tool
+        // stays Plan-denied, exactly as ADR 0052 / ADR 0053 require.
         if crate::sessions::is_contract_mode(mode) && !Self::plan_mode_allows(tool_name) {
-            return Some(PermissionDecision::Deny);
+            if tool_name.starts_with("plugin_") {
+                if let Some(actions) = plan_safe_actions {
+                    if !actions.is_empty() {
+                        // Fall through; plugin-runtime will gate the
+                        // actual action.
+                    } else {
+                        return Some(PermissionDecision::Deny);
+                    }
+                } else {
+                    return Some(PermissionDecision::Deny);
+                }
+            } else {
+                return Some(PermissionDecision::Deny);
+            }
         }
 
         if requires_external_path_permission {
@@ -512,6 +536,7 @@ mod tests {
                 &no_grants(),
                 None,
                 true,
+                None,
             );
             assert_eq!(
                 decision, None,
@@ -526,6 +551,7 @@ mod tests {
             &no_grants(),
             None,
             true,
+            None,
         );
         assert_eq!(auto, Some(PermissionDecision::AllowOnce));
     }
@@ -536,7 +562,7 @@ mod tests {
         let mut grants = HashMap::new();
         grants.insert("s".to_string(), vec!["Grep".to_string()]);
         let decision = pm.evaluate_auto_with_permission_mode_and_risk_and_path(
-            "s", "Grep", "plan", "ask", &grants, None, true,
+            "s", "Grep", "plan", "ask", &grants, None, true, None,
         );
         assert_eq!(decision, Some(PermissionDecision::AllowSession));
     }
