@@ -92,7 +92,12 @@ pi-ai 去发出 `x-opencode-session`。每个提供商行（AI 服务或 OAuth �
 路径上不显示名称、Base URL 或 API 格式。对话回合仍然使用选定的 pi-ai 适配器
 （`chat_completions`、`responses`、`anthropic_messages`、
 `google_generative_ai` 或 `opencode_go`）。智谱 / Z.AI 的 Completions 请求
-使用 `thinkingFormat: "zai"` 与 `zaiToolStream: true`。
+使用 `thinkingFormat: "zai"` 与 `zaiToolStream: true`。DeepSeek 系 Completions
+在 `vendorKey`、Base URL、模型 ID 或目录 `family` 能识别为 DeepSeek 时设置
+`requiresReasoningContentOnAssistantMessages: true`。pi-ai 只根据
+`provider === "deepseek"` 或 `deepseek.com` URL 自动检测，而 PI-Desktop 把 UUID
+存成 `model.provider`，因此聚合网关与自定义端点会在无思考内容的助手回合漏掉
+`reasoning_content`。该覆盖不改 `thinkingFormat`。
 
 ## 5. 内置供应商矩阵（发货意图）
 

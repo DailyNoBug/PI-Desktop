@@ -95,6 +95,13 @@ showing Name, Base URL, or API format on the named-service path. Chat turns
 still use the selected pi-ai adapter (`chat_completions`, `responses`,
 `anthropic_messages`, `google_generative_ai`, or `opencode_go`). Zhipu / Z.AI
 Completions requests use `thinkingFormat: "zai"` and `zaiToolStream: true`.
+DeepSeek-family Completions requests set
+`requiresReasoningContentOnAssistantMessages: true` when the row's `vendorKey`,
+base URL, model id, or catalog `family` identifies DeepSeek. pi-ai only
+auto-detects `provider === "deepseek"` or a `deepseek.com` URL, and PI-Desktop
+stores a UUID as `model.provider`, so aggregators and custom gateways would
+otherwise omit `reasoning_content` on assistant turns that produced no thinking.
+The overlay does not change `thinkingFormat`.
 
 ## 5. Built-in vendor matrix (ship intent)
 

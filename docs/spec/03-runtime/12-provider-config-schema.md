@@ -279,7 +279,9 @@ MiniMax (OpenAI) (`chat_completions` at `https://api.minimaxi.com/v1`, aliases
 
 Zhipu / Z.AI Completions requests still receive `thinkingFormat: "zai"` and
 `zaiToolStream: true`. pi-ai `zai-coding-cn` remains an alias of
-`zhipuai-coding-plan`.
+`zhipuai-coding-plan`. DeepSeek-family Completions requests receive
+`requiresReasoningContentOnAssistantMessages: true` when the vendor key, URL,
+model id, or catalog family identifies DeepSeek. `thinkingFormat` is unchanged.
 
 ### Vendor-account presets
 

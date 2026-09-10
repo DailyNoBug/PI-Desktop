@@ -181,7 +181,9 @@ MiniMax (OpenAI)（`chat_completions`，`https://api.minimaxi.com/v1`，别名
 `minimax-openai` / `minimax-compatible`）、Kimi 编程。
 
 智谱 / Z.AI 的 Completions 请求仍使用 `thinkingFormat: "zai"` 与
-`zaiToolStream: true`。
+`zaiToolStream: true`。DeepSeek 系 Completions 在 vendor key、URL、模型 ID 或
+目录 family 能识别为 DeepSeek 时设置
+`requiresReasoningContentOnAssistantMessages: true`，不改 `thinkingFormat`。
 
 ### 厂商账户预设
 

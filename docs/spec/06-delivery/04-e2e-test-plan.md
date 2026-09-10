@@ -660,6 +660,26 @@ Each scenario is documented in this format:
 - **Status**: Unit-covered (preset matching, catalog aliases, Completions
   compat); rendered UI scenario Draft
 
+#### E2E-005E: DeepSeek thinking replay includes reasoning_content on aggregator endpoints
+
+- **Preconditions**: An OpenAI-compatible provider whose base URL is not
+  `deepseek.com` is configured with a DeepSeek-family model id (for example
+  SiliconFlow `deepseek-ai/DeepSeek-V3.2`) and thinking enabled.
+- **Steps**: 1) Start a session in thinking mode. 2) Complete several turns
+  including at least one assistant reply that produces no thinking text.
+  3) Send another prompt so the history is replayed to the provider.
+- **Expected**: The later Completions request includes `reasoning_content` on
+  every assistant message, using `""` for turns that had no thinking. The
+  request does not switch `thinkingFormat` to `"deepseek"` solely because the
+  model id contains `"deepseek"`. Official `api.deepseek.com` rows keep
+  URL-based DeepSeek `thinkingFormat` from pi-ai.
+- **Specs linked**: `03-runtime/11-provider-model-system.md`,
+  `03-runtime/12-provider-config-schema.md`
+- **Acceptance**: B (provider Completions compatibility)
+- **Milestone**: M2
+- **Status**: Unit-covered (compat inject + convertMessages empty fill);
+  rendered UI scenario pending
+
 #### E2E-006: Key survives restart
 
 - **Preconditions**: Provider + key configured.
