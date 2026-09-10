@@ -1,17 +1,18 @@
 # 03. Tools and Permissions
 
 > Decisions applied: D003, D004, D005, D006, D013, D015, D093, D114, D115, D181, D186,
-> D189, D190, D195 (ADR 0057), D315, ADR 0087
+> D189, D190, D195 (ADR 0057), D315, D379 (ADR 0207), ADR 0087
 
 ## 0. Frozen policy summary
 
 | Topic | Decision |
 |---|---|
 | Default mode | Agent |
-| Agent tools | Read / Glob / Grep / Write / Edit / Bash |
-| Plan tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitPlan |
-| Goal tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitGoal |
-| Plan and Goal hard deny | Write / Edit / all plugin tools / unknown tools / the other kind's submit tool |
+| Agent tools | Read / Glob / Grep / Write / Edit / Bash + registered plugin tools |
+| Plan tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitPlan + plugin tools that declare plan-safe actions |
+| Goal tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitGoal + plugin tools that declare plan-safe actions |
+| Plan and Goal hard deny | Write / Edit / plugin tools without `planSafeActions` / unknown tools / the other kind's submit tool |
+| Plugin `planSafeActions` | Non-empty array of `action` strings; runtime hides plugin tools without one in Plan/Goal, host admits listed tools, plugin-runtime rejects any action outside the list (ADR 0207) |
 | Permission timeout | 120s → deny |
 | allow-session scope | toolName |
 | Bash style | non-interactive; selected host catalog shell with streamed output |
@@ -286,13 +287,13 @@ keeps only the ordering and loop-guard rules. The agent mutation workflow is:
    (a complete `EDIT_LINES_UNSEEN` reveal may be retried unchanged). For a
    deterministic syntax or range error such as `EDIT_PARSE_FAILED`, correct the
    operation payload directly; another `Read` does not repair malformed syntax.
-   A body-bearing replacement must use a header such as `PUT 48.=48:`. Once a
-   path has spent its recovery budget (18-line-anchored-edit-contract §9.3), the
-   next failed `Edit` for that path in the prompt — or a second failed shell
-   patch command (`apply_patch`, `git apply`, or `patch`) — returns a terminating
-   tool result with an error-specific recovery hint, so the agent stops after
-   reporting the exact mismatch. Do not hand-edit old unified-diff hunk headers
-   or continue a repair loop.
+   A body-bearing replacement must use a header such as `PUT 48.=48:`. After three
+   counted failures on one path in a prompt (18-line-anchored-edit-contract §9.3),
+   the third counted failed `Edit` for that path — or the third failed shell patch
+   command (`apply_patch`, `git apply`, or `patch`) — returns a terminating tool
+   result with an error-specific recovery hint, so the agent stops after reporting
+   the exact mismatch. Do not hand-edit old unified-diff hunk headers or continue a
+   repair loop.
 4. Keep mutations to one path sequential, even when read/search calls are
    issued in parallel.
 

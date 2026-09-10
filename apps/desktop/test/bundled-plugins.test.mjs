@@ -137,6 +137,29 @@ test("Browser ships as an ordinary plugin over the public CDP API", () => {
   assert.doesNotMatch(browserView, /require\(|ipcRenderer|webview/);
 });
 
+test("Browser declares plan-safe actions for Plan-mode URL inspection (ADR 0207)", () => {
+  const browserMain = read("resources/plugins/pi.browser/main.js");
+  // The planSafeActions list must be declared on the registered tool.
+  assert.match(browserMain, /planSafeActions\s*:\s*PLAN_SAFE_ACTIONS/);
+  // The list itself must declare the four read-only actions the user needs.
+  assert.match(
+    browserMain,
+    /PLAN_SAFE_ACTIONS\s*=\s*\[\s*"navigate"\s*,\s*"snapshot"\s*,\s*"screenshot"\s*,\s*"console"\s*\]/,
+  );
+  // The mutating actions must NOT appear in PLAN_SAFE_ACTIONS, otherwise
+  // Plan mode would be able to click/fill/evaluate arbitrary pages.
+  const planSafeMatch = browserMain.match(/PLAN_SAFE_ACTIONS\s*=\s*\[([\s\S]*?)\]/);
+  assert.ok(planSafeMatch, "PLAN_SAFE_ACTIONS array must exist");
+  for (const unsafe of ["click", "fill", "evaluate", "cdp"]) {
+    assert.doesNotMatch(
+      planSafeMatch[1],
+      new RegExp('"' + unsafe + '"'),
+      `mutating action ${unsafe} must not appear in PLAN_SAFE_ACTIONS`,
+    );
+  }
+});
+
+
 test("Advisor ships as an ordinary plugin over the public complete APIs", () => {
   const advisorManifest = JSON.parse(read("resources/plugins/pi.advisor/manifest.json"));
   const advisorMain = read("resources/plugins/pi.advisor/main.js");

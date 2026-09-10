@@ -304,6 +304,7 @@ export function CapabilityToolbar({
             type="button"
             className="agent-capability-search-clear"
             aria-label={t("settings.clearSearch")}
+            title={t("settings.clearSearch")}
             onClick={() => onSearchChange("")}
           >
             <IconX size={11} />

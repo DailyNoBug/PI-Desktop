@@ -1799,6 +1799,11 @@ async function resolveAgentRuntimeLaunch(
             ...(tool.risk === "low" || tool.risk === "medium" || tool.risk === "high"
               ? { risk: tool.risk as Risk }
               : {}),
+            // Plan-safe action list is forwarded to host-core so it can
+            // admit the tool in Plan/Goal modes (ADR 0207).
+            ...(tool.planSafeActions && tool.planSafeActions.length > 0
+              ? { planSafeActions: tool.planSafeActions }
+              : {}),
           })),
         ...userMcpTools.map((tool) => ({
           name: tool.fullName,
@@ -2720,6 +2725,43 @@ function applyPluginLauncherShortcut(keybindings?: KeybindingOverrides) {
     pluginLauncherAccelerator = accelerator;
   } else {
     logger.app("diagnostics", "error", "plugin launcher shortcut unavailable", {
+      data: { accelerator, platform: process.platform },
+    });
+  }
+}
+
+/**
+ * Register the summon-window shortcut (D166). The default `Mod+Shift+W`
+ * brings a hidden/minimized-to-tray window back into focus; this is the
+ * symmetrical counterpart to `closeWindow` (`Mod+W`).
+ */
+function applySummonWindowShortcut(keybindings?: KeybindingOverrides) {
+  const shortcut = KEYBOARD_SHORTCUTS.find(
+    (candidate) => candidate.id === "summonWindow",
+  );
+  if (!shortcut || !app.isReady()) return;
+  const platform: ShortcutPlatform =
+    process.platform === "darwin"
+      ? "darwin"
+      : process.platform === "win32"
+        ? "win32"
+        : "linux";
+  const binding = resolveKeybinding(shortcut, keybindings, platform);
+  const accelerator = keybindingToElectronAccelerator(binding, platform);
+
+  if (summonWindowAccelerator && summonWindowAccelerator !== accelerator) {
+    globalShortcut.unregister(summonWindowAccelerator);
+    summonWindowAccelerator = null;
+  }
+
+  if (!accelerator || accelerator === summonWindowAccelerator) return;
+  const registered = globalShortcut.register(accelerator, () => {
+    restoreMainWindow();
+  });
+  if (registered) {
+    summonWindowAccelerator = accelerator;
+  } else {
+    logger.app("diagnostics", "warn", "summon window shortcut unavailable", {
       data: { accelerator, platform: process.platform },
     });
   }
@@ -4489,6 +4531,7 @@ function wireHost(h: HostProcess) {
           toolCallId?: string;
           toolName: string;
           args: unknown;
+          mode?: string;
         };
         const projectPath = q.sessionId
           ? (sessionProjects.get(q.sessionId) ?? null)
@@ -4530,12 +4573,28 @@ function wireHost(h: HostProcess) {
           try {
             let modelKey: string | undefined;
             let thinkingLevel: string | undefined;
-            if (q.sessionId && host) {
+            // Host-core sends the session mode; fall back to a session.get
+            // call when it is missing (legacy callers). The plugin-runtime
+            // uses the mode to enforce plan-safe action restrictions
+            // (ADR 0207).
+            let sessionMode: "agent" | "plan" | "goal" | undefined;
+            const normalizedMode = typeof q.mode === "string" ? q.mode : undefined;
+            if (normalizedMode === "agent" || normalizedMode === "plan" || normalizedMode === "goal") {
+              sessionMode = normalizedMode;
+            } else if (q.sessionId && host) {
               try {
                 const detail = await host.call<{
-                  session?: { providerId?: string; modelId?: string; thinkingLevel?: string };
+                  session?: {
+                    mode?: string;
+                    providerId?: string;
+                    modelId?: string;
+                    thinkingLevel?: string;
+                  };
                 }>("session.get", { id: q.sessionId });
                 const session = detail?.session;
+                if (session?.mode === "agent" || session?.mode === "plan" || session?.mode === "goal") {
+                  sessionMode = session.mode;
+                }
                 if (session?.providerId && session?.modelId) {
                   modelKey = `${session.providerId}/${session.modelId}`;
                 }
@@ -4546,6 +4605,7 @@ function wireHost(h: HostProcess) {
             }
             const result = await tool.execute(q.args, {
               sessionId: q.sessionId,
+              mode: sessionMode,
               modelKey,
               thinkingLevel,
             });

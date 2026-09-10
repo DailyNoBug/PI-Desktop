@@ -66,6 +66,7 @@ function ToastCard({ item }: { item: ToastItem }) {
         type="button"
         className="toast-dismiss"
         aria-label={t("toast.dismiss")}
+        title={t("toast.dismiss")}
         onClick={beginClose}
       >
         <IconClose size={13} />

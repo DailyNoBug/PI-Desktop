@@ -84,6 +84,7 @@ export function ProjectInstructionsDialog({
             type="button"
             className="project-instructions-dialog-close"
             aria-label={t("settings.cancel")}
+            title={t("settings.cancel")}
             disabled={saving}
             onClick={onClose}
           >

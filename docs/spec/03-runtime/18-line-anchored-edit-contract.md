@@ -465,7 +465,7 @@ occurrence, because repeating one of those means the model is guessing.
 |---|---|
 | `EDIT_TAG_MISMATCH`, then `EDIT_LINES_UNSEEN` | Neither counts: two different honest failures, each with its own grace |
 | `EDIT_TAG_MISMATCH` twice | The second counts as attempt 1 |
-| `EDIT_PARSE_FAILED` twice | Attempt 2 — the turn stops |
+| `EDIT_PARSE_FAILED` three times | Attempt 3 — the turn stops |
 | A failure, then a successful `Edit`, then a failure | Attempt 1 — a write that landed clears that path's history |
 
 Counting a grace is per code, not per call, so a stale tag followed by unseen

@@ -218,3 +218,4 @@ Each ADR includes:
 | 0204 | Explicit unsigned macOS first-launch helper | Accepted |
 | 0205 | Remote Agent Control uses a dedicated Host boundary | Accepted for implementation (post-MVP; amended by D374 and D375) |
 | 0206 | Extend provider retries and show bounded progress | Accepted |
+| 0207 | Allow three same-path mutation recovery failures | Accepted (amends 0087 / D186) |

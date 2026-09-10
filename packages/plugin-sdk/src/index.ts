@@ -40,6 +40,14 @@ export type PluginManifest = {
       name: string;
       description: string;
       risk?: "low" | "medium" | "high";
+      /**
+       * Action names that may run in Plan or Goal mode. Omitted or empty
+       * means the tool is hidden from the model in those modes (ADR 0207).
+       * Only meaningful when the schema has an `action` enum and every
+       * entry is a value of that enum; the host enforces the restriction
+       * even if a plugin mis-declares, so misuse is caught at execute time.
+       */
+      planSafeActions?: readonly string[];
       schema?: unknown;
     }>;
     /** Relative skill paths, or entries that override the parsed metadata. */
@@ -376,6 +384,14 @@ export type PluginTool = {
   name: string;
   description: string;
   risk?: "low" | "medium" | "high";
+  /**
+   * Action names that may run in Plan or Goal mode. Omitted or empty
+   * means the tool is hidden from the model in those modes (ADR 0207).
+   * Only meaningful when the schema has an `action` enum and every
+   * entry is a value of that enum; the host enforces the restriction
+   * even if a plugin mis-declares, so misuse is caught at execute time.
+   */
+  planSafeActions?: readonly string[];
   schema?: unknown;
   execute: (args: unknown, ctx?: PluginToolExecContext) => Promise<unknown> | unknown;
 };

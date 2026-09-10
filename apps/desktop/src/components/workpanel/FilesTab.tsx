@@ -325,6 +325,7 @@ export function FilesTab() {
               setSelected(null);
               setFile(null);
             }}
+            aria-label={t("panel.files.back")}
             title={t("panel.files.back")}
           >
             <IconChevronLeft size={14} />
@@ -337,6 +338,7 @@ export function FilesTab() {
             type="button"
             className="icon-btn"
             onClick={() => void api.fsReveal(selected)}
+            aria-label={t("panel.files.reveal")}
             title={t("panel.files.reveal")}
           >
             <IconExternal size={14} />

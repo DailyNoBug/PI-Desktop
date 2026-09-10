@@ -212,6 +212,51 @@ describe("naming helpers", () => {
   });
 });
 
+describe("planSafeActions contract (ADR 0207)", () => {
+  it("accepts a planSafeActions list on a manifest agentTool", () => {
+    const result = validateManifest({
+      ...base,
+      contributes: {
+        agentTools: [
+          {
+            name: "Browser",
+            description: "browser tool",
+            risk: "medium",
+            planSafeActions: ["navigate", "snapshot"],
+            schema: {
+              type: "object",
+              properties: {
+                action: { type: "string", enum: ["navigate", "snapshot", "click"] },
+              },
+              required: ["action"],
+            },
+          },
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("treats an absent planSafeActions as plan-denied", () => {
+    const result = validateManifest({
+      ...base,
+      contributes: {
+        agentTools: [
+          {
+            name: "Browser",
+            description: "browser tool",
+            schema: {
+              type: "object",
+              properties: { action: { type: "string", enum: ["navigate"] } },
+            },
+          },
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe("PLUGIN_PERMISSIONS", () => {
   it("declares the capability permissions and stays unique", () => {
     for (const permission of [
