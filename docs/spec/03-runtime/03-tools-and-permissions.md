@@ -166,11 +166,13 @@ Electron main below `<data_dir>/scratch/<sessionId>/pasted/` before their
 paths and metadata are captured as transient composer references. At dispatch,
 main validates the source against the session scratch/project roots. Images are
 also copied into the content-addressed `<data_dir>/attachments/<sha256>` store;
-known pi-ai models with `input: ["text", "image"]` receive eligible image
-blocks, while non-vision/unknown models and oversized images receive `@`
-fallback paths. They use the same session lifecycle as other scratch data and
-do not enter the workspace, artifacts, or the persisted prompt as binary
-content.
+the effective model capability applies the published image input plus the
+configured binding's `supportsImages` override. Eligible images receive image
+blocks when that effective capability is enabled, while unknown/custom models
+without an explicit override, disabled image input, and oversized images
+receive `@` fallback paths. They use the same session lifecycle as other
+scratch data and do not enter the workspace, artifacts, or the persisted prompt
+as binary content.
 
 - **Addressing.** In a project session, the model addresses scratch by absolute
   path only; the path is advertised in the system prompt, relative tool paths

@@ -518,16 +518,18 @@ criterion-by-criterion report of what was met and the evidence observed.
   reasoning support, thinking-level mapping, limits, input/output modalities,
   pricing, and other model metadata. pi-ai remains responsible for request
   serialization and adapter compatibility.
-- Provider configuration cannot override known-model semantics. Unknown
-  free-form ids remain runnable through a generic text-only, non-reasoning
-  model and therefore expose only `off`.
+- Provider configuration cannot override published reasoning, thinking,
+  limits, or other model metadata. The explicit attachment capability fields
+  are the exception: `supportsImages` and `supportsDocuments` are effective
+  binding overrides for the endpoint.
 - Unsupported requested levels use the selected models.dev model's
   nearest-supported-level rule: scan upward first, then downward. A
   non-reasoning provider always resolves to `off`.
-- Vision support is resolved from the same models.dev record: only
-  `input.includes("image")` enables image transport. Unknown/custom model ids
-  remain conservative text/path models even when discovery metadata claims
-  `vision`.
+- Vision support starts from the same published model record. An absent or
+  `null` `supportsImages` follows its image input; `true` or `false` explicitly
+  enables or disables image transport for the configured binding. Unknown or
+  custom ids remain conservative text/path models unless their binding
+  explicitly enables image input.
 - The effective level is passed to the pi `Agent`; provider-specific request
   serialization remains pi-ai's responsibility.
 - Pi `thinking` blocks become `UiMessage.thinking` and

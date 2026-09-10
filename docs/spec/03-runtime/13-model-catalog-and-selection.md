@@ -280,6 +280,12 @@ come from the cached catalog or configured bindings; live discovery remains a
 background update. A configured non-empty alias is resolved from the binding
 for every equivalent model ID and remains the sole visible model name while
 the catalog is refreshed.
+
+Vision badges in the Composer use the effective image-input capability for the
+exact provider/model binding. An explicit `supportsImages: true` or `false`
+wins over the published record; an absent or `null` value follows it. This lets
+a configured custom or proxied model show the capability the endpoint was
+explicitly configured to use without shaping the published `ModelInfo`.
 An OAuth provider heading uses its non-secret account label when present, so
 duplicate accounts from one vendor remain distinguishable; model rows still
 use the configured model alias or published model name.
@@ -340,13 +346,15 @@ Warnings are non-blocking unless execution is impossible.
 
 ### 11.2 Vision capability resolution
 
-1. Resolve models.dev `modalities.input` for the matching exact model.
-2. Mark the model `vision` only when the models.dev record includes `image`
-   input.
-3. A provider endpoint, cached, or user-defined capability flag may remain
-   useful as selection metadata, but it cannot promote an unknown model to
-   image transport. Unknown/custom models therefore show the path-fallback
-   status in Composer.
+1. Resolve the published image-input baseline from the matching model record.
+2. Apply the exact configured binding's `supportsImages` value to that
+   baseline. An absent or `null` value follows the published capability;
+   `true` enables image input for a configured endpoint even when its published
+   record is text-only, and `false` disables a published image capability.
+3. The Composer model-row vision badge and the main attachment transport gate
+   use this same effective result. An unknown or custom model without an
+   explicit binding override remains on the conservative path-fallback route;
+   discovery or cache metadata alone cannot promote it to image transport.
 4. The main process prepares pasted images as content-addressed refs. A
    vision-capable model receives images within the 10 MB app-side inline
    bound as transient image blocks; other cases receive a safe `@path`.

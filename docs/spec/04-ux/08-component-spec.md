@@ -2321,6 +2321,9 @@ reasoning-level control.
   level submenu starts with `Current model <model> supports these reasoning
   levels` and lists the selected model binding's enabled levels in canonical
   order.
+  Model-row reasoning badges use published reasoning metadata; vision badges
+  use the effective image-input capability for the row's provider binding
+  (`supportsImages` when explicitly set, published image input otherwise).
   Rows use `role="menuitemradio"`, `aria-checked`, active-row styling, and a
   trailing check. Selecting a concrete model or level persists the complete
   session config, clears model filtering, and returns to the root without
@@ -2375,12 +2378,13 @@ reasoning-level control.
   chip; the original absolute picker paths never enter the prompt. Directory
   selections are rejected with the normal error toast in the current MVP.
 - The compact chips retain structured kind/name/MIME metadata while keeping
-  the textarea free of binary data. The selected model's models.dev
-  capability controls dispatch when its exact models.dev record matches;
-  unknown IDs use the generic conservative shape. Eligible images become
-  transient visual input for a model whose models.dev `input` includes `image`;
-  non-vision, unknown, and oversized images use the existing canonical
-  `@<path>` file-tool fallback.
+  the textarea free of binary data. The selected model's published record
+  supplies the baseline, then the exact binding's `supportsImages` override
+  controls effective dispatch. Absent or `null` follows the published value;
+  `true` or `false` explicitly enables or disables image input. Eligible images
+  become transient visual input when that effective capability is enabled;
+  unknown/custom models without an explicit override, disabled image input, and
+  oversized images use the existing canonical `@<path>` file-tool fallback.
   There are no visual previews in MVP.
 - No voice input
 
@@ -2457,8 +2461,9 @@ Anatomy:
   displays the leaf name, keeps the structured reference in session-scoped
   transient state, and submits it separately from visible text. Main stores
   image bytes under `attachments/<sha256>` and sends visual input only when the
-  selected models.dev model accepts images and the 10 MB inline bound is met;
-  otherwise it appends a safe `@path` fallback. Removing a chip does not delete
+  selected model's effective binding capability accepts images and the 10 MB
+  inline bound is met; otherwise it appends a safe `@path` fallback. Removing
+  a chip does not delete
   scratch bytes. A text-only paste longer than `largePasteThreshold` follows
   the same bounded session bridge with generated `text/plain` UTF-8 bytes,
   inserts `@<sanitized-name>` plus a trailing space at the original selection,

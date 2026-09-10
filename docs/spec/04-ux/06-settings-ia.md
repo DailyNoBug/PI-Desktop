@@ -232,9 +232,11 @@ a usage tab.
     detached. Search results keep a dedicated no-match state instead of
     reusing the search placeholder.
   - each model option and configuration row shows a compact text/vision
-    capability state. Vision is derived only from the exact models.dev model
-    record; provider discovery or a user-entered ID cannot promote an unknown
-    model to image transport.
+    capability state. Settings compares the checkbox with the published model
+    record, while the Composer badge and runtime use the effective binding:
+    absent or `null` `supportsImages` follows the published value, and an
+    explicit `true` or `false` overrides it. An unknown model remains
+    conservative unless its configured binding explicitly enables image input.
   - model discovery is debounced after a valid endpoint, key, or API style
     change, including no-auth/local endpoints; named add-path discovery waits
     for an API key (editing reuses the stored secret) and does not mark
