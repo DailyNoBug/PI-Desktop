@@ -1,6 +1,6 @@
 # ADR 0050: Bounded provider stream recovery and diagnostics
 
-- Status: Accepted (amended by D259, see below)
+- Status: Accepted (amended by D259 and D378, see below)
 - Date: 2026-08-04
 
 ## Amendment (D259, 2026-09)
@@ -17,6 +17,9 @@ first. `PROVIDER_ERROR` joined `STREAM_FAILED`, `NETWORK_ERROR`, and
 `packages/agent-runtime/src/provider-retry.ts`
 (`PROVIDER_TRANSIENT_MAX_RETRIES`, `PROVIDER_SETUP_RETRY_INITIAL_DELAY_MS`,
 `PROVIDER_SETUP_MAX_RETRY_DELAY_MS`). The 429 rate-limit budget stays separate.
+Decision D378 (ADR 0206, 2026-09-10) then raised both budgets to ten retries
+after the initial attempt, shared as `PROVIDER_RETRY_MAX_RETRIES`, while
+keeping the 1 s / 2 s / 4 s schedule and its 8 s cap for non-429 waits.
 Everything else in this ADR (classification, single visible bubble,
 diagnostics, mutation recovery) still stands. The original text below is kept
 as written for the record.

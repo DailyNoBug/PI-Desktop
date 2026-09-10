@@ -6225,7 +6225,7 @@ IPC 请求无法关闭。
 - **状态**：由 `apps/desktop/test/mcp-control.test.mjs` 覆盖 MCP 协议/单元；完整 Electron
   旅程已记录，仍按策略延后
 
-#### E2E-231：工作区安全拒绝名单与忽略层
+#### E2E-234：工作区安全拒绝名单与忽略层
 
 - **前提条件**：一个项目包含 `.env`、`.env.example`、`server.pem`、`keys/id_rsa`、
   `notes.txt`、`node_modules/pkg/index.js`、`generated/out.txt`、`debug.log`，以及
@@ -6248,7 +6248,7 @@ IPC 请求无法关闭。
   `default_ignores_and_workspace_ignore_file_hide_unscoped_walks_only`）和
   `tools/ignore_rules.rs` 单元覆盖；Electron 旅程已记录，并按无本地 E2E 策略延后
 
-#### E2E-232：悬空软链无法写到工作区之外
+#### E2E-235：悬空软链无法写到工作区之外
 
 - **前提条件**：一个项目包含 `dangling -> /tmp/outside/planted.txt`（目标不存在）
   和 `inner -> ./not-yet.txt`。Agent 模式，`auto` 权限。
@@ -6266,7 +6266,7 @@ IPC 请求无法关闭。
   `dangling_symlink_inside_workspace_resolves_to_its_target`、
   `dangling_symlink_loop_is_rejected`）单元覆盖
 
-#### E2E-233：插件桌面控制需要用户的原生同意
+#### E2E-236：插件桌面控制需要用户的原生同意
 
 - **前提条件**：一个被授予 `desktop.control` 的开发插件，其面板调用
   `pi.desktop.invoke({ operation: "session/delete", args: [id], confirm })`。
@@ -6280,13 +6280,13 @@ IPC 请求无法关闭。
   每次调用都连同插件 id、操作和风险等级记入审计。
 - **链接规格**：`07-plugins/03-plugin-api.md`（桌面控制）、
   `07-plugins/04-plugin-security.md` §8.2、
-  `07-plugins/13-plugin-permissions-matrix.md`、ADR 0203、D370、D372
+  `07-plugins/13-plugin-permissions-matrix.md`、ADR 0203、ADR 0208、D370、D372、D377
 - **验收**：D（插件）、安全
 - **里程碑**：M6+
 - **状态**：由 `apps/desktop/test/plugin-desktop-control.test.mjs` 运行时覆盖；
   原生对话框旅程已记录，并按无本地 E2E 策略延后
 
-#### E2E-234：插件 fetch 在每次重定向时重新检查出网
+#### E2E-237：插件 fetch 在每次重定向时重新检查出网
 
 - **前提条件**：一个声明 `net.domains: ["allowed.test"]` 和 `net.fetch` 的开发插件。
   `allowed.test` 上的本地服务器对 `/hop` 返回 302 到 `http://undeclared.test/leak`，
@@ -6300,7 +6300,7 @@ IPC 请求无法关闭。
 - **里程碑**：M4+
 - **状态**：由 `apps/desktop/test/plugin-egress.test.mjs` 运行时覆盖
 
-#### E2E-235：未知会话的工具请求不会回退
+#### E2E-238：未知会话的工具请求不会回退
 
 - **前提条件**：host-core 运行中；一个 JSON-RPC 探针接到其 stdio 上。
 - **步骤**：1）发送 `sessionId: "missing"` 的 `tools.execute`，请求 `Read`

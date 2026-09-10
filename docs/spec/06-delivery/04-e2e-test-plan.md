@@ -9108,7 +9108,7 @@ are withdrawn with ADR 0165.
   full Electron journey documented and remains deferred by the no-local-E2E
   policy
 
-#### E2E-231: Workspace security denylist and ignore layers
+#### E2E-234: Workspace security denylist and ignore layers
 
 - **Preconditions**: A project containing `.env`, `.env.example`,
   `server.pem`, `keys/id_rsa`, `notes.txt`, `node_modules/pkg/index.js`,
@@ -9136,7 +9136,7 @@ are withdrawn with ADR 0165.
   `tools/ignore_rules.rs`; the Electron journey is documented and deferred by
   the no-local-E2E policy
 
-#### E2E-232: Dangling symlinks cannot write outside the workspace
+#### E2E-235: Dangling symlinks cannot write outside the workspace
 
 - **Preconditions**: A project containing `dangling -> /tmp/outside/planted.txt`
   where the target does not exist, and `inner -> ./not-yet.txt`. Agent mode,
@@ -9156,7 +9156,7 @@ are withdrawn with ADR 0165.
   `dangling_symlink_inside_workspace_resolves_to_its_target`,
   `dangling_symlink_loop_is_rejected`)
 
-#### E2E-233: Plugin desktop control needs the user's native consent
+#### E2E-236: Plugin desktop control needs the user's native consent
 
 - **Preconditions**: A dev plugin granted `desktop.control` whose panel calls
   `pi.desktop.invoke({ operation: "session/delete", args: [id], confirm })`.
@@ -9173,14 +9173,15 @@ are withdrawn with ADR 0165.
   operation, and risk.
 - **Specs linked**: `07-plugins/03-plugin-api.md` (desktop control),
   `07-plugins/04-plugin-security.md` §8.2,
-  `07-plugins/13-plugin-permissions-matrix.md`, ADR 0203, D370, D372
+  `07-plugins/13-plugin-permissions-matrix.md`, ADR 0203, ADR 0208, D370,
+  D372, D377
 - **Acceptance**: D (plugins), Security
 - **Milestone**: M6+
 - **Status**: runtime-covered by
   `apps/desktop/test/plugin-desktop-control.test.mjs`; the native dialog
   journey is documented and deferred by the no-local-E2E policy
 
-#### E2E-234: Plugin fetch re-checks egress on every redirect
+#### E2E-237: Plugin fetch re-checks egress on every redirect
 
 - **Preconditions**: A dev plugin with `net.domains: ["allowed.test"]` and
   `net.fetch`. A local server on `allowed.test` answers `/hop` with a 302 to
@@ -9195,7 +9196,7 @@ are withdrawn with ADR 0165.
 - **Milestone**: M4+
 - **Status**: runtime-covered by `apps/desktop/test/plugin-egress.test.mjs`
 
-#### E2E-235: Tool requests for an unknown session do not fall back
+#### E2E-238: Tool requests for an unknown session do not fall back
 
 - **Preconditions**: host-core running; a JSON-RPC probe attached to its
   stdio.
