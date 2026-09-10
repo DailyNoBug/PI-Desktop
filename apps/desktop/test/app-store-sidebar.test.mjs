@@ -29,6 +29,24 @@ test("project activation separates visible transcript state from background run 
   assert.doesNotMatch(activationBlock, /pendingPermissions:\s*\{\}/);
 });
 
+test("sidebar hover refreshes the active project branch without activating a project", () => {
+  const refreshBlock = storeSource.match(
+    /refreshProject: async[\s\S]*?\n  openProjectPath:/,
+  )?.[0] ?? "";
+  assert.match(refreshBlock, /api\.getProject\(\)/);
+  assert.match(refreshBlock, /normalizeProjectPath\(workspace\.path\) !== requestedKey/);
+  assert.match(refreshBlock, /normalizeProjectPath\(state\.activeProjectPath\) !== requestedKey/);
+  assert.match(refreshBlock, /openProjects: upsertWorkspace\(state\.openProjects, workspace\)/);
+
+  const hoverBlock = sidebarSource.match(
+    /const showSessionHoverCard = useCallback\([\s\S]*?\n  \);/,
+  )?.[0] ?? "";
+  assert.match(hoverBlock, /await refreshProject\(projectPath\)/);
+  assert.match(hoverBlock, /branch: refreshedWorkspace \? refreshedWorkspace\.branch : spaceEntry\?\.branch/);
+  assert.match(sidebarSource, /for \(const entry of projectEntries\) map\.set\(entry\.key, entry\)/);
+  assert.match(sidebarSource, /projectEntriesByPath\.get\(normalizedProjectPath \?\? ""\)/);
+});
+
 test("closed projects are not recreated from historical sidebar sessions", () => {
   assert.doesNotMatch(sidebarSource, /add\(session\.projectPath\)/);
   assert.match(sidebarSource, /const entry = byPath\.get\(sessionPath\)/);

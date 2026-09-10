@@ -460,6 +460,11 @@ visually distinct from list content.
   width cap for narrow windows. The sort choices remain Recently updated,
   Created date, Oldest first, and Name; pinned rows stay ahead of unpinned rows.
   A stored `manual` compatibility value requires no drag-reorder UI.
+- When a session hover card is revealed for the active project, the renderer
+  re-reads the host workspace metadata before displaying the card so an
+  externally changed Git branch is current. This refresh does not activate a
+  project or change the selected conversation; if the read is unavailable, the
+  last cached branch remains usable.
 - Project groups use compact vertical spacing so adjacent directories and
   conversation rows read as one dense navigation list rather than detached
   cards. Directory `+` and overflow actions remain hidden until hover or

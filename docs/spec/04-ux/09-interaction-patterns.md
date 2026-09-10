@@ -1133,6 +1133,11 @@ When drag/drop is implemented, these patterns should apply:
   tag chips, **Workspace**, branch (when the project exposes one), and
   **Updated {{when}}**. Temporary/scratch sessions show the localized
   "Temporary" / "临时对话" placeholder instead of a workspace name.
+- Before showing a project session card, the renderer re-reads the active
+  workspace through the existing project-read operation. This keeps the Git
+  branch current after an external checkout without activating a project or
+  changing the selected conversation. If the read fails, the last cached
+  branch is used.
 - The card is rendered through a portal at `document.body`, never widens
   beyond 320px, never causes horizontal scroll on the underlying row, and
   stays non-interactive so the row keeps receiving pointer events.
