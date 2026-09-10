@@ -5249,7 +5249,19 @@ Each scenario is documented in this format:
   8. Rename the server and re-scope it; ask once more.
   9. Point the server's command at a binary that does not exist, save, and open
      a new session.
+  10. Restore the valid command and Test connection. Activate a tool through
+      `ToolSearch`, then terminate the stub server process between calls. Call
+      the same tool in the existing session without searching again.
+  11. Repeat with the restarted stub omitting that tool, and with the server
+      disabled or scoped away before recovery. Also try concurrent calls after
+      a disconnect and a server that fails its recovery handshake.
 - **Expected**:
+  - The activated tool works after a transport restart without a second search;
+    concurrent calls share one handshake. The fresh server list must still
+    advertise the tool. Removed tools and inactive servers are refused without
+    executing a call; inactive servers are not reconnected. Recovery failure
+    returns `UNAVAILABLE` and does not trigger repeated handshake attempts until
+    an edit or Test connection. A failed tool execution is never replayed.
   - Two servers import; the third is listed as skipped with "a stdio server
      requires command". The LAN HTTP entry lands as `http` with its url intact,
      and the editor shows the unencrypted-connection warning.
@@ -5260,7 +5272,7 @@ Each scenario is documented in this format:
      reads "1 project" and names it.
   - The stale call from step 6 fails with `TOOL_NOT_FOUND` and "not active for
      this session" — scope holds at dispatch, not only in the catalog.
-  - The `env` edit drops the connection: the next assembly re-handshakes, and
+  - The `env` edit drops the connection: the next assembly or call re-handshakes, and
      the tool's behaviour reflects the new value. The rename in step 8 does not
      reconnect anything.
   - The broken command records `failed` with a message, contributes no tools,
