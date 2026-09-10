@@ -1817,6 +1817,153 @@ pub fn replace_messages(db: &Database, session_id: &str, messages: &[UiMessage])
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TruncateRevisionMeta {
+    pub root_user_id: String,
+    pub revision_count: i64,
+    pub active_revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TruncateFromResult {
+    pub ok: bool,
+    pub kept_count: i64,
+    pub discarded_count: i64,
+    pub aborted_turn_id: Option<String>,
+    pub revision: Option<TruncateRevisionMeta>,
+}
+
+/// Cut the live transcript at a named message (or a count) under the RPC lock.
+///
+/// Regenerating from Electron used to ship the kept prefix back through
+/// `session.replaceMessages`. That JSON-RPC line is one NDJSON record, so an
+/// 80 MB transcript both exceeds the 64 MiB stdin cap and races the 130 s
+/// client deadline. This call reads, archives the discarded tail, and rewrites
+/// the prefix inside host-core. No transcript snapshot crosses the process
+/// boundary.
+pub fn truncate_from(
+    db: &Database,
+    session_id: &str,
+    from_message_id: Option<&str>,
+    truncate_before: Option<i64>,
+) -> Result<TruncateFromResult> {
+    let Some(detail) = get_session(db, session_id)? else {
+        return Err(anyhow!("NOT_FOUND: session not found"));
+    };
+    let messages = detail.messages;
+    let cut = match from_message_id.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(message_id) => messages
+            .iter()
+            .position(|message| message.id == message_id)
+            .ok_or_else(|| {
+                anyhow!("NOT_FOUND: truncateFromMessageId is not in this session")
+            })?,
+        None => match truncate_before {
+            Some(count) if count >= 0 => (count as usize).min(messages.len()),
+            Some(_) => {
+                return Err(anyhow!("INVALID_PARAMS: truncateBefore must be non-negative"));
+            }
+            None => {
+                return Err(anyhow!(
+                    "INVALID_PARAMS: fromMessageId or truncateBefore required"
+                ));
+            }
+        },
+    };
+    let discarded = &messages[cut..];
+    let kept = &messages[..cut];
+
+    let aborted_turn_id = abort_running_turn(db, session_id)?;
+    let revision = archive_discarded_regenerate_branch(db, session_id, discarded)?;
+    replace_messages(db, session_id, kept)?;
+    let _ = transcripts::remove_inflight(db.data_dir(), session_id);
+    Ok(TruncateFromResult {
+        ok: true,
+        kept_count: kept.len() as i64,
+        discarded_count: discarded.len() as i64,
+        aborted_turn_id,
+        revision,
+    })
+}
+
+fn abort_running_turn(db: &Database, session_id: &str) -> Result<Option<String>> {
+    let turn_id: Option<String> = db
+        .conn()
+        .query_row(
+            "SELECT id FROM turns WHERE session_id = ?1 AND status = 'running'",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(turn_id) = turn_id else {
+        return Ok(None);
+    };
+    end_turn_settling(
+        db,
+        &turn_id,
+        "aborted",
+        Some("TURN_ABORTED"),
+        None,
+        false,
+        false,
+    )?;
+    Ok(Some(turn_id))
+}
+
+/// Archive the discarded regenerate tail the way Electron main used to, but
+/// without copying the branch across the JSON-RPC pipe.
+fn archive_discarded_regenerate_branch(
+    db: &Database,
+    session_id: &str,
+    discarded: &[UiMessage],
+) -> Result<Option<TruncateRevisionMeta>> {
+    let Some(root_user) = discarded
+        .iter()
+        .find(|message| message.role == "user" && !message.id.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    if discarded.is_empty() {
+        return Ok(None);
+    }
+    let stable_root = root_user
+        .revision_root_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(root_user.id.as_str())
+        .to_string();
+    let existing = list_message_revisions(db, session_id, &stable_root)?;
+    let stamped = root_user.active_revision.unwrap_or(0);
+    let target = if stamped > 0 {
+        existing
+            .iter()
+            .find(|revision| revision.revision_index == stamped)
+    } else {
+        existing.iter().find(|revision| revision.is_active)
+    };
+    if let Some(target) = target {
+        refresh_message_revision(
+            db,
+            session_id,
+            &stable_root,
+            target.revision_index,
+            discarded,
+        )?;
+    } else {
+        save_message_revision(db, session_id, &stable_root, discarded, false)?;
+    }
+    let count = list_message_revisions(db, session_id, &stable_root)?.len() as i64;
+    Ok(Some(TruncateRevisionMeta {
+        root_user_id: stable_root,
+        revision_count: count + 1,
+        active_revision: count + 1,
+    }))
+}
+
+
 /// Persist the rollback state on the tool message that owns a review snapshot.
 /// The tool result remains the message-local source of truth after restart.
 pub fn update_tool_review_state(
@@ -4713,6 +4860,115 @@ mod tests {
             .unwrap();
         assert_eq!(owning.as_deref(), Some(turn.as_str()));
     }
+
+    #[test]
+    fn truncate_from_drops_the_tail_and_archives_the_discarded_branch() {
+        let db = test_db();
+        let session = create_session(&db, None, None, None, None, None).unwrap();
+        let turn = begin_turn(&db, &session.id, Some("p1"), Some("m1")).unwrap();
+        append_message(
+            &db,
+            &session.id,
+            &user_msg("u0", "earlier", "2025-05-01T00:00:00Z"),
+            Some(&turn),
+        )
+        .unwrap();
+        let mut root = user_msg("u1", "do it", "2025-05-01T00:00:01Z");
+        root.revision_root_id = Some("u1".into());
+        root.revision_count = Some(1);
+        root.active_revision = Some(1);
+        append_message(&db, &session.id, &root, Some(&turn)).unwrap();
+        let mut answer = user_msg("a1", "old answer", "2025-05-01T00:00:02Z");
+        answer.role = "assistant".into();
+        append_message(&db, &session.id, &answer, Some(&turn)).unwrap();
+
+        let result = truncate_from(&db, &session.id, Some("u1"), None).unwrap();
+        assert_eq!(result.kept_count, 1);
+        assert_eq!(result.discarded_count, 2);
+        assert_eq!(result.aborted_turn_id.as_deref(), Some(turn.as_str()));
+        let revision = result.revision.unwrap();
+        assert_eq!(revision.root_user_id, "u1");
+        assert_eq!(revision.revision_count, 2);
+        assert_eq!(revision.active_revision, 2);
+
+        let detail = get_session(&db, &session.id).unwrap().unwrap();
+        assert_eq!(
+            detail.messages.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["u0"]
+        );
+        let status: String = db
+            .conn()
+            .query_row("SELECT status FROM turns WHERE id = ?1", params![turn], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(status, "aborted");
+        let listed = list_message_revisions(&db, &session.id, "u1").unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].message_count, 2);
+        assert!(!listed[0].is_active);
+        let owning: Option<String> = db
+            .conn()
+            .query_row(
+                "SELECT turn_id FROM messages WHERE session_id = ?1 AND id = 'u0'",
+                params![session.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(owning.as_deref(), Some(turn.as_str()));
+    }
+
+    #[test]
+    fn truncate_from_rejects_an_unknown_message() {
+        let db = test_db();
+        let session = create_session(&db, None, None, None, None, None).unwrap();
+        append_message(
+            &db,
+            &session.id,
+            &user_msg("u1", "hello", "2025-05-01T00:00:00Z"),
+            None,
+        )
+        .unwrap();
+        let error = truncate_from(&db, &session.id, Some("gone"), None).unwrap_err();
+        assert!(error.to_string().contains("NOT_FOUND"));
+        assert_eq!(get_session(&db, &session.id).unwrap().unwrap().messages.len(), 1);
+    }
+
+    #[test]
+    fn truncate_from_refreshes_the_stamped_revision() {
+        let db = test_db();
+        let session = create_session(&db, None, None, None, None, None).unwrap();
+        let mut original = user_msg("u1", "do it", "2025-05-01T00:00:00Z");
+        original.revision_root_id = Some("u1".into());
+        original.active_revision = Some(1);
+        let mut original_answer = user_msg("a0", "stale", "2025-05-01T00:00:01Z");
+        original_answer.role = "assistant".into();
+        save_message_revision(
+            &db,
+            &session.id,
+            "u1",
+            &[original.clone(), original_answer],
+            true,
+        )
+        .unwrap();
+        append_message(&db, &session.id, &original, None).unwrap();
+        let mut grown = user_msg("a1", "grown answer", "2025-05-01T00:00:02Z");
+        grown.role = "assistant".into();
+        append_message(&db, &session.id, &grown, None).unwrap();
+
+        truncate_from(&db, &session.id, Some("u1"), None).unwrap();
+        let listed = list_message_revisions(&db, &session.id, "u1").unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].message_count, 2);
+        let payload = transcripts::read_revision(db.data_dir(), &session.id, "u1", 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            payload.messages.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["u1", "a1"]
+        );
+    }
+
 
     fn streaming_assistant(id: &str, content: &str) -> UiMessage {
         let mut message = user_msg(id, content, "2025-05-01T00:00:01Z");

@@ -64,6 +64,9 @@ This log freezes previously open questions into concrete decisions.
 | D033 | Tool result limits | **256KB/4000 lines defaults with explicit truncation markers** *(amended by D194, D306)* | Protect context & UI |
 | D306 | Search/read truncation is a cut, not a window | **Amend D033 / D194: Read/Glob/Grep `truncated` is true only when the host cut content the caller asked for (byte budget, per-line clip, Grep/Glob match cap). A Read that returned the requested or default window of a longer file is complete for that window; `totalLines`/`offset`/`lineCount` and a next-offset `notice` describe the remainder. Default Read window is 2000 lines (max 4000). `BUDGET_SEARCH` is 128KB / 4000 lines. Per-line clip is 16,384 characters. The UI truncated chip follows this flag.** | The 48KB / 500-line window marked almost every source and spec file truncated, including successful paged reads, which hid real cuts and forced the agent to re-search what it already had. |
 | D307 | Revision payloads follow the live branch | **Amend D109: a regenerate branch keeps growing after its archive (later prompts, error-ended turns that never reach `agent_end`), so every operation that discards the live branch first writes it back over the variant it belongs to. `session.activateRevision` re-archives the live branch of the family from the durable transcript before switching and takes the prefix from there; the regenerate path refreshes the stamped variant via `session.saveRevision { revisionIndex }`; `session.saveActiveRevision` refreshes an already-archived index instead of skipping it. The variant refreshed is the one the live root's `activeRevision` stamp names; a stamped variant with no index row yet is stored as its own variant, never over a previous one. Switching also carries each surviving message's owning `turn_id` and keeps checkpoints whose anchors survive.** | The archive was written once and reused forever: paging away from a branch that had grown since its agent_end archive, then back, restored the stale copy and silently deleted every later turn from the transcript and its JSONL. |
+| D390 | Host-owned regenerate truncate | **Amend D199 / D258 / D307: `agent/prompt` truncates through `session.truncateFrom` under the host lock (identity-first cut, abort leftover running turn, archive discarded tail, rewrite prefix). The kept transcript does not cross JSON-RPC. An NDJSON request line over 64 MiB is `LIMIT_EXCEEDED` and does not end the stdin reader. Protocol version stays at 11. See ADR 0216 and E2E-246.** | Retrying a multi-thousand-message session timed out at 130 s on `session.replaceMessages` and could kill host stdin at 64 MiB (issue #211). |
+
+
 | D244 | Compact context usage summary | **Amend D103 / D184 / ADR 0047: keep the context inspector's remaining-capacity trigger, used/window counts, turn total, completed-turn speed, exact provider values, aggregate tool types/calls/tokens, and checkpoint summary, but render them as a short summary. Remove the per-tool rows, share bars, source badges, explanatory estimate paragraph, and used-capacity meter from the default panel. No protocol, storage, runtime accounting, or model metadata changes.** *(Amended by D347: the trigger moves to the composer toolbar.)* | The prior diagnostic layout made a routine capacity check tall and visually dense. Keeping the aggregate signal while removing drill-down chrome makes the default status surface scannable without changing the underlying usage data. See ADR 0103 and E2E-060d / US-UI-61. |
 | D347 | Composer-docked context usage inspector | **Amend D103 / D184 / D244 / ADR 0047 / ADR 0103: the compact context inspector lives in the composer right toolbar, immediately left of the model × reasoning chip, and always mirrors the newest assistant turn that reported usage. The trigger keeps the remaining-capacity ring and percentage and drops the redundant Context label. The popover heading is remaining tokens plus percentage; rows below share one label/value rhythm separated by spacing, with no inner section rules (D297). Assistant meta keeps the model badge. Renderer only.** | The inspector under the newest answer scrolled out of reach. One composer entry is the single authority for the latest snapshot, and the doubled heading rule is fixed by dropping the extra caption rather than adding hairlines. See ADR 0184 and E2E-060d / US-UI-61. |
 | D355 | Last-request occupancy in the context inspector | **Amend D103 / D184 / D244 / D347 / ADR 0047 / ADR 0103 / ADR 0184: remaining capacity, used/window counts, turn total, and provider input/output/cache/reasoning/hit-rate are the newest usage-bearing assistant message (the last model request). Occupancy is `input + output + reasoning + cacheRead + cacheWrite` on that message. They are not the sum of every model call in the visual tool-loop. Completed-turn speed and the aggregate tool row still describe that visual turn. Renderer only; host turn rollups and Token Insights stay additive billing.** | Summing cache reads across a tool loop put 367k cache read next to a 55k window. OpenCode's context widget uses only the last assistant message. See ADR 0193 and E2E-060d. |
@@ -4440,3 +4443,22 @@ D193, and D194.
   `requiresReasoningContentOnAssistantMessages: true`. `thinkingFormat` is not
   changed by that match, so OpenRouter and other aggregators keep their existing
   thinking wire shape. See E2E-005E and `03-runtime/11-provider-model-system.md`.
+
+## 2026-09-10 — Regenerates truncate under the host RPC lock
+
+- Retry, regenerate, and edit-resend used to load the whole transcript in
+  Electron main, archive the discarded tail, and `session.replaceMessages` the
+  kept prefix. That JSON-RPC line is one NDJSON record: an 80 MB session both
+  exceeds the 64 MiB stdin cap and races the 130 s client deadline, leaving
+  `turns.status = running` after the UI has failed (issue #211).
+- `session.truncateFrom` now performs the cut, the leftover-turn abort, and the
+  discarded-branch archive inside one host call. `agent/prompt` loads only a
+  bounded `session.get` for launch configuration.
+- Oversized control-pipe lines are drained and answered with `LIMIT_EXCEEDED`
+  instead of ending the stdin reader.
+- Decision D390 and ADR 0216 define this. See
+  `03-runtime/04-data-storage.md` §4.9/§7,
+  `03-runtime/06-host-rpc-protocol.md` §4, `03-runtime/01-ipc-protocol.md`,
+  and E2E-246.
+
+

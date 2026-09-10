@@ -3750,3 +3750,11 @@ D193 和 D194。
 - DeepSeek 思考模式要求回放的每条 assistant 消息都带 `reasoning_content`。当轮没有思考内容时仍需该字段为空串 `""`；缺字段会返回 HTTP 400。
 - pi-ai 只在 `model.provider === "deepseek"` 或 Base URL 含 `deepseek.com` 时自动打开该开关。PI-Desktop 把 UUID 存成 `model.provider`，因此硅基流动、火山方舟、自定义中转和其他聚合网关永远匹配不上。
 - 决策 D389 修订 D024：`vendorKey`、URL、模型 ID 或目录 `family` 能识别为 DeepSeek 的 Completions 行设置 `requiresReasoningContentOnAssistantMessages: true`。该匹配不改 `thinkingFormat`，因此 OpenRouter 等聚合器保持原有思考线路。见 E2E-005E 与 `03-runtime/11-provider-model-system.md`。
+
+## 2026-09-10 —— 重新生成在主机 RPC 锁下截断
+
+- 重试/重新生成曾把整份 kept transcript 经 `session.replaceMessages` 送进一条 NDJSON，超大会话会在 130 秒超时或 64 MiB stdin 上限处失败（issue #211）。
+- 现在由 `session.truncateFrom` 在主机锁内完成截断、中止残留 running 回合并归档被丢弃的尾巴。`agent/prompt` 只为启动配置做有界 `session.get`。
+- 超长控制管道行以 `LIMIT_EXCEEDED` 应答，不再结束 stdin 读取器。
+- 决策 D390 与 ADR 0216。见 E2E-246。
+

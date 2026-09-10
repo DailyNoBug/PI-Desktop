@@ -796,11 +796,16 @@ tools are never copied. No host protocol or storage schema version bump.
 
 A regenerate or edit-resend truncates the durable transcript before appending
 its new user turn. `agent/prompt` accepts `truncateFromMessageId` — the identity
-of the first message to drop — which the host resolves against its own
+of the first message to drop — and forwards it to host-owned
+`session.truncateFrom`, which resolves that identity against its own
 transcript; an unresolvable id is rejected with `NOT_FOUND` rather than cutting
-at a guessed position. The older `truncateBefore` count remains accepted, but it
+at a guessed position. The kept prefix never crosses the JSON-RPC pipe
+(ADR 0216 / issue #211). The older `truncateBefore` count remains accepted, but it
 is only correct when the caller holds the entire history: a renderer showing a
 bounded window addresses different messages than the transcript does.
+`agent/prompt` itself loads only a bounded `session.get` for launch
+configuration.
+
 
 `session/fork` is a protocol-v5 channel that creates an independent
 session from the source session's current active transcript. When optional

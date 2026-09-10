@@ -68,7 +68,8 @@ registered; reserved codes in §3.7 remain intentionally absent from
 | `TIMEOUT` | yes | generic timeout |
 | `HOST_SHUTTING_DOWN` | yes | the host received EOF and is draining; the call was refused rather than started |
 | `RATE_LIMITED` | yes | a per-caller host budget (plugin session import, batch operations) was exceeded inside its window |
-| `LIMIT_EXCEEDED` | no | a payload exceeded a fixed host bound (item count, byte size) and was refused |
+| `LIMIT_EXCEEDED` | no | a payload exceeded a fixed host bound (item count, byte size, or a 64 MiB NDJSON request line) and was refused |
+
 
 `HOST_UNAVAILABLE` is reserved for a missing or broken host process/transport,
 not ordinary admission pressure. RPC capacity returns `HOST_OVERLOADED`, and

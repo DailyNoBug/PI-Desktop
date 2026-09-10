@@ -6450,3 +6450,15 @@ IPC 请求无法关闭。
 - **验收**：B
 - **里程碑**：M3+
 - **状态**：由 `apps/desktop/test/host-boot-diagnostics.test.mjs` 源码契约覆盖
+
+#### E2E-246：超大会话重试不会把整份 transcript 放进一条 RPC
+
+
+- **前提条件**：Agent 会话的实时转录本有数千条消息（`session.replaceMessages` 的 JSON-RPC 行会达到数十 MB），且最后一轮用户回合已完成或失败。
+- **步骤**：1）重试或重新生成最后一条用户提示。2）检查 host RPC、`turns.status`、live jsonl 和 `message_revisions`。3）若第一次仍显示为运行中，立即再点一次重试。
+- **预期**：Electron main 只调用带 `fromMessageId` 的 `session.truncateFrom`，不把 discarded 数组交给 `session.saveRevision`，也不调用 `session.replaceMessages`。保留前缀不会出现在 NDJSON 请求里。残留 running 回合在 `beginTurn` 前被标为 `aborted`。被丢弃的尾巴已归档。UI 错误不是 `host RPC timeout: session.replaceMessages`。
+- **链接规格**：`03-runtime/01-ipc-protocol.md`、`03-runtime/04-data-storage.md` §4.9/§7、`03-runtime/06-host-rpc-protocol.md` §4、ADR 0216、D390
+- **验收**：C（对话）、F（持久化）、Quality
+- **里程碑**：M6
+- **状态**：由 host-core 单元测试覆盖（2026-09-10）：`truncate_from_drops_the_tail_and_archives_the_discarded_branch`、`truncate_from_rejects_an_unknown_message`、`truncate_from_refreshes_the_stamped_revision`、`truncate_from_rpc_cuts_without_shipping_the_kept_prefix`。桌面行程仍为草稿。
+

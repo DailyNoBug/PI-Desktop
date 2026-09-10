@@ -84,7 +84,6 @@ import {
   type McpServerStatus,
   type ModelBinding,
   type Mode,
-  resolveTranscriptTruncation,
   type NativeMenuAction,
   type OAuthRespondInput,
   type PlanExecution,
@@ -7900,6 +7899,7 @@ function registerIpc() {
     const settings = await host.call<any>("settings.get");
     const sessionResult = await host.call<{ session?: any }>("session.get", {
       id: req.sessionId,
+      messageLimit: 1,
     });
     let session = sessionResult.session;
     if (!session) {
@@ -7907,97 +7907,59 @@ function registerIpc() {
         errorCode: ErrorCodes.NOT_FOUND,
       });
     }
-    // The host's own transcript decides where the cut lands, so a renderer
-    // holding a bounded window cannot shift it.
-    const allMessages = Array.isArray(session.messages) ? session.messages : [];
-    const truncation = resolveTranscriptTruncation(allMessages, req);
-    if (truncation.kind === "unknown-message") {
-      throw Object.assign(
-        new Error("truncateFromMessageId is not in this session"),
-        { errorCode: ErrorCodes.NOT_FOUND },
-      );
-    }
-    if (truncation.kind === "cut") {
-      const all = allMessages;
-      const cut = truncation.index;
-      const kept = all.slice(0, cut);
-      const discarded = all.slice(cut);
-      // ChatGPT-style regenerate history: archive the discarded branch under
-      // its root user turn before truncating the live transcript.
-      const rootUser = discarded.find(
-        (message: any) => message?.role === "user" && message?.id,
-      );
-      if (rootUser && discarded.length > 0) {
-        try {
-          // Prefer an existing revision-family key so regenerates keep one
-          // linear variant set instead of forking a new root on every redo.
-          const stableRootUserId =
-            typeof rootUser.revisionRootId === "string" && rootUser.revisionRootId
-              ? rootUser.revisionRootId
-              : rootUser.id;
-          const listed = await host.call<{
-            revisions?: Array<{ revisionIndex: number; isActive?: boolean }>;
-          }>("session.listRevisions", { sessionId: req.sessionId, rootUserId: stableRootUserId });
-          const existing = listed.revisions ?? [];
-          // The stamp on the discarded root names the variant this tail is.
-          // It beats the DB active flag, which only moves on agent_end: after
-          // a regenerate whose turn failed, the DB still points at the
-          // previous variant and refreshing that would bury it.
-          const stamped =
-            typeof rootUser.activeRevision === "number" ? rootUser.activeRevision : 0;
-          const target =
-            stamped > 0
-              ? existing.find((revision) => revision.revisionIndex === stamped)
-              : existing.find((revision) => revision.isActive);
-          if (target) {
-            // The branch was archived on its agent_end, but every prompt since
-            // then appended to it (and an error-ended turn never re-archived
-            // it). Write the live tail back over that revision so the pager
-            // restores all of it, not a stale copy.
-            await host.call("session.saveRevision", {
-              sessionId: req.sessionId,
-              rootUserId: stableRootUserId,
-              messages: discarded,
-              revisionIndex: target.revisionIndex,
-            });
-          } else {
-            // First regenerate (the original tail is not stored yet), or a
-            // tail stamped by an earlier regenerate whose turn failed before
-            // agent_end archived it: a variant of its own.
-            await host.call("session.saveRevision", {
-              sessionId: req.sessionId,
-              rootUserId: stableRootUserId,
-              messages: discarded,
-              makeActive: false,
-            });
-          }
-          const revisions = await host.call<{ revisions?: Array<{ revisionIndex: number }> }>(
-            "session.listRevisions",
-            { sessionId: req.sessionId, rootUserId: stableRootUserId },
-          );
-          const count = revisions.revisions?.length ?? 0;
-          // Stamp the upcoming user prompt with pager metadata after append.
-          (req as any).__revisionMeta = {
-            rootUserId: stableRootUserId,
-            revisionCount: count + 1, // +1 for the branch about to be generated
-            activeRevision: count + 1,
-          };
-        } catch (error) {
-          logger.app("persistence", "warn", "save regenerate revision failed", {
-            sessionId: req.sessionId,
-            data: String(error),
-          });
-          // Regenerate is destructive after this point. If the running host is
-          // stale or revision persistence is unavailable, abort before
-          // truncating the live transcript so the renderer can reload the
-          // untouched branch.
-          throw error;
-        }
+    const truncateFromMessageId =
+      typeof req.truncateFromMessageId === "string"
+        ? req.truncateFromMessageId.trim()
+        : "";
+    const truncateBefore =
+      typeof req.truncateBefore === "number" &&
+      Number.isFinite(req.truncateBefore) &&
+      req.truncateBefore >= 0
+        ? Math.floor(req.truncateBefore)
+        : undefined;
+    if (truncateFromMessageId || truncateBefore !== undefined) {
+      // Host-owned cut: the kept prefix never crosses the JSON-RPC pipe
+      // (issue #211). Abort any leftover running turn first so beginTurn
+      // cannot see AGENT_BUSY after a timed-out retry.
+      if (sidecar) {
+        await sidecar
+          .call("agent.abort", { sessionId: req.sessionId })
+          .catch(() => undefined);
       }
-      await host.call("session.replaceMessages", {
-        sessionId: req.sessionId,
-        messages: kept,
-      });
+      await finishTurn(req.sessionId, "aborted", "TURN_ABORTED");
+
+      try {
+        await persistenceOutbox.flush(() => host);
+        const truncated = await host.call<{
+          revision?: {
+            rootUserId?: string;
+            revisionCount?: number;
+            activeRevision?: number;
+          } | null;
+        }>("session.truncateFrom", {
+          sessionId: req.sessionId,
+          ...(truncateFromMessageId ? { fromMessageId: truncateFromMessageId } : {}),
+          ...(truncateBefore !== undefined ? { truncateBefore } : {}),
+        });
+        const revision = truncated.revision;
+        if (
+          revision?.rootUserId &&
+          typeof revision.revisionCount === "number" &&
+          typeof revision.activeRevision === "number"
+        ) {
+          (req as any).__revisionMeta = {
+            rootUserId: revision.rootUserId,
+            revisionCount: revision.revisionCount,
+            activeRevision: revision.activeRevision,
+          };
+        }
+      } catch (error) {
+        logger.app("persistence", "warn", "truncate regenerate transcript failed", {
+          sessionId: req.sessionId,
+          data: String(error),
+        });
+        throw error;
+      }
       if (sidecar) {
         sidecar.clearProjectInstructionRoot(req.sessionId);
         sidecar.clearVendorAuthBindings(req.sessionId);
@@ -8007,9 +7969,11 @@ function registerIpc() {
       }
       const refreshed = await host.call<{ session?: any }>("session.get", {
         id: req.sessionId,
+        messageLimit: 1,
       });
-      session = refreshed.session ?? { ...session, messages: kept };
+      session = refreshed.session ?? session;
     }
+
     const launch = await resolveAgentRuntimeLaunch(
       req.sessionId,
       session,
@@ -8090,7 +8054,11 @@ function registerIpc() {
     // The renderer already shows this row under its own id (D288); persisting
     // and echoing under the same id lets the echo replace it in place.
     const userMessage = {
-      id: durableUserMessageId(req.messageId, allMessages),
+      id: durableUserMessageId(
+        req.messageId,
+        Array.isArray(session.messages) ? session.messages : [],
+      ),
+
       role: "user" as const,
       content: promptContent,
       createdAt: new Date().toISOString(),

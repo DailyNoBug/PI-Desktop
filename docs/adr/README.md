@@ -233,3 +233,5 @@ Each ADR includes:
 | 0213 | Persist the Host-owned turn queue in host-core | Accepted |
 | 0214 | Trusted extensions run in the Agent sidecar | Accepted (v1 implemented; amended by D388 / ADR 0215) |
 | 0215 | Agent extensions are a plugin contribution | Accepted (implemented) |
+| 0216 | Truncate regenerates under the RPC lock | Accepted (amends 0060 / 0127; issue #211) |
+

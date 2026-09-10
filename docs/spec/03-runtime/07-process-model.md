@@ -109,6 +109,8 @@ currently published.
 Supervision parameters (implemented in Electron main):
 
 - Child exit rejects all in-flight RPCs for that child immediately (no 130s timeout wait).
+- An NDJSON request line over 64 MiB is drained and answered with `LIMIT_EXCEEDED`; it does not end the stdin reader (ADR 0216).
+
 - Auto-restart with exponential backoff `0.5s → 1s → 2s` (cap 4s).
 - At most **3 restarts per 2-minute window** per child; beyond that the app
   stays degraded and emits `hostStatus { ok: false, component, fatal: true }`.

@@ -253,13 +253,18 @@ type ToolBudgetHealth = {
 ids 和非负 `tokensBefore`；它不会插入 message/search 行
   或更改可见的转录本投影
 - `session.replaceMessages` — 原子记录重写（临时文件重命名 +
-  regenerate/edit 流使用的一项索引交易（D119）且未得到答复
-  渲染器智能停止撤消；它保留了
-  仅当其边界和可选的第一个保留的 id 时才是最新的检查点
-  在重写的前缀中仍然有效，并且它携带每个幸存消息的
-  拥有 `turn_id` 跨越重写。只有拥有以下权限的调用者才安全
-  通话期间的整个记录：快照的任何重写
-  在 RPC 锁之外采取的可以删除附加在其间的消息
+  一项索引事务，D119），用于删除消息和未得到答复的渲染器智能停止撤销；
+  仅当边界和可选的第一个保留 id 在重写前缀中仍然有效时才保留最新检查点，
+  并且跨重写携带每条幸存消息所属的 `turn_id`。只有在呼叫持续时间内拥有
+  整份记录的调用者才安全。重新生成和重试改走 `session.truncateFrom`，
+  因此保留前缀不再经过 JSON-RPC（ADR 0216）
+- `session.truncateFrom` — 主机拥有的后缀截断，供重新生成 / 重试 / 编辑重发：
+  `{ sessionId, fromMessageId?, truncateBefore? }`。身份优先；未知
+  `fromMessageId` 为 `NOT_FOUND`。在状态锁下中止残留的 running 回合、
+  归档被丢弃的重新生成尾巴、重写保留前缀，并删除进行中检查点。返回
+  `{ ok, keptCount, discardedCount, abortedTurnId, revision }`。请求和结果
+  都不携带转录本快照。协议 v11 增量方法（ADR 0216）
+
 - `session.saveRevision` — 将重新生成分支归档到
   `(sessionId, rootUserId)`。带 `revisionIndex` 时，就地刷新该已有变体的
   载荷（分支自归档后又生长了），而不是新建索引；DB 行保留身份和活动
@@ -867,7 +872,9 @@ JSON-RPC 错误携带一个数字 `code` 以及 `data.errorCode`，后者是来�
 | 1018 | CAPABILITY_INVALID | Agent 能力 root/scope 设置校验失败 |
 | -32029 | HOST_OVERLOADED | RPC 调度程序容量已耗尽 |
 | -32601 | — | 未知方法 |
-| -32700 | — | 无法解析的请求行；超过 64 MiB 的行会终止 stdin 读取器 |
+| -32700 | — | 无法解析的请求行 |
+| 1002 | LIMIT_EXCEEDED | 超过 64 MiB 的 NDJSON 请求行；读完该行余下部分后 stdin 读取器继续运行 |
+
 
 工具结果（`TOOL_DENIED`、`TOOL_TIMEOUT`、`PATH_OUTSIDE_WORKSPACE`、
 `WORKSPACE_PATH_DENIED`、`WRITE_DISABLED_IN_PLAN`、`SHELL_NOT_FOUND`、

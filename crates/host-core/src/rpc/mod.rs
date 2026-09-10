@@ -69,8 +69,10 @@ struct CacheModelsParams {
 #[derive(Debug)]
 enum StdinEvent {
     Line(String),
+    Oversize,
     Error(String),
 }
+
 
 /// Tokio's stdio adapter delegates every read/write to the blocking pool. If
 /// the OS temporarily refuses another worker thread, Tokio panics instead of
@@ -103,11 +105,37 @@ fn spawn_stdin_reader(tx: mpsc::UnboundedSender<StdinEvent>) -> io::Result<threa
                 match read {
                     Ok(0) => break,
                     Ok(_) if line.len() as u64 > MAX_STDIN_LINE_BYTES => {
-                        let _ = tx.send(StdinEvent::Error(format!(
-                            "request line exceeds {MAX_STDIN_LINE_BYTES} bytes"
-                        )));
-                        break;
+                        // Drain the rest of this NDJSON record so a too-large
+                        // replaceMessages cannot kill the control pipe. The
+                        // serve loop answers LIMIT_EXCEEDED and keeps running.
+                        if !line.ends_with('\n') {
+                            let mut discard = [0u8; 8192];
+                            loop {
+                                match reader.read(&mut discard) {
+                                    Ok(0) => break,
+                                    Ok(n) if discard[..n].contains(&b'\n') => break,
+                                    Ok(_) => {}
+                                    Err(error)
+                                        if error.kind() == io::ErrorKind::Interrupted =>
+                                    {
+                                        continue;
+                                    }
+                                    Err(error) if is_transient_io_error(&error) => {
+                                        thread::sleep(Duration::from_millis(10));
+                                    }
+                                    Err(error) => {
+                                        let _ = tx.send(StdinEvent::Error(error.to_string()));
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                        line.clear();
+                        if tx.send(StdinEvent::Oversize).is_err() {
+                            break;
+                        }
                     }
+
                     Ok(_) => {
                         if tx
                             .send(StdinEvent::Line(std::mem::take(&mut line)))
@@ -222,11 +250,28 @@ pub async fn serve(state: Arc<Mutex<AppState>>) -> Result<()> {
                 };
                 let line = match event {
                     StdinEvent::Line(line) => line,
+                    StdinEvent::Oversize => {
+                        let response = JsonRpcResponse {
+                            jsonrpc: "2.0",
+                            id: Value::Null,
+                            result: None,
+                            error: Some(rpc_err(
+                                1002,
+                                "request line exceeds 64 MiB",
+                                "LIMIT_EXCEEDED",
+                            )),
+                        };
+                        if let Ok(raw) = serde_json::to_string(&response) {
+                            let _ = tx.send(format!("{raw}\n"));
+                        }
+                        continue 'serve;
+                    }
                     StdinEvent::Error(error) => {
                         input_error = Some(format!("host stdin read failed: {error}"));
                         break 'serve;
                     }
                 };
+
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
                     continue 'serve;
@@ -1580,6 +1625,38 @@ async fn handle_request(
                 .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?;
             Ok(json!({ "ok": true }))
         }
+        "session.truncateFrom" => {
+            let session_id = params
+                .get("sessionId")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| rpc_err(1002, "sessionId required", "INVALID_PARAMS"))?;
+            let from_message_id = params
+                .get("fromMessageId")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|id| !id.is_empty());
+            let truncate_before = params.get("truncateBefore").and_then(|v| v.as_i64());
+            let st = state.lock().await;
+            let truncated = sessions::truncate_from(
+                &st.db,
+                session_id,
+                from_message_id,
+                truncate_before,
+            )
+            .map_err(|e| {
+                let message = e.to_string();
+                if message.starts_with("NOT_FOUND") {
+                    rpc_err(1007, message, "NOT_FOUND")
+                } else if message.starts_with("INVALID_PARAMS") {
+                    rpc_err(1002, message, "INVALID_PARAMS")
+                } else {
+                    rpc_err(1000, message, "INTERNAL")
+                }
+            })?;
+            serde_json::to_value(truncated)
+                .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))
+        }
+
         "session.saveRevision" => {
             let session_id = params
                 .get("sessionId")
@@ -5628,6 +5705,77 @@ mod tests {
         let st = state.lock().await;
         sessions::end_turn(&st.db, &first, "aborted", None, None, false).unwrap();
     }
+
+    #[tokio::test]
+    async fn truncate_from_rpc_cuts_without_shipping_the_kept_prefix() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let mut app_state = AppState::open(data_dir.path()).unwrap();
+        app_state.handshook = true;
+        let session = sessions::create_session(
+            &app_state.db,
+            Some("Large".into()),
+            Some("agent".into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let turn = sessions::begin_turn(&app_state.db, &session.id, None, None).unwrap();
+        let prefix: sessions::UiMessage = serde_json::from_value(json!({
+            "id": "u0",
+            "role": "user",
+            "content": "earlier",
+            "createdAt": "2025-05-01T00:00:00Z"
+        }))
+        .unwrap();
+        let root: sessions::UiMessage = serde_json::from_value(json!({
+            "id": "u1",
+            "role": "user",
+            "content": "retry me",
+            "createdAt": "2025-05-01T00:00:01Z"
+        }))
+        .unwrap();
+        sessions::append_message(&app_state.db, &session.id, &prefix, Some(&turn)).unwrap();
+        sessions::append_message(&app_state.db, &session.id, &root, Some(&turn)).unwrap();
+        let state = Arc::new(Mutex::new(app_state));
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        let result = handle_request(
+            state.clone(),
+            "session.truncateFrom",
+            json!({ "sessionId": session.id, "fromMessageId": "u1" }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result["ok"], json!(true));
+        assert_eq!(result["keptCount"], json!(1));
+        assert_eq!(result["discardedCount"], json!(1));
+        assert_eq!(result["abortedTurnId"], json!(turn));
+
+        let detail = handle_request(
+            state.clone(),
+            "session.get",
+            json!({ "id": session.id, "messageLimit": 10 }),
+            tx,
+        )
+        .await
+        .unwrap();
+        let messages = detail["session"]["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["id"], json!("u0"));
+
+        let missing = handle_request(
+            state,
+            "session.truncateFrom",
+            json!({ "sessionId": session.id, "fromMessageId": "gone" }),
+            mpsc::unbounded_channel().0,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing.data.unwrap()["errorCode"], "NOT_FOUND");
+    }
+
 
     /// D137: the audit row for a tool call must carry the three segments
     /// separately, so "the tool was slow" can be told apart from "the user

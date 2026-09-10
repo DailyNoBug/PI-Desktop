@@ -5003,6 +5003,36 @@ Each scenario is documented in this format:
   `replace_messages_preserves_owning_turn_ids` covers the remaining rewrite
   callers. UI paging remains manual.
 
+#### E2E-246: Retrying a large session truncates without a whole-transcript RPC
+
+
+- **Preconditions**: An Agent session whose live transcript is thousands of
+  messages (large enough that a `session.replaceMessages` JSON-RPC line would
+  exceed tens of megabytes), with a completed or failed last user turn.
+- **Steps**: 1) Retry or regenerate the last user prompt. 2) Inspect host RPC
+  traffic, `turns.status`, the live jsonl, and `message_revisions`. 3) Retry
+  again immediately if the first attempt is still on screen as running.
+- **Expected**: Electron main calls `session.truncateFrom` with
+  `fromMessageId` only — no `session.replaceMessages` and no
+  `session.saveRevision` of the discarded array. The kept prefix never appears
+  in an NDJSON request. The leftover running turn is `aborted` before
+  `beginTurn`. The discarded tail is archived (refresh of the stamped variant,
+  or a new inactive variant). A second retry while a cut is in flight does not
+  ship another full transcript. The UI error is not
+  `host RPC timeout: session.replaceMessages`.
+- **Specs linked**: `03-runtime/01-ipc-protocol.md`,
+  `03-runtime/04-data-storage.md` §4.9/§7,
+  `03-runtime/06-host-rpc-protocol.md` §4, ADR 0216, D390
+- **Acceptance**: C (conversation), F (persistence), Quality
+- **Milestone**: M6
+- **Status**: Covered by host-core unit tests (2026-09-10):
+  `truncate_from_drops_the_tail_and_archives_the_discarded_branch`,
+  `truncate_from_rejects_an_unknown_message`,
+  `truncate_from_refreshes_the_stamped_revision`,
+  `truncate_from_rpc_cuts_without_shipping_the_kept_prefix`. Desktop journey
+  remains Draft.
+
+
 #### E2E-119: Parallel subagents report back without entering the parent's context
 
 - **Preconditions**: A project-bound Agent session with the user home containing
