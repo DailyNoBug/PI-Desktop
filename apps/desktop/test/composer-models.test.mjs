@@ -161,6 +161,40 @@ test("composer model rows expose published reasoning and vision markers", () => 
   );
 });
 
+test("composer vision marker follows the binding's image-input override (#214)", () => {
+  const textOnly = {
+    modelId: "grok-auto",
+    displayName: "grok-auto",
+    providerId: "relay",
+    capabilities: ["text"],
+  };
+  const visionModel = {
+    modelId: "grok-4.5",
+    displayName: "Grok 4.5",
+    providerId: "relay",
+    capabilities: ["text", "vision"],
+    modalities: { input: ["text", "image"], output: ["text"] },
+  };
+  const provider = {
+    id: "relay",
+    models: [
+      { ...binding("grok-auto"), supportsImages: true },
+      { ...binding("grok-4.5"), supportsImages: false },
+    ],
+  };
+  // Settings → model → Advanced → Image input checked on a model discovered as text-only.
+  assert.deepEqual(composerModelBadges(textOnly, provider), ["vision"]);
+  // ...and unchecked on a model published as vision-capable.
+  assert.deepEqual(composerModelBadges(visionModel, provider), []);
+  // No override (or no binding at all): the published capability decides, as before.
+  assert.deepEqual(
+    composerModelBadges(visionModel, { id: "relay", models: [binding("grok-4.5")] }),
+    ["vision"],
+  );
+  assert.deepEqual(composerModelBadges(textOnly, { id: "relay", models: [] }), []);
+  assert.deepEqual(composerModelBadges(visionModel), ["vision"]);
+});
+
 test("composer model search matches id, name, family and provider", () => {
   const model = {
     modelId: "claude-opus-4-6",
