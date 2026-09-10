@@ -1277,6 +1277,8 @@ export class DesktopAgentRuntime {
   private extensionRunner?: TrustedExtensionRunner;
   private extensionSessionName?: string;
   private extensionTurnIndex = 0;
+  /** Headers an extension edited in `before_provider_headers` for the current turn. */
+  private extensionProviderHeaders?: Record<string, string>;
   /** Subagent definitions offered through the `Task` tool (ADR 0062). */
   private subagents: SubagentDefinition[];
   private subagentProviders: Record<string, RuntimeProviderConfig>;
@@ -1534,10 +1536,11 @@ Delegation rules:
             this.provider.headers,
           ),
         );
+        const hookedOptions = this.withExtensionProviderHooks(requestOptions, m);
         return createProviderRetryStream(
           m,
           context,
-          requestOptions,
+          hookedOptions,
           (retryOptions) => models.streamSimple(m, context, retryOptions),
           {
             claim: (error, phase) => this.claimProviderRetry(error, phase),
@@ -4832,7 +4835,24 @@ Delegation rules:
       reason,
     });
     try {
-      return await this.performCompaction(reason, willRetry, retentionMode);
+      const runner = this.extensionRunner;
+      if (runner?.hasHandlers("session_before_compact")) {
+        const decision = await runner.emit<{ cancel?: boolean }>(
+          "session_before_compact",
+          { type: "session_before_compact", reason, retentionMode },
+          (acc, next) => (acc?.cancel ? acc : next),
+        );
+        if (decision?.cancel) return false;
+      }
+      const compacted = await this.performCompaction(reason, willRetry, retentionMode);
+      if (runner) {
+        void runner.emit(compacted ? "session_compact" : "session_compact_failed", {
+          type: compacted ? "session_compact" : "session_compact_failed",
+          reason,
+          aborted: this.compactionAbort?.signal.aborted === true,
+        });
+      }
+      return compacted;
     } finally {
       this.compactionAbort = undefined;
       this.compactionInProgress = false;
@@ -6138,7 +6158,15 @@ Delegation rules:
   /** `before_agent_start` hook: extensions may replace the system prompt for this turn. */
   private async extensionBeforeAgentStart(input: string | RuntimePrompt): Promise<void> {
     const runner = this.extensionRunner;
-    if (!runner?.hasHandlers("before_agent_start")) return;
+    if (!runner) return;
+    this.extensionProviderHeaders = undefined;
+    if (runner.hasHandlers("before_provider_headers")) {
+      // Handlers edit the headers object in place, as they do in the pi CLI.
+      const headers: Record<string, string> = { ...(this.provider.headers ?? {}) };
+      await runner.emit("before_provider_headers", { type: "before_provider_headers", headers });
+      this.extensionProviderHeaders = headers;
+    }
+    if (!runner.hasHandlers("before_agent_start")) return;
     const base = this.composeSystemPrompt();
     const result = await runner.emit<{ systemPrompt?: string }>(
       "before_agent_start",
@@ -6152,6 +6180,46 @@ Delegation rules:
     );
     this.agent.state.systemPrompt =
       typeof result?.systemPrompt === "string" ? result.systemPrompt : base;
+  }
+
+  /**
+   * `before_provider_request` rides pi-ai's `onPayload`, `after_provider_response`
+   * its `onResponse`, and the per-turn `before_provider_headers` result merges
+   * into the request headers (spec 16 §6).
+   */
+  private withExtensionProviderHooks(
+    options: SimpleStreamOptions,
+    model: Model<any>,
+  ): SimpleStreamOptions {
+    const runner = this.extensionRunner;
+    if (!runner) return options;
+    const next: SimpleStreamOptions = { ...options };
+    if (this.extensionProviderHeaders) {
+      next.headers = mergeProviderHeaders(options.headers, this.extensionProviderHeaders);
+    }
+    if (runner.hasHandlers("before_provider_request")) {
+      next.onPayload = async (payload, payloadModel) => {
+        const base = await options.onPayload?.(payload, payloadModel);
+        const current = base ?? payload;
+        const replaced = await runner.emit<unknown>(
+          "before_provider_request",
+          { type: "before_provider_request", payload: current },
+          (_acc, value) => value,
+        );
+        return replaced ?? base;
+      };
+    }
+    if (runner.hasHandlers("after_provider_response")) {
+      next.onResponse = async (response, responseModel) => {
+        await options.onResponse?.(response, responseModel);
+        void runner.emit("after_provider_response", {
+          type: "after_provider_response",
+          response,
+          model: model as unknown,
+        });
+      };
+    }
+    return next;
   }
 
   async abort(): Promise<void> {
