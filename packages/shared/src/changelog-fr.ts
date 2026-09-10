@@ -2,6 +2,23 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const frEntries: ChangelogEntry[] = [
   {
+    "version": "0.14.6",
+    "date": "2026-09-10",
+    "highlights": [
+      "Avertit lorsque cette version est plus ancienne que vos données locales ou que la version Intel tourne sur Apple Silicon, au lieu d'échouer en silence.",
+      "Ajoute un plan de contrôle MCP local du bureau ; les plugins vérifiés ne pilotent le bureau qu'après un consentement natif.",
+      "Ajoute des modèles prédéfinis de sous-agents, un sélecteur de modèles limité au fournisseur et le niveau de réflexion effectif sur les cartes de délégation.",
+      "Attribue des alias aux modèles configurés, copie les identifiants de modèle et privilégie l'API propre au modèle sur le style du fournisseur.",
+      "Remplace la correspondance textuelle d'Edit par des opérations ancrées aux lignes, avec des conseils de récupération propres à chaque erreur.",
+      "Réessaie les fournisseurs jusqu'à dix fois avec un compte à rebours visible et reprend les tours autonomes de simple progression.",
+      "Refonte de l'installateur macOS, ajout d'un exe portable Windows et d'un paquet RPM Linux, et retour des icônes de barre et de dock GNOME.",
+      "Copie les identifiants de conversation et ouvre les dossiers de session depuis la barre latérale, avec des infobulles localisées sur les actions à icône seule.",
+      "Affiche l'état du processus en direct et les intervalles calmes sur la ligne d'activité, et ajoute un bouton fixe de bascule du panneau de travail.",
+      "Applique les règles d'exclusion de l'espace de travail, résout les liens symboliques orphelins et revérifie la sortie réseau des plugins à chaque redirection.",
+      "Respecte les règles de contournement de proxy, conserve les glyphes à usage privé collés et charge les aperçus de fichiers sans bloquer l'éditeur.",
+    ],
+  },
+  {
     "version": "0.14.5",
     "date": "2026-09-09",
     "highlights": [

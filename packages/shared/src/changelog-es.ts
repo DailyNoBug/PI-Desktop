@@ -2,6 +2,23 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const esEntries: ChangelogEntry[] = [
   {
+    "version": "0.14.6",
+    "date": "2026-09-10",
+    "highlights": [
+      "Avisa cuando esta versión es más antigua que tus datos locales o es la versión Intel en Apple Silicon, en lugar de fallar en silencio.",
+      "Añade un plano de control de escritorio MCP local; los plugins revisados controlan el escritorio solo tras consentimiento nativo.",
+      "Añade plantillas de subagentes, un selector de modelos acotado por proveedor y el nivel de razonamiento efectivo en las tarjetas de delegación.",
+      "Asigna alias a modelos configurados, copia IDs de modelo y prioriza la API propia del modelo sobre el estilo del proveedor.",
+      "Sustituye la coincidencia textual de Edit por operaciones ancladas a líneas, con guía de recuperación específica por error.",
+      "Reintenta proveedores hasta diez veces con cuenta atrás visible y recupera turnos autónomos de solo progreso.",
+      "Rediseña el instalador de macOS, añade un exe portátil para Windows y un paquete RPM para Linux, y restaura los iconos de bandeja y dock de GNOME.",
+      "Copia IDs de conversación y abre carpetas de sesión desde la barra lateral, con tooltips localizados en acciones de solo icono.",
+      "Muestra el estado del proceso en vivo y los intervalos de silencio en la fila de actividad, y añade un conmutador fijo del panel de trabajo.",
+      "Aplica reglas de ignorado del espacio de trabajo, resuelve enlaces simbólicos colgantes y revalida la salida de red de plugins en cada redirección.",
+      "Respeta reglas de omisión de proxy, conserva glifos de uso privado pegados y carga vistas previas sin bloquear el editor.",
+    ],
+  },
+  {
     "version": "0.14.5",
     "date": "2026-09-09",
     "highlights": [
