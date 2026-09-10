@@ -269,46 +269,33 @@ test("editing a user prompt regenerates it and keeps the old branch reachable", 
 });
 
 test("message toolbars are icon-only with hover tooltips", () => {
-  // No worded chips in the toolbar: labels ride on data-tip + aria-label.
+  // No worded chips in the toolbar: labels ride on tooltip + aria-label.
   assert.doesNotMatch(
     transcriptSource,
     /<span>\{(?:forkLabel|retryLabel|editLabel|copyLabel)\}<\/span>/,
   );
   for (const label of ["editLabel", "deleteLabel"]) {
     assert.ok(
-      transcriptSource.includes(`aria-label={${label}}`),
+      transcriptSource.includes(`ariaLabel={${label}}`),
       `${label} needs an aria-label`,
     );
     assert.ok(
-      transcriptSource.includes(`data-tip={${label}}`),
+      transcriptSource.includes(`tooltip={${label}}`),
       `${label} needs a hover tooltip`,
     );
   }
   for (const key of ["chat.forkResponse", "chat.retry"]) {
-    assert.match(transcriptSource, new RegExp(`aria-label=\\{t\\("${key}"\\)\\}`));
-    assert.match(transcriptSource, new RegExp(`data-tip=\\{t\\("${key}"\\)\\}`));
+    assert.match(transcriptSource, new RegExp(`ariaLabel=\\{t\\("${key}"\\)\\}`));
+    assert.match(transcriptSource, new RegExp(`tooltip=\\{t\\("${key}"\\)\\}`));
   }
   assert.ok(transcriptSource.includes("label={copyLabel}"));
   assert.match(transcriptSource, /className="copy-btn icon"/);
-  assert.match(transcriptSource, /data-tip=\{t\("chat\.forkResponse"\)\}/);
-  assert.match(stylesSource, /\.copy-btn\[data-tip\]::after \{[\s\S]*?content:\s*attr\(data-tip\);/);
-  assert.match(
-    stylesSource,
-    /\.copy-btn\[data-tip\]:hover::after,\s*\.copy-btn\[data-tip\]:focus-visible::after \{\s*opacity:\s*1;/,
-  );
-  // Tooltip floats 8px above the button with a compact raised shadow so the
-  // composer's 20px glow cannot wash the label into --ds-bg-hover (#74).
-  assert.match(
-    stylesSource,
-    /\.copy-btn\[data-tip\]::after \{[\s\S]*?bottom:\s*calc\(100%\s*\+\s*8px\)/,
-  );
-  assert.match(
-    stylesSource,
-    /\.copy-btn\[data-tip\]::after \{[\s\S]*?box-shadow:\s*var\(--ds-raised-shadow\)/,
-  );
-  // The main pane must paint its floating tooltip context above the animated sidebar.
-  const mainPaneStyles = stylesSource.match(/\.main-pane\s*\{([\s\S]*?)\}/)?.[1] ?? "";
-  assert.match(mainPaneStyles, /z-index:\s*0/);
+  assert.match(transcriptSource, /tooltip=\{t\("chat\.forkResponse"\)\}/);
+  assert.match(transcriptSource, /createPortal\(/);
+  assert.match(transcriptSource, /className="copy-btn-tooltip"/);
+  assert.match(stylesSource, /\.copy-btn-tooltip\s*\{[\s\S]*?position:\s*fixed;/);
+  assert.match(stylesSource, /\.copy-btn-tooltip\s*\{[\s\S]*?z-index:\s*1000;/);
+  assert.match(stylesSource, /\.copy-btn-tooltip\s*\{[\s\S]*?transform:\s*translate\(-50%,\s*-100%\)/);
   // Worded surfaces (error details) keep their label.
   assert.match(transcriptSource, /withLabel/);
 });
