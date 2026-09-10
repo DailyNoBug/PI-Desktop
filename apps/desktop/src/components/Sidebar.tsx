@@ -252,6 +252,7 @@ export function Sidebar({
   const newSession = useAppStore((s) => s.newSession);
   const forkSessionAction = useAppStore((s) => s.forkSession);
   const openProject = useAppStore((s) => s.openProject);
+  const refreshProject = useAppStore((s) => s.refreshProject);
   const clearProject = useAppStore((s) => s.clearProject);
   const activateProject = useAppStore((s) => s.activateProject);
   const closeProjectAction = useAppStore((s) => s.closeProject);
@@ -293,6 +294,7 @@ export function Sidebar({
   const sessionPrefetchTimerRef = useRef<number | undefined>(undefined);
   const projectPathTimerRef = useRef<number | undefined>(undefined);
   const sessionHoverTimerRef = useRef<number | undefined>(undefined);
+  const sessionHoverTargetRef = useRef<HTMLElement | null>(null);
   const sidebarResizeRef = useRef<SidebarResizeState | null>(null);
 
   const finishSidebarResize = useCallback((cancelled: boolean) => {
@@ -448,6 +450,7 @@ export function Sidebar({
       setSortOpen(false);
       setProjectMenu(null);
       setSectionMenu(null);
+      sessionHoverTargetRef.current = null;
       window.clearTimeout(sessionHoverTimerRef.current);
       setSessionHoverCard(null);
       setSessionMenu(sessionId);
@@ -763,7 +766,7 @@ export function Sidebar({
   // workspace name (and any other project metadata) for the hover card.
   const projectEntriesByPath = useMemo(() => {
     const map = new Map<string, ProjectEntry>();
-    for (const entry of projectEntries) map.set(entry.path, entry);
+    for (const entry of projectEntries) map.set(entry.key, entry);
     return map;
   }, [projectEntries]);
 
@@ -796,6 +799,7 @@ export function Sidebar({
   );
 
   const hideSessionHoverCard = useCallback(() => {
+    sessionHoverTargetRef.current = null;
     window.clearTimeout(sessionHoverTimerRef.current);
     setSessionHoverCard(null);
   }, []);
@@ -807,21 +811,34 @@ export function Sidebar({
       temporary: boolean,
     ) => {
       // Clear any pending timer so back-to-back hovers don't flash the card.
+      sessionHoverTargetRef.current = target;
       window.clearTimeout(sessionHoverTimerRef.current);
-      sessionHoverTimerRef.current = window.setTimeout(() => {
+      sessionHoverTimerRef.current = window.setTimeout(async () => {
         // Skip if the row was torn down while we were waiting (project
         // closed, list filtered, etc.) — nothing meaningful to point at.
-        if (!target.isConnected) return;
+        if (!target.isConnected || sessionHoverTargetRef.current !== target) return;
+        const projectPath = session.projectPath ?? "";
+        let refreshedWorkspace: ProjectWorkspace | null = null;
+        if (!temporary) {
+          try {
+            refreshedWorkspace = await refreshProject(projectPath);
+          } catch {
+            // Hover metadata is best effort; keep the last cached branch when
+            // the host is unavailable or the project is no longer active.
+          }
+        }
+        if (!target.isConnected || sessionHoverTargetRef.current !== target) return;
         const rect = target.getBoundingClientRect();
         const cardWidth = Math.min(320, window.innerWidth - 16);
         const cardHeight = 168; // estimated; used for flip-below detection
         const wantBelow = rect.bottom + cardHeight <= window.innerHeight;
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
         const spaceEntry = temporary
           ? null
-          : projectEntriesByPath.get(session.projectPath ?? "");
+          : projectEntriesByPath.get(normalizedProjectPath ?? "");
         const spaceName = temporary
           ? t("nav.hoverCardTemporarySpace")
-          : (spaceEntry?.name ?? projectName(session.projectPath ?? ""));
+          : (refreshedWorkspace?.name ?? spaceEntry?.name ?? projectName(projectPath));
         setSessionHoverCard({
           id: `session-hover-${session.id}`,
           top: wantBelow ? rect.bottom + 6 : Math.max(8, rect.top - cardHeight - 6),
@@ -833,13 +850,13 @@ export function Sidebar({
           mode: session.mode,
           permissionMode: session.permissionMode,
           space: spaceName,
-          branch: spaceEntry?.branch,
+          branch: refreshedWorkspace ? refreshedWorkspace.branch : spaceEntry?.branch,
           updatedAt: formatHoverCardTimestamp(session.updatedAt),
           temporary,
         });
       }, PROJECT_PATH_HOVER_DELAY_MS);
     },
-    [projectEntriesByPath, t, taskTitle, formatHoverCardTimestamp],
+    [projectEntriesByPath, refreshProject, t, taskTitle, formatHoverCardTimestamp],
   );
 
   const temporarySessions = useMemo(

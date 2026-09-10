@@ -936,6 +936,8 @@ export type AppState = {
   ) => Promise<ReviewRollbackResult | null>;
   abort: () => Promise<void>;
   openProject: () => Promise<void>;
+  /** Re-read the active workspace metadata without changing the visible project. */
+  refreshProject: (path: string) => Promise<ProjectWorkspace | null>;
   activateProject: (
     path: string,
     opts?: NavigationOptions,
@@ -2875,6 +2877,38 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     persistCurrentSidebar(get);
     return workspace;
+  },
+
+  refreshProject: async (path) => {
+    const requestedKey = normalizeProjectPath(path);
+    if (!requestedKey) return null;
+
+    const result = await api.getProject();
+    const workspace = result.workspace
+      ? withProjectDisplayName(result.workspace, get().projectMeta)
+      : null;
+    if (
+      !workspace?.path ||
+      normalizeProjectPath(workspace.path) !== requestedKey
+    ) {
+      return null;
+    }
+
+    let applied = false;
+    set((state) => {
+      // project/get reads the one host-owned active workspace. Do not let a
+      // late response from a hover overwrite state after navigation moved to
+      // another project.
+      if (normalizeProjectPath(state.activeProjectPath) !== requestedKey) {
+        return state;
+      }
+      applied = true;
+      return {
+        workspace,
+        openProjects: upsertWorkspace(state.openProjects, workspace),
+      };
+    });
+    return applied ? workspace : null;
   },
 
   openProjectPath: async (path) => get().activateProject(path),
