@@ -4258,6 +4258,44 @@ D193, and D194.
   instead of inheriting the global workspace. See E2E-234 through
   E2E-238.
 
+## 2026-09-10 — PowerShell 7 as a selectable Windows command shell (D381)
+
+- Issue #151: a Windows user who installs PowerShell 7 (`pwsh.exe`) had no way to
+  run `Bash` under it. PowerShell 7 installs side by side with, and never
+  replaces, the in-box 5.1 that ADR 0054's `windows-powershell` entry resolves,
+  and the catalog exposed no other entry: `crates/host-core/src/tools/shell.rs`
+  had no `pwsh.exe` resolution path, and `COMMAND_SHELL_IDS` listed four IDs.
+- Decision D381 (ADR 0209) adds the stable ID `windows-pwsh` ("PowerShell 7") to
+  the Windows catalog, amending ADR 0054 §1. It resolves
+  `%ProgramFiles%\PowerShell\7\pwsh.exe` (plus `%ProgramW6432%` when the host
+  process is 32-bit), then `pwsh.exe` on PATH; a miss returns `SHELL_NOT_FOUND`
+  naming both searched locations. It keeps the `powershell` dialect and the
+  pinned non-interactive script, and it is never selected implicitly, so the
+  platform default and existing users' shells are unchanged.
+- Protocol, storage, and tool surfaces are additive: `CommandShellId` gains one
+  member while the folded settings validation and the first-available fallback
+  need no new code path, and no RPC method, tool name, or schema migration is
+  added. See E2E-112.
+
+## 2026-09-10 — A settled subagent reads back why it failed (D382)
+
+- A delegate that ended `failed`, `timed_out`, or `aborted` showed only its
+  outcome capsule and an elapsed time. The reason existed but had no reader:
+  `SubagentRunResult.error` travels on the delegation roster entry, while a
+  node and its dock render the `Task` row's own result, which ADR 0089 fixes at
+  `running` the moment the delegate starts. A delegate that died before
+  emitting a message row therefore left a panel of steps and no explanation.
+- Decision D382: the delegation's `error: { code, message }` is collected from
+  the lifecycle rows' `details.delegations[]` and `details.stopped[]` with the
+  same last-write-wins rule as the settled status, and the dock closes with an
+  error card that reuses the transcript error card's visual language and its
+  `errors.<code>` vocabulary, falling back to the localized
+  `chat.subagentStatus.*` outcome when a code is not registered. The card
+  follows a non-success terminal outcome rather than the error field alone, so
+  a completed or running delegate never shows one. No runtime, IPC, storage, or
+  tool-result change: the runtime already reported the error, and this stops
+  discarding it. See `04-ux/08-component-spec.md` §5.7 and E2E-198.
+
 ## 2026-09-10 — A delegate can declare its own output limit (D383)
 
 - A subagent definition could bound its turns but not its response length.

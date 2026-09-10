@@ -2,6 +2,23 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const trEntries: ChangelogEntry[] = [
   {
+    "version": "0.14.6",
+    "date": "2026-09-10",
+    "highlights": [
+      "Bu sürüm yerel verilerinizden eskiyse veya Apple Silicon üzerinde Intel sürümü çalışıyorsa sessizce başarısız olmak yerine uyarır.",
+      "Yerel bir MCP masaüstü denetim düzlemi ekler; incelenmiş eklentiler masaüstünü yalnızca yerel onaydan sonra yönetir.",
+      "Alt ajan ön ayar şablonları, sağlayıcıya bağlı model seçici ve yetkilendirme kartlarında etkin düşünme düzeyi ekler.",
+      "Yapılandırılmış modellere takma ad verin, model kimliklerini kopyalayın ve modelin kendi API biçimini sağlayıcı geneli stile tercih edin.",
+      "Edit aracındaki metin eşlemeyi satıra bağlı işlemlerle değiştirir ve hataya özel kurtarma rehberliği sunar.",
+      "Sağlayıcıları görünür geri sayımla on kereye kadar yeniden dener ve yalnızca ilerleme içeren otonom turları kurtarır.",
+      "macOS yükleyicisini yeniden tasarlar, Windows taşınabilir exe ve Linux RPM paketi ekler, GNOME tepsi ve dock simgelerini geri getirir.",
+      "Kenar çubuğundan konuşma kimliklerini kopyalayın ve oturum klasörlerini açın; yalnızca simgeli eylemlerde yerelleştirilmiş ipuçları.",
+      "Etkinlik satırında canlı süreç durumu ve sessiz aralıkları gösterir, görünüm alanına sabit bir çalışma paneli anahtarı ekler.",
+      "Çalışma alanı yok sayma kurallarını uygular, kopuk sembolik bağlantıları çözer ve her yönlendirmede eklenti ağ çıkışını yeniden denetler.",
+      "Proxy atlama kurallarına uyar, yapıştırılan özel kullanım glifleri korur ve dosya önizlemelerini düzenleyiciyi engellemeden yükler.",
+    ],
+  },
+  {
     "version": "0.14.5",
     "date": "2026-09-09",
     "highlights": [

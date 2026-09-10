@@ -115,8 +115,9 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   The threshold controls when a text-only paste becomes a temporary
   session-scratch file; it defaults to 600 characters and accepts integer values
   from 1 through 1,000,000.
-- The **Command shell** row in Defaults uses the host-discovered catalog of native PowerShell,
-  cmd, Git Bash, and Bash with IDs `windows-powershell`, `cmd`, `git-bash`, and
+- The **Command shell** row in Defaults uses the host-discovered catalog of native
+  PowerShell 5.1, PowerShell 7, cmd, Git Bash, and Bash with IDs
+  `windows-powershell`, `windows-pwsh`, `cmd`, `git-bash`, and
   `bash` where supported. The selected `defaultCommandShell` persists across
   restart; writes reject unavailable or wrong-platform IDs. If a persisted
   choice later becomes unavailable, the first available platform shell is used

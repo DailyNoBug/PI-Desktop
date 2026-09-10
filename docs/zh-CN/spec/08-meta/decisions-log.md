@@ -3649,6 +3649,38 @@ D193 和 D194。
   对未知会话的 `tools.execute` 返回 `SESSION_NOT_FOUND`，而不是继承全局工作区。
   参见 E2E-234 至 E2E-238。
 
+## 2026-09-10 — 将 PowerShell 7 作为 Windows 可选命令 Shell (D381)
+
+- 问题 #151：Windows 用户安装 PowerShell 7（`pwsh.exe`）后无法让 `Bash` 在它下面
+  运行。PowerShell 7 与 ADR 0054 中 `windows-powershell` 条目所解析的随系统内置
+  5.1 并排安装，且从不替换它，而目录中没有其它可选条目：
+  `crates/host-core/src/tools/shell.rs` 没有 `pwsh.exe` 解析路径，
+  `COMMAND_SHELL_IDS` 只列出四个 ID。
+- 决策 D381（ADR 0209）在 Windows 目录中新增稳定 ID `windows-pwsh`
+  （"PowerShell 7"），并修订 ADR 0054 §1。解析顺序为
+  `%ProgramFiles%\PowerShell\7\pwsh.exe`（宿主进程为 32 位时追加
+  `%ProgramW6432%`），再到 PATH 上的 `pwsh.exe`；解析失败返回
+  `SHELL_NOT_FOUND` 并列出两处已搜索位置。它沿用 `powershell` 方言与既有的
+  非交互式脚本，且从不会被隐式选中，因此平台默认值与既有用户的 shell 保持不变。
+- 协议、存储与工具面均为增量改动：`CommandShellId` 新增一个成员，而折叠的
+  设置校验与首个可用回退无需新代码路径，也没有新增 RPC 方法、工具名或schema 迁移。
+  参见 E2E-112。
+
+## 2026-09-10 —— 已结束的 Subagent 会读回自己失败的原因（D382）
+
+- 以 `failed`、`timed_out` 或 `aborted` 结束的委派，只显示结果胶囊和耗时。原因其实
+  存在但没有读者：`SubagentRunResult.error` 挂在委派名册条目上，而拓扑节点及其侧边
+  栏详情渲染的是 `Task` 行自身的结果——按 ADR 0089，它在委派启动的那一刻就被固定为
+  `running`。因此在发出任何消息行之前就死掉的委派，只会留下一个满是步骤、毫无解释的
+  面板。
+- 决策 D382：从生命周期行的 `details.delegations[]` 与 `details.stopped[]` 收集委派的
+  `error: { code, message }`，使用与已定状态相同的"后写覆盖"规则；侧边栏详情的结尾
+  用一张错误卡片收束，复用转录错误卡片的视觉语言与 `errors.<code>` 词表，代码未登记时
+  回退到本地化的 `chat.subagentStatus.*` 结果标签。卡片跟随"非成功终态"而非仅跟随错误
+  字段，因此已完成或仍在运行的委派永远不会显示它。不改运行时、IPC、存储或工具结果：
+  运行时早就在上报该错误，这里只是不再丢弃它。参见 `04-ux/08-component-spec.md` §5.7
+  与 E2E-198。
+
 ## 2026-09-10 —— 子代理可以声明自己的输出上限（D383）
 
 - 子代理定义此前只能限制轮数，不能限制响应长度。`maxTurns` 贯穿 frontmatter、

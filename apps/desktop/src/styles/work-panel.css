@@ -628,6 +628,14 @@
   padding: 0 16px;
 }
 
+/* Issue #161: the failure card closes out a settled delegate, so it lines up
+   with the task card and the run rows instead of the panel's own edges. The
+   card carries its own padding, so it is inset with margins. */
+.subagent-detail > .subagent-failure {
+  width: auto;
+  margin: 0 16px;
+}
+
 .subagent-detail-section-label,
 .subagent-detail > .subagent-run .subagent-run-heading.is-dock {
   min-height: 20px;
