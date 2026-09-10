@@ -2065,7 +2065,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           })),
         }
       : { text: content, fileReferences: [] };
-    // The Host owns the queue (D375 / D377). Show the row at once and let
+    // The Host owns the queue (D375 / D386). Show the row at once and let
     // the durable entry replace it when the Host answers.
     const item: QueuedPrompt = {
       id: `pending:${crypto.randomUUID()}`,
@@ -4490,7 +4490,7 @@ function toQueuedPrompt(
   };
 }
 
-/** The Host owns the queue (D375 / D377); the renderer mirrors its entries. */
+/** The Host owns the queue (D375 / D386); the renderer mirrors its entries. */
 function applyQueueEntries(sessionId: string, entries: QueuedTurnSummary[]): void {
   useAppStore.setState((state) => {
     const current = state.queuedPrompts[sessionId] ?? [];

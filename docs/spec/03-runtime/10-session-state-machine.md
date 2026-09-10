@@ -78,8 +78,8 @@ accept_prompt
 1. Only one active turn per session
 2. A direct host prompt is rejected with `AGENT_BUSY` while
    running/waiting_permission. The renderer's Send-while-running path pushes
-   the next prompt into the Host-owned turn queue (schema v15, D375 / D377 /
-   ADR 0206) through `agent/queue/push` and mirrors the durable entries from
+   the next prompt into the Host-owned turn queue (schema v15, D375 / D386 /
+   ADR 0212) through `agent/queue/push` and mirrors the durable entries from
    `agent/event/queueChanged`; the Agent Host module releases one entry after
    `agent_end`, holds a restored queue until the owner attaches, and moves an
    entry to the head on `agent/queue/prioritize`, so normal user sends do not

@@ -4541,7 +4541,7 @@ IPC 请求无法关闭。
 | 后MVP | E2E-022A、E2E-022B、E2E-022C、E2E-024I、E2E-024J、E2E-024K、E2E-024L、E2E-024M（插件路线图 R2/R3/R6） |
 | 基线后本地自动化 | E2E-220 |
 | MVP 后远程控制 | E2E-221、E2E-222、E2E-223、E2E-224、E2E-225、E2E-226、E2E-227、E2E-228、E2E-229、E2E-230、E2E-231、E2E-232 |
-| 受信任扩展（R7 v1） | E2E-236、E2E-237、E2E-238、E2E-239、E2E-240 |
+| 受信任扩展（R7 v1） | E2E-241、E2E-242、E2E-243、E2E-244、E2E-245 |
 
 `US-UI-*` 视觉场景（§UI shell 视觉场景）追踪到
 [决策日志 §D](/zh-CN/spec/08-meta/decisions-log) 中的法典平价决策
@@ -6229,10 +6229,10 @@ IPC 请求无法关闭。
 
 ## 受信任扩展场景（R7 v1）
 
-以下场景是 D378 / ADR 0207 与 `07-plugins/16-trusted-extensions.md` 的验收目标，
+以下场景是 D387 / ADR 0213 与 `07-plugins/16-trusted-extensions.md` 的验收目标，
 使用 `apps/desktop/test/fixtures/pi-extensions/` 下的样例扩展夹具目录。
 
-#### E2E-236：发现列出受信任扩展，启用是显式的
+#### E2E-241：发现列出受信任扩展，启用是显式的
 
 - **前置条件**：临时 home 含 `~/.pi/agent/extensions/hello.ts`；一个受信任夹具项目含
   `.pi/extensions/project-tool/index.ts`；一个同样布局的未信任项目。
@@ -6243,12 +6243,12 @@ IPC 请求无法关闭。
   目录中没有扩展工具；启用后下一回合列出扩展工具且条目显示 `loaded`；未信任项目
   的条目保持列出但永不加载，诊断指明项目信任；被删除的条目显示 `missing` 且在
   移除前保留启用标记；`~/.pi/agent/settings.json` 永不被写入。
-- **链接规格**：`07-plugins/16-trusted-extensions.md` §2、§3、§11；D007；D378
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §2、§3、§11；D007；D387
 - **验收**：安全、质量
 - **里程碑**：MVP 后（R7 v1）
 - **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
 
-#### E2E-237：扩展工具与 hooks 在回合中生效
+#### E2E-242：扩展工具与 hooks 在回合中生效
 
 - **前置条件**：一个已启用的夹具扩展，注册工具 `fx_add`，在 `before_agent_start`
   向系统提示追加标记，在 `tool_call` 以理由阻止 `bash`，在 `tool_result` 替换
@@ -6260,12 +6260,12 @@ IPC 请求无法关闭。
   值；`bash` 以扩展的理由被阻止，且阻止在记录中可见；审计记录含扩展 id、工具名
   和耗时，不含参数；Plan 模式下 `fx_add` 遵循非核心模式门控；`read` 冲突被拒绝并
   记诊断，核心工具不变。
-- **链接规格**：`07-plugins/16-trusted-extensions.md` §6、§7；ADR 0207
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §6、§7；ADR 0213
 - **验收**：B（agent）、安全、质量
 - **里程碑**：MVP 后（R7 v1）
 - **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
 
-#### E2E-238：扩展命令与 UI 提示经渲染层往返
+#### E2E-243：扩展命令与 UI 提示经渲染层往返
 
 - **前置条件**：一个���启用的夹具扩展，注册命令 `greet`，依次调用 `ui.input`、
   `ui.select`、`ui.confirm`、`ui.notify`，并重命名会话。
@@ -6282,7 +6282,7 @@ IPC 请求无法关闭。
 - **里程碑**：MVP 后（R7 v1）
 - **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
 
-#### E2E-239：不支持的 API、加载错误与处理器超时降级为诊断
+#### E2E-244：不支持的 API、加载错误与处理器超时降级为诊断
 
 - **前置条件**：三个已启用的夹具扩展：一个在顶层导入 `@earendil-works/pi-tui` 并
   调用 `ui.setWidget`；一个模块在加载时抛出；一个 `context` 处理器永不返回。
@@ -6297,7 +6297,7 @@ IPC 请求无法关闭。
 - **里程碑**：MVP 后（R7 v1）
 - **状态**：由手动 MCP 驱动的夹具 `apps/desktop/test/e2e/trusted-extensions` 执行（2026-09-10，两个会话，全部检查通过）；无 CI 旅程
 
-#### E2E-240：打包后的 sidecar 经 jiti 加载 TypeScript 扩展
+#### E2E-245：打包后的 sidecar 经 jiti 加载 TypeScript 扩展
 
 - **前置条件**：桌面应用的打包构建；夹具 `~/.pi/agent/extensions/typed.ts` 使用
   TypeScript 语法，导入 `@earendil-works/pi-coding-agent` 与 `typebox`，并注册一个
@@ -6306,7 +6306,7 @@ IPC 请求无法关闭。
   回合。4）检查 sidecar 打包清单中三个 pi 包的版本。
 - **预期**：扩展加载无转译或解析错误；别名导入解析到 sidecar 的副本；工具执行；
   三个 pi 包版本一致且 CI 版本锁检查通过。
-- **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§13；ADR 0207
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§13；ADR 0213
 - **验收**：质量、发布
 - **里程碑**：MVP 后（R7 v1，作为打包 spike 首先交付）
 - **状态**：由 `packages/agent-runtime/src/extensions/bundle.test.ts` 单元覆盖

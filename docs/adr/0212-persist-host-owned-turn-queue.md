@@ -1,8 +1,8 @@
-# ADR 0206: Persist the Host-owned turn queue in host-core
+# ADR 0212: Persist the Host-owned turn queue in host-core
 
 - Status: Accepted
 - Date: 2026-09-10
-- Decision: D377
+- Decision: D386
 - Related: ADR 0205 (D375), `03-runtime/04-data-storage.md` §4.6b,
   `03-runtime/06-host-rpc-protocol.md`,
   `02-architecture/05-remote-agent-control.md` §6

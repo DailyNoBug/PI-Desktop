@@ -6073,7 +6073,7 @@ Each scenario is documented in this format:
 | Post-MVP | E2E-022A, E2E-022B, E2E-022C, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M (plugin roadmap R2/R3/R6) |
 | Post-baseline local automation | E2E-220 |
 | Post-MVP remote control | E2E-221, E2E-222, E2E-223, E2E-224, E2E-225, E2E-226, E2E-227, E2E-228, E2E-229, E2E-230, E2E-231, E2E-232 |
-| Trusted extensions (R7 v1) | E2E-236, E2E-237, E2E-238, E2E-239, E2E-240 |
+| Trusted extensions (R7 v1) | E2E-241, E2E-242, E2E-243, E2E-244, E2E-245 |
 
 The `US-UI-*` visual scenarios (§UI shell visual scenarios) trace to the
 Codex parity decisions in [decisions-log §D](../08-meta/decisions-log.md)
@@ -9398,11 +9398,11 @@ browser milestones are scheduled.
 
 ## Trusted extension scenarios (R7 v1)
 
-The following scenarios are the acceptance targets of D378 / ADR 0207 and
+The following scenarios are the acceptance targets of D387 / ADR 0213 and
 `07-plugins/16-trusted-extensions.md`. They use a fixture directory of
 sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 
-#### E2E-236: Discovery lists trusted extensions and enablement is explicit
+#### E2E-241: Discovery lists trusted extensions and enablement is explicit
 
 - **Preconditions**: A temp home with `~/.pi/agent/extensions/hello.ts` and a
   trusted fixture project with `.pi/extensions/project-tool/index.ts`; an
@@ -9418,12 +9418,12 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   but never loads and the diagnostic names project trust; the deleted entry
   shows `missing` and keeps its enabled flag until removed;
   `~/.pi/agent/settings.json` is never written.
-- **Specs linked**: `07-plugins/16-trusted-extensions.md` §2, §3, §11; D007; D378
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §2, §3, §11; D007; D387
 - **Acceptance**: Security, Quality
 - **Milestone**: Post-MVP (R7 v1)
 - **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
 
-#### E2E-237: Extension tools and hooks take effect in a turn
+#### E2E-242: Extension tools and hooks take effect in a turn
 
 - **Preconditions**: An enabled fixture extension that registers tool `fx_add`,
   handles `before_agent_start` by appending a marker to the system prompt,
@@ -9440,12 +9440,12 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   and no parameters; in Plan mode `fx_add` follows the non-core mode gate;
   the `read` collision is rejected with a diagnostic and the core tool is
   unchanged.
-- **Specs linked**: `07-plugins/16-trusted-extensions.md` §6, §7; ADR 0207
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §6, §7; ADR 0213
 - **Acceptance**: B (agent), Security, Quality
 - **Milestone**: Post-MVP (R7 v1)
 - **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
 
-#### E2E-238: Extension commands and UI prompts round-trip through the renderer
+#### E2E-243: Extension commands and UI prompts round-trip through the renderer
 
 - **Preconditions**: An enabled fixture extension registering command `greet`
   that calls `ui.input`, then `ui.select`, then `ui.confirm`, then
@@ -9467,7 +9467,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Milestone**: Post-MVP (R7 v1)
 - **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
 
-#### E2E-239: Unsupported APIs, load errors, and handler timeouts degrade to diagnostics
+#### E2E-244: Unsupported APIs, load errors, and handler timeouts degrade to diagnostics
 
 - **Preconditions**: Three enabled fixture extensions: one importing
   `@earendil-works/pi-tui` at top level and calling `ui.setWidget`; one whose
@@ -9487,7 +9487,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Milestone**: Post-MVP (R7 v1)
 - **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
 
-#### E2E-240: The packaged sidecar loads a TypeScript extension through jiti
+#### E2E-245: The packaged sidecar loads a TypeScript extension through jiti
 
 - **Preconditions**: A packaged build of the desktop app; a fixture
   `~/.pi/agent/extensions/typed.ts` that uses TypeScript syntax, imports
@@ -9499,7 +9499,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   the aliased imports resolve to the sidecar's copies; the tool executes;
   the three pi package versions are identical and the CI version-lock check
   passes.
-- **Specs linked**: `07-plugins/16-trusted-extensions.md` §4.2, §13; ADR 0207
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §4.2, §13; ADR 0213
 - **Acceptance**: Quality, Release
 - **Milestone**: Post-MVP (R7 v1, delivered first as the bundling spike)
 - **Status**: Unit-covered by `packages/agent-runtime/src/extensions/bundle.test.ts`

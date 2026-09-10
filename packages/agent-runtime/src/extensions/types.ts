@@ -1,5 +1,5 @@
 /**
- * Trusted extensions (D378, ADR 0207, spec 07-plugins/16-trusted-extensions.md).
+ * Trusted extensions (D387, ADR 0213, spec 07-plugins/16-trusted-extensions.md).
  *
  * The wire shapes live in `@pi-desktop/shared`; this module re-exports them
  * for the sidecar-side code and adds nothing else.

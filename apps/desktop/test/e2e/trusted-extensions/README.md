@@ -1,4 +1,4 @@
-# Trusted extensions E2E harness (E2E-236 to E2E-240)
+# Trusted extensions E2E harness (E2E-241 to E2E-245)
 
 Drives the real desktop app end to end through the local MCP control plane
 against a deterministic OpenAI-compatible stub. Not part of `pnpm test`;
@@ -8,18 +8,18 @@ run it by hand (or from a release checklist) on a machine with a built
 What it proves, per run:
 
 - discovery from `~/.pi/agent/extensions` and `<project>/.pi/extensions`,
-  explicit enablement, and the Settings list state / diagnostics (E2E-236);
+  explicit enablement, and the Settings list state / diagnostics (E2E-241);
 - `registerTool` through ToolSearch activation, `tool_call` blocking,
   `tool_result` replacement, `before_agent_start`, provider header and
-  request hooks, lifecycle hooks (E2E-237);
+  request hooks, lifecycle hooks (E2E-242);
 - slash commands in the composer menu and global search, a command with
   `ui.input` / `ui.select` / `ui.confirm` answered through the broker,
   `exec`, `setSessionName`, abort dismissing an open prompt, and
-  `sendUserMessage` through the Host-owned queue (E2E-238);
+  `sendUserMessage` through the Host-owned queue (E2E-243);
 - a throwing module, an unsupported terminal-UI import, and inert API
-  members degrading to diagnostics (E2E-239).
+  members degrading to diagnostics (E2E-244).
 
-E2E-240 (the bundled loader) is covered by
+E2E-245 (the bundled loader) is covered by
 `packages/agent-runtime/src/extensions/bundle.test.ts`.
 
 ## Run

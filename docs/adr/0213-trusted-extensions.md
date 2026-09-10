@@ -1,8 +1,8 @@
-# ADR 0207: Trusted extensions run in the Agent sidecar
+# ADR 0213: Trusted extensions run in the Agent sidecar
 
 - Status: Accepted (v1 implemented 2026-09-10)
 - Date: 2026-09-10
-- Decision: D378
+- Decision: D387
 - Related: ADR 0002, ADR 0008, D007, `07-plugins/16-trusted-extensions.md`,
   `07-plugins/01-plugin-system.md` §14
 

@@ -1817,7 +1817,7 @@ async fn handle_request(
             Ok(response)
         }
 
-        // The Host-owned turn queue (D375 / ADR 0206). Entries are durable so
+        // The Host-owned turn queue (D375 / ADR 0212). Entries are durable so
         // a restart restores them in order; the Agent Host decides when one
         // starts, never the store.
         "session.queuePush" => {

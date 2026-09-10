@@ -954,7 +954,7 @@ const IMPORT_SOURCES = new Set<ExternalSource>([
 const dataDir =
   process.env.PI_DESKTOP_DATA_DIR || join(homedir(), ".pi-desktop");
 
-// Trusted extensions (D378, ADR 0207): discovery and enablement live here;
+// Trusted extensions (D387, ADR 0213): discovery and enablement live here;
 // loading happens in the sidecar per session.
 const trustedExtensions = new TrustedExtensionsRegistry({
   storePath: join(dataDir, "trusted-extensions.json"),
@@ -8168,7 +8168,7 @@ function registerIpc() {
     return sidecar.call("agent.getStatus", { sessionId });
   });
 
-  // The Host-owned turn queue (D375 / D377). The renderer mirrors it; the
+  // The Host-owned turn queue (D375 / D386). The renderer mirrors it; the
   // headless module admits, orders, and drains it.
   handle(IPC.invoke.agentQueuePush, async (req: AgentQueuePushRequest) => {
     if (!agentHostBridge) throw new Error("agent host unavailable");

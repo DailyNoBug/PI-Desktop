@@ -59,7 +59,7 @@ Local plugins usable → developer-friendly → marketplace distribution → sig
 - Enterprise private sources (still planned)
 - Marketplace reviews / quality score (optional, still planned)
 
-### R7 — Trusted extensions (v1 ✅, D378)
+### R7 — Trusted extensions (v1 ✅, D387)
 - v1: trusted adapter in the Agent sidecar; discovery from `~/.pi/agent/extensions`
   and `<workspace>/.pi/extensions`; explicit per-entry enablement; tools, commands,
   lifecycle and provider hooks, basic UI prompts; Settings → Extensions tab
@@ -67,7 +67,7 @@ Local plugins usable → developer-friendly → marketplace distribution → sig
   shortcuts, markdown transformers
 - v3: `pi` package manifests and installation, pi CLI `settings.json` hints,
   unified skill/prompt discovery, remote-control prompt routing
-- Spec: [16-trusted-extensions.md](16-trusted-extensions.md); ADR 0207
+- Spec: [16-trusted-extensions.md](16-trusted-extensions.md); ADR 0213
 
 ## 3. Mapping to product milestones
 

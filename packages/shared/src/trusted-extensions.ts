@@ -1,5 +1,5 @@
 /**
- * Trusted extensions (D378, ADR 0207, spec 07-plugins/16-trusted-extensions.md).
+ * Trusted extensions (D387, ADR 0213, spec 07-plugins/16-trusted-extensions.md).
  *
  * Plain data shared by the renderer, Electron main, and the Agent sidecar.
  */

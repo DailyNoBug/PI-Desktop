@@ -71,7 +71,7 @@ demand signal or product decision schedules them.
     control path. Every credential is issued by the user's own Host, and the
     only outbound connections are to the user's SSH hosts, the messaging
     channels the user configured, the model providers the user configured,
-    and the read-only GitHub Releases download of `pi-host` (D376).
+    and the read-only GitHub Releases download of `pi-host` (D385).
 
 ## 3. Reference implementations and design inputs
 
@@ -199,7 +199,7 @@ connection and may queue control-plane metadata, but it does not queue
 non-idempotent turn commands while the Agent Host is offline. PI does not
 operate a Gateway: if this topology is ever scheduled, the user runs it on
 their own infrastructure and it admits clients with Host-issued device
-credentials (D376). It is specified so the contract does not drift; it is not
+credentials (D385). It is specified so the contract does not drift; it is not
 scheduled.
 
 ## 6. Ownership and authority
@@ -291,7 +291,7 @@ full transcripts unless a separate product decision explicitly grants that
 retention.
 
 A Gateway is self-hosted and has no identity source of its own: it admits
-clients with device credentials issued by the user's Host (D376); see
+clients with device credentials issued by the user's Host (D385); see
 `05-security/02-remote-control-security.md` §3.1. OIDC federation and the
 pi-backend account service are out of scope.
 
@@ -498,6 +498,6 @@ Releases, persist the turn queue in host-core, default the remote approval
 lifetime to 30 minutes, make the paired-device exemption a Host policy, and
 fix the Gateway identity source to the PI account service.
 
-D376 (2026-09-10) made remote control user-local by construction: no
+D385 (2026-09-10) made remote control user-local by construction: no
 project-operated identity or account service, Host-issued device credentials
 everywhere, and a Gateway only as a self-hosted relay.

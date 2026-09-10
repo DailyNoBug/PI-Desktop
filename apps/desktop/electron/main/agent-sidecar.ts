@@ -67,7 +67,7 @@ const HOST_PROXY_ALLOWED = new Set([
   "provider.resolveAuth",
   "provider.resolveSubagentModel",
   "app.health",
-  // Trusted extensions (D378): answered by main, plus the session methods
+  // Trusted extensions (D387): answered by main, plus the session methods
   // the ExtensionAPI reaches (spec 16 §10.1).
   "extensions.commands.publish",
   "extensions.ui.request",
@@ -83,7 +83,7 @@ export type TrustedExtensionSidecarBridge = {
   publishCommands: (params: Record<string, unknown>) => void;
   publishDiagnostics: (params: Record<string, unknown>) => void;
   requestUi: (params: Record<string, unknown>) => Promise<unknown>;
-  /** `sendUserMessage`: the Host-owned queue drains it (D377); host-core alone would only store it. */
+  /** `sendUserMessage`: the Host-owned queue drains it (D386); host-core alone would only store it. */
   queuePush: (params: Record<string, unknown>) => Promise<unknown>;
   queuePrioritize: (params: Record<string, unknown>) => Promise<unknown>;
 };

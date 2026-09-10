@@ -54,7 +54,7 @@ const created = await tool("pi_session_create", { title: "ext e2e", projectPath:
 const sessionId = created?.session?.id ?? created?.id;
 check("session created", !!sessionId, sessionId);
 
-// 1) tool + hooks (E2E-237)
+// 1) tool + hooks (E2E-242)
 await tool("pi_agent_prompt", { sessionId, content: "please add 20 and 22" });
 await waitForTurn(sessionId);
 let detail = await tool("pi_session_get", { id: sessionId });
@@ -72,7 +72,7 @@ check("before_provider_headers header sent", first.headers["x-e2e-ext"] === "yes
 check("ToolSearch activation advertised fx_add to a later request", requests.some((r) => (r.payload.tools ?? []).some((t) => t.function?.name === "fx_add")));
 check("hooks log has session_start, tool_call fx_add, tool_result, turn_end", (() => { const h = readFileSync(join(root, "hooks.log"), "utf8"); return ["session_start startup", "before_agent_start", "tool_call fx_add", "fx_add 20+22", "tool_result fx_add false", "turn_end", "agent_end", "after_provider_response 200", "before_provider_request object", "context "].every((k) => h.includes(k)); })(), readFileSync(join(root, "hooks.log"), "utf8").split("\n").slice(0, 14).join(" | "));
 
-// 2) tool_call block (E2E-237)
+// 2) tool_call block (E2E-242)
 await tool("pi_agent_prompt", { sessionId, content: "run bash please" });
 await waitForTurn(sessionId);
 detail = await tool("pi_session_get", { id: sessionId });
@@ -80,7 +80,7 @@ messages = detail?.session?.messages ?? [];
 const bashRow = messages.find((m) => m.role === "tool" && m.toolName === "Bash");
 check("Bash blocked by extension", JSON.stringify(bashRow ?? {}).includes("E2E blocked bash"), JSON.stringify(bashRow?.content ?? bashRow).slice(0, 160));
 
-// 3) settings list (E2E-236 / 239)
+// 3) settings list (E2E-241 / 239)
 const list = await invoke("extensions/list");
 const byLabel = Object.fromEntries((list.entries ?? []).map((e) => [e.label, e]));
 check("six entries listed", Object.keys(byLabel).length === 6, Object.keys(byLabel).join(","));
@@ -91,13 +91,13 @@ const tuiKinds = (byLabel.tui?.diagnostics ?? []).map((d) => `${d.kind}:${d.memb
 check("tui inert with diagnostics", byLabel.tui?.state === "loaded" && tuiKinds.includes("stub_symbol:Text") && tuiKinds.includes("unsupported_api:registerShortcut") && tuiKinds.includes("unsupported_api:ui.setWidget"), tuiKinds.join(","));
 check("proj entry is project scoped and registered its tool", byLabel.proj?.source === "project" && byLabel.proj?.state === "loaded" && byLabel.proj?.toolNames?.includes("proj_tool"), JSON.stringify(byLabel.proj?.toolNames));
 
-// 4) commands in palette/composer (E2E-238)
+// 4) commands in palette/composer (E2E-243)
 const palette = await invoke("commandPalette/search", "greet");
 check("greet in global search", (palette.commands ?? []).some((c) => c.id === "extension:greet" && c.source === "extension"));
 const composer = await invoke("composer/commands");
 check("greet in composer slash menu", (composer.commands ?? []).some((c) => c.name === "greet" && c.kind === "extension"));
 
-// 5) command run + prompt round trip (E2E-238), answered through the broker
+// 5) command run + prompt round trip (E2E-243), answered through the broker
 const runPromise = invoke("extensions/commands/run", { sessionId, name: "greet", args: "now" });
 // Prompts go to the renderer dialog; main also audits each prompt id in
 // plugin.log, so this driver answers them the way the dialog would.
@@ -154,7 +154,7 @@ try { abortResult = await Promise.race([abortRun, sleep(20000).then(() => "timeo
 const hooksAfterAbort = readFileSync(join(root, "hooks.log"), "utf8");
 check("abort dismissed the open prompt and the command finished", abortResult?.ok === true && /greet undefined blue true args=aborted exec=exec-ok/.test(hooksAfterAbort), JSON.stringify(abortResult) + " " + hooksAfterAbort.split("\n").filter((l) => l.includes("args=aborted")).join(" | "));
 
-// 7) sendUserMessage goes through the Host-owned queue (D377) and runs a turn
+// 7) sendUserMessage goes through the Host-owned queue (D386) and runs a turn
 const queued = await invoke("extensions/commands/run", { sessionId, name: "queue", args: "" });
 check("queue command ran", queued?.ok === true, JSON.stringify(queued));
 let queuedSeen = false;

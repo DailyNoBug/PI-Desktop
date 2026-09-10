@@ -2987,22 +2987,22 @@ D193 和 D194。
   Gateway、浏览器 profile 和 gRPC 绑定保留规格但不排期，Gateway 身份源定为 pi-backend
   规格中的 PI 账号服务。参见修订后的远程规格以及 E2E-231 / E2E-232。
 
-## 2026-09-10 —— 远程控制保持用户本地化：不引入第一方身份（D376）
+## 2026-09-10 —— 远程控制保持用户本地化：不引入第一方身份（D385）
 
 - 维护者要求用户的客户端绝不经由项目方运营的服务认证，远程控制必须完全留在用户
   自己的机器与基础设施上。
-- 决策 D376 第三次修订 ADR 0205 并撤回 D375 第 10 条：链路中不存在任何项目方运营的
+- 决策 D385 第三次修订 ADR 0205 并撤回 D375 第 10 条：链路中不存在任何项目方运营的
   身份、账号或中继服务；客户端持有的唯一凭据是用户自己的 Host 在配对时签发的设备
   token；Gateway 若日后排期，由用户自托管并以这些 Host 签发的凭据准入；OIDC 联合与
   pi-backend 账号服务不在远程控制范围内。Host 的出站连接只有用户的 SSH 主机、用户
   自己的消息渠道、用户配置的模型 provider，以及只读的 GitHub Releases `pi-host`
   下载。SSH 隧道拓扑、设备配对和消息集成本已满足该规则。
 
-## 2026-09-10 —— 在 host-core 中持久化 Host 拥有的回合队列（D377）
+## 2026-09-10 —— 在 host-core 中持久化 Host 拥有的回合队列（D386）
 
 - D375 把排队的 prompt 移入 Host 并选择持久化；无头 Agent Host 模块需要一个能在重启后
   存活且绝不自行启动工作的存储，而 host-core 独占 SQLite。
-- 决策 D377 / ADR 0206 增加 schema v15 的 `turn_queue` 表以及增量的
+- 决策 D386 / ADR 0212 增加 schema v15 的 `turn_queue` 表以及增量的
   `session.queuePush` / `session.queueList` / `session.queueRemove` / `session.queuePrioritize` 方法。push 按主体与
   幂等 key 幂等，每会话最多八条，随会话删除级联。模块在 host-core 就绪后恢复条目，把每个
   恢复的会话挂起到 controller 接入，并且只在活动回合终止事件之后释放一条。协议保持 v11；

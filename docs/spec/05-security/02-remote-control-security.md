@@ -57,7 +57,7 @@ an authority that the authenticated principal does not already have.
 ### 3.1 Client to Gateway
 
 The production Gateway MUST validate an established identity before routing.
-D376 makes remote control user-local by construction. No project-operated
+D385 makes remote control user-local by construction. No project-operated
 identity or account service is in the path: the only credential a client ever
 holds is a device token issued by the user's own Host at pairing (§3.4). A
 Gateway, if a user runs one, is self-hosted on the user's infrastructure and
@@ -354,7 +354,7 @@ scheduled and are retained so the contract does not drift.
 
 - Every route is keyed by `(tenantId, hostId, sessionId)`.
 - A user-local deployment has exactly one tenant, the Host itself; PI never
-  operates a shared Gateway (D376).
+  operates a shared Gateway (D385).
 - The first deployment is single-tenant. Routes already carry `tenantId` so a
   second tenant is an operational change, not a protocol change; cross-tenant
   isolation tests run once a multi-tenant harness exists.
@@ -498,7 +498,7 @@ source to the PI account service, the GitHub Releases download for
 `pi-host`, the relay and terminal rules with gates 19–20, the 30-minute
 remote approval lifetime, and the `applyCeilingToPairedDevices` policy.
 
-D376 (2026-09-10) withdrew the first-party identity source: remote control
+D385 (2026-09-10) withdrew the first-party identity source: remote control
 is user-local by construction, every credential is issued by the user's own
 Host, and any Gateway is self-hosted and admits clients with those device
 credentials.

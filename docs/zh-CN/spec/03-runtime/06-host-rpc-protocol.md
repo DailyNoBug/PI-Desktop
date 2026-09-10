@@ -279,7 +279,7 @@ ids 和非负 `tokensBefore`；它不会插入 message/search 行
   消息保留所属的 `turn_id`
 - `session.beginTurn`
 - `session.queuePush` / `session.queueList` / `session.queueRemove` —— Host 拥有的
-  回合队列（D377 / ADR 0206，架构 v15）；push 按主体与 key 幂等，每会话最多八条
+  回合队列（D386 / ADR 0212，架构 v15）；push 按主体与 key 幂等，每会话最多八条
 - `session.endTurn` — 以原子方式将正在运行的回合移动到其终止状态，并且
 有条件地返回新创建的 `completed`/`error` 通知；它还会落定该会话的进行中回复
   检查点（D299）：`completed`/`error` 移除它；`recoverInflight: true`（sidecar

@@ -49,7 +49,7 @@ Linux 或 WSL 机器上的项目，即 SSH 隧道远端 Host 拓扑；#100 要�
   指令词汇从已关联的聊天映射到 `turn/start`、`turn/stop`、`turn/interrupt`、
   `approval/respond`，以关联主体的角色和同一 Host 策略执行，未关联聊天忽略并审计；
   投递失败有界重试，绝不阻塞回合。
-- 不排期：Gateway 与 Host link（原 R3），PI 不运营 Gateway，用户自托管并以 Host 签发的设备凭据准入，没有 Host 之外的身份源（D376）；浏览器 profile
+- 不排期：Gateway 与 Host link（原 R3），PI 不运营 Gateway，用户自托管并以 Host 签发的设备凭据准入，没有 Host 之外的身份源（D385）；浏览器 profile
   （原 R4），Gateway-less 场景的 Host 自签 cookie 仍需补规格条款；保留的 gRPC
   绑定（原 R5）仅在有明确消费者时交付，`.proto` 由 typebox 来源生成。
 
@@ -134,7 +134,7 @@ runbook 写明 feature flag、配对撤销路径、远端机器上的数据保�
 - R1 已交付：host-core 的 `permissions.pending`；无头 `packages/agent-host` 模块（epoch
   事件日志、有界扇出、审批代理、回合队列、快照构建）；在现有 IPC handler 之上承载该
   模块并把每个 agent 事件送入它的 Electron 桥接层；以及 schema v15 的持久化
-  `turn_queue` 与其 RPC 方法（D377 / ADR 0206）。
+  `turn_queue` 与其 RPC 方法（D386 / ADR 0212）。
 - R1 已交付：renderer 的内存 prompt 队列已退役；composer 经 `agent/queue/push` 推入，
   镜像 `agent/event/queueChanged`，“立即发送”即 `turn/prioritize` 加优雅停止。
 - R1 未完成：运行时级别的逐回合权限上限（当前被限制的回合在桥接层直接拒绝）。
@@ -154,5 +154,5 @@ D375（2026-09-10）按已记录的需求重排里程碑：R2 为桌面作为客
 回合队列持久化到 host-core，远程审批默认寿命 30 分钟，配对设备豁免改为 Host 策略，
 Gateway 身份源定为 PI 账号服务。
 
-D376（2026-09-10）撤回身份源条款：远程控制从结构上就是用户本地的，Gateway 只能由
+D385（2026-09-10）撤回身份源条款：远程控制从结构上就是用户本地的，Gateway 只能由
 用户自托管并以 Host 签发的设备凭据准入。

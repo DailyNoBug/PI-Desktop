@@ -2,7 +2,7 @@
 
 > **翻译说明：** 本页是与 [英文源规格](/spec/07-plugins/16-trusted-extensions) 一一对应的机器辅助翻译。代码、协议字段和标识符保持原文；如翻译与英文源事实有歧义，以英文版本为准。
 
-> 状态：v1 已实现（D378、ADR 0207）；实现说明标注为“v1 说明”
+> 状态：v1 已实现（D387、ADR 0213）；实现说明标注为“v1 说明”
 > 范围：v1。v2 与 v3 事项列于 §12，不构成承诺。
 
 ## 1. 目的与术语
@@ -75,7 +75,7 @@ main、渲染层或插件宿主进程中。
   `@earendil-works/pi-coding-agent`，仅作类型依赖。三者版本必须一致；漂移时 CI 失败。
 - loader 镜像 `pi-coding-agent` 的发现规则，使用带 `virtualModules` 的
   `jiti/static`，babel 转换被打进包内，运行时不做路径解析。打包步骤由一个在仓库
-  之外运行打包产物的契约测试验证（E2E-240）。
+  之外运行打包产物的契约测试验证（E2E-245）。
 - 导入别名：`pi-ai`、`pi-agent-core` 和 `typebox` 解析到 sidecar 自带的副本；
   `@earendil-works/pi-coding-agent` 解析到一个运行时 shim，导出 `defineTool` 和
   工具结果类型守卫。`@earendil-works/pi-tui` 解析到一个桩
@@ -105,7 +105,7 @@ main、渲染层或插件宿主进程中。
 
 | 类别 | 成员 |
 |---|---|
-| 支持 | `registerTool`、`registerCommand`、§6 中每个事件的 `on(...)`、`exec`、`getActiveTools`、`getAllTools`、`setActiveTools`、`getCommands`、`setModel`（v1 说明：返回 `false`，桌面拥有会话的 provider 绑定）、`getThinkingLevel`、`setThinkingLevel`、`setSessionName`、`getSessionName`、`sendUserMessage`（Host 队列，D377）、`getFlag` |
+| 支持 | `registerTool`、`registerCommand`、§6 中每个事件的 `on(...)`、`exec`、`getActiveTools`、`getAllTools`、`setActiveTools`、`getCommands`、`setModel`（v1 说明：返回 `false`，桌面拥有会话的 provider 绑定）、`getThinkingLevel`、`setThinkingLevel`、`setSessionName`、`getSessionName`、`sendUserMessage`（Host 队列，D386）、`getFlag` |
 | 上下文上支持 | `ui.notify`、`ui.confirm`、`ui.select`、`ui.input`、`ui.setStatus`、`ui.setWorkingMessage`、`cwd`、`modelRegistry`、`isIdle`、`abort`、`hasPendingMessages`、`getContextUsage`、`compact`、`getSystemPrompt`、`waitForIdle`、`newSession`、`fork` |
 | 推迟到 v2 | `sendMessage`、`appendEntry`、`setLabel`、`sessionManager` 只读 API、`switchSession`、`registerShortcut`、`registerMarkdownTransformer`、`ui.setEditorText`、`ui.getEditorText`、`ui.addAutocompleteProvider`、`registerFlag` 值编辑 |
 | 不支持 | `ui.setWidget`、`ui.setFooter`、`ui.setHeader`、`ui.setTitle`、`ui.custom`、`ui.overlay`、`ui.onTerminalInput`、`ui.setWorkingVisible`、`ui.setWorkingIndicator`、`ui.setHiddenThinkingLabel`、`ui.pasteToEditor`、`ui.editor`、`registerMessageRenderer`、`registerEntryRenderer`、`navigateTree`、`shutdown` |
@@ -232,11 +232,11 @@ confirm）；启用、添加路径和移除保持本地。main 在 `logs/app/plu
 
 | 阶段 | 内容 | 承诺 |
 |---|---|---|
-| v1 | §2 至 §11：发现、loader、每会话 Runner、支持矩阵、事件、工具、命令、UI 桥接、设置标签 | 已承诺（D378） |
+| v1 | §2 至 §11：发现、loader、每会话 Runner、支持矩阵、事件、工具、命令、UI 桥接、设置标签 | 已承诺（D387） |
 | v2 | 自定义会话条目（`sendMessage`、`appendEntry`）含 schema 升版和通用渲染、`sessionManager` 只读 shim、`switchSession`、编辑器读写、补全 provider、`registerShortcut`、markdown 转换器 | 已规划，需先决定条目持久化与压缩 |
 | v3 | `pi` 包 manifest 与安装、pi CLI `settings.json` 的只读提示、统一 skill 与提示发现、提示的远程控制路由、市场列出 | 未排期 |
 
-v1 交付顺序：打包 spike（E2E-240）、shared 协议类型，然后运行时、main、渲染层
+v1 交付顺序：打包 spike（E2E-245）、shared 协议类型，然后运行时、main、渲染层
 三条线并行。
 
 ## 13. 版本策略

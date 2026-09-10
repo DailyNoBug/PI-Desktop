@@ -767,7 +767,7 @@ export const api = {
       IPC.invoke.marketApplyUpdates,
       { onlyAuto },
     ),
-  /** Trusted extensions (D378, spec 16 §10.2). */
+  /** Trusted extensions (D387, spec 16 §10.2). */
   listTrustedExtensions: () =>
     invoke<TrustedExtensionsListResult>(IPC.invoke.extensionsList),
   setTrustedExtensionEnabled: (id: string, enabled: boolean) =>

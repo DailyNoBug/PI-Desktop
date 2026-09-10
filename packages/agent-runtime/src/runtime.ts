@@ -707,7 +707,7 @@ export type AgentRuntimeOptions = {
   pluginTools?: PluginToolDef[];
   /** Plugin skills advertised in the system prompt and loaded via `Skill`. */
   pluginSkills?: PluginSkillDef[];
-  /** Trusted extensions enabled for this session (D378); loaded by
+  /** Trusted extensions enabled for this session (D387); loaded by
    * `loadTrustedExtensions()` before the first prompt. */
   trustedExtensions?: TrustedExtensionSpec[];
   /** Effective command shell selected by host-core for this session. */
@@ -1871,7 +1871,7 @@ Delegation rules:
   }
 
   /**
-   * Load the enabled trusted extensions (D378). Called once by the sidecar
+   * Load the enabled trusted extensions (D387). Called once by the sidecar
    * after construction; a failing entry is reported through diagnostics and
    * never fails the session.
    */
@@ -1961,7 +1961,7 @@ Delegation rules:
               .map((part) => (isRecord(part) && typeof part.text === "string" ? part.text : ""))
               .join("")
           : String(content);
-        // Host-owned queue (D377): Electron main routes this to the Agent
+        // Host-owned queue (D386): Electron main routes this to the Agent
         // Host module, which drains it at the next turn boundary, or right
         // away when the session is idle. `steer` moves it to the head.
         const pushed = await runtime.host.call<{ id?: string }>("session.queuePush", {

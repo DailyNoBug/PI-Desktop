@@ -49,7 +49,7 @@ export default defineConfig({
         // Bundle JS workspace packages into Main. Only runtime modules that
         // must resolve from the packaged node_modules stay external.
         // jiti is loaded lazily by the sidecar's trusted-extension loader
-        // (D378); Electron main never calls it, and its transpiled dist
+        // (D387); Electron main never calls it, and its transpiled dist
         // breaks the main bundle's esbuild transform.
         external: ["electron-updater", "jiti", "jiti/static"],
         input: {

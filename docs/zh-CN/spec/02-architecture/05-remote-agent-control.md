@@ -27,7 +27,7 @@ D375 固定了拓扑的交付顺序：首个远程部署是桌面本身作为远
   secret 都在运行 Host 的机器上，桌面只展示和控制。
 - 用户本地化是结构性的：控制链路中没有任何项目方运营的服务，所有凭据由用户
   自己的 Host 签发，出站连接只有用户的 SSH 主机、用户配置的消息渠道与模型
-  provider，以及只读的 GitHub Releases `pi-host` 下载（D376）。
+  provider，以及只读的 GitHub Releases `pi-host` 下载（D385）。
 - 本地 stdio NDJSON JSON-RPC、Rust host-core 和 loopback MCP 保持不变。
 
 ## 2. 参考实现
@@ -96,7 +96,7 @@ Client ── HTTPS/WSS ── Gateway
 
 生产模式由 Agent Host 主动建立出站 Host link，Gateway 不要求桌面开放入站
 端口。Host link 是中继 profile，复用多个逻辑客户端连接。PI 不运营 Gateway：若日后
-排期，由用户在自己的基础设施上运行，并以 Host 签发的设备凭据准入（D376）。本拓扑
+排期，由用户在自己的基础设施上运行，并以 Host 签发的设备凭据准入（D385）。本拓扑
 保留规格以免契约漂移，但不排期。
 
 ## 5. 角色、队列、归属与事件同步

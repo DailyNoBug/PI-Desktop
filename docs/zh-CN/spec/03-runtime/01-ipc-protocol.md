@@ -383,7 +383,7 @@ type AgentStatus = {
 };
 ```
 
-### 5.6 回合队列（D375 / D377）
+### 5.6 回合队列（D375 / D386）
 
 Host 拥有每会话的 prompt 队列，renderer 只做镜像。运行中发送经
 `pi-desktop/agent/queue/push` 推入，无头 Agent Host 模块负责准入、排序并释放持久

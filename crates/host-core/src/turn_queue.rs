@@ -1,4 +1,4 @@
-//! The Host-owned turn queue (D375 / ADR 0206, schema v15).
+//! The Host-owned turn queue (D375 / ADR 0212, schema v15).
 //!
 //! Queued prompts used to live in renderer memory, so only the window that
 //! typed them knew they existed and a reload dropped them. The table lets the

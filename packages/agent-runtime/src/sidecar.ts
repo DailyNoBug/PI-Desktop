@@ -98,7 +98,7 @@ type RuntimeParams = {
   commandShell: CommandShellOption;
   pluginTools?: PluginToolDef[];
   pluginSkills?: PluginSkillDef[];
-  /** Trusted extensions enabled for this session (D378). */
+  /** Trusted extensions enabled for this session (D387). */
   trustedExtensions?: TrustedExtensionSpec[];
   /** Delegates this session may spawn through `Task` (ADR 0062). */
   subagents?: SubagentDefinition[];

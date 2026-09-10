@@ -72,7 +72,7 @@ test("running prompts use a removable per-session FIFO queue", () => {
   assert.match(store, /queuedPrompts: QueuedPrompts/);
   assert.match(store, /enqueueQueuedPrompt\(state\.queuedPrompts, item\)/);
   assert.match(store, /prioritizeQueuedPrompt\(/);
-  // The Host owns the queue (D375 / D377): the renderer pushes through the
+  // The Host owns the queue (D375 / D386): the renderer pushes through the
   // agent/queue channels and mirrors the durable entries after agent_end.
   assert.match(store, /api\s*\.queuePrompt\(/);
   assert.match(store, /api\.prioritizeQueuedPrompt\(promptId\)/);

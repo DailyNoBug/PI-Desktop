@@ -195,7 +195,7 @@ A separate Remote Gateway and the outbound Host link
 (`racp-hostlink.v1`) with identity, routing, rate limits, audit, revocation,
 and transient attachment relay. PI does not operate it: a user runs it on
 their own infrastructure and it admits clients with Host-issued device
-credentials, so there is no identity source beyond the Host (D376). Exit criteria remain those of E2E-227.
+credentials, so there is no identity source beyond the Host (D385). Exit criteria remain those of E2E-227.
 
 ### Unscheduled — Browser profile (formerly R4)
 
@@ -395,7 +395,7 @@ Recorded on the `feat/remote-agent-host` branch, 2026-09-10:
   the approval broker, the turn queue, and the snapshot builder; the
   Electron bridge that hosts the module over the existing IPC handlers and
   feeds every agent event through it; and schema v15 with the persisted
-  `turn_queue` and its RPC methods (D377 / ADR 0206).
+  `turn_queue` and its RPC methods (D386 / ADR 0212).
 - R1 shipped: the renderer's in-memory prompt queue is retired; the
   composer pushes through `agent/queue/push`, mirrors
   `agent/event/queueChanged`, and "send now" is `turn/prioritize` plus a
@@ -424,6 +424,6 @@ queue in host-core, default the remote approval lifetime to 30 minutes, make
 the paired-device exemption a Host policy, and fix the Gateway identity
 source to the PI account service.
 
-D376 (2026-09-10) withdrew the identity-source clause: remote control is
+D385 (2026-09-10) withdrew the identity-source clause: remote control is
 user-local by construction, and any Gateway is self-hosted and admits clients
 with Host-issued device credentials.

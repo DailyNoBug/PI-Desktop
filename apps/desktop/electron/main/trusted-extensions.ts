@@ -1,5 +1,5 @@
 /**
- * Trusted extensions registry for Electron main (D378, ADR 0207,
+ * Trusted extensions registry for Electron main (D387, ADR 0213,
  * spec 07-plugins/16-trusted-extensions.md §3, §9, §10, §11).
  *
  * Owns discovery, per-entry enablement in `<dataDir>/trusted-extensions.json`,

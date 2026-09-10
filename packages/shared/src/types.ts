@@ -676,7 +676,7 @@ export type AgentStopResponse = {
   requested: boolean;
 };
 
-/** One entry of the Host-owned turn queue as the renderer mirrors it (D377). */
+/** One entry of the Host-owned turn queue as the renderer mirrors it (D386). */
 export type QueuedTurnSummary = {
   id: string;
   sessionId: string;

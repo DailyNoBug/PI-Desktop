@@ -414,7 +414,7 @@ type AgentStatus = {
 };
 ```
 
-### 5.6 Turn queue (D375 / D377)
+### 5.6 Turn queue (D375 / D386)
 
 The Host owns the per-session prompt queue; the renderer mirrors it. A
 Send-while-running pushes through `pi-desktop/agent/queue/push` and the

@@ -81,7 +81,7 @@ accept_prompt
 1. 每个会话只有一个有效回合
 2. 新提示被 `AGENT_BUSY` 拒绝，而 running/waiting_permission 期间 renderer 的
    运行中发送路径经 `agent/queue/push` 把下一条 prompt 推入 Host 拥有的回合队列
-   （架构 v15，D375 / D377 / ADR 0206），并从 `agent/event/queueChanged` 镜像持久
+   （架构 v15，D375 / D386 / ADR 0212），并从 `agent/event/queueChanged` 镜像持久
    条目；Agent Host 模块在 `agent_end` 之后释放一条，恢复的队列挂起到 owner 接入，
    `agent/queue/prioritize` 把条目移到队列头部，因此正常的用户发送不会看到
    `AGENT_BUSY`。

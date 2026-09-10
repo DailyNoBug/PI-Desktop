@@ -1,6 +1,6 @@
 # 16. Trusted Extensions
 
-> Status: Implemented v1 (D378, ADR 0207); implementation notes are marked "v1 note"
+> Status: Implemented v1 (D387, ADR 0213); implementation notes are marked "v1 note"
 > Scope: v1. v2 and v3 items are listed in §12 and are not committed.
 
 ## 1. Purpose and terminology
@@ -84,7 +84,7 @@ never in Electron main, the renderer, or a plugin host process.
 - The loader mirrors the `pi-coding-agent` discovery rules and uses
   `jiti/static` with `virtualModules`, so the babel transform is bundled
   and no path resolution happens at runtime. The bundling step is verified
-  by a contract test that runs the bundle outside the repository (E2E-240).
+  by a contract test that runs the bundle outside the repository (E2E-245).
 - Import aliases: `pi-ai`, `pi-agent-core`, and `typebox` resolve to the
   sidecar's copies; `@earendil-works/pi-coding-agent` resolves to a runtime
   shim that exports `defineTool` and the tool-result type guards. `@earendil-works/pi-tui`
@@ -121,7 +121,7 @@ unsupported ones.
 
 | Class | Members |
 |---|---|
-| Supported | `registerTool`, `registerCommand`, `on(...)` for every event in §6, `exec`, `getActiveTools`, `getAllTools`, `setActiveTools`, `getCommands`, `setModel` (v1 note: returns `false`, the desktop owns the session's provider binding), `getThinkingLevel`, `setThinkingLevel`, `setSessionName`, `getSessionName`, `sendUserMessage` (Host-owned queue, D377), `getFlag` |
+| Supported | `registerTool`, `registerCommand`, `on(...)` for every event in §6, `exec`, `getActiveTools`, `getAllTools`, `setActiveTools`, `getCommands`, `setModel` (v1 note: returns `false`, the desktop owns the session's provider binding), `getThinkingLevel`, `setThinkingLevel`, `setSessionName`, `getSessionName`, `sendUserMessage` (Host-owned queue, D386), `getFlag` |
 | Supported on context | `ui.notify`, `ui.confirm`, `ui.select`, `ui.input`, `ui.setStatus`, `ui.setWorkingMessage`, `cwd`, `modelRegistry`, `isIdle`, `abort`, `hasPendingMessages`, `getContextUsage`, `compact`, `getSystemPrompt`, `waitForIdle`, `newSession`, `fork` |
 | Deferred to v2 | `sendMessage`, `appendEntry`, `setLabel`, `sessionManager` read API, `switchSession`, `registerShortcut`, `registerMarkdownTransformer`, `ui.setEditorText`, `ui.getEditorText`, `ui.addAutocompleteProvider`, `registerFlag` value editing |
 | Unsupported | `ui.setWidget`, `ui.setFooter`, `ui.setHeader`, `ui.setTitle`, `ui.custom`, `ui.overlay`, `ui.onTerminalInput`, `ui.setWorkingVisible`, `ui.setWorkingIndicator`, `ui.setHiddenThinkingLabel`, `ui.pasteToEditor`, `ui.editor`, `registerMessageRenderer`, `registerEntryRenderer`, `navigateTree`, `shutdown` |
@@ -264,11 +264,11 @@ Settings gains a "Trusted extensions" destination (tab id
 
 | Phase | Content | Commitment |
 |---|---|---|
-| v1 | §2 to §11: discovery, loader, Runner per session, support matrix, events, tools, commands, UI bridge, settings tab | Committed (D378) |
+| v1 | §2 to §11: discovery, loader, Runner per session, support matrix, events, tools, commands, UI bridge, settings tab | Committed (D387) |
 | v2 | Custom session entries (`sendMessage`, `appendEntry`) with a schema bump and a generic renderer, `sessionManager` read shim, `switchSession`, editor read and write, autocomplete providers, `registerShortcut`, markdown transformers | Planned, needs a decision on entry persistence and compaction |
 | v3 | `pi` package manifests and installation, read-only hints from the pi CLI's `settings.json`, unified skill and prompt discovery, remote-control routing for prompts, marketplace listing | Not scheduled |
 
-v1 delivery order: bundling spike (E2E-240), shared protocol types, then the
+v1 delivery order: bundling spike (E2E-245), shared protocol types, then the
 runtime, main, and renderer tracks in parallel.
 
 ## 13. Versioning policy

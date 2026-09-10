@@ -1,5 +1,5 @@
 /**
- * E2E-240 contract: the single-file sidecar bundle (esbuild, same flags as
+ * E2E-245 contract: the single-file sidecar bundle (esbuild, same flags as
  * `pnpm bundle`) must load a TypeScript extension through jiti from a
  * directory with no node_modules, with the kernel packages reachable through
  * virtual modules.
@@ -23,7 +23,7 @@ afterEach(() => {
   rmSync(work, { recursive: true, force: true });
 });
 
-describe("bundled loader (E2E-240)", () => {
+describe("bundled loader (E2E-245)", () => {
   it("loads a TypeScript extension from a bundle outside the repo", async () => {
     const entry = join(work, "entry.ts");
     writeFileSync(

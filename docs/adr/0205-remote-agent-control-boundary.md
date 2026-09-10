@@ -247,7 +247,7 @@ answers below were chosen by the maintainer the same day.
     scheduled milestones; E2E-227 and E2E-228 apply when their milestones are
     scheduled.
 
-## Amendment (D376)
+## Amendment (D385)
 
 Date: 2026-09-10. The maintainer requires remote control to be user-local by
 construction: no project-operated identity, account, or relay service may be

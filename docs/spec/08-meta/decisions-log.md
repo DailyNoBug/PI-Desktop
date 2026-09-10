@@ -4165,12 +4165,12 @@ D193, and D194.
   source is fixed to the PI account service of the pi-backend specification.
   See the amended remote specifications and E2E-231 / E2E-232.
 
-## 2026-09-10 — Remote control stays user-local: no first-party identity (D376)
+## 2026-09-10 — Remote control stays user-local: no first-party identity (D385)
 
 - The maintainer requires that a user's client never authenticate through a
   service the project operates and that remote control stay entirely on the
   user's own machines and infrastructure.
-- Decision D376 amends ADR 0205 a third time and withdraws D375 item 10: no
+- Decision D385 amends ADR 0205 a third time and withdraws D375 item 10: no
   project-operated identity, account, or relay service is in the path; the
   only credential a client holds is a device token issued by the user's own
   Host at pairing; a Gateway, if ever scheduled, is self-hosted by the user
@@ -4181,12 +4181,12 @@ D193, and D194.
   download of `pi-host`. The SSH-tunnel topology, device pairing, and the
   messaging integration already satisfy the rule.
 
-## 2026-09-10 — Persist the Host-owned turn queue in host-core (D377)
+## 2026-09-10 — Persist the Host-owned turn queue in host-core (D386)
 
 - D375 moved queued prompts into the Host and chose persistence; the
   headless Agent Host module needs a store that survives a restart and never
   starts work by itself, and host-core owns SQLite exclusively.
-- Decision D377 / ADR 0206 adds schema v15 with the `turn_queue` table and
+- Decision D386 / ADR 0212 adds schema v15 with the `turn_queue` table and
   the additive `session.queuePush` / `session.queueList` /
   `session.queueRemove` / `session.queuePrioritize` methods. Push is idempotent per principal and key,
   bounded at eight entries per session, and cascades with session deletion.
@@ -4197,13 +4197,13 @@ D193, and D194.
   a graceful stop.
 
 
-## 2026-09-10 — Trusted extensions run in the Agent sidecar (D378)
+## 2026-09-10 — Trusted extensions run in the Agent sidecar (D387)
 
 - Plugins are sandboxed and run outside the agent, which is right for
   distributed, untrusted code but leaves no surface for code that must sit
   on the agent loop itself: tools that execute in-process, hooks on every
   turn and provider request, and slash commands with session context.
-- Decision D378 / ADR 0207 adds trusted extensions as the second extension
+- Decision D387 / ADR 0213 adds trusted extensions as the second extension
   surface. The contract is the `ExtensionAPI` of `pi-coding-agent`, adopted
   at the same pinned version as `pi-ai` and `pi-agent-core`; the sidecar
   reuses its loader and `ExtensionRunner`, one Runner per session, with the
@@ -4215,5 +4215,5 @@ D193, and D194.
   with a diagnostic and never throw; terminal-UI surfaces stay unsupported.
   Plugins, host-core RPC, protocol version, and schema are untouched in v1;
   the new traffic is sidecar proxy methods and Electron IPC. Delivery starts
-  with the bundling spike (E2E-240). Spec:
-  `07-plugins/16-trusted-extensions.md`; scenarios E2E-236 to E2E-240.
+  with the bundling spike (E2E-245). Spec:
+  `07-plugins/16-trusted-extensions.md`; scenarios E2E-241 to E2E-245.
