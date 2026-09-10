@@ -924,9 +924,8 @@ Work-panel and application-window resizing are implemented in MVP:
   press-time panel width.
 - Opening and closing animate the dock's `width` and `flex-basis` together with
   the bounded opacity/transform feedback, so MainChat reflows continuously
-  inside the existing client area while the chat surface keeps its 515px CSS
-  minimum. Native window or sidebar resizing does not automatically collapse the
-  panel; the shell toggle remains the user-controlled collapse action.
+  inside the existing client area instead of changing width before the first
+  motion frame.
 - No panel action requests a positive native reservation. The preferred panel
   width is renderer-local, and native window edges resize only the fixed app
   window. Background-session artifacts never update the visible panel or window
@@ -1277,6 +1276,4 @@ This does not prevent state changes — it makes them instant.
     solely because the current assistant message appended content
 21. The work panel opens and collapses inside the fixed client area; the inner
     divider changes the renderer-owned panel target within 244px–720px, and
-    divider cancellation restores the prior panel width (ADR 0151). The chat
-    surface keeps its 515px CSS minimum, and native resizing does not automatically
-    collapse the panel.
+    divider cancellation restores the prior panel width (ADR 0151)

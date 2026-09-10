@@ -2645,9 +2645,7 @@ Each scenario is documented in this format:
   resize the application from each native edge and confirm only the application
   bounds change; the panel remains at its renderer-committed width. Resize from
   the left edge and repeat after toggling the sidebar. 10) Open, resize, and
-  collapse on a small work area, then repeat while maximized and fullscreen;
-  verify the chat surface keeps its 515px CSS minimum and native/sidebar resizing
-  does not automatically collapse the open panel. 11)
+  collapse on a small work area, then repeat while maximized and fullscreen. 11)
   Move the normal window between displays and change the active display's
   work-area geometry. 12) Send valid and malformed reservation payloads,
   including positive values, and confirm the compatibility seam never changes
@@ -2664,9 +2662,6 @@ Each scenario is documented in this format:
   deduplicate. Opening, collapse, and
   closing animate the panel's width/flex allocation with its bounded
   opacity/slide, so MainChat reflows continuously without a pre-animation jump.
-  On a minimum-sized work area, the panel opens while the chat surface keeps its
-  515px CSS minimum; later native window or sidebar resizing does not automatically
-  collapse the panel, and the shell toggle remains the user-controlled collapse action.
   Opening the panel, collapsing it, or committing a divider resize updates the
   presentation jump. Once the panel is open, a single unified context trigger
   opens one dropdown that lists Browser and in-scope plugin views, with a fill

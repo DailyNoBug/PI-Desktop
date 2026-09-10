@@ -265,7 +265,6 @@ function AppShell() {
     presentedWorkPanelRef.current = presentedWorkPanelOpen;
   }, [presentedWorkPanelOpen]);
 
-
   useEffect(() => {
     if (
       subagentPanel &&

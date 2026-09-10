@@ -3,6 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { loadStyles } from "./helpers/styles.mjs";
 import {
+  MAIN_PANE_MIN_WIDTH,
   WORK_PANEL_MAX_WIDTH,
   WORK_PANEL_MIN_WIDTH,
 } from "../src/lib/work-panel-resize.ts";
@@ -284,6 +285,7 @@ test("work panel starts closed with no tabs and persists width only", () => {
 });
 
 test("work panel width is renderer-owned inside the fixed window", () => {
+  assert.equal(MAIN_PANE_MIN_WIDTH, 360);
   assert.equal(WORK_PANEL_MIN_WIDTH, 244);
   assert.equal(WORK_PANEL_MAX_WIDTH, 720);
   assert.match(panelSource, /renderPanelWidth = clampWorkPanelWidth\(panelDragWidth \?\? width\)/);
@@ -293,7 +295,6 @@ test("work panel width is renderer-owned inside the fixed window", () => {
   assert.doesNotMatch(panelSource, /api\.onWorkPanelResize/);
   assert.doesNotMatch(panelSource, /\.sidebar, \.sidebar-rail/);
   assert.match(globalStyles, /\.main-pane \{[^}]*min-width:\s*0;/s);
-  assert.match(globalStyles, /\.chat-surface,\s*\.route-page \{[^}]*min-width:\s*515px;/s);
   assert.match(globalStyles, /\.work-panel \{[^}]*flex: 0 0 var\(--work-panel-width\)/s);
   // The Electron seam remains available for old callers but is deliberately
   // inert, so no positive target can expand the native window.

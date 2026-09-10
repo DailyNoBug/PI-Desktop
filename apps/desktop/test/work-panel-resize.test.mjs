@@ -19,7 +19,6 @@ test("clamps the work panel to its fixed width range", () => {
   assert.equal(clampWorkPanelWidth(200), WORK_PANEL_MIN_WIDTH);
 });
 
-
 test("clamps the conversation area to its bounded native resize range", () => {
   assert.equal(clampWorkPanelChatWidth(900), WORK_PANEL_CHAT_MIN_WIDTH);
   assert.equal(clampWorkPanelChatWidth(1200), 1200);

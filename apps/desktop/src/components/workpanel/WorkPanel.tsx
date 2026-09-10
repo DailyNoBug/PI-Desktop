@@ -85,7 +85,6 @@ export function WorkPanel({
   panelBlocked?: boolean;
   /** Plays work-panel-out; parent unmounts after animationend. */
   exiting?: boolean;
-  /** Called after the work-panel-out animation finishes. */
   onExitAnimationEnd?: () => void;
   /** Temporarily replaces the resource body with the selected subagent detail. */
   subagentPanel?: SubagentPanelSelection | null;
