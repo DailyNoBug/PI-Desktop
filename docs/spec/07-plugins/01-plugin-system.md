@@ -502,6 +502,17 @@ Rules the control encodes:
   environment/header rows, validation, duplicate checks, and Test connection.
 - Enablement is app-local and project records shadow global records before the
   active runtime filters disabled rows.
+- A previously advertised user MCP tool remains routable after transport loss
+  or a saved connection edit. The next call re-handshakes the current saved
+  server and validates the tool against its fresh list before dispatch; no
+  additional `ToolSearch` is required. Unknown names cannot trigger discovery.
+- Enablement and project scope are checked before and after recovery. Removing
+  a server or disposing the runtime discards its remembered names; an obsolete
+  in-flight handshake cannot restore them. Concurrent calls share a handshake.
+- A failed recovery reports `UNAVAILABLE` and retains the existing failed-server
+  policy (edit or Test connection to retry), rather than repeatedly connecting
+  on each call. Removed tools return `TOOL_NOT_FOUND`. Recovery never replays a
+  failed `tools/call`, which may already have performed a mutation.
 
 ### 12.3 Skills management in Settings > Agent
 
