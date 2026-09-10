@@ -227,4 +227,4 @@ Each ADR includes:
 | 0207 | Allow three same-path mutation recovery failures | Accepted (amends 0087 / D186) |
 | 0208 | Plugin desktop control requires native user consent | Accepted |
 | 0209 | PowerShell 7 as a selectable Windows command shell | Accepted (amends 0054 / D190; issue #151 / PR #191) |
-| 0210 | Subagent output-token cap | Proposed (issue #171; extends 0062 / 0063) |
+| 0210 | Subagent output-token cap | Accepted (extends 0062 / 0063; issue #171 / PR #193) |

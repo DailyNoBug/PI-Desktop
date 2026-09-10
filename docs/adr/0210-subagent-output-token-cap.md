@@ -1,6 +1,6 @@
 # ADR 0210: Subagent output-token cap
 
-- Status: Proposed (issue #171)
+- Status: Accepted (issue #171, merged in #193)
 - Date: 2026-09-10
 - Deciders: PI-Desktop runtime and UX maintainers
 - Related: D383, E2E-155, E2E-119, ADR 0062, ADR 0063, ADR 0194
