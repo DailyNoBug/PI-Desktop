@@ -4156,6 +4156,9 @@ Each scenario is documented in this format:
   - Opening the context usage inspector after a checkpoint shows one line with
     the compaction count and the newest summary's token estimate; before any
     checkpoint that line is absent.
+  - The context usage indicator exposes the same localized remaining-context
+    summary on hover and keyboard focus, and its tooltip remains visible above
+    the home/docked composer without clipping.
   - At the hard boundary a durable checkpoint is created before the next model
     request. The complete visible transcript is unchanged, and the continued
     task stays below the model-aware safe budget.

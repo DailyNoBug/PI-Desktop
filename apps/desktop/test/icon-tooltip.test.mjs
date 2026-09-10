@@ -26,6 +26,7 @@ function assertLocalizedIconTooltip(relativePath, key) {
 test("icon-only actions expose localized hover tooltips", () => {
   for (const [relativePath, key] of [
     ["components/ChatSurface.tsx", "errors.action.dismiss"],
+    ["components/ContextUsageInspector.tsx", "chat.usageContextAria"],
     ["components/Toast.tsx", "toast.dismiss"],
     ["components/UpdateBanner.tsx", "updates.dismiss"],
     ["components/ProjectInstructionsDialog.tsx", "settings.cancel"],
