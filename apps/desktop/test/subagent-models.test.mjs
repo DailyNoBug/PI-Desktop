@@ -56,6 +56,7 @@ test("a custom endpoint uses its display name instead of the generic vendor key"
     subagentModelPin({ vendorKey: "custom", name: "My Gateway" }, "local-model"),
     "My Gateway/local-model",
   );
+});
 
 test("every option the picker offers is a pin the editor will save", () => {
   // A custom endpoint's display name contains spaces, and the picker offers it.
@@ -95,7 +96,6 @@ test("a pin needs a provider half, a model half, and keeps its own slashes", () 
   assert.equal(subagentModelPinParts("claude-haiku-4-5"), null);
   assert.equal(subagentModelPinParts("/claude-haiku-4-5"), null);
   assert.equal(subagentModelPinParts("anthropic/"), null);
-});
 });
 
 test("the sheet lists configured models from enabled, credentialed providers", () => {
