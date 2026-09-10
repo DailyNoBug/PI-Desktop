@@ -233,11 +233,14 @@ Recovery is armed inside `message_end` and carried out once the loop is idle,
 so it belongs to every entry point that drives the loop — a user prompt and an
 approved plan or goal execution alike. Each entry point clears the recovery
 state before it starts and runs the pending recovery after `waitForIdle`,
-through one shared implementation of each half. Skipping either half ends the
-run with its lifecycle still suppressed and no recovery attempted, which
-reaches the user as a session that stopped mid-work with no error and no retry
-action. §5d overflow and provider-stream retry ride the same contract, and a
-suppression flag left behind would swallow the *next* run's terminal events.
+through one shared implementation of each half. The shared drain also handles
+recoveries armed by a recovery attempt before it returns, so a chained failure
+cannot leave lifecycle suppression active with no recovery or terminal event.
+Skipping either half ends the run with its lifecycle still suppressed and no
+recovery attempted, which reaches the user as a session that stopped mid-work
+with no error and no retry action. §5d overflow and provider-stream retry ride
+the same contract, and a suppression flag left behind would swallow the
+*next* run's terminal events.
 
 The one-shot instruction rides on the agent's system prompt rather than the
 `prepareNextTurn` hook, because that hook only shapes turns inside a live run
@@ -250,6 +253,31 @@ retriable `EMPTY_MODEL_RESPONSE`, which gives the transcript its normal retry
 action. No empty assistant message is persisted in either case.
 
 Decision D193; see E2E-146.
+
+### 5e.1. Progress-only recovery for approved Plan/Goal execution
+
+An approved Plan or Goal can still stop after a visible progress update when
+the model puts its narration in a text-only assistant message and emits the
+tool call in a later message. Ordinary Agent prompts do not use this recovery.
+The runtime only arms it for a successful, non-aborted message with no tool
+call whose visible text has a clear forward-looking action signal such as
+"Writing the remaining note" or "the next step is ...". A normal completion
+report such as "Implemented the approved plan" is terminal and is not nudged.
+
+The recovery is bounded to one attempt per approved execution. The progress
+text remains in the current assistant bubble, while its assistant message is
+removed from model context before `continue()` so the provider never receives
+an invalid assistant-to-assistant transcript. The first attempt's
+`agent_start`, `turn_start`, `turn_end`, and `agent_end` are suppressed; the
+continuation reuses the same bubble id and emits the single terminal lifecycle.
+The progress nudge is attached to the system prompt for that continuation and
+removed afterwards. If the continuation produces a tool call, the normal
+autonomous loop proceeds; if it produces another text-only response, that
+response is terminal and cannot trigger a second progress nudge. A silent
+recovery that already ran in the same execution also prevents the recovered
+final report from being misclassified as progress.
+
+See E2E-146a.
 
 ### 5.1 Context checkpoint protection (D158/D203, ADR 0030/0049/0061/0064)
 
@@ -802,8 +830,8 @@ only relevant line, and a reasoning model executed it as saying nothing at all.
 Required behaviours, each one an observed failure inverted:
 
 - answer in the language the user writes in
-- one sentence before each tool batch, and no silence longer than one tool
-  batch or 60 seconds of work
+- one sentence before each tool batch in the same assistant message as the
+  tool calls, and no silence longer than one tool batch or 60 seconds of work
 - anything the user asked is answered in visible text; reasoning is not shown
   to them and does not count as an answer
 - the final message is self-contained
