@@ -19,6 +19,7 @@ const {
   subagentModelChoices,
   subagentModelOrphanPin,
   subagentModelPin,
+  subagentModelPinParts,
   subagentModelSelectValue,
 } = await import("../src/components/settings/subagent-models.ts");
 
@@ -55,6 +56,46 @@ test("a custom endpoint uses its display name instead of the generic vendor key"
     subagentModelPin({ vendorKey: "custom", name: "My Gateway" }, "local-model"),
     "My Gateway/local-model",
   );
+
+test("every option the picker offers is a pin the editor will save", () => {
+  // A custom endpoint's display name contains spaces, and the picker offers it.
+  // The editor's draft check must accept exactly what the picker produces, or
+  // the user can pick an option and then never save the sheet.
+  const choices = subagentModelChoices([
+    provider(),
+    provider({ id: "p2", name: "My Gateway", vendorKey: "custom" }),
+    provider({ id: "p3", name: "My Ollama", vendorKey: "" }),
+  ]);
+  assert.ok(choices.length > 0);
+  for (const choice of choices) {
+    assert.notEqual(
+      subagentModelPinParts(choice.value),
+      null,
+      `${choice.value} is offered but not saveable`,
+    );
+  }
+});
+
+test("a pin needs a provider half, a model half, and keeps its own slashes", () => {
+  assert.deepEqual(subagentModelPinParts("anthropic/claude-haiku-4-5"), {
+    providerPart: "anthropic",
+    modelId: "claude-haiku-4-5",
+  });
+  assert.deepEqual(subagentModelPinParts("  My Gateway/local-model  "), {
+    providerPart: "My Gateway",
+    modelId: "local-model",
+  });
+  // An openrouter-style model id carries its own slashes; only the first one
+  // separates the provider.
+  assert.deepEqual(subagentModelPinParts("openrouter/deepseek/deepseek-chat"), {
+    providerPart: "openrouter",
+    modelId: "deepseek/deepseek-chat",
+  });
+  // A bare id has no provider to look up, so it is not a pin.
+  assert.equal(subagentModelPinParts("claude-haiku-4-5"), null);
+  assert.equal(subagentModelPinParts("/claude-haiku-4-5"), null);
+  assert.equal(subagentModelPinParts("anthropic/"), null);
+});
 });
 
 test("the sheet lists configured models from enabled, credentialed providers", () => {

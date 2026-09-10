@@ -22,6 +22,7 @@ import {
   groupSubagentModelChoices,
   subagentModelChoices,
   subagentModelOrphanPin,
+  subagentModelPinParts,
   subagentModelSelectValue,
 } from "./subagent-models";
 
@@ -180,9 +181,14 @@ export function subagentDraftError(draft: SubagentDraft): string | null {
   if (!subagentSlug(draft.name)) return "extensions.subagents.errorSlug";
   if (!draft.description.trim()) return "extensions.subagents.errorDescription";
   if (draft.tools.length === 0) return "extensions.subagents.errorTools";
-  // `provider/model` is the only shape main can resolve; a bare model id has no
-  // provider to look up, so it would be dropped with a diagnostic nobody reads.
-  if (draft.model.trim() && !/^[^/\s]+\/.+$/.test(draft.model.trim())) {
+  // `provider/model` is the only shape the runtime can resolve; a bare model id
+  // has no provider to look up, so it would be dropped with a diagnostic nobody
+  // reads. Only the slash is structural: the provider half is matched by a
+  // normalized alias, and a custom endpoint's display name may contain spaces —
+  // the picker offers those, so rejecting them here would make a selectable
+  // option impossible to save. This shares the picker's own splitter so the two
+  // can never disagree.
+  if (draft.model.trim() && !subagentModelPinParts(draft.model.trim())) {
     return "extensions.subagents.errorModel";
   }
   // 0 is the cleared state, not an invalid one: a definition may leave the turn

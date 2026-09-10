@@ -100,7 +100,12 @@ pin that is no longer configured stays as an extra option so an edit cannot
 silently drop it. Every option comes from the configured provider catalog, so a
 saved pin is always resolvable; the sheet deliberately offers no free-text
 model id, and when no provider has a runnable model it shows an empty state with
-an action that opens Models instead of a hand-typed field. The thinking selector
+an action that opens Models instead of a hand-typed field. Only the slash in a
+pin is structural: the provider half is matched by a normalized alias, and a
+custom endpoint's display name may contain spaces, so the picker and the draft
+check share one splitter and can never disagree about what is saveable. The
+thinking selector
+offers inherit-session (empty), do-not-send, and the
 offers inherit-session (empty), do-not-send, and the
 seven canonical levels; inherit keeps the session level, while do-not-send
 leaves the provider adapter's own default untouched. When a generic or duplicate

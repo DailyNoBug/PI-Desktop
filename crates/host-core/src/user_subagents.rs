@@ -127,6 +127,26 @@ fn normalize_thinking(value: Option<&str>) -> Option<String> {
         .map(|level| (*level).to_string())
 }
 
+/// A definition pin, normalized, or an error when it is not a pin.
+///
+/// The stored shape is `provider/model`. Only the slash is structural: the
+/// provider half is matched by a normalized alias in the runtime
+/// (`findProvider`), and a custom endpoint's display name may contain spaces,
+/// so those are valid here too. Rejecting a value the editor offers would leave
+/// the user with a definition that saves but can never resolve.
+fn normalize_model(value: Option<&str>) -> Result<Option<String>> {
+    let Some(trimmed) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let Some((provider, model)) = trimmed.split_once('/') else {
+        bail!("SUBAGENT_INVALID: `model` must be written as provider/model");
+    };
+    if provider.is_empty() || model.is_empty() {
+        bail!("SUBAGENT_INVALID: `model` must be written as provider/model");
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
 fn parse_record(path: &Path, state: &CapabilityState) -> Option<UserSubagentRecord> {
     let raw = fs::read_to_string(path).ok()?;
     if raw.len() > MAX_SUBAGENT_BYTES {
@@ -300,7 +320,7 @@ impl UserSubagentRegistry {
             enabled: input.enabled.unwrap_or(true),
             scope: ActivationScope::default(),
             tools,
-            model: input.model.filter(|value| !value.trim().is_empty()),
+            model: normalize_model(input.model.as_deref())?,
             thinking_level: normalize_thinking(input.thinking_level.as_deref()),
             max_turns: input
                 .max_turns
@@ -377,7 +397,7 @@ impl UserSubagentRegistry {
         next.tools = tools;
         next.model = match input.model {
             Some(value) if value.trim().is_empty() => None,
-            Some(value) => Some(value),
+            Some(value) => normalize_model(Some(value.as_str()))?,
             None => current.model,
         };
         next.thinking_level = match input.thinking_level {
@@ -545,5 +565,36 @@ mod tests {
         // a written `maxTokens: 0` would read back as an explicit empty cap.
         record.max_tokens = None;
         assert!(!render_document(&record, "Review it").contains("maxTokens"));
+    }
+
+    #[test]
+    fn a_model_pin_requires_a_slash_and_keeps_the_users_spelling() {
+        // The shape is `provider/model`; the provider half may be a vendor key
+        // or a display name, and a custom endpoint's name contains spaces.
+        assert_eq!(
+            normalize_model(Some("anthropic/claude-haiku-4-5")).unwrap(),
+            Some("anthropic/claude-haiku-4-5".into())
+        );
+        assert_eq!(
+            normalize_model(Some("  My Gateway/local-model  ")).unwrap(),
+            Some("My Gateway/local-model".into())
+        );
+        // An openrouter-style model id keeps its own slashes.
+        assert_eq!(
+            normalize_model(Some("openrouter/deepseek/deepseek-chat")).unwrap(),
+            Some("openrouter/deepseek/deepseek-chat".into())
+        );
+    }
+
+    #[test]
+    fn a_cleared_model_is_none_and_a_malformed_one_is_rejected() {
+        assert_eq!(normalize_model(None).unwrap(), None);
+        assert_eq!(normalize_model(Some("   ")).unwrap(), None);
+
+        // A bare id has no provider to look up, so the runtime could never
+        // resolve it; the editor rejects the same shape before saving.
+        assert!(normalize_model(Some("claude-haiku-4-5")).is_err());
+        assert!(normalize_model(Some("/claude-haiku-4-5")).is_err());
+        assert!(normalize_model(Some("anthropic/")).is_err());
     }
 }

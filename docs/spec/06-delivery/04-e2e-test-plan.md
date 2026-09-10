@@ -7713,6 +7713,11 @@ This test plan spec is accepted when:
      name. Choose one and confirm the draft's `model` field becomes
      `<vendorKey-or-name>/<modelId>` (matches what the runtime resolver
      accepts in `BUILTIN_SUBAGENT_DOCUMENTS`).
+  4a. Configure a custom endpoint whose display name contains a space (for
+     example **My Gateway**). Confirm the picker offers it, select it, and
+     confirm the sheet saves with the pin `<display name>/<modelId>` and the
+     save button enabled. The picker and the draft check must never disagree
+     about what is saveable.
   5. Confirm the picker offers no **Custom (provider/model)…** entry and the
      field renders no free-text input, so a model id can only come from the
      configured catalog. Switch the picker to **Inherit session model**, save,

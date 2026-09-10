@@ -54,7 +54,19 @@ function providerAlias(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-function pinParts(pin: string): { providerPart: string; modelId: string } | null {
+/**
+ * Split a pin into its provider half and model half, or null when it is not a
+ * pin at all.
+ *
+ * Only the slash is structural. The provider half is matched by a normalized
+ * alias at both ends of the app (`findProvider` in `agent-runtime` and
+ * `providerAlias` here), so a display name is a valid spelling — and a custom
+ * endpoint's display name may contain spaces. The editor validates drafts with
+ * this same function so the picker can never offer an option it would reject.
+ */
+export function subagentModelPinParts(
+  pin: string,
+): { providerPart: string; modelId: string } | null {
   const trimmed = pin.trim();
   const slash = trimmed.indexOf("/");
   if (slash < 1 || slash === trimmed.length - 1) return null;
@@ -65,13 +77,13 @@ function pinParts(pin: string): { providerPart: string; modelId: string } | null
 }
 
 export function pinMatchesChoice(pin: string, choice: SubagentModelChoice): boolean {
-  const parts = pinParts(pin);
+  const parts = subagentModelPinParts(pin);
   if (!parts) return false;
   if (!modelIdsMatch(parts.modelId, choice.modelId)) return false;
   if (parts.providerPart === choice.providerId) return true;
   const alias = providerAlias(parts.providerPart);
   if (!alias) return false;
-  const canonicalProviderPart = pinParts(choice.value)?.providerPart;
+  const canonicalProviderPart = subagentModelPinParts(choice.value)?.providerPart;
   if (canonicalProviderPart && providerAlias(canonicalProviderPart) === alias) {
     return true;
   }
