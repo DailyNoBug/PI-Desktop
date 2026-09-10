@@ -667,7 +667,7 @@ const ToolRow = memo(function ToolRow({
   const detailsId = useId();
   const root = useAppStore((s) => s.workspace?.path);
   const openTarget = useOpenPreviewTarget();
-  const openSubagentPanel = useAppStore((s) => s.openSubagentPanel);
+  const toggleSubagentPanel = useAppStore((s) => s.toggleSubagentPanel);
   const subagentPanel = useAppStore((s) => s.subagentPanel);
   const status = message.toolStatus;
   const action = getToolAction(message.toolName);
@@ -833,7 +833,7 @@ const ToolRow = memo(function ToolRow({
           onClick={() => {
             if (!hasDetails) return;
             onUserInteraction?.();
-            openSubagentPanel(panelSelectionId);
+            toggleSubagentPanel(panelSelectionId);
           }}
         >
           <span className="subagent-topology-avatar" aria-hidden>
@@ -880,11 +880,6 @@ const ToolRow = memo(function ToolRow({
           </span>
           {outcome === "running" ? (
             <span className="tool-spinner" aria-label={t("chat.running")} />
-          ) : null}
-          {hasDetails ? (
-            <span className="tool-row-caret" aria-hidden>
-              <IconChevronRight size={12} />
-            </span>
           ) : null}
         </button>
       ) : (

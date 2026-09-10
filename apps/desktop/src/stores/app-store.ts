@@ -1002,8 +1002,8 @@ export type AppState = {
   workPanelWidth: number;
   /** Chat-initiated "preview this file" request consumed by the files tab. */
   workPanelFileRequest: { path: string; seq: number; mimeType?: string } | null;
-  /** Open a selected subagent in the session's right-side detail dock. */
-  openSubagentPanel: (delegationId: string) => void;
+  /** Toggle the selected subagent detail, replacing another selection when needed. */
+  toggleSubagentPanel: (delegationId: string) => void;
   /** Close the selected subagent detail without changing resource tabs. */
   closeSubagentPanel: () => void;
   /** Reveal the active session's retained work panel without creating a tab. */
@@ -4204,10 +4204,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   dismissToast: (id) =>
     set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
 
-  openSubagentPanel: (delegationId) => {
-    const sessionId = get().activeSessionId;
+  toggleSubagentPanel: (delegationId) => {
+    const state = get();
+    const sessionId = state.activeSessionId;
     const id = delegationId.trim();
     if (!sessionId || !id) return;
+    if (
+      state.subagentPanel?.sessionId === sessionId &&
+      state.subagentPanel.delegationId === id
+    ) {
+      set({ subagentPanel: null });
+      return;
+    }
     set({ subagentPanel: { sessionId, delegationId: id } });
   },
   closeSubagentPanel: () => set({ subagentPanel: null }),

@@ -7725,9 +7725,11 @@ This test plan spec is accepted when:
   where one `explorer` delegate has a Task description and emits thinking,
   tool, and answer rows over time. The work panel is initially closed.
 - **Steps**: 1) Expand the activity group if needed and click the `explorer`
-  topology node. 2) Observe the right-side dock while the delegate streams.
-  3) Scroll the task/process conversation upward and then return to the latest
-  output. 4) Switch sessions and return to the original session.
+  topology node. 2) Click the selected `explorer` node again and confirm the
+  right-side dock closes, then click it once more to reopen it. 3) Observe the
+  right-side dock while the delegate streams. 4) Scroll the task/process
+  conversation upward and then return to the latest output. 5) Switch sessions
+  and return to the original session.
 - **Expected**: The right dock shows a sticky identity header (avatar, name,
   and model caption on the left; status capsule and elapsed time trailing on
   the same row without wrapping), the Task call's description
@@ -7736,6 +7738,8 @@ This test plan spec is accepted when:
   the delegate's live thinking/tool/answer process under an Activity section
   on one subtle vertical timeline using the same row components as the main
   conversation.
+  The selected topology node is a full-row toggle without an extra disclosure
+  chevron: its first click opens the dock and its second click closes it.
   New rows appear without a reload and follow the bottom while pinned. The
   panel has one body scrollbar; the process does not create a nested scrollbar
   or a second elevated card. At the minimum supported panel width, long

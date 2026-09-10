@@ -1758,12 +1758,14 @@ never summarizes from its own arguments:
   ┌────────────────┐    ┌───────────────────────────────────────────┐
   │ (◎) Main agent │────│ [bot] code-reviewer  claude-sonnet-4-5 · Completed · 32s │
   │ Coordinating 1 │    │ check the store diff                      │
-  │ delegated task │    │ 3 steps                             [›]   │
+  │ delegated task │    │ 3 steps                                   │
   └────────────────┘    └───────────────────────────────────────────┘
 ```
 
-Clicking a topology node opens an inset grouped side sheet in the right-side
-work-panel dock rather than expanding the transcript:
+Clicking a topology node toggles an inset grouped side sheet in the right-side
+work-panel dock rather than expanding the transcript. Clicking the selected node
+again closes the side sheet; selecting another node replaces the current detail
+in place:
 
 ```text
 ┌──────────────────────────────────────────────┐
