@@ -522,6 +522,8 @@ See [LICENSE](LICENSE) for details.
 
 ---
 
-## Code signing
+## Code Signing
 
-This project uses the [SignPath Foundation](https://signpath.org/) for code signing.
+Windows releases of PI-Desktop are digitally signed with free code signing
+provided by [SignPath.io](https://signpath.io/), using a certificate from the
+[SignPath Foundation](https://signpath.org/).
