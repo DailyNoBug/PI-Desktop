@@ -1703,7 +1703,12 @@ export type HostStatusEvent = {
   restarting?: boolean;
   restarted?: boolean;
   fatal?: boolean;
+  /** Free text, or a status token such as `GLIBC_UNSUPPORTED` / `DB_SCHEMA_TOO_NEW`. */
   message?: string;
+  /** Schema numbers behind `DB_SCHEMA_TOO_NEW`. */
+  schema?: { found: number; supported: number };
+  /** Set on the boot status when the build is not native to this CPU. */
+  archMismatch?: { platform: string; processArch: string; machineArch: string };
 };
 
 /**

@@ -237,8 +237,21 @@ function AppShell() {
   const presentedWorkPanelRef = useRef(false);
   const workPanelExitingRef = useRef(false);
   const [backendDown, setBackendDown] = useState<
-    { fatal: boolean; component?: string; message?: string } | null
+    {
+      fatal: boolean;
+      component?: string;
+      message?: string;
+      schema?: { found: number; supported: number };
+    } | null
   >(null);
+  // Boot-time notice that the build is not native to this CPU (for example
+  // the Intel macOS build under Rosetta). It runs, just slower, so this is
+  // a dismissible hint rather than a backend outage.
+  const [archMismatch, setArchMismatch] = useState<{
+    platform: string;
+    processArch: string;
+    machineArch: string;
+  } | null>(null);
   const [splashPhase, setSplashPhase] = useState<"loading" | "exiting" | "done">(
     "loading",
   );
@@ -540,6 +553,7 @@ function AppShell() {
         });
     });
     const offHostStatus = api.onHostStatus((status) => {
+      if (status.archMismatch) setArchMismatch(status.archMismatch);
       if (status.ok) {
         setBackendDown(null);
         if (status.restarted) {
@@ -551,6 +565,7 @@ function AppShell() {
           fatal: status.fatal === true,
           component: status.component,
           message: status.message,
+          schema: status.schema,
         });
         // A dead sidecar cannot finish the turn; unstick the composer.
         useAppStore.setState({ isRunning: false });
@@ -860,7 +875,12 @@ function AppShell() {
                   {backendDown.fatal
                     ? backendDown.message === "GLIBC_UNSUPPORTED"
                       ? t("status.unsupportedGlibc")
-                      : t("status.fatal")
+                      : backendDown.message === "DB_SCHEMA_TOO_NEW"
+                        ? t("status.dbSchemaTooNew", {
+                            found: backendDown.schema?.found ?? "?",
+                            supported: backendDown.schema?.supported ?? "?",
+                          })
+                        : t("status.fatal")
                     : t("status.restarting")}
                 </span>
                 {backendDown.fatal && (
@@ -872,6 +892,31 @@ function AppShell() {
                     {t("status.openLogs")}
                   </button>
                 )}
+              </div>
+            )}
+
+            {archMismatch && (
+              <div className="backend-banner no-drag warn" role="status">
+                <span className="backend-dot" aria-hidden />
+                <span>
+                  {t("status.archMismatch", {
+                    buildArch: t(
+                      `status.archNames.${archMismatch.platform}.${archMismatch.processArch}`,
+                      { defaultValue: archMismatch.processArch },
+                    ),
+                    machineArch: t(
+                      `status.archNames.${archMismatch.platform}.${archMismatch.machineArch}`,
+                      { defaultValue: archMismatch.machineArch },
+                    ),
+                  })}
+                </span>
+                <button
+                  type="button"
+                  className="backend-action"
+                  onClick={() => setArchMismatch(null)}
+                >
+                  {t("status.dismissArchMismatch")}
+                </button>
               </div>
             )}
 

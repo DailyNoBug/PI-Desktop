@@ -1789,6 +1789,16 @@ export const zhTW = {
     fatal: "無法連線本地服務",
     unsupportedGlibc:
       "目前 Linux 建置需要 glibc 2.35 或更新版本（Ubuntu 22.04、Debian 12、Fedora 36+）。",
+    dbSchemaTooNew:
+      "目前的 PI-Desktop 比本機資料更舊（資料庫 schema {{found}}，此版本僅支援 {{supported}}）。請安裝上次開啟這些資料的較新版本，或更高版本。",
+    archMismatch:
+      "目前安裝的是 {{buildArch}} 版本，而這台機器是 {{machineArch}}，需要透過轉譯執行，速度較慢。請改裝 {{machineArch}} 版本。",
+    dismissArchMismatch: "知道了",
+    archNames: {
+      darwin: { x64: "Intel", arm64: "Apple Silicon" },
+      win32: { x64: "x64", arm64: "ARM64" },
+      linux: { x64: "x64", arm64: "ARM64" },
+    },
     openLogs: "開啟日誌",
   },
   toast: {

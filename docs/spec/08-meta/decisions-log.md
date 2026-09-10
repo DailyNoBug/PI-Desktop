@@ -4201,6 +4201,23 @@ D193, and D194.
   configuration, or unrelated recovery policy changes. See ADR 0206 and
   E2E-096 / E2E-149.
 
+## 2026-09-10 — Name downgraded and non-native builds at boot (D380)
+
+- Installing 0.14.5 over a data directory that 0.14.6-rc.4 had migrated to
+  schema 14 produced three silent host restarts and "Can't reach the local
+  service"; only `logs/host/runtime.log` said `database schema version 14 is
+  newer than supported 13`. An Intel macOS build on Apple Silicon likewise ran
+  under Rosetta with no hint.
+- Decision D380 extends the Linux glibc guard pattern (E2E-195): Electron
+  parses host-core's schema refusal from the last stderr, stops supervising on
+  the first failure, and pushes `hostStatus` with `DB_SCHEMA_TOO_NEW` plus both
+  schema numbers so the banner can say which version to install. Boot also
+  detects a non-native build (`sysctl.proc_translated` on macOS, `os.machine()`
+  elsewhere) and ships `archMismatch` on the boot status; the renderer shows a
+  dismissible hint naming Intel / Apple Silicon. No new error code: both keep
+  `HOST_UNAVAILABLE` and reuse the status-token `message` channel. No downward
+  migration is attempted. See E2E-239 / E2E-240.
+
 ## 2026-09-10 — Allow three same-path mutation recovery failures (D379)
 
 - The previous repeat guard ended a prompt after two counted failures on one

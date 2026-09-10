@@ -82,6 +82,23 @@ not a restart loop: the UI names those releases instead of "Can't reach the
 local service". The Linux tag job must not use a newer runner that would raise
 the needed glibc.
 
+Two more boot outcomes are named rather than left as a generic outage (D380):
+
+- **Downgraded build.** host-core refuses a data directory whose SQLite schema
+  is newer than the build supports (`database schema version N is newer than
+  supported M` on stderr). Electron parses that line from the last stderr
+  before exit, stops the restart loop on the first failure, and pushes
+  `hostStatus` with `message: "DB_SCHEMA_TOO_NEW"` and both numbers. The banner
+  tells the user to install the newer PI-Desktop that last opened this data.
+  No data is migrated down.
+- **Non-native build.** At boot Electron compares `process.arch` with the CPU
+  (on macOS via `sysctl.proc_translated`, which is `1` only under Rosetta 2;
+  elsewhere via `os.machine()`). A mismatch rides on the boot `hostStatus` as
+  `archMismatch` even when boot succeeded, and the renderer shows a dismissible
+  hint naming the build (Intel / Apple Silicon on macOS) and the matching
+  download. An arm64 build on an Intel Mac never launches, so only the
+  Intel-on-Apple-Silicon direction is detectable.
+
 Windows packages target x64. The Windows host-core build uses the
 `x86_64-pc-windows-msvc` target with `target-feature=+crt-static`, so the NSIS
 package does not require a separately installed Visual C++ Redistributable to

@@ -9212,6 +9212,38 @@ are withdrawn with ADR 0165.
 - **Status**: unit-covered by `crates/host-core/src/rpc/mod.rs`
   (`temporary_session_uses_its_own_scratch_workspace`)
 
+#### E2E-239: An older build names the newer data schema instead of looping
+
+- **Preconditions**: a data directory last opened by a newer PI-Desktop whose
+  host-core migrated it past the schema this build supports.
+- **Steps**: 1) Launch the older packaged app on that data directory.
+  2) Observe the banner and `logs/app/runtime.log`.
+- **Expected**: host-core exits once; no further restart attempts are logged.
+  The fatal banner says this PI-Desktop is older than the local data, shows
+  both schema numbers, and tells the user to install the newer version. The
+  data directory is not modified.
+- **Specs linked**: `03-runtime/07-process-model.md` (boot outcomes)
+- **Acceptance**: B
+- **Milestone**: M3+
+- **Status**: source-contract covered by
+  `apps/desktop/test/host-boot-diagnostics.test.mjs`
+
+#### E2E-240: An Intel macOS build on Apple Silicon points at the native download
+
+- **Preconditions**: Apple Silicon Mac; the x64 macOS package installed and
+  running under Rosetta 2.
+- **Steps**: 1) Launch the app. 2) Read the banner under the title bar.
+  3) Click its dismiss action.
+- **Expected**: The app boots normally. A dismissible hint says this is the
+  Intel build on an Apple Silicon machine and asks the user to install the
+  Apple Silicon build. Dismissing hides it for the session; the native arm64
+  package shows no hint.
+- **Specs linked**: `03-runtime/07-process-model.md` (boot outcomes)
+- **Acceptance**: B
+- **Milestone**: M3+
+- **Status**: source-contract covered by
+  `apps/desktop/test/host-boot-diagnostics.test.mjs`
+
 ## Remote Agent Control target scenarios (post-MVP)
 
 The following scenarios require the approved remote harness. They are

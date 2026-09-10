@@ -1779,6 +1779,16 @@ export const de = {
     "fatal": "Kann den lokalen Dienst nicht erreichen",
     "unsupportedGlibc":
       "Diese Linux-Version benötigt glibc 2.35 oder neuer (Ubuntu 22.04, Debian 12, Fedora 36+).",
+    "dbSchemaTooNew":
+      "Diese PI-Desktop-Version ist älter als Ihre lokalen Daten (Datenschema {{found}}, diese Version unterstützt {{supported}}). Installieren Sie die neuere PI-Desktop-Version, die diese Daten zuletzt geöffnet hat, oder eine spätere.",
+    "archMismatch":
+      "Dies ist die {{buildArch}}-Version auf einem {{machineArch}}-Rechner; sie läuft übersetzt und daher langsamer. Installieren Sie stattdessen die {{machineArch}}-Version.",
+    "dismissArchMismatch": "Ausblenden",
+    "archNames": {
+      "darwin": { "x64": "Intel", "arm64": "Apple Silicon" },
+      "win32": { "x64": "x64", "arm64": "ARM64" },
+      "linux": { "x64": "x64", "arm64": "ARM64" },
+    },
     "openLogs": "Offene Protokolle"
   },
   "toast": {

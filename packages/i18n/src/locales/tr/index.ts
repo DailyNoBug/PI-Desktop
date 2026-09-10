@@ -1816,6 +1816,16 @@ export const tr = {
     fatal: "Yerel servise ulaşılamıyor",
     unsupportedGlibc:
       "Bu Linux sürümü glibc 2.35 veya daha yenisini gerektirir (Ubuntu 22.04, Debian 12, Fedora 36+).",
+    dbSchemaTooNew:
+      "Bu PI-Desktop sürümü yerel verilerinizden daha eski (veri şeması {{found}}, bu sürüm {{supported}} destekliyor). Bu verileri en son açan daha yeni PI-Desktop sürümünü veya sonrasını yükleyin.",
+    archMismatch:
+      "Bu, {{machineArch}} makinede çalışan {{buildArch}} sürümü; çeviri üzerinden çalıştığı için daha yavaş. Bunun yerine {{machineArch}} sürümünü yükleyin.",
+    dismissArchMismatch: "Kapat",
+    archNames: {
+      darwin: { x64: "Intel", arm64: "Apple Silicon" },
+      win32: { x64: "x64", arm64: "ARM64" },
+      linux: { x64: "x64", arm64: "ARM64" },
+    },
     openLogs: "Günlükleri aç",
   },
   toast: {
