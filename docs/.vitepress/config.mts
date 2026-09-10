@@ -151,6 +151,7 @@ const enNav: DefaultTheme.NavItem[] = [
   { text: 'Specs', link: '/spec/README' },
   { text: 'ADRs', link: '/adr/README' },
   { text: 'Plugin guide', link: '/plugin-development' },
+  { text: 'Privacy policy', link: '/privacy-policy' },
   { text: 'GitHub', link: 'https://github.com/vastsa/PI-Desktop' },
 ]
 
@@ -159,6 +160,7 @@ const zhNav: DefaultTheme.NavItem[] = [
   { text: '规格', link: '/zh-CN/spec/README' },
   { text: 'ADR', link: '/zh-CN/adr/' },
   { text: '插件开发', link: '/zh-CN/plugin-development' },
+  { text: '隐私政策（英文）', link: '/privacy-policy' },
   { text: 'GitHub', link: 'https://github.com/vastsa/PI-Desktop' },
 ]
 
