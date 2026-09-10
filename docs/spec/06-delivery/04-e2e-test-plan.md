@@ -7736,6 +7736,10 @@ This test plan spec is accepted when:
      configured catalog. Switch the picker to **Inherit session model**, save,
      and confirm the draft's `model` field is empty and the sidecar falls back
      to the session model.
+  5a. In the open model menu, confirm the list scrolls inside the menu and
+     never runs past the window edge, and that typing in the filter field
+     narrows the rows (including by provider name). Confirm the menu is not an
+     OS-drawn select popup: it stays inside the sheet's own layer.
   6. Disable every provider that contributes a model. Reopen
      the editor, expand Advanced, and confirm the model field renders an
      empty state with an action button instead of a free-text input, and that

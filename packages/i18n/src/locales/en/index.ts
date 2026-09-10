@@ -1805,6 +1805,8 @@ export const en = {
       modelPickHint: "Optional. Only models that are reachable in your Settings show up here.",
       modelPickEmpty: "No configured model is available yet. Add one in Models.",
       modelPickEmptyAction: "Open Models",
+      modelSearch: "Filter models",
+      modelNoMatches: "No matching models.",
       modelPickGroup: "{{provider}} models",
       sheetNote: "Saved as a markdown file you can edit outside the app.",
       empty: "No subagents of your own yet",

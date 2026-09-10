@@ -1806,6 +1806,8 @@ export const tr = {
       modelPickHint: "İsteğe bağlı. Yalnızca Ayarlar'da erişilebilir durumdaki modeller listelenir.",
       modelPickEmpty: "Henüz yapılandırılmış bir model yok. Modeller'den bir tane ekleyin.",
       modelPickEmptyAction: "Modeller'i aç",
+      modelSearch: "Modelleri filtrele",
+      modelNoMatches: "Eşleşen model yok.",
       modelPickGroup: "{{provider}} modelleri",
       sheetNote: "Uygulama dışında düzenleyebileceğiniz bir markdown dosyası olarak kaydedilir.",
       empty: "Henüz kendi alt ajanınız yok",

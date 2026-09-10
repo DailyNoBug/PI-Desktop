@@ -1769,6 +1769,8 @@ export const fr = {
       "modelPickHint": "Facultatif. Seuls les modèles joignables depuis les Paramètres sont listés.",
       "modelPickEmpty": "Aucun modèle configuré n’est disponible. Ajoutez-en un dans Modèles.",
       "modelPickEmptyAction": "Ouvrir Modèles",
+      "modelSearch": "Filtrer les modèles",
+      "modelNoMatches": "Aucun modèle correspondant.",
       "modelPickGroup": "Modèles {{provider}}",
       "sheetNote": "Enregistré en tant que fichier markdown que vous pouvez modifier en dehors de l'application.",
       "empty": "Aucun sous-agent pour l'instant",

@@ -1769,6 +1769,8 @@ export const de = {
       "modelPickHint": "Optional. Nur Modelle, die in den Einstellungen erreichbar sind, werden angezeigt.",
       "modelPickEmpty": "Es ist noch kein konfiguriertes Modell verfügbar. Fügen Sie eines in Modelle hinzu.",
       "modelPickEmptyAction": "Modelle öffnen",
+      "modelSearch": "Modelle filtern",
+      "modelNoMatches": "Keine passenden Modelle.",
       "modelPickGroup": "{{provider}}-Modelle",
       "sheetNote": "Als Markdown-Datei gespeichert, die Sie außerhalb der App bearbeiten können.",
       "empty": "Noch keine eigenen Subagenten",

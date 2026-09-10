@@ -1769,6 +1769,8 @@ export const es = {
       "modelPickHint": "Opcional. Aquí solo aparecen modelos disponibles en Configuración.",
       "modelPickEmpty": "Aún no hay ningún modelo configurado. Añada uno en Modelos.",
       "modelPickEmptyAction": "Abrir Modelos",
+      "modelSearch": "Filtrar modelos",
+      "modelNoMatches": "No hay modelos coincidentes.",
       "modelPickGroup": "Modelos de {{provider}}",
       "sheetNote": "Guardado como un archivo de rebajas que puede editar fuera de la aplicación.",
       "empty": "Aún no hay subagentes propios",

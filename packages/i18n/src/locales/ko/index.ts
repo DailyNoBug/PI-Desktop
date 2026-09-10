@@ -1806,6 +1806,8 @@ export const ko = {
       modelPickHint: "선택 사항. 설정에서 연결 가능한 모델만 표시됩니다.",
       modelPickEmpty: "아직 구성된 모델이 없습니다. 모델 설정에서 하나를 추가하세요.",
       modelPickEmptyAction: "모델 설정 열기",
+      modelSearch: "모델 필터",
+      modelNoMatches: "일치하는 모델이 없습니다.",
       modelPickGroup: "{{provider}} 모델",
       sheetNote: "앱 밖에서도 편집할 수 있는 Markdown 파일로 저장됩니다.",
       empty: "내 서브에이전트가 아직 없음",

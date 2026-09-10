@@ -266,7 +266,7 @@ test("a pin that is no longer configured stays selectable", () => {
   assert.equal(subagentModelOrphanPin("openai/gpt-5", choices), "openai/gpt-5");
 });
 
-test("the editor model field is a configured-only select with an empty-state action", async () => {
+test("the editor model field is a configured-only searchable picker with an empty-state action", async () => {
   const source = await readFile(
     new URL("../src/components/settings/SubagentEditorSheet.tsx", import.meta.url),
     "utf8",
@@ -275,9 +275,12 @@ test("the editor model field is a configured-only select with an empty-state act
     source.indexOf('label={t("extensions.subagents.model")}'),
     source.indexOf('label={t("extensions.subagents.thinking")}'),
   );
-  assert.match(modelField, /<Select/);
-  assert.match(modelField, /<optgroup/);
-  assert.match(modelField, /extensions\.subagents\.modelInherit/);
+  // A definition may pin any configured model, so the list is long enough that
+  // a native <select> cannot serve it: the field is an anchored menu with a
+  // filter field and its own scroll bound.
+  assert.match(modelField, /<SubagentModelPicker/);
+  assert.doesNotMatch(modelField, /<Select/);
+  assert.doesNotMatch(modelField, /<optgroup/);
   assert.match(modelField, /extensions\.subagents\.modelPickEmpty/);
   assert.match(modelField, /extensions\.subagents\.modelPickEmptyAction/);
   assert.match(modelField, /setSettingsTab\("agent"\)/);
@@ -286,6 +289,38 @@ test("the editor model field is a configured-only select with an empty-state act
   assert.doesNotMatch(modelField, /modelPickCustom/);
   assert.match(source, /subagentModelChoices\(providers\)/);
   assert.match(source, /resetSubagentTemplate\(draft\)/);
+});
+
+test("the model menu scrolls inside itself and filters, instead of using an OS-drawn list", async () => {
+  const picker = await readFile(
+    new URL("../src/components/settings/SubagentModelPicker.tsx", import.meta.url),
+    "utf8",
+  );
+  // The anchored surface is what gives the list its own scroll bound; an
+  // OS-drawn <select> popup runs off the window instead.
+  assert.match(picker, /<AnchoredMenu/);
+  assert.match(picker, /provider-service-menu/);
+  assert.match(picker, /provider-service-results/);
+  // A filter field, so a long list is searchable rather than only scrollable.
+  assert.match(picker, /extensions\.subagents\.modelSearch/);
+  assert.match(picker, /extensions\.subagents\.modelNoMatches/);
+  // Grouped by provider, like the composer and the default-model picker.
+  assert.match(picker, /provider-service-group/);
+  // Inherit-session is the empty value, so Enter cannot test it for truthiness.
+  assert.match(picker, /visibleIds\.includes\(activeId\)/);
+});
+
+test("the shared option-menu styles bound the list height and let it scroll", async () => {
+  const styles = await readFile(
+    new URL("../src/styles/model-config.css", import.meta.url),
+    "utf8",
+  );
+  const results = styles.match(/\.provider-service-results \{([^}]*)\}/);
+  assert.ok(results, ".provider-service-results rule is missing");
+  assert.match(results[1], /overflow-y:\s*auto/);
+  const menu = styles.match(/\.provider-service-menu \{([^}]*)\}/);
+  assert.ok(menu, ".provider-service-menu rule is missing");
+  assert.match(menu[1], /max-height:/);
 });
 
 test("the editor exposes the no-pass thinking option", async () => {

@@ -358,9 +358,12 @@ system while preserving their different data ownership:
   the width with evenly divided segments, search sits below it, and the
   actions wrap left-aligned. Group headers drop the resolved path so row copy
   keeps the width.
-- The Subagents create/edit sheet pins a model with a select of the same
-  configured, runnable models the Composer offers, grouped by provider, plus
-  an inherit-session option. Its thinking selector offers inherit-session,
+- The Subagents create/edit sheet pins a model with a searchable, provider-
+  grouped anchored menu — the same option-menu control the service picker uses
+  — over the configured, runnable models the Composer offers, plus an
+  inherit-session option. A native `<select>` cannot serve this list: an
+  install can configure dozens of models, and only an anchored surface scrolls
+  inside itself and accepts a filter. Its thinking selector offers inherit-session,
   do-not-send, and the seven canonical levels. Every option comes from the
   configured provider catalog, so the sheet never accepts a hand-typed model
   id; when no provider offers a runnable model it shows an empty state whose
