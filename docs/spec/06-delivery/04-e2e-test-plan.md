@@ -6073,6 +6073,7 @@ Each scenario is documented in this format:
 | Post-MVP | E2E-022A, E2E-022B, E2E-022C, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M (plugin roadmap R2/R3/R6) |
 | Post-baseline local automation | E2E-220 |
 | Post-MVP remote control | E2E-221, E2E-222, E2E-223, E2E-224, E2E-225, E2E-226, E2E-227, E2E-228, E2E-229, E2E-230, E2E-231, E2E-232 |
+| Trusted extensions (R7 v1) | E2E-236, E2E-237, E2E-238, E2E-239, E2E-240 |
 
 The `US-UI-*` visual scenarios (§UI shell visual scenarios) trace to the
 Codex parity decisions in [decisions-log §D](../08-meta/decisions-log.md)
@@ -9394,3 +9395,111 @@ browser milestones are scheduled.
 - **Acceptance**: Security, Quality
 - **Milestone**: Post-MVP (rollout R3)
 - **Status**: Draft; integration fixture required
+
+## Trusted extension scenarios (R7 v1)
+
+The following scenarios are the acceptance targets of D378 / ADR 0207 and
+`07-plugins/16-trusted-extensions.md`. They use a fixture directory of
+sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
+
+#### E2E-236: Discovery lists trusted extensions and enablement is explicit
+
+- **Preconditions**: A temp home with `~/.pi/agent/extensions/hello.ts` and a
+  trusted fixture project with `.pi/extensions/project-tool/index.ts`; an
+  untrusted second project with the same layout.
+- **Steps**: 1) Open Settings → Extensions → Extensions. 2) Rescan. 3) Open a
+  session in the trusted project and send a prompt. 4) Enable `hello.ts` and
+  `project-tool`. 5) Send a prompt. 6) Switch to the untrusted project and
+  rescan. 7) Delete `hello.ts` on disk and rescan.
+- **Expected**: Both candidates appear disabled with source path and scope
+  chips and a trust notice; before enabling, no extension tool is in the
+  session catalog; after enabling, the next turn lists the extension tools
+  and the entries show `loaded`; the untrusted project's entry stays listed
+  but never loads and the diagnostic names project trust; the deleted entry
+  shows `missing` and keeps its enabled flag until removed;
+  `~/.pi/agent/settings.json` is never written.
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §2, §3, §11; D007; D378
+- **Acceptance**: Security, Quality
+- **Milestone**: Post-MVP (R7 v1)
+- **Status**: Draft
+
+#### E2E-237: Extension tools and hooks take effect in a turn
+
+- **Preconditions**: An enabled fixture extension that registers tool `fx_add`,
+  handles `before_agent_start` by appending a marker to the system prompt,
+  `tool_call` by blocking `bash` with a reason, and `tool_result` by
+  replacing `fx_add` output.
+- **Steps**: 1) Start a turn in Agent mode whose fixture model calls `fx_add`
+  then `bash`. 2) Inspect the provider request. 3) Inspect the tool results.
+  4) Switch to Plan mode and repeat. 5) Register a second extension declaring
+  a tool named `read`.
+- **Expected**: The system prompt carries the marker; `fx_add` executes in the
+  sidecar with no permission prompt and its result is the replaced value;
+  `bash` is blocked with the extension's reason and the block is visible in
+  the transcript; an audit line records extension id, tool name, and duration
+  and no parameters; in Plan mode `fx_add` follows the non-core mode gate;
+  the `read` collision is rejected with a diagnostic and the core tool is
+  unchanged.
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §6, §7; ADR 0207
+- **Acceptance**: B (agent), Security, Quality
+- **Milestone**: Post-MVP (R7 v1)
+- **Status**: Draft
+
+#### E2E-238: Extension commands and UI prompts round-trip through the renderer
+
+- **Preconditions**: An enabled fixture extension registering command `greet`
+  that calls `ui.input`, then `ui.select`, then `ui.confirm`, then
+  `ui.notify`, and renames the session.
+- **Steps**: 1) Open global search and inspect the Commands section. 2) Run
+  `/greet` from the composer. 3) Answer each prompt. 4) Run `/greet` again and
+  abort the turn while the input prompt is open. 5) Run `/greet` with no
+  active session. 6) Attach a remote controller (fixture) and run `/greet`.
+- **Expected**: `greet` is listed after built-in and plugin commands with the
+  extension label; each prompt shows the extension label and path; answers
+  reach the extension in order; the toast appears; the session is renamed
+  and `session_info_changed` fires; the aborted prompt resolves `undefined`
+  and the command ends; with no session the entry is disabled with a tooltip;
+  under remote control the prompt fails with `UNSUPPORTED` and the command
+  reports it.
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §8, §9, §10;
+  `07-plugins/09-plugin-command-palette.md`
+- **Acceptance**: A (app control), Quality
+- **Milestone**: Post-MVP (R7 v1)
+- **Status**: Draft
+
+#### E2E-239: Unsupported APIs, load errors, and handler timeouts degrade to diagnostics
+
+- **Preconditions**: Three enabled fixture extensions: one importing
+  `@earendil-works/pi-tui` at top level and calling `ui.setWidget`; one whose
+  module throws at load; one whose `context` handler never resolves.
+- **Steps**: 1) Start a turn. 2) Open the diagnostics drawer for each entry.
+  3) Wait past the 30 s handler limit. 4) Disable the throwing extension and
+  start another turn.
+- **Expected**: The pi-tui import succeeds, `setWidget` returns an inert
+  `dispose`, and one diagnostic per member is recorded; the throwing
+  extension shows `error` with message and stack, the composer shows a
+  one-line notice, and the other extensions still load; the stalled handler
+  is abandoned after 30 s with a diagnostic and the turn completes with the
+  unmodified context; after disabling, the notice disappears at the next turn
+  boundary and no running turn was interrupted.
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §4.2, §4.4, §5, §6
+- **Acceptance**: Quality
+- **Milestone**: Post-MVP (R7 v1)
+- **Status**: Draft
+
+#### E2E-240: The packaged sidecar loads a TypeScript extension through jiti
+
+- **Preconditions**: A packaged build of the desktop app; a fixture
+  `~/.pi/agent/extensions/typed.ts` that uses TypeScript syntax, imports
+  `@earendil-works/pi-coding-agent` and `typebox`, and registers a tool.
+- **Steps**: 1) Launch the packaged app. 2) Enable `typed.ts`. 3) Start a
+  turn whose fixture model calls the tool. 4) Inspect the sidecar bundle
+  manifest for the three pi package versions.
+- **Expected**: The extension loads without a transpile or resolution error;
+  the aliased imports resolve to the sidecar's copies; the tool executes;
+  the three pi package versions are identical and the CI version-lock check
+  passes.
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §4.2, §13; ADR 0207
+- **Acceptance**: Quality, Release
+- **Milestone**: Post-MVP (R7 v1, delivered first as the bundling spike)
+- **Status**: Draft

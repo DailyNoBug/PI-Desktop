@@ -218,3 +218,4 @@ Each ADR includes:
 | 0204 | Explicit unsigned macOS first-launch helper | Accepted |
 | 0205 | Remote Agent Control uses a dedicated Host boundary | Accepted for implementation (post-MVP; amended by D374, D375, and D376) |
 | 0206 | Persist the Host-owned turn queue in host-core | Accepted |
+| 0207 | Trusted extensions run in the Agent sidecar | Accepted for implementation |

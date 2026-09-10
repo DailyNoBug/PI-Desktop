@@ -4196,3 +4196,24 @@ D193, and D194.
   queue is retired, and its "send now" becomes RACP `turn/prioritize` plus
   a graceful stop.
 
+
+## 2026-09-10 — Trusted extensions run in the Agent sidecar (D378)
+
+- Plugins are sandboxed and run outside the agent, which is right for
+  distributed, untrusted code but leaves no surface for code that must sit
+  on the agent loop itself: tools that execute in-process, hooks on every
+  turn and provider request, and slash commands with session context.
+- Decision D378 / ADR 0207 adds trusted extensions as the second extension
+  surface. The contract is the `ExtensionAPI` of `pi-coding-agent`, adopted
+  at the same pinned version as `pi-ai` and `pi-agent-core`; the sidecar
+  reuses its loader and `ExtensionRunner`, one Runner per session, with the
+  API implemented over the runtime's existing hooks. Extensions are labelled
+  "Trusted extension", disabled until the user enables each entry, and
+  discovered from `~/.pi/agent/extensions`, `<workspace>/.pi/extensions`, or
+  a manual path; D007 stays: `~/.pi` is never imported. Every API member is
+  Supported, Deferred (v2), or Unsupported; unsupported members are inert
+  with a diagnostic and never throw; terminal-UI surfaces stay unsupported.
+  Plugins, host-core RPC, protocol version, and schema are untouched in v1;
+  the new traffic is sidecar proxy methods and Electron IPC. Delivery starts
+  with the bundling spike (E2E-240). Spec:
+  `07-plugins/16-trusted-extensions.md`; scenarios E2E-236 to E2E-240.

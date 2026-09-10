@@ -4541,6 +4541,7 @@ IPC 请求无法关闭。
 | 后MVP | E2E-022A、E2E-022B、E2E-022C、E2E-024I、E2E-024J、E2E-024K、E2E-024L、E2E-024M（插件路线图 R2/R3/R6） |
 | 基线后本地自动化 | E2E-220 |
 | MVP 后远程控制 | E2E-221、E2E-222、E2E-223、E2E-224、E2E-225、E2E-226、E2E-227、E2E-228、E2E-229、E2E-230、E2E-231、E2E-232 |
+| 受信任扩展（R7 v1） | E2E-236、E2E-237、E2E-238、E2E-239、E2E-240 |
 
 `US-UI-*` 视觉场景（§UI shell 视觉场景）追踪到
 [决策日志 §D](/zh-CN/spec/08-meta/decisions-log) 中的法典平价决策
@@ -6225,3 +6226,87 @@ IPC 请求无法关闭。
 - **里程碑**：M6+
 - **状态**：由 `apps/desktop/test/mcp-control.test.mjs` 覆盖 MCP 协议/单元；完整 Electron
   旅程已记录，仍按策略延后
+
+## 受信任扩展场景（R7 v1）
+
+以下场景是 D378 / ADR 0207 与 `07-plugins/16-trusted-extensions.md` 的验收目标，
+使用 `apps/desktop/test/fixtures/pi-extensions/` 下的样例扩展夹具目录。
+
+#### E2E-236：发现列出受信任扩展，启用是显式的
+
+- **前置条件**：临时 home 含 `~/.pi/agent/extensions/hello.ts`；一个受信任夹具项目含
+  `.pi/extensions/project-tool/index.ts`；一个同样布局的未信任项目。
+- **步骤**：1）打开设置 → 扩展 → 扩展。2）重新扫描。3）在受信任项目打开会话并发送
+  提示。4）启用 `hello.ts` 与 `project-tool`。5）发送提示。6）切换到未信任项目并
+  重新扫描。7）在磁盘上删除 `hello.ts` 并重新扫描。
+- **预期**：两个候选以禁用状态出现，带来源路径、范围标记和信任说明；启用前会话
+  目录中没有扩展工具；启用后下一回合列出扩展工具且条目显示 `loaded`；未信任项目
+  的条目保持列出但永不加载，诊断指明项目信任；被删除的条目显示 `missing` 且在
+  移除前保留启用标记；`~/.pi/agent/settings.json` 永不被写入。
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §2、§3、§11；D007；D378
+- **验收**：安全、质量
+- **里程碑**：MVP 后（R7 v1）
+- **状态**：草稿
+
+#### E2E-237：扩展工具与 hooks 在回合中生效
+
+- **前置条件**：一个已启用的夹具扩展，注册工具 `fx_add`，在 `before_agent_start`
+  向系统提示追加标记，在 `tool_call` 以理由阻止 `bash`，在 `tool_result` 替换
+  `fx_add` 的输出。
+- **步骤**：1）在 Agent 模式开始一个回合，夹具模型先调用 `fx_add` 再调用 `bash`。
+  2）检查 provider 请求。3）检查工具结果。4）切换到 Plan 模式重复。5）注册第二个
+  声明名为 `read` 的工具的扩展。
+- **预期**：系统提示带有标记；`fx_add` 在 sidecar 内执行，无权限提示，结果为替换
+  值；`bash` 以扩展的理由被阻止，且阻止在记录中可见；审计记录含扩展 id、工具名
+  和耗时，不含参数；Plan 模式下 `fx_add` 遵循非核心模式门控；`read` 冲突被拒绝并
+  记诊断，核心工具不变。
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §6、§7；ADR 0207
+- **验收**：B（agent）、安全、质量
+- **里程碑**：MVP 后（R7 v1）
+- **状态**：草稿
+
+#### E2E-238：扩展命令与 UI 提示经渲染层往返
+
+- **前置条件**：一个���启用的夹具扩展，注册命令 `greet`，依次调用 `ui.input`、
+  `ui.select`、`ui.confirm`、`ui.notify`，并重命名会话。
+- **步骤**：1）打开全局搜索并检查 Commands 区。2）在 composer 运行 `/greet`。
+  3）回答每个提示。4）再次运行 `/greet` 并在输入提示打开时中止回合。5）在没有活动
+  会话时运行 `/greet`。6）连接远程控制器（夹具）并运行 `/greet`。
+- **预期**：`greet` 排在内置与插件命令之后并带扩展标签；每个提示显示扩展标签与
+  路径；回答按顺序到达扩展；toast 出现；会话被重命名且 `session_info_changed`
+  触发；被中止的提示解析为 `undefined` 且命令结束；无会话时条目禁用并带提示；远程
+  控制下提示以 `UNSUPPORTED` 失败且命令报告该错误。
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §8、§9、§10；
+  `07-plugins/09-plugin-command-palette.md`
+- **验收**：A（应用控制）、质量
+- **里程碑**：MVP 后（R7 v1）
+- **状态**：草稿
+
+#### E2E-239：不支持的 API、加载错误与处理器超时降级为诊断
+
+- **前置条件**：三个已启用的夹具扩展：一个在顶层导入 `@earendil-works/pi-tui` 并
+  调用 `ui.setWidget`；一个模块在加载时抛出；一个 `context` 处理器永不返回。
+- **步骤**：1）开始一个回合。2）打开每个条目的诊断抽屉。3）等待超过 30 秒处理器
+  限制。4）禁用抛出的扩展并开始另一个回合。
+- **预期**：pi-tui 导入成功，`setWidget` 返回惰性 `dispose`，每个成员记录一条诊断；
+  抛出的扩展显示 `error` 及消息和堆栈，composer 显示一行提示，其余扩展仍加载；
+  停滞的处理器在 30 秒后被放弃并记诊断，回合以未修改的上下文完成；禁用后提示在
+  下一回合边界消失，且没有运行中的回合被打断。
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§4.4、§5、§6
+- **验收**：质量
+- **里程碑**：MVP 后（R7 v1）
+- **状态**：草稿
+
+#### E2E-240：打包后的 sidecar 经 jiti 加载 TypeScript 扩展
+
+- **前置条件**：桌面应用的打包构建；夹具 `~/.pi/agent/extensions/typed.ts` 使用
+  TypeScript 语法，导入 `@earendil-works/pi-coding-agent` 与 `typebox`，并注册一个
+  工具。
+- **步骤**：1）启动打包应用。2）启用 `typed.ts`。3）开始一个夹具模型调用该工具的
+  回合。4）检查 sidecar 打包清单中三个 pi 包的版本。
+- **预期**：扩展加载无转译或解析错误；别名导入解析到 sidecar 的副本；工具执行；
+  三个 pi 包版本一致且 CI 版本锁检查通过。
+- **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§13；ADR 0207
+- **验收**：质量、发布
+- **里程碑**：MVP 后（R7 v1，作为打包 spike 首先交付）
+- **状态**：草稿
