@@ -50,6 +50,8 @@ import {
   composerModelBadges,
   composerModelDisplayName,
   composerModelMatchesQuery,
+  composerProviderDisplayName,
+  composerProviderSearchText,
   composerModelsForProvider,
 } from "../lib/composer-models";
 import {
@@ -1243,6 +1245,8 @@ export function Composer({
       );
       return {
         provider: candidate,
+        providerDisplayName: composerProviderDisplayName(candidate),
+        providerSearchText: composerProviderSearchText(candidate),
         models,
       };
     })
@@ -1253,7 +1257,11 @@ export function Composer({
         .map((group) => ({
           ...group,
           models: group.models.filter((model) =>
-            composerModelMatchesQuery(model, group.provider.name, modelQueryNeedle),
+            composerModelMatchesQuery(
+              model,
+              group.providerSearchText,
+              modelQueryNeedle,
+            ),
           ),
         }))
         .filter((group) => group.models.length > 0)
@@ -2495,10 +2503,10 @@ export function Composer({
                                     key={group.provider.id}
                                     className="composer-model-group"
                                     role="group"
-                                    aria-label={group.provider.name}
+                                    aria-label={group.providerDisplayName}
                                   >
                                     <div className="composer-model-group-label">
-                                      {group.provider.name}
+                                      {group.providerDisplayName}
                                     </div>
                                     {group.models.map((model) => {
                                       const index = flatIndex++;

@@ -2531,8 +2531,11 @@ there is no separate top-bar model selector.
   one display name only, falling back to the model ID when no display name is
   available. The native hover tooltip exposes that complete display name
   without resizing or reflowing the menu; the model ID is not rendered as a
-  second visible label. A configured alias is applied from the persisted
-  binding on both the initial and refreshed row.
+  second visible label. A configured model alias is applied from the persisted
+  binding on both the initial and refreshed row. For an OAuth provider, the
+  group heading uses its non-secret account label when present, so duplicate
+  vendor accounts remain distinguishable without appending the label to a
+  model row.
 
 ### 12.5 Accessibility
 
