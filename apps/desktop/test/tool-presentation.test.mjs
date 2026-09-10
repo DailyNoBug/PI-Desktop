@@ -299,8 +299,8 @@ test("Grep's other output modes and host notices stay readable", () => {
   const countBlocks = buildToolPresentation(counted, { hideSummaryArg: true });
   assert.deepEqual(roles(countBlocks), ["matches"]);
   assert.deepEqual(countBlocks[0].rows, [
-    { label: "src/a.ts", value: "2", filePath: "src/a.ts" },
-    { label: "src/b.ts", value: "5", filePath: "src/b.ts" },
+    { label: "src/a.ts", value: "2" },
+    { label: "src/b.ts", value: "5" },
   ]);
 
   // A scoping notice qualifies the block it follows and is not error-hued.

@@ -3,10 +3,7 @@ import { HighlightedCode, useCopy } from "./Markdown";
 import { IconCheck, IconCircleAlert, IconCopy, IconInfo } from "./icons";
 import { TooltipButton, cx } from "./ui";
 import { toWorkspaceRel } from "../lib/chat-links";
-import {
-  useOpenChatFileRef,
-  useOpenPreviewTarget,
-} from "../hooks/use-preview-target";
+import { useOpenPreviewTarget } from "../hooks/use-preview-target";
 import { useAppStore } from "../stores/app-store";
 import type { ToolBlock, ToolChip } from "../lib/tool-presentation";
 
@@ -82,103 +79,71 @@ function MoreNote({ hidden }: { hidden: number }) {
   );
 }
 
-/**
- * Every path in a file-shaped tool result is an action. Workspace paths use
- * the in-app viewer; allowed paths outside the workspace use the OS default
- * application. Keeping the raw path as the target avoids treating a leaf name
- * as display-only data when the result came from scratch or attachments.
- */
-function FilePathButton({
-  path,
-  className,
-  children,
-}: {
-  path: string;
-  className: string;
-  children: React.ReactNode;
-}) {
+/** A workspace path list (Glob results, plugin string arrays). */
+function FileList({ paths }: { paths: string[] }) {
   const { t } = useTranslation();
   const root = useAppStore((s) => s.workspace?.path);
   const openTarget = useOpenPreviewTarget();
-  const openFileRef = useOpenChatFileRef();
-  const rel = toWorkspaceRel(path, root);
-  const actionLabel = rel ? t("chat.previewFile") : t("chat.openFile");
-  return (
-    <TooltipButton
-      type="button"
-      className={cx(className, "is-linked")}
-      tooltip={actionLabel}
-      ariaLabel={`${actionLabel}: ${path}`}
-      onClick={() => {
-        if (rel) openTarget({ kind: "file", path: rel });
-        else openFileRef(path);
-      }}
-    >
-      {children}
-    </TooltipButton>
-  );
-}
-
-/** A workspace path list (Glob results, plugin string arrays). */
-function FileList({ paths }: { paths: string[] }) {
   return (
     <div className="tool-file-list">
-      {paths.map((path, index) => (
-        <FilePathButton
-          className="tool-file-item"
-          key={`${path}-${index}`}
-          path={path}
-        >
-          {path}
-        </FilePathButton>
-      ))}
+      {paths.map((path, index) => {
+        const rel = toWorkspaceRel(path, root);
+        if (!rel) {
+          return (
+            <span className="tool-file-item" key={`${path}-${index}`}>
+              {path}
+            </span>
+          );
+        }
+        return (
+          <TooltipButton
+            type="button"
+            className="tool-file-item is-linked"
+            key={`${path}-${index}`}
+            tooltip={t("chat.previewFile")}
+            onClick={() => openTarget({ kind: "file", path: rel })}
+          >
+            {path}
+          </TooltipButton>
+        );
+      })}
     </div>
   );
 }
 
 /** Grep hits grouped by file: the path opens, each line keeps its number. */
 function MatchList({ block }: { block: Extract<ToolBlock, { kind: "matches" }> }) {
+  const { t } = useTranslation();
+  const root = useAppStore((s) => s.workspace?.path);
+  const openTarget = useOpenPreviewTarget();
   return (
     <div className="tool-match-list">
-      {block.groups.map((group, index) => (
-        <div className="tool-match-group" key={`${group.path}-${index}`}>
-          <FilePathButton className="tool-match-path" path={group.path}>
-            {group.path}
-          </FilePathButton>
-          {group.lines.map((line, lineIndex) => (
-            <div className="tool-match-line" key={`${line.line}-${lineIndex}`}>
-              <span className="tool-match-line-no">{line.line}</span>
-              <span className="tool-match-line-text">{line.text}</span>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ToolFields({
-  rows,
-}: {
-  rows: Extract<ToolBlock, { kind: "fields" }>["rows"];
-}) {
-  return (
-    <dl className="tool-fields">
-      {rows.map((row) => (
-        <div className="tool-field" key={row.label}>
-          <dt className="tool-field-label">
-            {row.filePath ? (
-              <FilePathButton className="tool-field-label" path={row.filePath}>
-                {row.label}
-              </FilePathButton>
+      {block.groups.map((group, index) => {
+        const rel = toWorkspaceRel(group.path, root);
+        return (
+          <div className="tool-match-group" key={`${group.path}-${index}`}>
+            {rel ? (
+              <TooltipButton
+                type="button"
+                className="tool-match-path is-linked"
+                tooltip={t("chat.previewFile")}
+                onClick={() => openTarget({ kind: "file", path: rel })}
+              >
+                {group.path}
+              </TooltipButton>
             ) : (
-              row.label
+              <span className="tool-match-path">{group.path}</span>
             )}
-          </dt>
-          <dd className="tool-field-value">{row.value}</dd>
-        </div>
-      ))}
-    </dl>
+            {group.lines.map((line, lineIndex) => (
+              <div className="tool-match-line" key={`${line.line}-${lineIndex}`}>
+                <span className="tool-match-line-no">{line.line}</span>
+                <span className="tool-match-line-text">{line.text}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -225,7 +190,16 @@ function BlockBody({ block }: { block: ToolBlock }) {
         </>
       );
     case "fields":
-      return <ToolFields rows={block.rows} />;
+      return (
+        <dl className="tool-fields">
+          {block.rows.map((row) => (
+            <div className="tool-field" key={row.label}>
+              <dt className="tool-field-label">{row.label}</dt>
+              <dd className="tool-field-value">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      );
     case "note":
       return (
         <div className={cx("tool-note", block.role === "error" && "is-error")}>

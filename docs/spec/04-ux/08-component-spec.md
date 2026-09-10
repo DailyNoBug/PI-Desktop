@@ -1649,8 +1649,8 @@ twice.
 | Write | `Written content` — highlighted from the target extension |
 | Edit | `Changes` — compact diff, only when no ReviewChangeCard owns one |
 | Bash | `Output`, `Errors` (error hue), unframed and unlabelled (D227, §9.10); empty channels omitted. The command stays in the head; a PermissionCard, which has no head, still shows it as `Command` (shell) |
-| Glob | `Files` — every returned file path is clickable |
-| Grep | `Matches` — grouped by file with a `line` gutter and clickable path headings for `outputMode: content`; a clickable path list for `filesWithMatches`; clickable file-path labels with hit counts for `count` |
+| Glob | `Files` — clickable workspace paths |
+| Grep | `Matches` — grouped by file with a `line` gutter and clickable path headings for `outputMode: content`; a clickable path list for `filesWithMatches`; `path` → hit count fields for `count` |
 | any host `notice` | `Note` — neutral, after the blocks it qualifies (search scoping, clipped long lines, Read window) |
 | any failure | `Error` — message plus code, listed first |
 | unmapped payload | scalar entries as label/value fields; long or multi-line strings as their own labeled block; nested objects as JSON |
@@ -1672,10 +1672,7 @@ twice.
 - Code, file list, match list and field blocks: `font-mono text-sm`,
   independently copyable, capped at 260px with internal scrolling
 - File-list paths are block-level, start-aligned rows (same box as Grep path
-  headings). Every file path remains a button, including absolute paths and
-  allowed scratch/attachment paths; workspace paths preview in the work panel
-  and allowed external paths open with the system default application. A
-  full-width `<button>` must not justify the path's characters
+  headings). A full-width `<button>` must not justify the path's characters
   across the block.
 - Diff blocks reuse the review card's `.diff-line` rails
 - Only expanded content receives an inset surface and subtle border

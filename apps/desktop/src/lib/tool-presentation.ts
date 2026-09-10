@@ -67,12 +67,7 @@ export type ToolMatchGroup = {
   path: string;
   lines: { line: number; text: string }[];
 };
-export type ToolFieldRow = {
-  label: string;
-  value: string;
-  /** Set when the label is a file path that should open from the field row. */
-  filePath?: string;
-};
+export type ToolFieldRow = { label: string; value: string };
 
 type BlockBase = {
   role: ToolBlockRole;
@@ -385,7 +380,7 @@ function countsBlock(value: unknown): ToolBlock | null {
     const path = stringAt(record, "path", "file");
     const count = numberAt(record, "count");
     if (!path || count === null) continue;
-    rows.push({ label: path, value: String(count), filePath: path });
+    rows.push({ label: path, value: String(count) });
   }
   return rows.length > 0 ? { kind: "fields", role: "matches", rows } : null;
 }
