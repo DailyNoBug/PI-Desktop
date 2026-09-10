@@ -255,8 +255,11 @@ export function collectDelegationFailures(
   const failures = new Map<string, DelegationFailure>();
   for (const item of items) {
     if (item.kind !== "tool") continue;
+    // Read the row before the guard narrows `item` away: every tool item is a
+    // potential delegation node, so excluding them leaves TS with `never`.
+    const { message } = item;
     if (isDelegationActivityItem(item)) continue;
-    const payload = asRecord(toolResultPayload(item.message));
+    const payload = asRecord(toolResultPayload(message));
     if (!payload) continue;
     for (const entries of [payload.delegations, payload.stopped]) {
       if (!Array.isArray(entries)) continue;
