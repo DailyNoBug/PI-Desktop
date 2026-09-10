@@ -1209,6 +1209,13 @@ be a canonical thinking level, `omit`, or the empty string. The empty string
 clears the override; `omit` is persisted as `thinkingLevel: omit` and tells the
 runtime not to send a provider thinking override.
 
+The `model` field accepted by `agents.create` and `agents.update` must be a
+`<provider>/<model>` pin. The empty string clears the pin; a value with no
+provider half is rejected with `SUBAGENT_INVALID` instead of being stored,
+because no resolver could ever look it up. The provider half is matched by a
+normalized alias at both ends of the app, so a display name containing spaces
+is valid.
+
 Electron's `subagent/list` IPC channel exposes the same global-only list to
 Settings > Agent > Subagents. The runtime catalog combines these global user
 documents with its builtins; it does not scan `.pi/agents` or any project

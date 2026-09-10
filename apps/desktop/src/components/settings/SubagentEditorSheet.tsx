@@ -22,8 +22,10 @@ import {
   groupSubagentModelChoices,
   subagentModelChoices,
   subagentModelOrphanPin,
+  subagentModelPinParts,
   subagentModelSelectValue,
 } from "./subagent-models";
+import { SubagentModelPicker } from "./SubagentModelPicker";
 
 /** Hard cap host-core enforces on a definition document. */
 export const MAX_SUBAGENT_BYTES = 32 * 1024;
@@ -180,9 +182,14 @@ export function subagentDraftError(draft: SubagentDraft): string | null {
   if (!subagentSlug(draft.name)) return "extensions.subagents.errorSlug";
   if (!draft.description.trim()) return "extensions.subagents.errorDescription";
   if (draft.tools.length === 0) return "extensions.subagents.errorTools";
-  // `provider/model` is the only shape main can resolve; a bare model id has no
-  // provider to look up, so it would be dropped with a diagnostic nobody reads.
-  if (draft.model.trim() && !/^[^/\s]+\/.+$/.test(draft.model.trim())) {
+  // `provider/model` is the only shape the runtime can resolve; a bare model id
+  // has no provider to look up, so it would be dropped with a diagnostic nobody
+  // reads. Only the slash is structural: the provider half is matched by a
+  // normalized alias, and a custom endpoint's display name may contain spaces —
+  // the picker offers those, so rejecting them here would make a selectable
+  // option impossible to save. This shares the picker's own splitter so the two
+  // can never disagree.
+  if (draft.model.trim() && !subagentModelPinParts(draft.model.trim())) {
     return "extensions.subagents.errorModel";
   }
   // 0 is the cleared state, not an invalid one: a definition may leave the turn
@@ -326,9 +333,14 @@ function ManagementScope({
   );
 }
 
-const CUSTOM_SUBAGENT_MODEL_VALUE = "__custom__";
-
-/** Model and thinking controls for a subagent definition. */
+/**
+ * Model and thinking controls for a subagent definition.
+ *
+ * The model list offers only models the user already configured, so the value
+ * saved is always resolvable in Settings; there is no free-text escape hatch.
+ * When no provider offers a runnable model the field explains that and links to
+ * Models instead of accepting a hand-typed id the runtime could not resolve.
+ */
 function ModelField({
   draft,
   setDraft,
@@ -343,10 +355,7 @@ function ModelField({
   orphanModel: string | null;
 }) {
   const { t } = useTranslation();
-  const [customModel, setCustomModel] = useState(false);
-  const modelValue = customModel
-    ? CUSTOM_SUBAGENT_MODEL_VALUE
-    : subagentModelSelectValue(draft.model, modelChoices);
+  const modelValue = subagentModelSelectValue(draft.model, modelChoices);
 
   return (
     <>
@@ -360,46 +369,25 @@ function ModelField({
           }
         >
           {modelChoices.length === 0 ? (
-            <Input
-              value={draft.model}
-              placeholder={t("extensions.subagents.modelPickPlaceholder")}
-              aria-label={t("extensions.subagents.model")}
-              onChange={(event) =>
-                setDraft({ ...draft, model: event.target.value })
-              }
-            />
+            <div className="ext-field-empty">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  const store = useAppStore.getState();
+                  store.setSettingsTab("agent");
+                }}
+              >
+                {t("extensions.subagents.modelPickEmptyAction")}
+              </Button>
+            </div>
           ) : (
-            <Select
+            <SubagentModelPicker
               value={modelValue}
-              aria-label={t("extensions.subagents.model")}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (value === CUSTOM_SUBAGENT_MODEL_VALUE) {
-                  setCustomModel(true);
-                  setDraft({ ...draft, model: "" });
-                } else {
-                  setCustomModel(false);
-                  setDraft({ ...draft, model: value });
-                }
-              }}
-            >
-              <option value="">{t("extensions.subagents.modelInherit")}</option>
-              {modelGroups.map((group) => (
-                <optgroup key={group.providerId} label={group.providerName}>
-                  {group.choices.map((choice) => (
-                    <option key={choice.value} value={choice.value}>
-                      {choice.modelId}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-              {orphanModel ? (
-                <option value={orphanModel}>{orphanModel}</option>
-              ) : null}
-              <option value={CUSTOM_SUBAGENT_MODEL_VALUE}>
-                {t("extensions.subagents.modelPickCustom")}
-              </option>
-            </Select>
+              groups={modelGroups}
+              orphanPin={orphanModel}
+              onChange={(next) => setDraft({ ...draft, model: next })}
+            />
           )}
         </Field>
         <Field
@@ -427,21 +415,6 @@ function ModelField({
           </Select>
         </Field>
       </div>
-      {modelChoices.length > 0 && customModel ? (
-        <Field
-          label={t("extensions.subagents.modelPickCustom")}
-          hint={t("extensions.subagents.modelPickCustomHint")}
-        >
-          <Input
-            value={draft.model}
-            placeholder={t("extensions.subagents.modelPickPlaceholder")}
-            aria-label={t("extensions.subagents.modelPickCustom")}
-            onChange={(event) =>
-              setDraft({ ...draft, model: event.target.value })
-            }
-          />
-        </Field>
-      ) : null}
     </>
   );
 }

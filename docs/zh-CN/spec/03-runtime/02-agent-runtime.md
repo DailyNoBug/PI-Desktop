@@ -572,6 +572,11 @@ Electron main 里解析一次——凭据与 models.dev 快照都在那里——
 该引脚的工具错误，绝不回退到会话模型。定义中的 `thinkingLevel` 会按第 5c 节
 同样的"就近支持"规则，对照解析出的模型做钳制；特殊值 `omit` 故意
 不发送思考覆盖，把控制权留给提供商适配器自己的默认行为。
+`agents.create` 和 `agents.update` 只接受这种 `<provider>/<model>` 形状的引脚；
+缺少提供商部分的值会被拒绝并返回 `SUBAGENT_INVALID`，而不是被写入，因为运行时
+永远无法解析它。只有斜杠是结构性字符——提供商部分按归一化别名匹配，
+因此包含空格的显示名是合法的。
+
 
 **事件与上下文。** 委托发出的每个事件都在信封上携带 `parentToolCallId` 和
 `agentName`，Electron main 会把这两者一并复制到持久化的行上。运行时重建模型

@@ -702,6 +702,12 @@ error naming the pin, and never falls back to the session model. A definition's
 nearest-supported rule as §5c, except that the special `omit` value deliberately
 sends no thinking override and leaves the provider adapter's own default in
 control.
+`agents.create` and `agents.update` accept the pin only in that
+`<provider>/<model>` shape; a value without a provider half is rejected with
+`SUBAGENT_INVALID` rather than written, because the runtime could never resolve
+it. Only the slash is structural — the provider half is matched by a normalized
+alias, so a display name containing spaces is valid.
+
 
 **Events and context.** Every event a delegate emits carries
 `parentToolCallId` and `agentName` on its envelope, and Electron main copies both

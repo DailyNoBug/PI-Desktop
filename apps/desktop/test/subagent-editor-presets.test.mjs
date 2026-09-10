@@ -93,17 +93,27 @@ test("the model picker uses the configured provider catalog", () => {
   assert.match(editorSource, /subagentModelOrphanPin\(draft\.model, modelChoices\)/);
 });
 
-test("the model picker keeps existing pins visible", () => {
-  // A model that is no longer configured remains visible as an orphan option,
-  // so editing a definition does not silently clear its model pin.
+test("the model picker keeps existing pins visible", async () => {
+  // A model that is no longer configured remains selectable as an orphan row,
+  // so editing a definition does not silently clear its model pin. The option
+  // list moved into the picker component, so the orphan row is asserted there.
+  const pickerSource = await readFile(
+    new URL("../src/components/settings/SubagentModelPicker.tsx", import.meta.url),
+    "utf8",
+  );
   assert.match(editorSource, /subagentModelOrphanPin/);
-  assert.match(editorSource, /orphanModel \? \(/);
+  assert.match(editorSource, /orphanPin=\{orphanModel\}/);
+  assert.match(pickerSource, /orphanPin/);
 });
 
-test("the model picker keeps custom ids available without exposing opted-out bindings", () => {
-  assert.match(editorSource, /CUSTOM_SUBAGENT_MODEL_VALUE/);
-  assert.match(editorSource, /extensions\.subagents\.modelPickCustom/);
-  assert.match(editorSource, /extensions\.subagents\.modelPickCustomHint/);
+test("the model picker offers every configured provider model, with no free-text path", () => {
+  // The picker is the only way to set a model: every option comes from the
+  // configured provider catalog, so a saved pin is always resolvable.
+  assert.match(editorSource, /subagentModelChoices\(providers\)/);
+  assert.match(editorSource, /groupSubagentModelChoices\(modelChoices\)/);
+  assert.match(editorSource, /subagentModelOrphanPin\(draft\.model, modelChoices\)/);
+  assert.doesNotMatch(editorSource, /CUSTOM_SUBAGENT_MODEL_VALUE/);
+  assert.doesNotMatch(editorSource, /modelPickCustom/);
 });
 
 test("the editor styles ship with the picker", () => {
