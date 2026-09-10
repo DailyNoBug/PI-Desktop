@@ -231,4 +231,5 @@ Each ADR includes:
 | 0211 | Plan-safe plugin actions for read-only inspection | Accepted (amends 0052 / 0053 / 0170; D384) |
 | 0212 | Remove diagnostic timing log streams | Accepted (amends 0046 / D183) |
 | 0213 | Persist the Host-owned turn queue in host-core | Accepted |
-| 0214 | Trusted extensions run in the Agent sidecar | Accepted (v1 implemented) |
+| 0214 | Trusted extensions run in the Agent sidecar | Accepted (v1 implemented; amended by D388 / ADR 0215) |
+| 0215 | Agent extensions are a plugin contribution | Accepted (implemented) |

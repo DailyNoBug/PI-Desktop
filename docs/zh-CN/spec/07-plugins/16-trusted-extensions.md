@@ -2,65 +2,77 @@
 
 > **翻译说明：** 本页是与 [英文源规格](/spec/07-plugins/16-trusted-extensions) 一一对应的机器辅助翻译。代码、协议字段和标识符保持原文；如翻译与英文源事实有歧义，以英文版本为准。
 
-> 状态：v1 已实现（D387、ADR 0214）；实现说明标注为“v1 说明”
-> 范围：v1。v2 与 v3 事项列于 §12，不构成承诺。
+> 状态：v1.1 已实现（D387 / D388、ADR 0214 / ADR 0215）；实现说明标注为“v1 说明”
+> 范围：v1.1。v2 与 v3 事项列于 §12，不构成承诺。
 
 ## 1. 目的与术语
 
-PI-Desktop 有两个扩展面。插件
-（[01-plugin-system.md](/zh-CN/spec/07-plugins/01-plugin-system)）是沙箱化、由
-manifest 驱动、在 agent 之外运行的。受信任扩展是第二个扩展面：在 Agent sidecar
-内运行的 TypeScript 模块，接收一个 `ExtensionAPI` 对象，直接在 agent 循环上注册
-工具、命令和事件处理器。`ExtensionAPI` 契约即 `@earendil-works/pi-coding-agent`
-定义的契约，PI-Desktop 把它与 `pi-ai`、`pi-agent-core` 内核（ADR 0002）一起采纳为
-sidecar 内的扩展契约。本文规定这一扩展面。
+插件（[01-plugin-system.md](/zh-CN/spec/07-plugins/01-plugin-system)）是 PI-Desktop
+唯一的扩展面。本文规定其中一种插件贡献点 `contributes.agentExtensions`：在 Agent
+sidecar 内运行的 TypeScript 或 JavaScript 模块，接收一个 `ExtensionAPI` 对象，直接在
+agent 循环上注册工具、命令和事件处理器。`ExtensionAPI` 契约即
+`@earendil-works/pi-coding-agent` 定义的契约，PI-Desktop 与 `pi-ai`、`pi-agent-core`
+内核（ADR 0002）一起采纳，因此为 pi CLI 写的扩展就是插件贡献的模块。D388 把此前
+独立的“受信任扩展”注册表并入了这个贡献点；下文的引擎部分不变。
 
 | 术语 | 含义 |
 |---|---|
-| 受信任扩展 | 面向 `ExtensionAPI` 编写的模块，从扩展目录或带 `pi` manifest 字段的包中发现，以 Agent sidecar 的信任级别运行 |
-| 插件 | 带 manifest 的 PI-Desktop 插件，在独立进程中、权限网关之下运行（ADR 0008） |
+| Agent 扩展 | 插件在 `contributes.agentExtensions` 中列出的一个模块，面向 `ExtensionAPI` 编写，以 Agent sidecar 的信任级别运行 |
+| 插件 | 带 manifest 的 PI-Desktop 插件，在独立进程中、权限网关之下运行（ADR 0008）；是其 agent 扩展的拥有者、安装者和启用记录 |
 | 适配层 | `packages/agent-runtime` 中在桌面运行时之上实现 `ExtensionAPI` 的层 |
 | Runner | 绑定到一个桌面会话的一个桌面自有 `TrustedExtensionRunner` 实例（v1 说明：不复用 pi-coding-agent 的 `ExtensionRunner`，因为它绑定终端主题；其 `ExtensionAPI` 类型仅作类型依赖） |
 
 ## 2. 定位与信任模型
 
-1. 受信任扩展与插件是两个独立的扩展面。二者互不转换。
-2. 受信任扩展是受信任代码。它在 Agent sidecar 内执行，而 sidecar 已持有 bash、edit
-   和 write 工具，因此启用一个扩展授予的正是运行 agent 已经授予的东西。
-   [04-plugin-security.md](/zh-CN/spec/07-plugins/04-plugin-security) 中的插件
-   安全基线不适用于它，也不会因此被削弱。
-3. 默认不启用任何扩展。D007 继续有效：PI-Desktop 永不自动导入 `~/.pi`。发现只
-   列出候选；用户逐个启用。
-4. 项目级扩展按项目门控。工作区 `.pi/extensions` 下发现的扩展只对该项目加载，
-   且仅在用户在该项目中启用之后。v1 说明：PI-Desktop 没有独立的项目信任状态，
-   启用即信任决定，`project_trust` 不触发。
-5. 所有界面上的标签都是“受信任扩展”并附来源路径。市场、签名和更新流程在 v1
-   不适用。
+1. Agent 扩展随其插件一起安装、启用、限定范围、更新和移除。没有第二个列表、存储或
+   设置页。
+2. Agent 扩展是受信任代码。它在 Agent sidecar 内执行，而 sidecar 已持有 bash、edit
+   和 write 工具，因此授予 `agent.extension` 权限授予的正是运行 agent 已经授予的东西。
+   [04-plugin-security.md](/zh-CN/spec/07-plugins/04-plugin-security) 的插件沙箱不
+   覆盖这些模块，这正是该权限作为独立高风险授权、而非 `agent.tool.register` 隐含
+   部分的原因。
+3. 没有授权就不运行。声明了 `contributes.agentExtensions` 却没有 `agent.extension` 的
+   manifest 校验不通过；记录的授权中缺少该权限的插件照常加载但跳过其模块并记审计
+   （`plugin.agentExtensions.skipped`）。D007 继续有效：PI-Desktop 永不自动导入 `~/.pi`。
+4. 项目范围就是插件的激活范围。限定到某些项目的插件只向这些项目的会话贡献模块。v1
+   说明：没有独立的项目信任状态，插件范围即信任决定，`project_trust` 不触发。
+5. v1.1 不开放持有 `agent.extension` 的插件在市场分发：该权限只接受本地导入和开发
+   插件。市场上架等签名机制（规格 08）到位后再定。
 
-## 3. 发现与启用
+## 3. 贡献与导入
 
-### 3.1 来源
+### 3.1 Manifest
 
-| 来源 | 路径 | 范围 |
-|---|---|---|
-| 用户扩展 | `~/.pi/agent/extensions/` | 所有项目 |
-| 项目扩展 | `<workspace>/.pi/extensions/` | 该项目，在项目信任之后 |
-| 手动路径 | 在设置中选择的任意目录或文件 | 由用户选择范围 |
+```json
+{
+  "id": "acme.git-helper",
+  "name": "Git helper",
+  "version": "1.0.0",
+  "main": "main.js",
+  "permissions": ["agent.extension"],
+  "contributes": { "agentExtensions": ["src/index.ts"] }
+}
+```
 
-来源内部的解析遵循 `pi-coding-agent` loader 规则：带 `pi.extensions` 字段的 `package.json`
-声明其入口文件；否则为一层深度内的 `index.ts`、`index.js` 或直接的
-`*.ts` / `*.js` 文件。不再深入递归。v1 既不读也不写 `~/.pi/agent` 下 pi CLI 的
-`settings.json`；启用状态是 PI-Desktop 自己的状态。
+规则：最多八个条目；每个条目是插件目录内的相对 `.ts`、`.mts`、`.js` 或 `.mjs` 路径；
+加载时文件必须存在；列出条目却没有权限的 manifest 无效
+（[02-plugin-manifest-schema.md](/zh-CN/spec/07-plugins/02-plugin-manifest-schema) §4 与 §7）。
+当插件不贡献其他内容时，`main` 可以是空操作模块。
 
-### 3.2 启用状态
+### 3.2 导入 pi CLI 扩展
 
-- 存储在 `~/.pi-desktop/trusted-extensions.json`，以扩展入口的 realpath 为键。
-  不改 host-core schema。
-- 每条记录 `enabled`、范围（`user`、`project:<projectId>` 或 `manual`）、来源和
-  最近一次加载诊断。
-- 重新扫描是显式动作（设置页按钮或应用启动）。v1 没有文件监听。重新扫描永不
-  翻转已启用标记；缺失的条目显示为“缺失”，直到用户移除。
-- 删除项目不会删除其扩展条目；它们成为孤儿并在下次重新扫描时被移除。
+插件页 →“导入 pi 扩展”打开原生选择器（main 拥有路径，D344），可选文件或目录。main 按
+`pi-coding-agent` loader 规则解析入口（`package.json` 的 `pi.extensions` 字段，否则
+`index.ts` / `index.js`，否则一层深度内的松散 `*.ts` / `*.js` 文件），把源码复制到
+`<dataDir>/plugins/imported/<slug>/src/`，写出上面的 manifest（id 为 `imported.<slug>`），
+并经与“加载本地插件”相同的路径注册为开发插件。选择器之前的确认就是信任决定；之后
+该行像其他授权一样显示 `agent.extension` 权限。
+
+| 来源 | 结果 |
+|---|---|
+| 一个 pi 扩展目录或文件 | `plugins/imported` 下的开发插件，id 为 `imported.<slug>` |
+| 声明了 `contributes.agentExtensions` 的插件包 | 像任何插件一样安装；安装时询问该授权 |
+| 带 `pi.extensions` 字段的 `package.json` | 列出的条目，相对 `src/` |
 
 ## 4. 加载与运行时
 
@@ -202,37 +214,35 @@ v1 不改任何 host-core RPC 方法、协议版本或 SQLite schema。
 
 | 通道 | 方向 | 用途 |
 |---|---|---|
-| `extensions/list` | 请求 | 候选及其范围、状态和诊断 |
-| `extensions/setEnabled` | 请求 | 切换一条记录 |
-| `extensions/rescan` | 请求 | 重新运行发现 |
-| `extensions/addPath` | 请求 | 经原生选择器令牌的手动来源（D344 规则） |
+| `plugin/importExtension` | 请求 | 原生选择器、生成插件、注册为开发插件 |
 | `extensions/commands/run` | 请求 | 在当前会话运行已注册命令 |
 | `extensions/ui/respond` | 请求 | 回答一个待处理提示 |
-| `extensions/changed` | 事件 | 列表或诊断发生变化 |
 | `extensions/ui/prompt` | 事件 | 有提示待处理 |
+| `extensions/event/status` | 事件 | `ui.setStatus` / `ui.setWorkingMessage` 文本变化 |
+| `plugin/list` | 请求 | 插件行携带 `agentExtension` 状态、工具与命令名和诊断 |
+| `event/pluginChanged` | 事件 | 会话发布命令或诊断时同样触发 |
 
-所有通道像其他插件通道一样做 sender 校验。MCP 控制面暴露 `extensions/list`
-（读）、`extensions/commands/run`（写）和 `extensions/ui/respond`��危险，需
-confirm）；启用、添加路径和移除保持本地。main 在 `logs/app/plugin.log` 审计
-每个提示 id。
+所有通道像其他插件通道一样做 sender 校验。MCP 控制面暴露 `extensions/commands/run`
+（写）和 `extensions/ui/respond`（危险，需 confirm）；导入是原生选择器，保持本地。
+main 在 `logs/app/plugin.log` 审计每个提示 id。
 
-## 11. 设置界面
+## 11. 插件行界面
 
-设置在 Agent 分组中、Skills、MCP、子代理旁新增“受信任扩展”目的地（标签 id
-`trustedExtensions`）：
+插件页在所属插件的行上展示 agent 扩展：
 
-- 按来源分组的列表，含标签、入口路径、范围、启用开关和状态标记（`disabled`、
-  `enabled` 直到本次应用运行中有会话加载它、`loaded`、`error`、`missing`）。
-- 每条记录的诊断抽屉：加载错误、不支持的 API 调用及计数、被拒绝的注册、处理器
-  超时。
-- “重新扫描”与“添加路径”动作（main 打开原生选择器；渲染层永不提供路径）。
-- 列表上方一段简短的信任说明，陈述启用意味着授予什么。
+- `agentExtension` 能力标记和 `agent.extension` 权限标记（高风险），与其他能力和权限
+  并列。
+- 详情区含状态标记（`enabled` 直到本次应用运行中有会话加载模块、`loaded`、`error`）、
+  已注册的工具与斜杠命令名，以及诊断：加载错误、带计数的不支持 API 调用、被拒绝的
+  注册、处理器超时。
+- 页面溢出菜单中的“导入 pi 扩展”，前置一个说明授权含义的确认。
 
 ## 12. 分阶段
 
 | 阶段 | 内容 | 承诺 |
 |---|---|---|
-| v1 | §2 至 §11：发现、loader、每会话 Runner、支持矩阵、事件、工具、命令、UI 桥接、设置标签 | 已承诺（D387） |
+| v1 | loader、每会话 Runner、支持矩阵、事件、工具、命令、UI 桥接 | 已交付（D387） |
+| v1.1 | 模块成为带 `agent.extension` 授权的 `contributes.agentExtensions`；把 pi CLI 扩展导入为开发插件；独立注册表和设置标签移除 | 已交付（D388） |
 | v2 | 自定义会话条目（`sendMessage`、`appendEntry`）含 schema 升版和通用渲染、`sessionManager` 只读 shim、`switchSession`、编辑器读写、补全 provider、`registerShortcut`、markdown 转换器 | 已规划，需先决定条目持久化与压缩 |
 | v3 | `pi` 包 manifest 与安装、pi CLI `settings.json` 的只读提示、统一 skill 与提示发现、提示的远程控制路由、市场列出 | 未排期 |
 

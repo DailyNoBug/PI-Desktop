@@ -7,8 +7,9 @@ run it by hand (or from a release checklist) on a machine with a built
 
 What it proves, per run:
 
-- discovery from `~/.pi/agent/extensions` and `<project>/.pi/extensions`,
-  explicit enablement, and the Settings list state / diagnostics (E2E-241);
+- six fixture plugins contributing `agentExtensions` under `agent.extension`,
+  one limited to the fixture project, and the plugin rows' `agentExtension`
+  state / diagnostics (E2E-241);
 - `registerTool` through ToolSearch activation, `tool_call` blocking,
   `tool_result` replacement, `before_agent_start`, provider header and
   request hooks, lifecycle hooks (E2E-242);
@@ -31,7 +32,7 @@ pnpm -C packages/agent-runtime build
 pnpm --filter @pi-desktop/desktop build
 cargo build -p host-core
 
-# 1. seed a throwaway data dir (fixtures, enablement store, stub provider)
+# 1. seed a throwaway data dir (fixture plugins registered through host-core, stub provider)
 export E2E_ROOT=/tmp/pi-ext-e2e STUB_PORT=47123
 mkdir -p "$E2E_ROOT"
 HOST_BIN="$PWD/target/debug/pi-desktop-host-core" node apps/desktop/test/e2e/trusted-extensions/seed.mjs

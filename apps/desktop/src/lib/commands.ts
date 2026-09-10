@@ -60,7 +60,7 @@ export async function runPaletteCommand(commandId: string): Promise<void> {
 export async function runExtensionCommand(name: string, args: string): Promise<void> {
   const store = useAppStore.getState();
   if (!store.activeSessionId) {
-    throw new Error(i18n.t("extensions.trusted.commandNeedsSession"));
+    throw new Error(i18n.t("plugins.agentExtension.commandNeedsSession"));
   }
   await api.runExtensionCommand({ sessionId: store.activeSessionId, name, args });
 }

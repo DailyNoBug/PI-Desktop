@@ -9654,24 +9654,27 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 
 #### E2E-241: Discovery lists trusted extensions and enablement is explicit
 
-- **Preconditions**: A temp home with `~/.pi/agent/extensions/hello.ts` and a
-  trusted fixture project with `.pi/extensions/project-tool/index.ts`; an
-  untrusted second project with the same layout.
-- **Steps**: 1) Open Settings → Extensions → Extensions. 2) Rescan. 3) Open a
-  session in the trusted project and send a prompt. 4) Enable `hello.ts` and
-  `project-tool`. 5) Send a prompt. 6) Switch to the untrusted project and
-  rescan. 7) Delete `hello.ts` on disk and rescan.
-- **Expected**: Both candidates appear disabled with source path and scope
-  chips and a trust notice; before enabling, no extension tool is in the
-  session catalog; after enabling, the next turn lists the extension tools
-  and the entries show `loaded`; the untrusted project's entry stays listed
-  but never loads and the diagnostic names project trust; the deleted entry
-  shows `missing` and keeps its enabled flag until removed;
-  `~/.pi/agent/settings.json` is never written.
+- **Preconditions** (D388): a pi extension directory `hello/` with
+  `index.ts`, and a plugin package declaring `contributes.agentExtensions`
+  with `agent.extension` whose activation scope is limited to the fixture
+  project; a second project outside that scope.
+- **Steps**: 1) Plugins → Import pi extension, accept the confirm, pick
+  `hello/`. 2) Send a prompt in the fixture project. 3) Open the imported
+  plugin's row details. 4) Disable the plugin and send a prompt. 5) Switch
+  to the second project and send a prompt. 6) Load a plugin whose manifest
+  lists `agentExtensions` without the permission.
+- **Expected**: The import creates `plugins/imported/hello` with a manifest
+  holding `agent.extension` and lists the plugin with the `agentExtension`
+  capability and the permission chip; the next turn lists its tools and the
+  row shows `loaded` with the registered names; disabling the plugin retires
+  the runtime and the next turn has no extension tools; the project-scoped
+  plugin contributes nothing outside its projects; the manifest without the
+  permission is rejected as `PLUGIN_INVALID`; `~/.pi/agent/settings.json`
+  is never written.
 - **Specs linked**: `07-plugins/16-trusted-extensions.md` §2, §3, §11; D007; D387
 - **Acceptance**: Security, Quality
 - **Milestone**: Post-MVP (R7 v1)
-- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
+- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green; re-executed 2026-09-11 on plugin-form fixtures after D388); no CI journey
 
 #### E2E-242: Extension tools and hooks take effect in a turn
 
@@ -9693,7 +9696,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Specs linked**: `07-plugins/16-trusted-extensions.md` §6, §7; ADR 0214
 - **Acceptance**: B (agent), Security, Quality
 - **Milestone**: Post-MVP (R7 v1)
-- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
+- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green; re-executed 2026-09-11 on plugin-form fixtures after D388); no CI journey
 
 #### E2E-243: Extension commands and UI prompts round-trip through the renderer
 
@@ -9715,7 +9718,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   `07-plugins/09-plugin-command-palette.md`
 - **Acceptance**: A (app control), Quality
 - **Milestone**: Post-MVP (R7 v1)
-- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
+- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green; re-executed 2026-09-11 on plugin-form fixtures after D388); no CI journey
 
 #### E2E-244: Unsupported APIs, load errors, and handler timeouts degrade to diagnostics
 
@@ -9735,7 +9738,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Specs linked**: `07-plugins/16-trusted-extensions.md` §4.2, §4.4, §5, §6
 - **Acceptance**: Quality
 - **Milestone**: Post-MVP (R7 v1)
-- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green); no CI journey
+- **Status**: Executed by the manual MCP-driven harness `apps/desktop/test/e2e/trusted-extensions` (2026-09-10, two sessions, all checks green; re-executed 2026-09-11 on plugin-form fixtures after D388); no CI journey
 
 #### E2E-245: The packaged sidecar loads a TypeScript extension through jiti
 

@@ -27,6 +27,7 @@ import { ScopeControl } from "../components/extensions/ScopeControl";
 import { MarketplaceSourceSettings } from "../components/plugins/MarketplaceSourceSettings";
 import { PluginSettingsSheet } from "../components/plugins/PluginSettingsSheet";
 import type {
+  PluginAgentExtensionStatus,
   ActivationScope,
   MarketPluginDetail,
   MarketPluginSummary,
@@ -85,6 +86,7 @@ const PERMISSION_RISK: Record<string, RiskTier> = {
   "agent.prompt.inject": "high",
   "agent.tool.register": "high",
   "agent.complete": "high",
+  "agent.extension": "high",
   "desktop.control": "high",
   "session.read": "high",
   "browser.cdp": "high",
@@ -113,6 +115,7 @@ const CAPABILITY_ORDER: PluginCapability[] = [
   "views",
   "commands",
   "tools",
+  "agentExtension",
   "skills",
   "themes",
   "mcp",
@@ -373,6 +376,57 @@ function ServiceChips({ statuses }: { statuses: readonly PluginServiceStatus[] |
   );
 }
 
+/** Live state of a plugin's ExtensionAPI modules (spec 07-plugins/16 §11). */
+function AgentExtensionDetails({ status }: { status: PluginAgentExtensionStatus }) {
+  const { t } = useTranslation();
+  const names = [...status.toolNames, ...status.commandNames.map((name) => `/${name}`)];
+  return (
+    <div className="plugins-agent-extension">
+      <span
+        className={cx(
+          "agent-capability-badge",
+          status.state === "loaded" && "is-ready",
+          status.state === "error" && "is-failed",
+          status.state === "enabled" && "is-level",
+        )}
+      >
+        {t(`plugins.agentExtension.state.${status.state}`)}
+      </span>
+      {names.length ? <code className="plugins-agent-extension-names">{names.join(" · ")}</code> : null}
+      {status.diagnostics.length ? (
+        <ul className="agent-extension-diagnostics" aria-label={t("plugins.agentExtension.diagnostics")}>
+          {status.diagnostics.map((diagnostic) => (
+            <li
+              key={`${diagnostic.kind}:${diagnostic.member ?? ""}`}
+              className={cx(
+                "agent-extension-diagnostic",
+                (diagnostic.kind === "load_error" ||
+                  diagnostic.kind === "factory_error" ||
+                  diagnostic.kind === "handler_error" ||
+                  diagnostic.kind === "handler_timeout") &&
+                  "is-error",
+              )}
+            >
+              <span className="agent-extension-diagnostic-kind">
+                {t(`plugins.agentExtension.kinds.${diagnostic.kind}`)}
+              </span>
+              {diagnostic.member ? (
+                <code className="agent-extension-diagnostic-member">{diagnostic.member}</code>
+              ) : null}
+              <span className="agent-extension-diagnostic-message" title={diagnostic.stack}>
+                {diagnostic.message}
+              </span>
+              {diagnostic.count > 1 ? (
+                <span className="agent-capability-badge">×{diagnostic.count}</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 /** Keep the installed row calm while retaining the full capability readout on demand. */
 function PluginRowDetails({
   plugin,
@@ -385,12 +439,13 @@ function PluginRowDetails({
   const hasCapabilities = (plugin.capabilities?.length ?? 0) > 0;
   const hasServices = (services?.length ?? 0) > 0;
   const hasPermissions = (plugin.permissions?.length ?? 0) > 0;
+  const hasAgentExtension = plugin.agentExtension !== undefined;
   const hasFsScope = FS_MODES.some((mode) => plugin.fs?.[mode]);
   const legacyFs = (plugin.permissions ?? []).filter((permission) =>
     LEGACY_FS_PERMISSIONS.includes(permission),
   );
 
-  if (!hasCapabilities && !hasServices && !hasPermissions) return null;
+  if (!hasCapabilities && !hasServices && !hasPermissions && !hasAgentExtension) return null;
 
   return (
     <details className="plugins-row-details">
@@ -414,6 +469,14 @@ function PluginRowDetails({
           <div className="plugins-row-detail">
             <span className="plugins-row-detail-label">{t("plugins.servicesTitle")}</span>
             <ServiceChips statuses={services} />
+          </div>
+        ) : null}
+        {hasAgentExtension && plugin.agentExtension ? (
+          <div className="plugins-row-detail">
+            <span className="plugins-row-detail-label">
+              {t("plugins.agentExtension.title")}
+            </span>
+            <AgentExtensionDetails status={plugin.agentExtension} />
           </div>
         ) : null}
         {hasPermissions ? (
@@ -784,6 +847,17 @@ export function PluginsPage() {
       showToast(t("plugins.loadDevDone"), { variant: "success" });
     });
 
+  // A pi CLI extension becomes a development plugin holding `agent.extension`
+  // (spec 07-plugins/16 §3); the confirm is the trust decision.
+  const importExtension = () =>
+    run(async () => {
+      if (!window.confirm(t("plugins.agentExtension.importConfirm"))) return;
+      const result = await api.importPiExtension();
+      if (result.canceled) return;
+      await refreshPlugins();
+      showToast(t("plugins.importExtensionDone", { id: result.id }), { variant: "success" });
+    });
+
   const reloadPlugin = (id: string) =>
     run(async () => {
       setReloadingId(id);
@@ -913,6 +987,7 @@ export function PluginsPage() {
     { key: "applyAutoUpdates", run: applyAutoUpdates },
     { key: "installPackage", run: installPackage },
     { key: "loadDev", run: loadDev },
+    { key: "importExtension", run: importExtension },
     {
       key: "newFromTemplate",
       run: async () => {

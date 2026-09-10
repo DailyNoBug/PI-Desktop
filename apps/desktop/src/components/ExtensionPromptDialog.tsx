@@ -133,7 +133,7 @@ function ExtensionPromptDialog({
               {title}
             </h2>
             <p id={`${dialogId}-source`} className="session-rename-dialog-description">
-              {t("extensions.trusted.prompt.source", { label: prompt.extensionLabel })}
+              {t("plugins.agentExtension.prompt.source", { label: prompt.extensionLabel })}
               <code className="extension-prompt-source-path">{prompt.extensionId}</code>
             </p>
           </div>
@@ -172,7 +172,7 @@ function ExtensionPromptDialog({
               ref={inputRef}
               className="field-input"
               value={draft}
-              placeholder={request.placeholder ?? t("extensions.trusted.prompt.placeholder")}
+              placeholder={request.placeholder ?? t("plugins.agentExtension.prompt.placeholder")}
               onChange={(event) => setDraft(event.target.value)}
               aria-label={request.title}
               spellCheck={false}
@@ -181,7 +181,7 @@ function ExtensionPromptDialog({
           <div className="session-rename-dialog-actions">
             <Button type="button" variant="ghost" onClick={() => onSettle(undefined)}>
               {request.kind === "confirm"
-                ? t("extensions.trusted.prompt.no")
+                ? t("plugins.agentExtension.prompt.no")
                 : t("common.cancel")}
             </Button>
             <Button
@@ -190,8 +190,8 @@ function ExtensionPromptDialog({
               disabled={request.kind === "select" && !selected}
             >
               {request.kind === "confirm"
-                ? t("extensions.trusted.prompt.yes")
-                : t("extensions.trusted.prompt.ok")}
+                ? t("plugins.agentExtension.prompt.yes")
+                : t("plugins.agentExtension.prompt.ok")}
             </Button>
           </div>
         </form>

@@ -128,8 +128,8 @@ import {
   type RuntimeProviderConfig,
   type UserSubagentDocument,
 } from "@pi-desktop/agent-runtime";
-import { TrustedExtensionsRegistry } from "./trusted-extensions";
-import { registerTrustedExtensionIpc } from "./trusted-extensions-ipc";
+import { AgentExtensionBridge } from "./agent-extensions";
+import { registerAgentExtensionIpc } from "./agent-extensions-ipc";
 import { isTemplateName, scaffold } from "@pi-desktop/plugin-devkit";
 import type {
   PluginCompleteResult,
@@ -923,6 +923,8 @@ pluginViews.onSurface = (surface) => {
   browserHost.setChromeSurface(surface);
 };
 plugins.setServices({
+  agentExtensionsChanged: () =>
+    sendToRenderer(IPC.event.pluginChanged, { reason: "agentExtensions" }),
   browser: {
     navigate: (input, sessionId) => browserHost.navigate(input, sessionId),
     action: (action) => browserHost.action(action),
@@ -955,14 +957,13 @@ const IMPORT_SOURCES = new Set<ExternalSource>([
 const dataDir =
   process.env.PI_DESKTOP_DATA_DIR || join(homedir(), ".pi-desktop");
 
-// Trusted extensions (D387, ADR 0214): discovery and enablement live here;
-// loading happens in the sidecar per session.
-const trustedExtensions = new TrustedExtensionsRegistry({
-  storePath: join(dataDir, "trusted-extensions.json"),
-  agentDir: process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
+// Agent extensions (D387/D388, ADR 0214): plugins contribute the modules,
+// the sidecar loads them; this bridge carries commands, diagnostics, and
+// prompts between the two.
+const agentExtensions = new AgentExtensionBridge({
   hasRenderer: () =>
     !!mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed(),
-  onChanged: () => sendToRenderer(IPC.event.extensionsChanged, {}),
+  onChanged: () => sendToRenderer(IPC.event.pluginChanged, { reason: "agentExtensions" }),
   onPrompt: (prompt) => {
     logger.app("plugin", "info", "extension prompt", {
       sessionId: prompt.sessionId,
@@ -1840,7 +1841,16 @@ async function resolveAgentRuntimeLaunch(
       pluginSkills,
       // Trusted extensions enabled for this project (spec 16 §3.2). The set
       // is part of the runtime match, so a toggle retires the runtime.
-      trustedExtensions: trustedExtensions.enabledSpecsFor(projectPath),
+      trustedExtensions: plugins
+        .getAgentExtensions()
+        .filter((extension) => pluginActiveInProject(extension.pluginId, projectPath))
+        .map((extension) => ({
+          id: extension.id,
+          entry: extension.entry,
+          label: extension.pluginName,
+          source: "plugin" as const,
+          root: extension.root,
+        })),
       subagents: subagentCatalog.definitions,
       subagentProviders: subagentBindings.providers,
     },
@@ -4114,21 +4124,6 @@ async function createWindow() {
             await setPage("scheduled");
             await new Promise((r) => setTimeout(r, 700));
             await shot("pi-scheduled-live");
-            // Trusted extensions (spec 16 §11): the list reads the real
-            // registry, so a seeded data dir shows real rows and diagnostics.
-            await setPage("settings");
-            await setSettingsTab("trustedExtensions");
-            await new Promise((r) => setTimeout(r, 900));
-            await shot("pi-trusted-extensions");
-            await mainWindow!.webContents.executeJavaScript(
-              `(() => { const b = document.querySelector('.agent-extension-diagnostics-toggle'); b?.dispatchEvent(new MouseEvent('click', { bubbles: true })); })()`,
-            );
-            await new Promise((r) => setTimeout(r, 300));
-            await shot("pi-trusted-extensions-diagnostics");
-            await setTheme("dark");
-            await new Promise((r) => setTimeout(r, 300));
-            await shot("pi-trusted-extensions-dark");
-            await setTheme("light");
             await mainWindow!.webContents.executeJavaScript(
               `window.__PI_DESKTOP__?.seedPlugins?.(4);
                window.__PI_DESKTOP__?.seedExtensions?.(3)`,
@@ -4854,17 +4849,17 @@ async function startSidecar(): Promise<void> {
   // short-lived `ModelAuth`. The refresh token never crosses this boundary.
   s.setTrustedExtensionBridge({
     publishCommands: (params) =>
-      trustedExtensions.publishCommands(
+      agentExtensions.publishCommands(
         String(params.sessionId ?? ""),
         Array.isArray(params.commands) ? (params.commands as any[]) : [],
       ),
     publishDiagnostics: (params) =>
-      trustedExtensions.publishDiagnostics(
+      agentExtensions.publishDiagnostics(
         String(params.sessionId ?? ""),
         Array.isArray(params.diagnostics) ? (params.diagnostics as any[]) : [],
         Array.isArray(params.reports) ? (params.reports as any[]) : [],
       ),
-    requestUi: (params) => trustedExtensions.requestUi(params as any),
+    requestUi: (params) => agentExtensions.requestUi(params as any),
     queuePush: async (params) => {
       if (!agentHostBridge) throw new Error("agent host unavailable");
       return agentHostBridge.queue.push({
@@ -7487,11 +7482,19 @@ function registerIpc() {
     return getWorkspaceFileIndex(root);
   });
 
-  registerTrustedExtensionIpc({
+  registerAgentExtensionIpc({
     handle,
-    registry: trustedExtensions,
+    bridge: agentExtensions,
     window: () => mainWindow,
-    workspaceRoot: optionalWorkspaceRoot,
+    importRoot: join(dataDir, "plugins", "imported"),
+    loadDevPlugin: async (path) => {
+      if (!host) throw new Error("host unavailable");
+      const loaded = await host.call<{ plugin: any }>("plugins.loadDev", { path });
+      await plugins.loadFromPath(path, loaded.plugin?.permissions ?? [], { development: true });
+      if (loaded.plugin?.id) plugins.watchDevPlugin(loaded.plugin.id);
+      sendToRenderer(IPC.event.pluginChanged, { reason: "importExtension", pluginId: loaded.plugin?.id });
+      return loaded;
+    },
     runCommand: async (input) => {
       if (!sidecar) throw new Error("agent sidecar unavailable");
       return sidecar.call<{ handled: boolean }>("extensions.command.run", input);
@@ -7523,7 +7526,7 @@ function registerIpc() {
       }));
     // Trusted extension commands take arguments and run in the active
     // session's sidecar (spec 16 §8); they come last in the namespace.
-    const extensionCommands = trustedExtensions.allCommands().map((command) => ({
+    const extensionCommands = agentExtensions.allCommands().map((command) => ({
       name: command.name,
       kind: "extension" as const,
       title: `/${command.name}`,
@@ -8208,7 +8211,7 @@ function registerIpc() {
     let result: unknown;
     try {
       // An open extension prompt resolves with its abort value (spec 16 §9).
-      trustedExtensions.cancelPrompts(req.sessionId);
+      agentExtensions.cancelPrompts(req.sessionId);
       result = await sidecar.call("agent.abort", req);
     } finally {
       await finishTurn(req.sessionId, "aborted", "TURN_ABORTED");
@@ -8359,12 +8362,19 @@ function registerIpc() {
     rememberPluginScopes(result.plugins ?? []);
     const pluginsWithSettings = await Promise.all(
       (result.plugins ?? []).map(async (plugin) => {
-        if (!plugin?.settings?.length || !plugins.getLoaded(plugin.id)) return plugin;
+        const extensionIds = plugins
+          .getAgentExtensions()
+          .filter((extension) => extension.pluginId === plugin?.id)
+          .map((extension) => extension.id);
+        const withExtension = extensionIds.length
+          ? { ...plugin, agentExtension: agentExtensions.statusForPlugin(extensionIds) }
+          : plugin;
+        if (!plugin?.settings?.length || !plugins.getLoaded(plugin.id)) return withExtension;
         try {
           const settings = await plugins.getPluginSettings(plugin.id);
-          return { ...plugin, settings };
+          return { ...withExtension, settings };
         } catch {
-          return plugin;
+          return withExtension;
         }
       }),
     );
@@ -9130,7 +9140,7 @@ function registerIpc() {
         source: "plugin" as const,
         pluginId: c.pluginId,
       }));
-    const extensionCmds = trustedExtensions.allCommands().map((c) => ({
+    const extensionCmds = agentExtensions.allCommands().map((c) => ({
       id: trustedExtensionCommandId(c.name),
       title: `/${c.name}`,
       category: c.extensionLabel,

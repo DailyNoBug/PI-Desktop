@@ -2,19 +2,23 @@
 // and a provider row pointing at the stub server (through host-core's own
 // JSON-RPC, since the MCP control plane blocks providers/create).
 import { spawn } from "node:child_process";
-import { mkdirSync, realpathSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.env.E2E_ROOT || "/tmp/pi-ext-e2e";
 const dataDir = join(root, "data");
 const agentDir = join(root, "agent");
 const project = join(root, "project");
-const extDir = join(agentDir, "extensions");
+// Every fixture is a plugin that contributes ExtensionAPI modules (D388): the
+// sidecar loads them, the plugin record carries enablement and scope.
+const pluginsDir = join(root, "plugins");
+const extDir = join(root, "fixtures");
 const hostBin = process.env.HOST_BIN;
 const stubPort = Number(process.env.STUB_PORT || 47123);
 
 rmSync(dataDir, { recursive: true, force: true });
-for (const dir of [dataDir, extDir, join(project, ".pi", "extensions"), join(project, "src")]) mkdirSync(dir, { recursive: true });
+rmSync(pluginsDir, { recursive: true, force: true });
+for (const dir of [dataDir, extDir, pluginsDir, join(project, "src")]) mkdirSync(dir, { recursive: true });
 writeFileSync(join(project, "src", "hello.txt"), "hello\n");
 writeFileSync(join(root, "hooks.log"), "");
 
@@ -81,20 +85,29 @@ write("queue.ts", `export default function (pi: any) {
   } });
 }
 `);
-writeFileSync(join(project, ".pi", "extensions", "proj.ts"), `export default function (pi: any) {
+write("proj.ts", `export default function (pi: any) {
   pi.registerTool({ name: "proj_tool", label: "Proj", description: "project scoped", parameters: { type: "object", properties: {} }, async execute() { return { content: [{ type: "text", text: "proj" }], details: {} }; } });
 }
 `);
 
-const entries = {};
-const scope = (name, s) => {
-  const entry = realpathSync(join(extDir, name));
-  entries[entry] = { enabled: true, scope: s, entry, label: name.replace(/\.ts$/, ""), source: "user", root: realpathSync(extDir) };
-};
-scope("fx.ts", "user"); scope("greet.ts", "user"); scope("tui.ts", "user"); scope("bad.ts", "user"); scope("queue.ts", "user");
-const projEntry = realpathSync(join(project, ".pi", "extensions", "proj.ts"));
-entries[projEntry] = { enabled: true, scope: { project: realpathSync(project) }, entry: projEntry, label: "proj", source: "project", root: realpathSync(join(project, ".pi", "extensions")) };
-writeFileSync(join(dataDir, "trusted-extensions.json"), JSON.stringify({ version: 1, entries, manualPaths: [] }, null, 2));
+/** Wrap one fixture module in a plugin directory holding `agent.extension`. */
+function pluginFor(name) {
+  const dir = join(pluginsDir, name);
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", `${name}.ts`), readFileSync(join(extDir, `${name}.ts`)));
+  writeFileSync(join(dir, "main.js"), "module.exports = {};\n");
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({
+    schemaVersion: 1,
+    id: `e2e.${name}`,
+    name: `E2E ${name}`,
+    version: "0.0.1",
+    main: "main.js",
+    permissions: ["agent.extension"],
+    contributes: { agentExtensions: [`src/${name}.ts`] },
+  }, null, 2));
+  return dir;
+}
+const pluginDirs = Object.fromEntries(["fx", "greet", "tui", "bad", "queue", "proj"].map((n) => [n, pluginFor(n)]));
 
 // --- provider row through host-core ---
 const host = spawn(hostBin, [], { env: { ...process.env, PI_DESKTOP_DATA_DIR: dataDir }, stdio: ["pipe", "pipe", "inherit"] });
@@ -128,5 +141,13 @@ const created = await call("providers.create", {
 });
 const providerId = created.provider?.id ?? created.id;
 await call("settings.set", { defaultProviderId: providerId, defaultModelId: "stub-1", defaultMode: "agent" });
+// Register the fixture plugins as development plugins; dev loads enable them
+// with their declared permissions. `proj` is limited to the fixture project.
+for (const [name, dir] of Object.entries(pluginDirs)) {
+  await call("plugins.loadDev", { path: dir });
+  if (name === "proj") {
+    await call("plugins.setScope", { id: "e2e.proj", scope: { mode: "projects", projects: [realpathSync(project)] } });
+  }
+}
 console.log(JSON.stringify({ providerId, project: realpathSync(project), agentDir, dataDir }));
 host.stdin.end(); host.kill();

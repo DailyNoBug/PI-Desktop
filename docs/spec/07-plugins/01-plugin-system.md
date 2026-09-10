@@ -555,7 +555,7 @@ Plugins → Load Development Plugin → choose directory
 | Ecosystem object | Relationship |
 |---|---|
 | pi Skills | Can be distributed / managed by skill plugins |
-| pi Extensions | The ExtensionAPI contract is the second extension surface of PI-Desktop: trusted extensions in the Agent sidecar (D387, ADR 0214, [16-trusted-extensions.md](16-trusted-extensions.md)) |
+| pi Extensions | A plugin contributes them as `contributes.agentExtensions` with the `agent.extension` grant; a pi CLI extension imports as a development plugin (D387 / D388, ADR 0214 / 0215, [16-trusted-extensions.md](16-trusted-extensions.md)) |
 | MCP | A plugin declares MCP servers in `contributes.mcpServers`; their tools join the agent's tool set |
 | Agent Tools | One of the most important plugin extension surfaces |
 
