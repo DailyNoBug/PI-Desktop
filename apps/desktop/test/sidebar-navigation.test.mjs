@@ -247,7 +247,8 @@ test("project rows expose folder actions and full-path hover", () => {
     /className="sidebar-session-group-title project-toggle"[\s\S]*?tooltip=\{entry\.path\}[\s\S]*?tooltipDelayMs=\{500\}[\s\S]*?aria-describedby=\{`\$\{projectId\}-path-description`\}/,
   );
   assert.match(sidebarSource, /<TooltipButton/);
-  assert.match(globalStyles, /\.ui-tooltip-path\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  assert.match(globalStyles, /\.ui-tooltip-path\s*\{[^}]*width:\s*max-content/);
+  assert.match(globalStyles, /\.ui-tooltip-path\s*\{[^}]*max-width:\s*min\(420px,\s*calc\(100vw - 16px\)\)/);
   assert.match(sidebarSource, /className="sr-only">\s*\{entry\.path\}/);
 });
 

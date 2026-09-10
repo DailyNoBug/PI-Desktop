@@ -23,7 +23,8 @@
   pointer-events: none;
 }
 .ui-tooltip-path {
-  width: min(420px, calc(100vw - 16px));
+  width: max-content;
+  max-width: min(420px, calc(100vw - 16px));
   overflow-wrap: anywhere;
   white-space: normal;
 }

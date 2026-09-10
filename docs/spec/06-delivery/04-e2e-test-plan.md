@@ -2330,7 +2330,8 @@ Each scenario is documented in this format:
   compact continuous list with one keyboard stop per directory disclosure;
   every non-action point in A's row toggles only A, project actions appear on
   hover/focus without shifting labels, the project title hover/focus path shows
-  A's full absolute path, Open folder is a project-menu action only and opens A
+  A's full absolute path in a content-sized tooltip (long paths wrap within a
+  420px maximum), Open folder is a project-menu action only and opens A
   in the system file manager, and collapse survives restart;
   activating a group or its conversation
   clears the previous visible transcript, updates the selected workspace and
