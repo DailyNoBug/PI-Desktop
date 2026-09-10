@@ -56,6 +56,10 @@ entitled to it.
   and the runtime uses the binding's explicit set. A model that publishes no
   level list and no level map but does claim reasoning still seeds
   `low`/`medium`/`high`.
+- When an explicit binding enables `xhigh` or `max` without a catalog wire
+  mapping, the runtime sends that canonical value through to the adapter rather
+  than letting the adapter clamp it to `high`. Existing non-null catalog
+  mappings remain authoritative for providers that translate the level.
 - The wire API is derived from the provider's published `npm` adapter
   (`apiStyleForAdapter`) and is only editable inside **Advanced**.
 - A custom model ID is always accepted, so a gateway without a `/models` route
@@ -320,6 +324,9 @@ Warnings are non-blocking unless execution is impossible.
    non-`off` level resolves to `off`.
 7. Changing to a provider/model with no enabled reasoning level persists `off`;
    no unconfigured level leaks into the next request.
+8. For explicitly enabled `xhigh`/`max`, an absent or null catalog mapping is
+   materialized as an identity adapter mapping; a non-null catalog mapping is
+   preserved.
 
 ### 11.2 Vision capability resolution
 

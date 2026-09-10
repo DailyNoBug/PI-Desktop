@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ModelAuth } from "@earendil-works/pi-ai";
 import { convertMessages } from "@earendil-works/pi-ai/api/openai-completions";
+import { modelConfigWithBinding } from "./model-capabilities.js";
 import type { ModelConfig } from "./thinking-level.js";
 import {
   apiBindingForStyle,
@@ -279,6 +280,66 @@ describe("createProviderModels auth resolution", () => {
       apiKey: "second-token",
       baseUrl: "https://per-account.acme.test",
     });
+  });
+});
+
+describe("explicit extended thinking levels", () => {
+  it("sends enabled xhigh and max values instead of clamping them to high", async () => {
+    const thinkingLevels = ["off", "low", "medium", "high", "xhigh", "max"] as const;
+    const configuredModel = modelConfigWithBinding(
+      {
+        source: "generic",
+        name: "Explicit reasoning model",
+        baseUrl: "https://api.acme.test/v1",
+        reasoning: true,
+        supportedThinkingLevels: ["low", "medium", "high"],
+        thinkingLevelMap: { xhigh: null, max: null },
+        input: ["text"],
+        contextWindow: 128_000,
+        maxTokens: 8_192,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+      {
+        contextWindow: 128_000,
+        maxTokens: 8_192,
+        thinkingLevels: [...thinkingLevels],
+      },
+    );
+    const provider: RuntimeProviderConfig = {
+      ...keyedProvider,
+      supportsReasoning: true,
+      supportedThinkingLevels: [...thinkingLevels],
+      modelConfig: configuredModel,
+    };
+    const requests: Record<string, unknown>[] = [];
+    const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(
+        JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const model = buildProviderModel(provider);
+
+    for (const reasoning of ["high", "xhigh", "max"] as const) {
+      await createProviderModels(provider, model)
+        .streamSimple(
+          model,
+          {
+            systemPrompt: "system",
+            messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
+            tools: [],
+          },
+          { reasoning, fetch },
+        )
+        .result();
+    }
+
+    expect(requests.map((request) => request.reasoning_effort)).toEqual([
+      "high",
+      "xhigh",
+      "max",
+    ]);
   });
 });
 
