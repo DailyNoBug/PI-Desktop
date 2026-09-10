@@ -2,7 +2,7 @@
 
 > **翻译说明：** 本页是与 [英文源规格](/spec/07-plugins/16-trusted-extensions) 一一对应的机器辅助翻译。代码、协议字段和标识符保持原文；如翻译与英文源事实有歧义，以英文版本为准。
 
-> 状态：已接受待实施（D378、ADR 0207）
+> 状态：v1 已实现（D378、ADR 0207）；实现说明标注为“v1 说明”
 > 范围：v1。v2 与 v3 事项列于 §12，不构成承诺。
 
 ## 1. 目的与术语
@@ -20,7 +20,7 @@ sidecar 内的扩展契约。本文规定这一扩展面。
 | 受信任扩展 | 面向 `ExtensionAPI` 编写的模块，从扩展目录或带 `pi` manifest 字段的包中发现，以 Agent sidecar 的信任级别运行 |
 | 插件 | 带 manifest 的 PI-Desktop 插件，在独立进程中、权限网关之下运行（ADR 0008） |
 | 适配层 | `packages/agent-runtime` 中在桌面运行时之上实现 `ExtensionAPI` 的层 |
-| Runner | 绑定到一个桌面会话的一个 `ExtensionRunner` 实例 |
+| Runner | 绑定到一个桌面会话的一个桌面自有 `TrustedExtensionRunner` 实例（v1 说明：不复用 pi-coding-agent 的 `ExtensionRunner`，因为它绑定终端主题；其 `ExtensionAPI` 类型仅作类型依赖） |
 
 ## 2. 定位与信任模型
 
@@ -31,8 +31,9 @@ sidecar 内的扩展契约。本文规定这一扩展面。
    安全基线不适用于它，也不会因此被削弱。
 3. 默认不启用任何扩展。D007 继续有效：PI-Desktop 永不自动导入 `~/.pi`。发现只
    列出候选；用户逐个启用。
-4. 项目信任门控项目级扩展。工作区 `.pi/extensions` 下发现的扩展只在项目受信任
-   后加载，`project_trust` 事件报告该状态。
+4. 项目级扩展按项目门控。工作区 `.pi/extensions` 下发现的扩展只对该项目加载，
+   且仅在用户在该项目中启用之后。v1 说明：PI-Desktop 没有独立的项目信任状态，
+   启用即信任决定，`project_trust` 不触发。
 5. 所有界面上的标签都是“受信任扩展”并附来源路径。市场、签名和更新流程在 v1
    不适用。
 
@@ -53,8 +54,8 @@ sidecar 内的扩展契约。本文规定这一扩展面。
 
 ### 3.2 启用状态
 
-- 存储在 `~/.pi-desktop` 应用设置的 `piExtensions` 下，以扩展入口的 realpath
-  为键。不改 host-core schema。
+- 存储在 `~/.pi-desktop/trusted-extensions.json`，以扩展入口的 realpath 为键。
+  不改 host-core schema。
 - 每条记录 `enabled`、范围（`user`、`project:<projectId>` 或 `manual`）、来源和
   最近一次加载诊断。
 - 重新扫描是显式动作（设置页按钮或应用启动）。v1 没有文件监听。重新扫描永不
@@ -71,11 +72,13 @@ main、渲染层或插件宿主进程中。
 ### 4.2 Loader
 
 - sidecar 以与 `pi-ai`、`pi-agent-core` 完全相同的锁定版本依赖
-  `@earendil-works/pi-coding-agent`。三者版本必须一致；漂移时 CI 失败。
-- 复用 `pi-coding-agent` loader 及其 jiti 流水线。sidecar 打包产物必须保持 jiti 和 loader 在
-  运行时可解析；打包步骤由 E2E-240 在其他工作落地前先行验证。
-- 导入别名：`@earendil-works/pi-coding-agent`、`pi-ai`、`pi-agent-core` 和
-  `typebox` 解析到 sidecar 自带的副本。`@earendil-works/pi-tui` 解析到一个桩
+  `@earendil-works/pi-coding-agent`，仅作类型依赖。三者版本必须一致；漂移时 CI 失败。
+- loader 镜像 `pi-coding-agent` 的发现规则，使用带 `virtualModules` 的
+  `jiti/static`，babel 转换被打进包内，运行时不做路径解析。打包步骤由一个在仓库
+  之外运行打包产物的契约测试验证（E2E-240）。
+- 导入别名：`pi-ai`、`pi-agent-core` 和 `typebox` 解析到 sidecar 自带的副本；
+  `@earendil-works/pi-coding-agent` 解析到一个运行时 shim，导出 `defineTool` 和
+  工具结果类型守卫。`@earendil-works/pi-tui` 解析到一个桩
   模块，它把每个符号导出为惰性值，使顶层 import 永不失败。调用被桩替代的
   符号时在调用点产生一条诊断。
 
@@ -102,7 +105,7 @@ main、渲染层或插件宿主进程中。
 
 | 类别 | 成员 |
 |---|---|
-| 支持 | `registerTool`、`registerCommand`、§6 中每个事件的 `on(...)`、`exec`、`getActiveTools`、`getAllTools`、`setActiveTools`、`getCommands`、`setModel`、`getThinkingLevel`、`setThinkingLevel`、`setSessionName`、`getSessionName`、`sendUserMessage`、`getFlag` |
+| 支持 | `registerTool`、`registerCommand`、§6 中每个事件的 `on(...)`、`exec`、`getActiveTools`、`getAllTools`、`setActiveTools`、`getCommands`、`setModel`（v1 说明：返回 `false`，桌面拥有会话的 provider 绑定）、`getThinkingLevel`、`setThinkingLevel`、`setSessionName`、`getSessionName`、`sendUserMessage`（Host 队列，D377）、`getFlag` |
 | 上下文上支持 | `ui.notify`、`ui.confirm`、`ui.select`、`ui.input`、`ui.setStatus`、`ui.setWorkingMessage`、`cwd`、`modelRegistry`、`isIdle`、`abort`、`hasPendingMessages`、`getContextUsage`、`compact`、`getSystemPrompt`、`waitForIdle`、`newSession`、`fork` |
 | 推迟到 v2 | `sendMessage`、`appendEntry`、`setLabel`、`sessionManager` 只读 API、`switchSession`、`registerShortcut`、`registerMarkdownTransformer`、`ui.setEditorText`、`ui.getEditorText`、`ui.addAutocompleteProvider`、`registerFlag` 值编辑 |
 | 不支持 | `ui.setWidget`、`ui.setFooter`、`ui.setHeader`、`ui.setTitle`、`ui.custom`、`ui.overlay`、`ui.onTerminalInput`、`ui.setWorkingVisible`、`ui.setWorkingIndicator`、`ui.setHiddenThinkingLabel`、`ui.pasteToEditor`、`ui.editor`、`registerMessageRenderer`、`registerEntryRenderer`、`navigateTree`、`shutdown` |
@@ -119,22 +122,22 @@ main、渲染层或插件宿主进程中。
 | 事件 | 桌面 hook 点 | 是否采纳结果 |
 |---|---|---|
 | `session_start`、`session_shutdown` | Runner 创建与销毁 | 否 |
-| `session_info_changed` | 会话改名 | 否 |
-| `project_trust` | 加载时的项目信任查询 | 否 |
-| `resources_discover` | skills 与提示模板发现 | 是，新增资源加入目录 |
+| `session_info_changed` | 经 `setSessionName` 的会话改名 | 否 |
+| `project_trust` | v1 说明：不触发；按项目启用即信任决定 | 否 |
+| `resources_discover` | v1 说明：不触发；skills 与提示发现留在 Electron main | 不适用 |
 | `before_agent_start` | 回合内首个 provider 请求之前 | 是，系统提示与消息编辑 |
 | `context` | `prepareNextTurn` | 是，替换消息列表 |
 | `before_provider_request`、`before_provider_headers`、`after_provider_response` | provider 调用包装 | 请求与头部为是 |
 | `agent_start`、`agent_end`、`agent_settled` | Agent 循环边界 | 否 |
 | `turn_start`、`turn_end` | 回合边界 | 否 |
-| `message_start`、`message_update`、`message_end` | Agent 消息事件 | `message_end` 为是 |
+| `message_start`、`message_update`、`message_end` | Agent 消息事件 | v1 说明：否，pi-agent-core 不提供事后替换 |
 | `tool_call` | `beforeToolCall` | 是，可带理由阻止 |
 | `tool_execution_start`、`tool_execution_update`、`tool_execution_end` | 工具执行流 | 否 |
 | `tool_result` | `afterToolCall` | 是，替换结果 |
-| `model_select`、`thinking_level_select` | provider 绑定变更 | 否 |
+| `model_select`、`thinking_level_select` | v1 说明：不触发；绑定变更会重建运行时 | 否 |
 | `session_before_compact`、`session_compact`、`session_compact_failed` | 压缩流水线 | `session_before_compact` 为是 |
-| `session_before_fork` | `session.fork` | 是 |
-| `input` | Host 队列准入 | 是，编辑或丢弃 |
+| `session_before_fork` | v1 说明：不触发；fork 在 Electron main 执行 | 不适用 |
+| `input` | v1 说明：不触发；Host 队列准入尚未接入 | 不适用 |
 | `user_bash`、`session_before_switch`、`session_before_tree`、`session_tree`、`ui_prompt_start`、`ui_prompt_end` | v1 不触发 | 不适用 |
 
 抛出异常的处理器记为诊断并视为返回 `undefined`。带返回结果的事件若处理器超过
@@ -156,8 +159,8 @@ main、渲染层或插件宿主进程中。
 1. `registerCommand` 条目出现在全局搜索的 Commands 区（见
    [09-plugin-command-palette.md](/zh-CN/spec/07-plugins/09-plugin-command-palette)），
    形式为 `/<name>`，来源显示扩展标签，排在内置和插件命令之后。
-2. 命令在 sidecar 内运行，扩展命令上下文绑定到当前会话。它需要一个活动会话；
-   否则条目禁用并显示提示。
+2. 命令在 sidecar 内运行，扩展命令上下文绑定到当前会话。它需要一个在本次应用
+   运行中已加载扩展的活动会话；否则 composer 提示需先开始对话。
 3. composer 中输入的 `/<name>` 按此顺序解析：内置、提示模板、插件、扩展。冲突
    记为诊断。
 4. 运行中的命令与插件命令一样阻止 composer 提交，可从状态栏取消。
@@ -172,7 +175,7 @@ main、渲染层或插件宿主进程中。
 | `ui.confirm` | 双动作模态框 | 5 分钟 | 解析为 `false` |
 | `ui.select` | 模态列表 | 5 分钟 | 解析为 `undefined` |
 | `ui.input` | 模态文本框 | 5 分钟 | 解析为 `undefined` |
-| `ui.setStatus`、`ui.setWorkingMessage` | composer 状态栏 | 无 | 清空 |
+| `ui.setStatus`、`ui.setWorkingMessage` | 当前会话的浮动状态行（v1 说明：不在 composer 内） | 无 | 清空 |
 
 规则：
 
@@ -193,7 +196,7 @@ v1 不改任何 host-core RPC 方法、协议版本或 SQLite schema。
 | `extensions.commands.publish` | 替换会话已注册的命令列表 |
 | `extensions.ui.request` | §9 中的一次交互或状态调用 |
 | `extensions.diagnostics.publish` | 替换会话的诊断列表 |
-| `session.rename`、`session.create`、`session.fork` | 已有方法，现可从适配层到达 |
+| `session.rename`、`session.create`、`session.fork`、`session.queuePush`、`session.queuePrioritize` | 已有方法，现可从适配层到达 |
 
 ### 10.2 main ↔ 渲染层（Electron IPC）
 
@@ -213,13 +216,14 @@ v1 不改任何 host-core RPC 方法、协议版本或 SQLite schema。
 
 ## 11. 设置界面
 
-设置 → 扩展页在 MCP、Skills、子代理旁新增“扩展”标签：
+设置在 Agent 分组中、Skills、MCP、子代理旁新增“受信任扩展”目的地（标签 id
+`trustedExtensions`）：
 
 - 按来源分组的列表，含标签、入口路径、范围、启用开关和状态标记（`disabled`、
   `loaded`、`error`、`missing`）。
 - 每条记录的诊断抽屉：加载错误、不支持的 API 调用及计数、被拒绝的注册、处理器
   超时。
-- “重新扫描”与“添加路径”动作。
+- “重新扫描”与“添加路径”动作（main 打开原生选择器；渲染层永不提供路径）。
 - 列表上方一段简短的信任说明，陈述启用意味着授予什么。
 
 ## 12. 分阶段

@@ -6309,4 +6309,5 @@ IPC 请求无法关闭。
 - **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§13；ADR 0207
 - **验收**：质量、发布
 - **里程碑**：MVP 后（R7 v1，作为打包 spike 首先交付）
-- **状态**：草稿
+- **状态**：由 `packages/agent-runtime/src/extensions/bundle.test.ts` 单元覆盖
+  （esbuild 打包产物在临时目录运行）；打包应用旅程为草稿

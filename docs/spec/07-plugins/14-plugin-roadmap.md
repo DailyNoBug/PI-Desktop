@@ -59,7 +59,7 @@ Local plugins usable → developer-friendly → marketplace distribution → sig
 - Enterprise private sources (still planned)
 - Marketplace reviews / quality score (optional, still planned)
 
-### R7 — Trusted extensions (planned, D378)
+### R7 — Trusted extensions (v1 ✅, D378)
 - v1: trusted adapter in the Agent sidecar; discovery from `~/.pi/agent/extensions`
   and `<workspace>/.pi/extensions`; explicit per-entry enablement; tools, commands,
   lifecycle and provider hooks, basic UI prompts; Settings → Extensions tab

@@ -62,7 +62,7 @@ Local plugins usable → developer-friendly → marketplace distribution → sig
 - 企业私人资源（仍在计划中）
 - 市场评论/质量评分（可选，仍在计划中）
 
-### R7 — 受信任扩展（已规划，D378）
+### R7 — 受信任扩展（v1 ✅，D378）
 - v1：Agent sidecar 中的受信任适配层；从 `~/.pi/agent/extensions` 和
   `<workspace>/.pi/extensions` 发现；逐条显式启用；工具、命令、生命周期与 provider
   hooks、基础 UI 提示；设置 → 扩展标签

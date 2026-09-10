@@ -1,6 +1,6 @@
 # 16. Trusted Extensions
 
-> Status: Accepted for implementation (D378, ADR 0207)
+> Status: Implemented v1 (D378, ADR 0207); implementation notes are marked "v1 note"
 > Scope: v1. v2 and v3 items are listed in §12 and are not committed.
 
 ## 1. Purpose and terminology
@@ -20,7 +20,7 @@ surface.
 | Trusted extension | A module written against `ExtensionAPI`, discovered from an extensions directory or a package with a `pi` manifest field, running with the trust level of the Agent sidecar |
 | Plugin | A PI-Desktop plugin with a manifest, running in its own process under the permission gateway (ADR 0008) |
 | Adapter | The layer in `packages/agent-runtime` that implements `ExtensionAPI` on top of the desktop runtime |
-| Runner | One `ExtensionRunner` instance bound to one desktop session |
+| Runner | One desktop-owned `TrustedExtensionRunner` instance bound to one desktop session (v1 note: the pi-coding-agent `ExtensionRunner` is not reused because it binds the terminal theme; its `ExtensionAPI` types are a types-only dependency) |
 
 ## 2. Positioning and trust model
 
@@ -33,9 +33,11 @@ surface.
    not apply and is not weakened.
 3. Nothing is enabled by default. D007 stays in force: PI-Desktop never
    auto-imports `~/.pi`. Discovery lists candidates; the user enables each one.
-4. Project trust gates project-scoped extensions. An extension found under a
-   workspace's `.pi/extensions` loads only when the project is trusted, and
-   the `project_trust` event reports that state.
+4. Project-scoped extensions are gated per project. An extension found under
+   a workspace's `.pi/extensions` loads only for that project and only after
+   the user enabled it there. v1 note: PI-Desktop has no separate project
+   trust state, so enablement is the trust decision and `project_trust` is
+   not emitted.
 5. On every surface the label is "Trusted extension" with the source path.
    Marketplace, signing, and update flows do not apply in v1.
 
@@ -57,8 +59,8 @@ written in v1; enablement is PI-Desktop state.
 
 ### 3.2 Enablement state
 
-- Stored in `~/.pi-desktop` app settings under `piExtensions`, keyed by the
-  realpath of the extension entry. No host-core schema change.
+- Stored in `~/.pi-desktop/trusted-extensions.json`, keyed by the realpath of
+  the extension entry. No host-core schema change.
 - Each entry records `enabled`, the scope (`user`, `project:<projectId>`, or
   `manual`), the source, and the last load diagnostic.
 - A rescan is explicit (Settings button or app start). There is no file
@@ -76,14 +78,16 @@ never in Electron main, the renderer, or a plugin host process.
 
 ### 4.2 Loader
 
-- The sidecar depends on `@earendil-works/pi-coding-agent` at exactly the
-  version pinned for `pi-ai` and `pi-agent-core`. The three versions must
-  match; CI fails when they drift.
-- The `pi-coding-agent` loader and its jiti pipeline are reused. The sidecar bundle
-  must keep jiti and the loader resolvable at runtime; the bundling step is
-  verified by E2E-240 before any other work lands.
-- Import aliases: `@earendil-works/pi-coding-agent`, `pi-ai`, `pi-agent-core`,
-  and `typebox` resolve to the sidecar's copies. `@earendil-works/pi-tui`
+- The sidecar pins `@earendil-works/pi-coding-agent` at exactly the version
+  pinned for `pi-ai` and `pi-agent-core`, as a types-only dependency. The
+  three versions must match; CI fails when they drift.
+- The loader mirrors the `pi-coding-agent` discovery rules and uses
+  `jiti/static` with `virtualModules`, so the babel transform is bundled
+  and no path resolution happens at runtime. The bundling step is verified
+  by a contract test that runs the bundle outside the repository (E2E-240).
+- Import aliases: `pi-ai`, `pi-agent-core`, and `typebox` resolve to the
+  sidecar's copies; `@earendil-works/pi-coding-agent` resolves to a runtime
+  shim that exports `defineTool` and the tool-result type guards. `@earendil-works/pi-tui`
   resolves to a stub module that exports every symbol as an inert
   value so a top-level import never fails. Using a stubbed symbol raises a
   diagnostic at call time.
@@ -117,7 +121,7 @@ unsupported ones.
 
 | Class | Members |
 |---|---|
-| Supported | `registerTool`, `registerCommand`, `on(...)` for every event in §6, `exec`, `getActiveTools`, `getAllTools`, `setActiveTools`, `getCommands`, `setModel`, `getThinkingLevel`, `setThinkingLevel`, `setSessionName`, `getSessionName`, `sendUserMessage`, `getFlag` |
+| Supported | `registerTool`, `registerCommand`, `on(...)` for every event in §6, `exec`, `getActiveTools`, `getAllTools`, `setActiveTools`, `getCommands`, `setModel` (v1 note: returns `false`, the desktop owns the session's provider binding), `getThinkingLevel`, `setThinkingLevel`, `setSessionName`, `getSessionName`, `sendUserMessage` (Host-owned queue, D377), `getFlag` |
 | Supported on context | `ui.notify`, `ui.confirm`, `ui.select`, `ui.input`, `ui.setStatus`, `ui.setWorkingMessage`, `cwd`, `modelRegistry`, `isIdle`, `abort`, `hasPendingMessages`, `getContextUsage`, `compact`, `getSystemPrompt`, `waitForIdle`, `newSession`, `fork` |
 | Deferred to v2 | `sendMessage`, `appendEntry`, `setLabel`, `sessionManager` read API, `switchSession`, `registerShortcut`, `registerMarkdownTransformer`, `ui.setEditorText`, `ui.getEditorText`, `ui.addAutocompleteProvider`, `registerFlag` value editing |
 | Unsupported | `ui.setWidget`, `ui.setFooter`, `ui.setHeader`, `ui.setTitle`, `ui.custom`, `ui.overlay`, `ui.onTerminalInput`, `ui.setWorkingVisible`, `ui.setWorkingIndicator`, `ui.setHiddenThinkingLabel`, `ui.pasteToEditor`, `ui.editor`, `registerMessageRenderer`, `registerEntryRenderer`, `navigateTree`, `shutdown` |
@@ -135,22 +139,22 @@ are honored where the event type defines a result.
 | Event | Desktop hook point | Result honored |
 |---|---|---|
 | `session_start`, `session_shutdown` | Runner creation and disposal | No |
-| `session_info_changed` | Session rename | No |
-| `project_trust` | Project trust query at load | No |
-| `resources_discover` | Skills and prompt template discovery | Yes, added resources join the catalog |
+| `session_info_changed` | Session rename through `setSessionName` | No |
+| `project_trust` | v1 note: not emitted; enablement per project is the trust decision | No |
+| `resources_discover` | v1 note: not emitted; skills and prompt discovery stay in Electron main | n/a |
 | `before_agent_start` | Before the first provider request of a turn | Yes, system prompt and message edits |
 | `context` | `prepareNextTurn` | Yes, replacement message list |
 | `before_provider_request`, `before_provider_headers`, `after_provider_response` | Provider call wrapper | Yes for request and headers |
 | `agent_start`, `agent_end`, `agent_settled` | Agent loop boundaries | No |
 | `turn_start`, `turn_end` | Turn boundaries | No |
-| `message_start`, `message_update`, `message_end` | Agent message events | Yes for `message_end` |
+| `message_start`, `message_update`, `message_end` | Agent message events | v1 note: no, pi-agent-core offers no post-hoc replacement |
 | `tool_call` | `beforeToolCall` | Yes, block with reason |
 | `tool_execution_start`, `tool_execution_update`, `tool_execution_end` | Tool execution stream | No |
 | `tool_result` | `afterToolCall` | Yes, replacement result |
-| `model_select`, `thinking_level_select` | Provider binding change | No |
+| `model_select`, `thinking_level_select` | v1 note: not emitted; a binding change retires the runtime | No |
 | `session_before_compact`, `session_compact`, `session_compact_failed` | Compaction pipeline | Yes for `session_before_compact` |
-| `session_before_fork` | `session.fork` | Yes |
-| `input` | Host queue admission | Yes, edit or drop |
+| `session_before_fork` | v1 note: not emitted; fork runs in Electron main | n/a |
+| `input` | v1 note: not emitted; Host queue admission is not wired yet | n/a |
 | `user_bash`, `session_before_switch`, `session_before_tree`, `session_tree`, `ui_prompt_start`, `ui_prompt_end` | Not emitted in v1 | n/a |
 
 A handler that throws is logged as a diagnostic and treated as returning
@@ -180,8 +184,9 @@ abandoned with a diagnostic and the turn proceeds with the unmodified value.
    `/<name>` with the extension's label as the source, after built-in and
    plugin commands.
 2. A command runs in the sidecar with the extension command context bound to
-   the active session. It requires an active session; otherwise the entry is
-   disabled with a tooltip.
+   the active session. It requires an active session whose runtime has
+   loaded extensions in this app run; otherwise the composer reports that a
+   chat must be started first.
 3. Commands typed in the composer as `/<name>` resolve in this order:
    built-in, prompt template, plugin, extension. Collisions are diagnostics.
 4. A running command blocks composer submission the same way a plugin command
@@ -197,7 +202,7 @@ Interactive context calls travel sidecar → Electron main → renderer and back
 | `ui.confirm` | Modal with two actions | 5 min | resolves `false` |
 | `ui.select` | Modal list | 5 min | resolves `undefined` |
 | `ui.input` | Modal text field | 5 min | resolves `undefined` |
-| `ui.setStatus`, `ui.setWorkingMessage` | Composer status line | none | cleared |
+| `ui.setStatus`, `ui.setWorkingMessage` | Floating status line for the active session (v1 note: not inside the composer) | none | cleared |
 
 Rules:
 
@@ -220,7 +225,7 @@ No host-core RPC method, protocol version, or SQLite schema changes in v1.
 | `extensions.commands.publish` | Replace the session's registered command list |
 | `extensions.ui.request` | One interactive or status call from §9 |
 | `extensions.diagnostics.publish` | Replace the session's diagnostics list |
-| `session.rename`, `session.create`, `session.fork` | Existing methods, now reachable from the adapter |
+| `session.rename`, `session.create`, `session.fork`, `session.queuePush`, `session.queuePrioritize` | Existing methods, now reachable from the adapter |
 
 ### 10.2 Main ↔ renderer (Electron IPC)
 
@@ -240,14 +245,15 @@ from the MCP control plane's `pi_desktop_invoke` allowlist.
 
 ## 11. Settings surface
 
-The Settings → Extensions page gains an "Extensions" tab beside MCP, Skills,
-and Subagents:
+Settings gains a "Trusted extensions" destination (tab id
+`trustedExtensions`) in the Agent group beside Skills, MCP, and Subagents:
 
 - A list grouped by source with the label, entry path, scope, enable toggle,
   and a state chip (`disabled`, `loaded`, `error`, `missing`).
 - A diagnostics drawer per entry: load errors, unsupported API calls with
   counts, rejected registrations, handler timeouts.
-- A "Rescan" action and an "Add path" action.
+- A "Rescan" action and an "Add path" action (main opens the native picker;
+  the renderer never supplies a path).
 - A short trust notice above the list stating what enabling grants.
 
 ## 12. Phasing

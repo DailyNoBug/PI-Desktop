@@ -9502,4 +9502,5 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Specs linked**: `07-plugins/16-trusted-extensions.md` §4.2, §13; ADR 0207
 - **Acceptance**: Quality, Release
 - **Milestone**: Post-MVP (R7 v1, delivered first as the bundling spike)
-- **Status**: Draft
+- **Status**: Unit-covered by `packages/agent-runtime/src/extensions/bundle.test.ts`
+  (esbuild bundle run from a temp directory); packaged-app journey Draft

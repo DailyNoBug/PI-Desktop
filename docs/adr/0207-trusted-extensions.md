@@ -1,6 +1,6 @@
 # ADR 0207: Trusted extensions run in the Agent sidecar
 
-- Status: Accepted for implementation
+- Status: Accepted (v1 implemented 2026-09-10)
 - Date: 2026-09-10
 - Decision: D378
 - Related: ADR 0002, ADR 0008, D007, `07-plugins/16-trusted-extensions.md`,
@@ -29,15 +29,17 @@ replace the desktop runtime with `pi-coding-agent`'s `AgentSession`.
 
 ## Decision
 
-1. **Trusted extensions are the second extension surface.** The sidecar adds
-   `pi-coding-agent` at the same pinned version as the other two kernel
-   packages, reuses its loader and `ExtensionRunner`, and implements
-   `ExtensionAPI` on top of the desktop runtime's hook points. One Runner per
-   session.
+1. **Trusted extensions are the second extension surface.** The sidecar pins
+   `pi-coding-agent` at the same version as the other two kernel packages as
+   a types-only dependency, mirrors its discovery rules, loads modules with
+   `jiti/static` and virtual modules, and implements `ExtensionAPI` on top
+   of the desktop runtime's hook points in a desktop-owned Runner. One
+   Runner per session. (The upstream `ExtensionRunner` binds the terminal
+   theme and is not reused.)
 2. **Trusted, opt-in, no auto-import.** Extensions are labelled "Trusted
    extension", run with sidecar trust, and are disabled until the user enables
    each one. D007 is unchanged: `~/.pi` is scanned for candidates, never
-   imported. Project-scoped extensions wait for project trust.
+   imported. Project-scoped extensions are enabled per project.
 3. **Explicit support classes.** Every `ExtensionAPI` member is Supported,
    Deferred, or Unsupported. Unsupported members are inert and produce
    diagnostics; they never throw. Terminal-UI surfaces stay Unsupported.
