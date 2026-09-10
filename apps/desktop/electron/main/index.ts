@@ -2729,6 +2729,44 @@ function applyPluginLauncherShortcut(keybindings?: KeybindingOverrides) {
     });
   }
 }
+
+/**
+ * Register the summon-window shortcut (D166). The default `Mod+Shift+W`
+ * brings a hidden/minimized-to-tray window back into focus; this is the
+ * symmetrical counterpart to `closeWindow` (`Mod+W`).
+ */
+function applySummonWindowShortcut(keybindings?: KeybindingOverrides) {
+  const shortcut = KEYBOARD_SHORTCUTS.find(
+    (candidate) => candidate.id === "summonWindow",
+  );
+  if (!shortcut || !app.isReady()) return;
+  const platform: ShortcutPlatform =
+    process.platform === "darwin"
+      ? "darwin"
+      : process.platform === "win32"
+        ? "win32"
+        : "linux";
+  const binding = resolveKeybinding(shortcut, keybindings, platform);
+  const accelerator = keybindingToElectronAccelerator(binding, platform);
+
+  if (summonWindowAccelerator && summonWindowAccelerator !== accelerator) {
+    globalShortcut.unregister(summonWindowAccelerator);
+    summonWindowAccelerator = null;
+  }
+
+  if (!accelerator || accelerator === summonWindowAccelerator) return;
+  const registered = globalShortcut.register(accelerator, () => {
+    restoreMainWindow();
+  });
+  if (registered) {
+    summonWindowAccelerator = accelerator;
+  } else {
+    logger.app("diagnostics", "warn", "summon window shortcut unavailable", {
+      data: { accelerator, platform: process.platform },
+    });
+  }
+}
+
 async function createWindow() {
   notificationViewingSessionId = null;
   requestedWorkPanelReservation = 0;
