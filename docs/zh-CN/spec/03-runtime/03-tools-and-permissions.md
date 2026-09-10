@@ -312,7 +312,7 @@ sidecar 的工具计时线包括 `mutationFailureKind` 和
   `errorCode: TOOL_FAILED`，同时保留其 `exitCode`、stdout 和 stderr
   在 `content` 中，以便代理可以诊断命令而无需盲目重试。
 
-Shell 目录 (D190) 公开稳定 ID `windows-powershell`、`cmd`、
+Shell 目录 (D190) 公开稳定 ID `windows-powershell`、`windows-pwsh`、`cmd`、
 平台支持的 `git-bash` 和 `bash`。楼主坚持
 `defaultCommandShell`；如果那个持续的选择后来变得不可用，
 有效的目录选择有意回退到第一个可用的目录
@@ -339,6 +339,11 @@ tool/protocol 名称，请求中单独携带固定的 shell ID。
 - 安装程序中没有捆绑 bash：Windows 的 Git 是 Windows 的先决条件（无论如何，该应用程序都需要 git）
 - 解决失败返回稳定的 `SHELL_NOT_FOUND` 并提供安装指导
 - Windows PowerShell 和 cmd 使用其本机非交互式调用。
+- PowerShell 7 先解析 `%ProgramFiles%\PowerShell\7`（宿主进程为 32 位时为
+  `ProgramW6432`）下的 `pwsh.exe`，再回退到 PATH，覆盖机器级安装、Store、
+  用户级与便携安装。它与 Windows PowerShell 5.1 共用同一调用契约，且从不被
+  隐式选中，因此不会改变既有用户的默认 shell。解析失败返回
+  `SHELL_NOT_FOUND`，并列出已搜索的位置。
 - Git Bash 使用发现的 Git 来执行 Windows 可执行文件。
 - Unix Bash 使用经过批准的系统 Bash 条目。
 - 用户中止和超时在返回之前终止整个进程树。

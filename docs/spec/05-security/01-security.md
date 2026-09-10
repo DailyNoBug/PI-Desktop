@@ -101,7 +101,7 @@ replace an artifact.
 - Bash requires confirmation by default (risk-tiered permission cards); in
   either Agent or Plan, explicit Auto may run it without confirmation
 - The Bash protocol name remains stable, but host-core selects a catalog shell
-  (`windows-powershell`, `cmd`, `git-bash`, or `bash`) from persisted
+  (`windows-powershell`, `windows-pwsh`, `cmd`, `git-bash`, or `bash`) from persisted
   `defaultCommandShell` where supported by the platform. Settings writes reject
   unavailable/wrong-platform IDs. If a persisted choice later becomes
   unavailable, catalog resolution intentionally falls back to the first

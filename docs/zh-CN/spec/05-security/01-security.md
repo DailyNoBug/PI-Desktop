@@ -99,7 +99,7 @@ CDP 插件工具在 Plan 中仍被拒绝）。 Bash 在 Plan 中仍然可用：�
 - Bash默认需要确认（风险分级权限卡）；在
   Agent 或 Plan，显式 Auto 可以在不确认的情况下运行它
 - Bash 协议名称保持稳定，但 host-core 选择目录 shell
-（`windows-powershell`、`cmd`、`git-bash` 或 `bash`）来自持久化
+（`windows-powershell`、`windows-pwsh`、`cmd`、`git-bash` 或 `bash`）来自持久化
   `defaultCommandShell` 受平台支持。设置写入拒绝
   unavailable/wrong-platform ID。如果一个坚持的选择后来变成
   不可用，目录分辨率故意回退到第一个
