@@ -16,7 +16,7 @@ const ACTIONS = [
   "cdp",
 ];
 
-// Read-only actions that stay available in Plan and Goal modes (ADR 0207).
+// Read-only actions that stay available in Plan and Goal modes (ADR 0211).
 // navigate visits a URL/path; snapshot reads the accessibility tree;
 // screenshot captures the visible page; console returns existing console
 // messages. The mutating actions (click/fill/evaluate/cdp) remain

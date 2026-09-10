@@ -89,7 +89,7 @@ export type RegisteredPluginTool = {
   schema?: unknown;
   /**
    * Action names that may run in Plan or Goal mode. Omitted or empty
-   * means the tool is hidden from the model in those modes (ADR 0207).
+   * means the tool is hidden from the model in those modes (ADR 0211).
    */
   planSafeActions?: readonly string[];
   execute: (
@@ -546,7 +546,7 @@ function pluginActionEnum(schema: unknown): readonly string[] | null {
 
 /**
  * Normalize and validate a plugin tools `planSafeActions` declaration
- * (ADR 0207). Every entry must be a string and, when the schema carries an
+ * (ADR 0211). Every entry must be a string and, when the schema carries an
  * `action` enum, must be one of that enum. The validation here is the
  * final defense in depth: the runtime normally hides unsafe tools from the
  * model in Plan mode, but a stray call must still be rejected.
@@ -1704,7 +1704,7 @@ export class PluginRuntime {
           execute: async (toolArgs, ctx) => {
             // Plan/Goal mode only allows declared plan-safe actions. The
             // runtime normally hides unsafe tools from the model, but the
-            // host must still reject a stray call (ADR 0207).
+            // host must still reject a stray call (ADR 0211).
             if (ctx?.mode === "plan" || ctx?.mode === "goal") {
               const allowed = planSafeActions;
               if (allowed.length === 0) {

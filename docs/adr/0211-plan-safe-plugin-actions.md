@@ -1,4 +1,4 @@
-# ADR 0207: Plan-Safe Plugin Actions for Read-Only Inspection
+# ADR 0211: Plan-Safe Plugin Actions for Read-Only Inspection
 
 - Status: Accepted
 - Date: 2026-09-10
@@ -164,7 +164,7 @@ current focus. The `Mod+Shift+W` binding is symmetrical with
 
 - `docs/spec/03-runtime/03-tools-and-permissions.md`
 - `docs/spec/06-delivery/04-e2e-test-plan.md` E2E-PLAN-005
-- `docs/spec/08-meta/decisions-log.md` D380
+- `docs/spec/08-meta/decisions-log.md` D384
 - `packages/plugin-sdk/src/index.ts`
 - `packages/agent-runtime/src/runtime.ts`
 - `packages/agent-runtime/src/mode-prompts.ts`

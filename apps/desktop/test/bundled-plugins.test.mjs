@@ -137,7 +137,7 @@ test("Browser ships as an ordinary plugin over the public CDP API", () => {
   assert.doesNotMatch(browserView, /require\(|ipcRenderer|webview/);
 });
 
-test("Browser declares plan-safe actions for Plan-mode URL inspection (ADR 0207)", () => {
+test("Browser declares plan-safe actions for Plan-mode URL inspection (ADR 0211)", () => {
   const browserMain = read("resources/plugins/pi.browser/main.js");
   // The planSafeActions list must be declared on the registered tool.
   assert.match(browserMain, /planSafeActions\s*:\s*PLAN_SAFE_ACTIONS/);

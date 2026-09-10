@@ -1,7 +1,7 @@
 # 03. Tools and Permissions
 
 > Decisions applied: D003, D004, D005, D006, D013, D015, D093, D114, D115, D181, D186,
-> D189, D190, D195 (ADR 0057), D315, D379 (ADR 0207), ADR 0087
+> D189, D190, D195 (ADR 0057), D315, D384 (ADR 0211), ADR 0087
 
 ## 0. Frozen policy summary
 
@@ -12,7 +12,7 @@
 | Plan tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitPlan + plugin tools that declare plan-safe actions |
 | Goal tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitGoal + plugin tools that declare plan-safe actions |
 | Plan and Goal hard deny | Write / Edit / plugin tools without `planSafeActions` / unknown tools / the other kind's submit tool |
-| Plugin `planSafeActions` | Non-empty array of `action` strings; runtime hides plugin tools without one in Plan/Goal, host admits listed tools, plugin-runtime rejects any action outside the list (ADR 0207) |
+| Plugin `planSafeActions` | Non-empty array of `action` strings; runtime hides plugin tools without one in Plan/Goal, host admits listed tools, plugin-runtime rejects any action outside the list (ADR 0211) |
 | Permission timeout | 120s → deny |
 | allow-session scope | toolName |
 | Bash style | non-interactive; selected host catalog shell with streamed output |
@@ -418,7 +418,7 @@ Rules:
   (`inherit | ask | accept-edits | auto`, default `inherit`, schema v5) and
   set via `session.configure` `permissionMode`.
 - Plan's hard deny wins over every permission mode for Write/Edit and plugin
-  tools. `auto` cannot re-enable a hidden or denied tool.
+  tools that lack `planSafeActions`. `auto` cannot re-enable a hidden or denied tool.
 - Low-risk tools (`Read`/`Glob`/`Grep`) inside the session roots auto-allow in
   every mode, as before.
 - `BrowserPreview` is an explicit read-only UI inspection capability and is
@@ -486,12 +486,12 @@ matching log lines.
 | Mode | Read/Glob/Grep | BrowserPreview | Write/Edit | Bash | Plugins |
 |---|---|---|---|---|---|
 | Agent | allow | allow | permission policy | permission policy | registered risk policy |
-| Plan | allow | allow | deny | `ask`/`accept-edits`: confirm; `auto`: allow | deny |
-| Goal | allow | allow | deny | `ask`/`accept-edits`: confirm; `auto`: allow | deny |
+| Plan | allow | allow | deny | `ask`/`accept-edits`: confirm; `auto`: allow | plan-safe actions only |
+| Goal | allow | allow | deny | `ask`/`accept-edits`: confirm; `auto`: allow | plan-safe actions only |
 
 ### Notes
-- Plan and Goal hard-deny Write/Edit/plugin tools before permission UI; a direct host
-  call cannot bypass the matrix.
+- Plan and Goal hard-deny Write/Edit and plugin tools without `planSafeActions` before permission UI; a direct host
+  call cannot bypass the matrix. Plugin tools that declare a non-empty list are admitted; the runner still rejects any action outside that list (ADR 0211).
 - Agent mode uses permission cards or the selected automatic policy for
   Write/Edit/Bash and registered plugin tools.
 - Plan and Goal Bash may mutate workspace or scratch state when the user selected Auto;
@@ -563,19 +563,22 @@ parent and other delegates.
 
 ## 11. Plugin Tools
 
-Plugins can contribute tools via `agentTools` in Agent only:
+Plugins can contribute tools via `agentTools`. Agent mode sees every registered
+plugin tool. Plan and Goal see only tools whose `planSafeActions` list is
+non-empty (ADR 0211 / D384):
 
 1. manifest declaration
 2. user grants `agent.tool.register`
 3. PluginManager registers them into the ToolHost
 4. execution goes through the unified permission/audit/timeout wrapper
 
-No plugin tool is visible or executable in Plan or Goal, regardless of manifest
-risk, declared permission, session grant, or `auto`. A direct attempt returns
-`PLUGIN_DISABLED_IN_PLAN` — the `_IN_PLAN` codes are shared by both contract
-modes rather than duplicated per kind — and is audited as a contract-mode policy
-denial. Missing or invalid plugin risk defaults to `medium` for Agent and never
-grants contract-mode access.
+A plugin tool without `planSafeActions` is hidden from the model in Plan and
+Goal. A direct attempt returns `PLUGIN_DISABLED_IN_PLAN` — the `_IN_PLAN` codes
+are shared by both contract modes rather than duplicated per kind — and is
+audited as a contract-mode policy denial. When the list is present, host-core
+admits the tool and the plugin-runtime rejects any `action` outside the list
+with `PERMISSION_DENIED`. Missing or invalid plugin risk defaults to `medium`
+for Agent and never grants contract-mode access by itself.
 
 Naming:
 - Internal full name: `plugin.<pluginId>.<toolName>`

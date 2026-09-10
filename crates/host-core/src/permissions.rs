@@ -188,7 +188,7 @@ impl PermissionManager {
         // scratch paths, and covers Goal as well as Plan (D198).
         //
         // Plugin tools get a narrow carve-out: a plugin may declare a
-        // non-empty `planSafeActions` list (ADR 0207). When the runtime
+        // non-empty `planSafeActions` list (ADR 0211). When the runtime
         // forwards that list, host-core admits the plugin tool in
         // contract modes and the plugin-runtime enforces the per-action
         // restriction at execute time. Without the list the plugin tool
@@ -574,6 +574,48 @@ mod tests {
         grants.insert("s".to_string(), vec!["Bash".to_string()]);
         let d = pm.evaluate_auto_with_permission_mode("s", "Bash", "agent", "ask", &grants);
         assert_eq!(d, Some(PermissionDecision::AllowSession));
+    }
+
+    #[test]
+    fn contract_mode_admits_plugin_tools_only_with_plan_safe_actions() {
+        let pm = PermissionManager::default();
+        let denied = pm.evaluate_auto_with_permission_mode_and_risk_and_path(
+            "s",
+            "plugin_x_run",
+            "plan",
+            "auto",
+            &no_grants(),
+            None,
+            false,
+            None,
+        );
+        assert_eq!(denied, Some(PermissionDecision::Deny));
+
+        let empty: [String; 0] = [];
+        let empty_denied = pm.evaluate_auto_with_permission_mode_and_risk_and_path(
+            "s",
+            "plugin_x_run",
+            "goal",
+            "auto",
+            &no_grants(),
+            None,
+            false,
+            Some(&empty),
+        );
+        assert_eq!(empty_denied, Some(PermissionDecision::Deny));
+
+        let actions = ["navigate".to_string()];
+        let admitted = pm.evaluate_auto_with_permission_mode_and_risk_and_path(
+            "s",
+            "plugin_x_run",
+            "plan",
+            "auto",
+            &no_grants(),
+            None,
+            false,
+            Some(&actions),
+        );
+        assert_eq!(admitted, Some(PermissionDecision::AllowOnce));
     }
 
     #[test]

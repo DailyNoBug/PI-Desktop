@@ -119,7 +119,7 @@ export function buildApplicationMenuTemplate({
               ),
               // Symmetrical counterpart to closeWindow: bring a hidden
               // or minimized-to-tray main window back into focus
-              // (D166). The label is locale-resolved at render time.
+              // (D384). The label is locale-resolved at render time.
               {
                 label: labels.menu.summonWindow,
                 accelerator: accelerator("summonWindow"),

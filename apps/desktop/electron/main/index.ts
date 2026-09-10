@@ -340,6 +340,7 @@ let pluginLauncherWindow: BrowserWindow | null = null;
 let pluginLauncherCreationPromise: Promise<BrowserWindow> | null = null;
 let pluginLauncherAccelerator: string | null = null;
 let pluginLauncherBinding: string | null = null;
+let summonWindowAccelerator: string | null = null;
 let windowCreationPromise: Promise<void> | null = null;
 let applicationBooted = false;
 const isDevelopmentBuild =
@@ -1802,7 +1803,7 @@ async function resolveAgentRuntimeLaunch(
               ? { risk: tool.risk as Risk }
               : {}),
             // Plan-safe action list is forwarded to host-core so it can
-            // admit the tool in Plan/Goal modes (ADR 0207).
+            // admit the tool in Plan/Goal modes (ADR 0211).
             ...(tool.planSafeActions && tool.planSafeActions.length > 0
               ? { planSafeActions: tool.planSafeActions }
               : {}),
@@ -2033,6 +2034,14 @@ function executeNativeMenuAction(
   action: NativeMenuAction,
   target: BrowserWindow | null = mainWindow,
 ) {
+  if (action === "restoreMainWindow") {
+    restoreMainWindow();
+    const window = mainWindow;
+    return {
+      maximized: Boolean(window && !window.isDestroyed() && window.isMaximized()),
+      fullScreen: Boolean(window && !window.isDestroyed() && window.isFullScreen()),
+    };
+  }
   if (!target || target.isDestroyed()) {
     return { maximized: false, fullScreen: false };
   }
@@ -2181,6 +2190,7 @@ function applyApplicationMenuSettings(settings?: {
       ? (settings.keybindings as KeybindingOverrides)
       : undefined;
   applyPluginLauncherShortcut(keybindings);
+  applySummonWindowShortcut(keybindings);
   const devMode = settings?.developerMode === true;
   const signature = JSON.stringify({ locale, keybindings, devMode });
   if (appliedMenuSettings === signature) return;
@@ -2733,7 +2743,7 @@ function applyPluginLauncherShortcut(keybindings?: KeybindingOverrides) {
 }
 
 /**
- * Register the summon-window shortcut (D166). The default `Mod+Shift+W`
+ * Register the summon-window shortcut (D384). The default `Mod+Shift+W`
  * brings a hidden/minimized-to-tray window back into focus; this is the
  * symmetrical counterpart to `closeWindow` (`Mod+W`).
  */
@@ -4578,7 +4588,7 @@ function wireHost(h: HostProcess) {
             // Host-core sends the session mode; fall back to a session.get
             // call when it is missing (legacy callers). The plugin-runtime
             // uses the mode to enforce plan-safe action restrictions
-            // (ADR 0207).
+            // (ADR 0211).
             let sessionMode: "agent" | "plan" | "goal" | undefined;
             const normalizedMode = typeof q.mode === "string" ? q.mode : undefined;
             if (normalizedMode === "agent" || normalizedMode === "plan" || normalizedMode === "goal") {
@@ -4617,12 +4627,17 @@ function wireHost(h: HostProcess) {
               content: result ?? null,
             };
           } catch (e) {
+            const code =
+              e && typeof e === "object" && "code" in e && typeof e.code === "string"
+                ? e.code
+                : "TOOL_FAILED";
             payload = {
               executionId: q.executionId,
               ok: false,
-              errorCode: "TOOL_FAILED",
+              errorCode: code === "PERMISSION_DENIED" ? "PERMISSION_DENIED" : "TOOL_FAILED",
               content: { error: e instanceof Error ? e.message : String(e) },
             };
+          }
           }
         }
         logger.app("plugin", "info", "plugin tool executed", {
@@ -9197,10 +9212,12 @@ app.whenReady().then(async () => {
       // Keep the OS-locale menu until settings can be read again, while
       // retaining the historical default launcher fallback for this failure.
       applyPluginLauncherShortcut();
+      applySummonWindowShortcut();
     }
   } else {
     // If the backend never started, retain the default focused/global path.
     applyPluginLauncherShortcut();
+    applySummonWindowShortcut();
   }
   await ensureWindow();
   bootTiming.mark("window-ready");
@@ -9404,6 +9421,10 @@ app.on("before-quit", (event) => {
   if (pluginLauncherAccelerator) {
     globalShortcut.unregister(pluginLauncherAccelerator);
     pluginLauncherAccelerator = null;
+  }
+  if (summonWindowAccelerator) {
+    globalShortcut.unregister(summonWindowAccelerator);
+    summonWindowAccelerator = null;
   }
   shutdownPromise = (async () => {
     // Replies still streaming are stopped through the sidecar first so their

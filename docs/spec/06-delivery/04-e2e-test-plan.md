@@ -9627,7 +9627,7 @@ browser milestones are scheduled.
 - **Milestone**: M6+
 - **Status**: Source-contract covered; desktop hover/focus automation pending
 
-#### E2E-PLAN-005: Plan-mode plugin tools with `planSafeActions` are read-only (D380)
+#### E2E-PLAN-005: Plan-mode plugin tools with `planSafeActions` are read-only (D384)
 
 - **Preconditions**: PI-Desktop is built with the bundled Browser
   plugin (`pi.browser`) enabled and a workspace that exposes one
@@ -9657,7 +9657,8 @@ browser milestones are scheduled.
   structured `PERMISSION_DENIED` error before the plugin sees the
   call. Agent mode keeps the full plugin surface.
 - **Specs linked**: `03-runtime/02-agent-runtime.md`,
-  `03-runtime/03-tools-and-permissions.md`, `07-plugins/README.md`
+  `03-runtime/03-tools-and-permissions.md`, `07-plugins/README.md`,
+  ADR 0211
 - **Acceptance**: Functional, Quality
 - **Milestone**: M6
 - **Status**: Unit/source-contract covered (`runtime.test.ts`

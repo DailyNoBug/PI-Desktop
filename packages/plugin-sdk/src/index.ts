@@ -55,7 +55,7 @@ export type PluginManifest = {
       risk?: "low" | "medium" | "high";
       /**
        * Action names that may run in Plan or Goal mode. Omitted or empty
-       * means the tool is hidden from the model in those modes (ADR 0207).
+       * means the tool is hidden from the model in those modes (ADR 0211).
        * Only meaningful when the schema has an `action` enum and every
        * entry is a value of that enum; the host enforces the restriction
        * even if a plugin mis-declares, so misuse is caught at execute time.
@@ -399,7 +399,7 @@ export type PluginTool = {
   risk?: "low" | "medium" | "high";
   /**
    * Action names that may run in Plan or Goal mode. Omitted or empty
-   * means the tool is hidden from the model in those modes (ADR 0207).
+   * means the tool is hidden from the model in those modes (ADR 0211).
    * Only meaningful when the schema has an `action` enum and every
    * entry is a value of that enum; the host enforces the restriction
    * even if a plugin mis-declares, so misuse is caught at execute time.
@@ -412,6 +412,8 @@ export type PluginTool = {
 export type PluginToolExecContext = {
   sessionId?: string;
   turnId?: string;
+  /** Durable session operating mode. Host-core is authoritative (ADR 0211). */
+  mode?: "agent" | "plan" | "goal";
   /** Executor model for this session, `providerId/modelId`. Configuration, not transcript. */
   modelKey?: string;
   thinkingLevel?: string;

@@ -260,7 +260,7 @@ describe("naming helpers", () => {
   });
 });
 
-describe("planSafeActions contract (ADR 0207)", () => {
+describe("planSafeActions contract (ADR 0211)", () => {
   it("accepts a planSafeActions list on a manifest agentTool", () => {
     const result = validateManifest({
       ...base,

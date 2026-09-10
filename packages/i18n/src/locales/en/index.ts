@@ -612,6 +612,7 @@ export const en = {
       openWorkPanel: "Toggle work panel",
       abort: "Stop active task",
       closeWindow: "Close window",
+      summonWindow: "Bring window to front",
       resetZoom: "Reset zoom",
       zoomIn: "Zoom in",
       zoomOut: "Zoom out",
