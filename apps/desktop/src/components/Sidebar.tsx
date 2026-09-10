@@ -1880,7 +1880,6 @@ export function Sidebar({
 
         <div className="sidebar-footer no-drag">
           <div className="footer-actions">
-            <TokenUsageSummary onBeforeOpen={() => closeMenus(false)} />
             <TooltipButton
               type="button"
               className={`footer-action ${page === "settings" ? "active" : ""}`}
@@ -1891,6 +1890,7 @@ export function Sidebar({
             >
               <IconSettings size={14} aria-hidden />
             </TooltipButton>
+            <TokenUsageSummary onBeforeOpen={() => closeMenus(false)} />
             <TooltipButton
               type="button"
               className={`footer-action ${page === "plugins" ? "active" : ""}`}

@@ -35,11 +35,14 @@ test("the sidebar footer is an action bar, not a fabricated identity", () => {
   }
 });
 
-test("footer exposes token usage, settings, plugins and notifications in one row", () => {
+test("footer exposes settings, token usage, plugins and notifications in one row", () => {
   assert.match(sidebarSource, /className="footer-actions"/);
-  assert.match(sidebarSource, /<TokenUsageSummary onBeforeOpen=/);
-  assert.match(sidebarSource, /data-nav="settings"/);
-  assert.match(sidebarSource, /data-nav="plugins"/);
+  const settingsIndex = sidebarSource.indexOf('data-nav="settings"');
+  const usageIndex = sidebarSource.indexOf("<TokenUsageSummary onBeforeOpen=");
+  const pluginsIndex = sidebarSource.indexOf('data-nav="plugins"');
+  assert.ok(settingsIndex >= 0);
+  assert.ok(usageIndex > settingsIndex);
+  assert.ok(pluginsIndex > usageIndex);
   const pluginsAction = sidebarSource.match(
     /<TooltipButton[\s\S]*?data-nav="plugins"[\s\S]*?<\/TooltipButton>/,
   )?.[0] ?? "";

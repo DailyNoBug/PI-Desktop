@@ -135,7 +135,8 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   usage inspector shows whether a checkpoint is installed.
 
 Token usage is **not a Settings destination** (D335 / D390 / ADR 0216). The
-expanded sidebar footer Activity icon opens a read-only fourteen-day
+expanded sidebar footer Activity icon, directly right of Settings, opens a
+read-only fourteen-day
 completed-turn summary from host-owned history
 (`session.endTurn.usage`, `stats.getTokenUsageHistory`). The full dashboard
 remains marketplace plugin `pi.token-insights`, opened from the command palette

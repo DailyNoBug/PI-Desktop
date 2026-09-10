@@ -2300,9 +2300,9 @@ Each scenario is documented in this format:
   brand icon or reserved icon slot and its text aligns directly with the input
   gutter. The right Composer toolbar shows a Bot model × reasoning chip, then
   a standalone prompt-enhancement Sparkles button, then the single submit
-  slot. The footer Settings and Plugins actions are compact icon buttons;
-  Plugins sits immediately to the right of Settings and exposes a localized
-  accessible name. Every scoped session-creation control uses the dedicated
+  slot. The footer Settings, Activity, and Plugins actions are compact icon
+  buttons; Plugins sits immediately to the right of Activity and exposes a
+  localized accessible name. Every scoped session-creation control uses the dedicated
   message-plus icon with localized labels and accessible names. `Codex` remains visible only as
   the external import-source label or in non-runtime design-reference text.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/07-ui-design-system.md`,
@@ -4295,7 +4295,7 @@ Each scenario is documented in this format:
      session/project names.
 - **Expected**:
   - Footer action icons use the shared 32px hit target and compact 14px icon
-    sizing; Plugins sits immediately to the right of Settings.
+    sizing; Plugins sits immediately to the right of Activity.
   - Session titles, project/group titles, and empty-state copy use `--text-md`
     (13px); section labels and secondary metadata remain at `--text-sm` (12px).
   - The hierarchy remains readable in both themes, row pitch stays compact at
@@ -6248,7 +6248,7 @@ This test plan spec is accepted when:
 - Expect the expanded home sidebar to show Sessions and Projects without
   standalone Plugins, Pull requests, or Scheduled rows.
 - Click the plug-shaped Plugins icon in the sidebar footer, immediately to the
-  right of Settings, and expect it to replace the main pane with a dedicated
+  right of Activity, and expect it to replace the main pane with a dedicated
   page.
 - Open Settings → Project archive and use it to open, switch, and close a local
   folder workspace.
@@ -8638,8 +8638,9 @@ are withdrawn with ADR 0165.
   reported provider usage after this build. Settings is reachable. Plugin
   `pi.token-insights` may be installed.
 - **Steps**: 1) Complete a turn that also settled a subagent. 2) Click the
-  Activity icon at the left of the expanded sidebar footer. 3) Reopen the
-  popover and inspect the fourteen-day summary and today's breakdown. 4) Open
+  Activity icon directly right of Settings in the expanded sidebar footer.
+  3) Reopen the popover and inspect the fourteen-day summary and today's
+  breakdown. 4) Open
   Settings and search for "tokens" / "用量". 5) Open Token Insights from the
   command palette (`usage` / `用量`). 6) Confirm the transcript assistant chip.
 - **Expected**:

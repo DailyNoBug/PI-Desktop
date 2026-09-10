@@ -19,8 +19,8 @@ back into transcript assistant messages.
 
 ## Decision
 
-1. **The expanded sidebar footer gains an Activity icon.** It sits at the left
-   of Settings, uses the shared 32px footer target, and opens a non-modal
+1. **The expanded sidebar footer gains an Activity icon.** It sits to the
+   right of Settings, uses the shared 32px footer target, and opens a non-modal
    summary popover above the footer.
 2. **The renderer makes one read-only history request when the popover opens.**
    It asks for the last fourteen local-calendar day buckets and shows the range

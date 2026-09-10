@@ -4446,8 +4446,8 @@ D193, and D194.
 - D335 left recent PI-Desktop consumption visible only through the Token
   Insights plugin, while the host already owned the completed-turn rollup.
 - Decision D390 / ADR 0216 amends D335: the expanded sidebar footer has an
-  Activity icon left of Settings. It opens a read-only popover that requests
-  fourteen local-calendar day buckets from `stats.getTokenUsageHistory` and
+  Activity icon directly right of Settings. It opens a read-only popover that
+  requests fourteen local-calendar day buckets from `stats.getTokenUsageHistory` and
   shows the range total, completed turns, daily distribution, and today's
   input / output / cache / reasoning totals. Reopening refreshes; failure
   offers retry.
