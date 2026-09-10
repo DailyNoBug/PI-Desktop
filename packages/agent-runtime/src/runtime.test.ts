@@ -1608,6 +1608,62 @@ describe("DesktopAgentRuntime deferred tool catalog", () => {
     await runtime.dispose();
   });
 
+  it("hides plugin tools without plan-safe actions in Plan mode", async () => {
+    const runtime = createRuntime({
+      mode: "plan",
+      pluginTools: [
+        {
+          name: "plugin_demo_mutate",
+          description: "mutates state",
+          parameters: {},
+        },
+      ],
+    });
+    const names = (runtime as any).agent.state.tools.map(
+      (tool: any) => tool.name,
+    );
+    expect(names).not.toContain("plugin_demo_mutate");
+    await runtime.dispose();
+  });
+
+  it("exposes plugin tools with plan-safe actions in Plan mode", async () => {
+    const runtime = createRuntime({
+      mode: "plan",
+      pluginTools: [
+        {
+          name: "plugin_demo_browser",
+          description: "browser",
+          parameters: {
+            type: "object",
+            properties: {
+              action: { type: "string", enum: ["navigate", "click"] },
+            },
+          },
+          planSafeActions: ["navigate"],
+        },
+        {
+          name: "plugin_demo_other",
+          description: "unrelated plugin tool",
+          parameters: {},
+          // Empty array is treated as Plan-denied.
+          planSafeActions: [],
+        },
+      ],
+    });
+    const tools = (runtime as any).agent.state.tools as Array<{
+      name: string;
+      description: string;
+    }>;
+    const names = tools.map((tool) => tool.name);
+    expect(names).toContain("plugin_demo_browser");
+    expect(names).not.toContain("plugin_demo_other");
+    const browser = tools.find((tool) => tool.name === "plugin_demo_browser");
+    expect(browser?.description).toMatch(
+      /plan mode: only navigate actions/,
+    );
+    await runtime.dispose();
+  });
+
   it("activates matching tools for the next model turn", async () => {
     const runtime = createRuntime();
     const agent = (runtime as any).agent;
@@ -1716,7 +1772,8 @@ describe("DesktopAgentRuntime mode and tool composition", () => {
     expect(planTools).not.toContain("EnterPlanMode");
     expect(planTools).not.toContain("SubmitGoal");
     expect(agent.state.systemPrompt).toContain("SubmitPlan");
-    expect(agent.state.systemPrompt).toContain("Do not use Write, Edit, plugin tools");
+    expect(agent.state.systemPrompt).toContain("Do not use Write, Edit, or any unknown tool");
+    expect(agent.state.systemPrompt).toContain("plan-safe actions");
     expect(agent.state.systemPrompt).not.toContain("plugin_demo_run");
     expect(agent.state.systemPrompt).not.toContain("PluginCheck");
 

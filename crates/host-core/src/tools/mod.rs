@@ -572,6 +572,13 @@ pub struct ToolsExecuteParams {
     #[serde(default)]
     pub expected_command_shell_dialect: Option<String>,
     pub timeout_ms: Option<u64>,
+    /// Action names that may run in Plan or Goal mode (ADR 0211). When
+    /// set and non-empty, host-core admits this `plugin_*` tool in
+    /// contract modes even though plugins are otherwise Plan-denied; the
+    /// plugin-runtime still enforces the per-action restriction at
+    /// execute time.
+    #[serde(default)]
+    pub plan_safe_actions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]

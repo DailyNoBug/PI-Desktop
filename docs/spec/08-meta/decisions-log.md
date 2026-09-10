@@ -4267,7 +4267,7 @@ D193, and D194.
   had no `pwsh.exe` resolution path, and `COMMAND_SHELL_IDS` listed four IDs.
 - Decision D381 (ADR 0209) adds the stable ID `windows-pwsh` ("PowerShell 7") to
   the Windows catalog, amending ADR 0054 §1. It resolves
-  `%ProgramFiles%\PowerShell\7\pwsh.exe` (plus `%ProgramW6432%` when the host
+  `%ProgramFiles%\\PowerShell\\7\\pwsh.exe` (plus `%ProgramW6432%` when the host
   process is 32-bit), then `pwsh.exe` on PATH; a miss returns `SHELL_NOT_FOUND`
   naming both searched locations. It keeps the `powershell` dialect and the
   pinned non-interactive script, and it is never selected implicitly, so the
@@ -4318,3 +4318,22 @@ D193, and D194.
   editor's existing Advanced disclosure. No new IPC, tool-result, or storage
   shape: the field rides the existing subagent record and input. See E2E-119 /
   E2E-155.
+
+## 2026-09-10 — Plan-safe plugin actions and summon-window shortcut (D384)
+
+- Plan and Goal modes could not invoke plugin tools at all, even for
+  read-only actions like fetching a URL through the bundled Browser
+  plugin, and the keyboard shortcut catalog only exposed a close-window
+  binding with no symmetric way to bring a tray-hidden window back.
+- Decision D384 amends ADR 0052 / ADR 0053 with a per-action plugin
+  opt-in: a plugin tool may declare a `planSafeActions` list naming the
+  exact actions it considers safe in contract modes. The runtime hides
+  plugins without such a list in Plan and Goal, the host admits the
+  declared list in `tools.execute`, and the desktop runner rejects any
+  call whose action is not in the list. The bundled Browser plugin
+  declares `["navigate", "snapshot", "screenshot", "console"]`; the
+  mutating actions stay Agent-only. The shortcut catalog gains
+  `summonWindow` (`Mod+Shift+W`) in the `window` group, paired with
+  `closeWindow` (`Mod+W`), and the desktop main process registers it
+  through `globalShortcut` and the native menu. See ADR 0211 and
+  E2E-PLAN-005.

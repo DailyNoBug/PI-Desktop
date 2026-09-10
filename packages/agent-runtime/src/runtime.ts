@@ -687,6 +687,12 @@ export type PluginToolDef = {
   parameters?: unknown;
   /** Declared plugin risk, when the plugin supplied a bounded value. */
   risk?: Risk;
+  /**
+   * Action names that may run in Plan or Goal mode (ADR 0211). When set
+   * and non-empty the runtime may expose this plugin tool in Plan/Goal
+   * modes; host-core enforces the per-action restriction.
+   */
+  planSafeActions?: readonly string[];
 };
 
 export type AgentRuntimeOptions = {
@@ -2250,10 +2256,20 @@ Delegation rules:
                   }
                 : {}),
               ...(toolName.startsWith("plugin_")
-                ? {
-                    declaredRisk: this.pluginTools.find((tool) => tool.name === toolName)
-                      ?.risk,
-                  }
+                ? (() => {
+                    const def = this.pluginTools.find(
+                      (tool) => tool.name === toolName,
+                    );
+                    return {
+                      declaredRisk: def?.risk,
+                      // Plan-safe action list lets host-core admit the
+                      // plugin tool in Plan/Goal modes (ADR 0211).
+                      ...(Array.isArray(def?.planSafeActions) &&
+                      def!.planSafeActions.length > 0
+                        ? { planSafeActions: [...def!.planSafeActions] }
+                        : {}),
+                    };
+                  })()
                 : {}),
               // A delegate's tool call carries its definition's permission
               // scope (ADR 0089); the host resolves the call under that scope
@@ -2510,18 +2526,38 @@ Delegation rules:
     }
     const builtins = tools.map(exec);
 
-    const pluginTools: AgentTool[] =
+    // Plugins contribute Agent tools by default. Plan/Goal modes only
+    // expose plugins that declare plan-safe actions (ADR 0211); the
+    // host still enforces the per-action restriction at execute time.
+    const visiblePluginTools =
       this.mode === "agent"
-        ? this.pluginTools.map((def) => ({
-            name: def.name,
-            label: def.name,
-            description: def.description || `${def.name} plugin tool`,
-            parameters: (def.parameters ??
-              Type.Object({})) as AgentTool["parameters"],
-            executionMode: "sequential" as const,
-            execute: exec(def.name).execute,
-          }))
-        : [];
+        ? this.pluginTools
+        : this.pluginTools.filter(
+            (def) =>
+              Array.isArray(def.planSafeActions) &&
+              def.planSafeActions.length > 0,
+          );
+    const pluginTools: AgentTool[] = visiblePluginTools.map((def) => {
+      // Plan/Goal modes annotate the description so the model knows which
+      // actions it may actually call.
+      const baseDescription =
+        def.description || `${def.name} plugin tool`;
+      const description =
+        this.mode !== "agent" &&
+        Array.isArray(def.planSafeActions) &&
+        def.planSafeActions.length > 0
+          ? `${baseDescription} (${this.mode} mode: only ${def.planSafeActions.join(", ")} actions)`
+          : baseDescription;
+      return {
+        name: def.name,
+        label: def.name,
+        description,
+        parameters: (def.parameters ??
+          Type.Object({})) as AgentTool["parameters"],
+        executionMode: "sequential" as const,
+        execute: exec(def.name).execute,
+      };
+    });
     // Only offered when a plugin actually taught a skill; Electron main serves
     // it locally (host-core never sees the skill documents).
     const skillTools: AgentTool[] =
@@ -2610,11 +2646,21 @@ Delegation rules:
     }
   }
 
+  private isPlanSafePluginTool(name: string): boolean {
+    return this.pluginTools.some(
+      (def) =>
+        def.name === name &&
+        Array.isArray(def.planSafeActions) &&
+        def.planSafeActions.length > 0,
+    );
+  }
+
   private isToolAllowedInMode(name: string): boolean {
     const kind = proposalKindForMode(this.mode);
     if (!kind) return true;
-    // Contract modes are read-only: inspection tools plus the one submit tool
-    // that belongs to this kind.
+    // Contract modes are read-only: inspection tools, plan-safe plugin
+    // actions (ADR 0211), and the one submit tool that belongs to this kind.
+    if (this.isPlanSafePluginTool(name)) return true;
     return new Set([
       "Read",
       "Glob",
@@ -2648,7 +2694,7 @@ Delegation rules:
               "Bash",
               "BrowserPreview",
               ASK_TOOL_NAME,
-            ]).has(name)
+            ]).has(name) || this.isPlanSafePluginTool(name)
           : CHAT_CORE_TOOL_NAMES.has(name))
     );
   }
