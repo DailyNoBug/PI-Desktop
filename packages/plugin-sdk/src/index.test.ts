@@ -60,6 +60,36 @@ describe("validateManifest", () => {
     );
   });
 
+  it("accepts author as a string or contact object plus homepage/repository", () => {
+    expect(validateManifest({ ...base, author: "PI-Desktop" }).ok).toBe(true);
+    expect(
+      validateManifest({
+        ...base,
+        author: { name: "PI", email: "pi@example.com", url: "https://example.com" },
+        homepage: "https://example.com",
+        repository: "https://github.com/example/pi",
+      }).ok,
+    ).toBe(true);
+    expect(validateManifest({ ...base, author: { email: "x" } }).error).toMatch(/author\.name/);
+    expect(validateManifest({ ...base, author: 42 }).error).toMatch(/manifest\.author/);
+    expect(validateManifest({ ...base, homepage: 7 }).error).toMatch(/homepage/);
+    expect(validateManifest({ ...base, repository: "" }).error).toMatch(/repository/);
+  });
+
+  it("keeps main and ui.panel inside the plugin directory", () => {
+    expect(validateManifest({ ...base, main: "../main.js" }).error).toMatch(/manifest\.main.*\.\./);
+    expect(validateManifest({ ...base, main: "/abs/main.js" }).error).toMatch(/manifest\.main.*absolute/);
+    expect(validateManifest({ ...base, main: "C:\\main.js" }).error).toMatch(/manifest\.main.*absolute/);
+    expect(validateManifest({ ...base, ui: { panel: "../panel.html" } }).error).toMatch(
+      /manifest\.ui\.panel.*\.\./,
+    );
+    expect(validateManifest({ ...base, ui: { panel: "/panel.html" } }).error).toMatch(
+      /manifest\.ui\.panel.*absolute/,
+    );
+    expect(validateManifest({ ...base, ui: { panel: 3 } }).error).toMatch(/manifest\.ui\.panel/);
+    expect(validateManifest({ ...base, ui: { panel: "renderer/index.html" } }).ok).toBe(true);
+  });
+
   it("surfaces contribution errors", () => {
     expect(
       validateManifest({ ...base, contributes: { themes: [{ id: "a", label: "A", path: "a.json" }] } })
@@ -112,6 +142,24 @@ describe("validateContributions", () => {
   it("rejects malformed skill and service entries", () => {
     expect(validateContributions({ skills: [{ path: "" } as never] })).toMatch(/need a path/);
     expect(validateContributions({ services: [{ id: "1bad" }] })).toMatch(/id must match/);
+  });
+
+  it("reports a null or malformed command entry instead of throwing", () => {
+    expect(() => validateContributions({ commands: [null as never] })).not.toThrow();
+    expect(validateContributions({ commands: [null as never] })).toMatch(/commands entries/);
+    expect(validateContributions({ commands: [{ title: "No id" } as never] })).toMatch(/need an id/);
+    expect(validateContributions({ commands: [{ id: "x.open" } as never] })).toMatch(/requires a title/);
+    expect(
+      validateContributions({
+        commands: [
+          { id: "x.open", title: "A" },
+          { id: "x.open", title: "B" },
+        ],
+      }),
+    ).toMatch(/duplicate command id/);
+    const result = validateManifest({ ...base, contributes: { commands: [null] } });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/commands entries/);
   });
 
   it("accepts plugin-local shortcut settings and rejects undeclared commands", () => {

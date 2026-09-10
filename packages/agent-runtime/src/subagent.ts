@@ -31,8 +31,6 @@ import {
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
   addUsage,
-  DEFAULT_SUBAGENT_IDLE_TIMEOUT_SECONDS,
-  DEFAULT_SUBAGENT_MAX_DURATION_SECONDS,
   subagentCanMutate,
   type AgentEventEnvelope,
   type MessageUsage,
@@ -190,7 +188,6 @@ export class SubagentRun {
   private toolCalls = 0;
   private usage?: MessageUsage;
   private cappedTurns = false;
-  private timedOut?: { code: string; message: string };
   private streamError?: { code: string; message: string };
   private pendingProviderRetry?: ReturnType<typeof classifyAgentError>;
   private providerRetryInProgress = false;
@@ -199,10 +196,6 @@ export class SubagentRun {
   private providerRetryHeaders?: Record<string, string>;
   private providerResponseStatus?: number;
   private readonly runAbortController = new AbortController();
-  private idleTimer?: ReturnType<typeof setTimeout>;
-  private durationTimer?: ReturnType<typeof setTimeout>;
-  private activeToolExecutions = new Set<string>();
-  private watchdogsStarted = false;
 
   constructor(opts: SubagentRunOptions) {
     this.opts = opts;
@@ -292,27 +285,22 @@ export class SubagentRun {
       this.agent.abort();
     };
     signal?.addEventListener("abort", onAbort, { once: true });
-    this.startWatchdogs();
     let caughtError: ReturnType<typeof classifyAgentError> | undefined;
     try {
       await this.agent.prompt(this.opts.task);
       await this.agent.waitForIdle();
-      while (this.pendingProviderRetry && !signal?.aborted && !this.timedOut) {
+      while (this.pendingProviderRetry && !signal?.aborted) {
         await this.retryPendingProviderFailure();
       }
     } catch (error) {
       caughtError = classifyAgentError(error);
     } finally {
       signal?.removeEventListener("abort", onAbort);
-      this.stopWatchdogs();
       this.finalizeCurrentAssistant();
     }
 
     if (signal?.aborted) {
       return this.result("aborted", "The delegated task was aborted.");
-    }
-    if (this.timedOut) {
-      return this.result("timed_out", this.latestReportText(), this.timedOut);
     }
     if (caughtError) {
       if (caughtError.code === "TURN_ABORTED") {
@@ -408,11 +396,6 @@ export class SubagentRun {
             ].join("\n\n")
           : status === "aborted"
             ? `The ${name} subagent was aborted after ${this.turns} turn(s).`
-            : status === "timed_out"
-              ? [
-                  `The ${name} subagent timed out after ${this.turns} turn(s).`,
-                  ...(body ? ["Its last output was:", body] : []),
-                ].join("\n\n")
             : [
                 `The ${name} subagent failed after ${this.turns} turn(s): ${error?.message ?? "unknown error"}.`,
                 ...(body ? ["Its last output was:", body] : []),
@@ -461,80 +444,15 @@ export class SubagentRun {
 
   /**
    * Idle and duration watchdogs are withdrawn (D328). Stopping a delegate is
-   * the parent agent's `TaskStop` or the user's Stop, not a timer.
+   * the parent agent's `TaskStop` or the user's Stop, not a timer, so the
+   * only abort sources are the parent's signal and this run's own controller.
    */
-  private startWatchdogs(): void {}
-
-  private stopWatchdogs(): void {
-    if (!this.watchdogsStarted) return;
-    this.watchdogsStarted = false;
-    if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
-    if (this.durationTimer !== undefined) clearTimeout(this.durationTimer);
-    this.idleTimer = undefined;
-    this.durationTimer = undefined;
-  }
-
-  private idleTimeoutSeconds(): number {
-    return this.opts.definition.idleTimeoutSeconds ??
-      DEFAULT_SUBAGENT_IDLE_TIMEOUT_SECONDS;
-  }
-
-  private maxDurationSeconds(): number {
-    return this.opts.definition.maxDurationSeconds ??
-      DEFAULT_SUBAGENT_MAX_DURATION_SECONDS;
-  }
-
-  private armIdleTimer(): void {
-    if (!this.watchdogsStarted || this.activeToolExecutions.size > 0) return;
-    if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(
-      () =>
-        this.timeout(
-          "SUBAGENT_IDLE_TIMEOUT",
-          `The subagent produced no activity for ${this.idleTimeoutSeconds()} seconds.`,
-        ),
-      this.idleTimeoutSeconds() * 1000,
-    );
-  }
-
-  private timeout(code: string, message: string): void {
-    if (this.timedOut) return;
-    this.timedOut = { code, message };
-    this.runAbortController.abort();
-    this.agent.abort();
-  }
-
   private runSignal(): AbortSignal {
     return AbortSignal.any(
       this.opts.signal
         ? [this.opts.signal, this.runAbortController.signal]
         : [this.runAbortController.signal],
     );
-  }
-
-  private noteActivity(event: AgentEvent): void {
-    if (!this.watchdogsStarted) return;
-    if (event.type === "tool_execution_start") {
-      this.activeToolExecutions.add(event.toolCallId);
-      if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
-      this.idleTimer = undefined;
-      return;
-    }
-    if (event.type === "tool_execution_end") {
-      this.activeToolExecutions.delete(event.toolCallId);
-      this.armIdleTimer();
-      return;
-    }
-    // Every other event is a sign of life, down to a single streamed token
-    // arriving as `message_update`. The idle watchdog measures silence, not
-    // slowness: a delegate that keeps streaming never trips it, however long
-    // its turn takes. The timer stays paused while a tool runs, so this only
-    // re-arms once the last execution ended.
-    if (this.activeToolExecutions.size === 0) this.armIdleTimer();
-  }
-
-  private latestReportText(): string {
-    return this.lastReportText || this.currentAssistant?.content || "";
   }
 
   private newAssistantRow(): UiMessage {
@@ -559,7 +477,6 @@ export class SubagentRun {
    * and a delegate finishing must never end the parent's turn.
    */
   private handleEvent(event: AgentEvent): void {
-    this.noteActivity(event);
     switch (event.type) {
       case "turn_start":
         this.turns += 1;

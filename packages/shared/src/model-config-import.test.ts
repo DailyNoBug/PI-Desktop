@@ -3,7 +3,6 @@ import { bindingForCustomModel } from "./model-catalog.js";
 import {
   draftMatchesExisting,
   existingProviderMatchKey,
-  isPlaceholderSecret,
   parseCcSwitchConfigJson,
   parseCcSwitchProviders,
   parseClaudeCodeModelConfig,
@@ -11,7 +10,6 @@ import {
   parseJsonDocument,
   parseOpenCodeModelConfig,
   parsePiModelConfig,
-  parseTomlSubset,
   providerCreateInputFromDraft,
   publicModelConfigCandidate,
 } from "./model-config-import.js";
@@ -294,9 +292,14 @@ describe("matching and sanitizing", () => {
   });
 
   it("drops placeholder secrets", () => {
-    expect(isPlaceholderSecret("YOUR_API_KEY")).toBe(true);
-    expect(isPlaceholderSecret("${OPENAI_API_KEY}")).toBe(true);
-    expect(isPlaceholderSecret("sk-live-real")).toBe(false);
+    const drafts = (key: string) =>
+      parseClaudeCodeModelConfig({
+        env: { ANTHROPIC_API_KEY: key, ANTHROPIC_BASE_URL: "https://anyrouter.top" },
+        model: "claude-sonnet-4-5",
+      });
+    expect(publicModelConfigCandidate(drafts("YOUR_API_KEY")[0]).hasSecret).toBe(false);
+    expect(publicModelConfigCandidate(drafts("${OPENAI_API_KEY}")[0]).hasSecret).toBe(false);
+    expect(publicModelConfigCandidate(drafts("sk-live-real")[0]).hasSecret).toBe(true);
   });
 
   it("never copies a secret onto the public candidate", () => {
@@ -395,8 +398,20 @@ describe("parseJsonDocument / parseTomlSubset", () => {
     expect(parseJsonDocument('{ // c\n "a": 1, /* x */ "b": 2 }')).toEqual({ a: 1, b: 2 });
   });
 
+  it("accepts trailing commas before } and ] the way JSONC editors leave them", () => {
+    expect(
+      parseJsonDocument('{\n  "a": [1, 2,],\n  "b": { "c": 1, }, // note\n}\n'),
+    ).toEqual({ a: [1, 2], b: { c: 1 } });
+    expect(parseJsonDocument('{ "s": "keep ,] and ,} inside", }')).toEqual({
+      s: "keep ,] and ,} inside",
+    });
+    expect(parseJsonDocument('{ "a": 1,, }')).toBeNull();
+  });
+
   it("keeps quoted table keys", () => {
-    const parsed = parseTomlSubset(`[model_providers."my.gw"]\nname = "GW"\n`);
-    expect(parsed.tables.get("model_providers.my.gw")).toEqual({ name: "GW" });
+    const drafts = parseCodexModelConfig(
+      `[model_providers."my.gw"]\nname = "GW"\nbase_url = "https://gw.example.com/v1"\nmodels = "m1"\n`,
+    );
+    expect(drafts.map((d) => [d.externalId, d.name])).toEqual([["my.gw", "GW"]]);
   });
 });

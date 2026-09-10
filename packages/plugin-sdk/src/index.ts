@@ -8,13 +8,26 @@ import {
 import { validateMcpServer } from "./mcp-config.js";
 import { parseNetDomains, type PluginNetDomain } from "./net-policy.js";
 
+/**
+ * Manifest id shape frozen by docs/spec/07-plugins/02-plugin-manifest-schema.md:
+ * a lowercase dotted namespace such as `demo.hello` or `pi.browser`.
+ */
+export const PLUGIN_ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9_-]+)+$/;
+
+/** `author` may be a display string or a contact object (manifest schema §2). */
+export type PluginManifestAuthor =
+  | string
+  | { name: string; email?: string; url?: string };
+
 export type PluginManifest = {
   schemaVersion: number;
   id: string;
   name: string;
   version: string;
   description?: string;
-  author?: string;
+  author?: PluginManifestAuthor;
+  homepage?: string;
+  repository?: string;
   main: string;
   icon?: string;
   /**
@@ -529,10 +542,26 @@ export type PluginFsPreview = {
   size: number;
 };
 
+/**
+ * The appearance the host is currently showing. Mirrors `PluginAppearance` in
+ * the desktop's plugin panel chrome; keep the two shapes identical.
+ */
+export type PluginAppearance = {
+  /** Raw preference: "light" | "dark" | "system" | "plugin:<pluginId>:<themeId>". */
+  theme: string;
+  /** Resolved palette: "light" | "dark", or "system" when unresolved. */
+  base: "light" | "dark" | "system";
+  /** Active app language tag (e.g. "en", "zh-CN"). */
+  locale: string;
+  /** The active contributed theme, when the preference selects one. */
+  pluginTheme: { id: string; base: "light" | "dark"; css: string } | null;
+};
+
 export type PluginHostApi = {
   app: {
     getVersion: () => Promise<string>;
     getLocale: () => Promise<string>;
+    getAppearance: () => Promise<PluginAppearance>;
   };
   plugin: {
     getId: () => string;
@@ -763,14 +792,24 @@ export function validateManifest(raw: unknown): {
   if (typeof m.main !== "string" || !m.main) {
     return { ok: false, error: "manifest.main is required" };
   }
+  const mainError = relativePathError(m.main, "manifest.main");
+  if (mainError) return { ok: false, error: mainError };
   if (typeof m.schemaVersion !== "number") {
     return { ok: false, error: "manifest.schemaVersion is required" };
   }
   if (m.enabledByDefault !== undefined && typeof m.enabledByDefault !== "boolean") {
     return { ok: false, error: "manifest.enabledByDefault must be a boolean" };
   }
+  const authorError = manifestAuthorError(m.author);
+  if (authorError) return { ok: false, error: authorError };
+  for (const field of ["homepage", "repository"] as const) {
+    const value = (m as Record<string, unknown>)[field];
+    if (value !== undefined && (typeof value !== "string" || !value.trim())) {
+      return { ok: false, error: `manifest.${field} must be a non-empty string` };
+    }
+  }
   const ui = m.ui as
-    | { title?: unknown }
+    | { title?: unknown; panel?: unknown }
     | null
     | undefined;
   if (ui !== undefined) {
@@ -779,6 +818,13 @@ export function validateManifest(raw: unknown): {
     }
     const titleError = localizedStringError(ui.title, "manifest.ui.title");
     if (titleError) return { ok: false, error: titleError };
+    if (ui.panel !== undefined) {
+      if (typeof ui.panel !== "string" || !ui.panel.trim()) {
+        return { ok: false, error: "manifest.ui.panel must be a non-empty string" };
+      }
+      const panelError = relativePathError(ui.panel, "manifest.ui.panel");
+      if (panelError) return { ok: false, error: panelError };
+    }
   }
   const contributesError = validateContributions(m.contributes);
   if (contributesError) {
@@ -826,7 +872,22 @@ export function validateContributions(
 
   const settings = contributes.settings ?? [];
   const settingKeys = new Set<string>();
-  const commandIds = new Set((contributes.commands ?? []).map((command) => command.id));
+  const commands = contributes.commands ?? [];
+  if (!Array.isArray(commands)) return "contributes.commands must be an array";
+  const commandIds = new Set<string>();
+  for (const command of commands) {
+    if (!command || typeof command !== "object") {
+      return "contributes.commands entries must be objects";
+    }
+    if (typeof command.id !== "string" || !command.id.trim()) {
+      return "contributes.commands entries need an id";
+    }
+    if (typeof command.title !== "string" || !command.title.trim()) {
+      return `command "${command.id}" requires a title`;
+    }
+    if (commandIds.has(command.id)) return `duplicate command id "${command.id}"`;
+    commandIds.add(command.id);
+  }
   for (const setting of settings) {
     if (!setting || typeof setting !== "object") {
       return "contributes.settings entries must be objects";
@@ -1035,6 +1096,26 @@ function localizedStringError(value: unknown, field: string): string | undefined
   return undefined;
 }
 
+function manifestAuthorError(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") {
+    return value.trim() ? undefined : "manifest.author must not be empty";
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "manifest.author must be a string or { name, email?, url? }";
+  }
+  const author = value as Record<string, unknown>;
+  if (typeof author.name !== "string" || !author.name.trim()) {
+    return "manifest.author.name is required";
+  }
+  for (const field of ["email", "url"] as const) {
+    if (author[field] !== undefined && typeof author[field] !== "string") {
+      return `manifest.author.${field} must be a string`;
+    }
+  }
+  return undefined;
+}
+
 function relativePathError(value: string, field: string): string | undefined {
   if (/^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("/") || value.startsWith("\\")) {
     return `${field} must not be an absolute path`;
@@ -1085,6 +1166,7 @@ export {
   type ParsedSkillDoc,
 } from "./skills.js";
 export {
+  decodeCssEscapes,
   sanitizeThemeCss,
   THEME_CSS_MAX_BYTES,
   type ThemeCssResult,
@@ -1108,12 +1190,14 @@ export {
   type McpValidationResult,
 } from "./mcp-config.js";
 export {
+  isLocalNetDomain,
   isNetHostAllowed,
   isNetUrlAllowed,
   parseNetDomains,
   type PluginNetDomain,
 } from "./net-policy.js";
 export {
+  fsGlobIgnoresCase,
   isDeniedFsPath,
   isFsPathInScope,
   isWholeTreePattern,
@@ -1125,6 +1209,7 @@ export {
   FS_DENY_FILE_PATTERNS,
   LEGACY_FS_PERMISSIONS,
   PLUGIN_FS_MODES,
+  type MatchFsGlobOptions,
   type PluginFsMode,
   type PluginFsPolicy,
   type PluginFsRoot,
