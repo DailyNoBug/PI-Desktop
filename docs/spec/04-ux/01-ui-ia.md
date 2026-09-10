@@ -104,10 +104,10 @@ destination, chat as the home surface, tools and permissions inline.
   The work panel remains a fixed-width in-flow column beside MainChat inside
   the existing client area (ADR 0151). Opening and collapsing change only the
   shell's internal flex allocation and never expand or shrink native window
-  bounds. Opening is allowed even when MainChat falls below its 515px target;
-  if a later native resize or sidebar expansion makes the measured main pane
-  narrower than 515px, the renderer automatically collapses the panel to
-  preserve the layout. The renderer-measured panel rectangle continues to
+  bounds. MainChat's chat surface keeps a 515px CSS minimum. Native window or
+  sidebar resizing does not automatically collapse the panel; the user can use
+  the shell toggle. The renderer-measured panel rectangle continues to position
+  the native Browser view.
   position the native Browser view. Native window edges resize the app window
   only; they do not change the panel target. The outer window remains natively
   resizable from all OS edges and corners, with a minimum supported size of

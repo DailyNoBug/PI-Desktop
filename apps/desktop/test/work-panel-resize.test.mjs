@@ -10,7 +10,6 @@ import {
   clampWorkPanelWidth,
   committedWorkPanelChatWidth,
   parseWorkPanelChatWidth,
-  shouldCollapseWorkPanel,
   workPanelChatWidthFromPointer,
 } from "../src/lib/work-panel-resize.ts";
 
@@ -20,12 +19,6 @@ test("clamps the work panel to its fixed width range", () => {
   assert.equal(clampWorkPanelWidth(200), WORK_PANEL_MIN_WIDTH);
 });
 
-test("collapses only after an open panel's main pane shrinks", () => {
-  assert.equal(shouldCollapseWorkPanel(515, 515), false);
-  assert.equal(shouldCollapseWorkPanel(515, 514), true);
-  assert.equal(shouldCollapseWorkPanel(514, 515), false);
-  assert.equal(shouldCollapseWorkPanel(Number.NaN, 514), false);
-});
 
 test("clamps the conversation area to its bounded native resize range", () => {
   assert.equal(clampWorkPanelChatWidth(900), WORK_PANEL_CHAT_MIN_WIDTH);

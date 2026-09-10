@@ -831,13 +831,13 @@ workflow while rendering entirely inside the plugin's isolated page:
 | State | Behavior |
 |---|---|
 | Closed (default) | Not rendered; startup has no retained tabs. The viewport-fixed toggle or `Cmd/Ctrl + J` reveals the active session's panel context without creating a tab. Inline review cards remain available in the transcript because they are message-scoped and do not require the work panel. |
-| Open | Docked flex row right of the main pane; opened by an artifact, the viewport-fixed toggle, or `Cmd/Ctrl + J` at a fixed committed width of 244–720px (default 280px). The toggle or `Cmd/Ctrl + J` again collapses it, retaining the session context. Its flex allocation eases from zero to the committed width so MainChat reflows continuously inside the unchanged client area, even when that puts MainChat below 515px. If a later window resize or sidebar expansion makes the measured main pane narrower than 515px, the renderer collapses the panel automatically. |
+| Open | Docked flex row right of the main pane; opened by an artifact, the viewport-fixed toggle, or `Cmd/Ctrl + J` at a fixed committed width of 244–720px (default 280px). The toggle or `Cmd/Ctrl + J` again collapses it, retaining the session context. Its flex allocation eases from zero to the committed width so MainChat reflows continuously inside the unchanged client area, while the chat surface keeps its 515px CSS minimum. Native window or sidebar resizing does not automatically collapse the panel. |
 | Multiple artifacts | The current-resource header keeps one readable label at the panel minimum; its bounded menu lists the tools first and then the transcript-opened resources in first-open order, with full-path tooltips and independent close controls |
 | Session switch | The destination session's retained open state, tabs, active tab, and Browser resource replace the previous session's panel context atomically; neither context is deleted |
 | Resizing | The inner left divider follows anchored pointer delta or keyboard input for the panel target; pointer changes are frame-coalesced and committed in the renderer. Escape, pointer cancellation, or lost capture restores the prior panel width. Native window edges resize only the fixed application window. |
 | No workspace | Each tab renders its own "open a project" empty state |
 | Open with no resource | `Cmd/Ctrl + J` reveals the panel without creating a tab, so the body renders the no-resource empty state: title, one line of copy, and the available Browser/plugin-view entries. Activating an entry creates or selects that singleton view. The body is not a `role="tabpanel"` here because no tab labels it. |
-| Constrained work area | The panel stays at its committed width inside the existing client area; MainChat absorbs the internal width and may initially fall below its 515px target on small windows. A subsequent shrink below 515px while the panel is open collapses the panel and returns the space to MainChat |
+| Constrained work area | The panel stays at its committed width inside the existing client area; the chat surface keeps its 515px CSS minimum and the panel remains open until the user collapses it |
 | Plugin view active | The body hosts the plugin's own isolated page as a native `WebContentsView`, positioned from the measured surface rect. It is hidden whenever the tab is inactive, the panel is animating or being resized, or a blocking overlay is open — the same rule the Browser preview follows, since both composite above renderer content. A view whose plugin is disabled, uninstalled, reloaded, or crashed is destroyed; the tab stays and re-opens the page on the next lifecycle event (ADR 0104) |
 | Plugin out of scope | A view contributed by a plugin that is not active in the current project disappears from the menu when the project changes. Unlike contributed themes, which are one global setting and stay unfiltered, a view is scoped work |
 
@@ -920,9 +920,9 @@ workflow while rendering entirely inside the plugin's isolated page:
   resources reset; only the committed preferred `{width}` remains in
   localStorage `pi.desktop.workPanel`. Opening and collapsing never request a
   positive native reservation and never change native window bounds. The panel
-  flexes inside the existing client area, so opening may put MainChat below its
-  515px target; a later native resize or sidebar expansion below that threshold
-  collapses the panel and returns the space. Background session artifacts never
+  flexes inside the existing client area while the chat surface keeps its 515px
+  CSS minimum. Native window or sidebar resizing does not automatically collapse
+  the panel. Background session artifacts never update the visible panel or window
   update the visible panel or window geometry.
 
 ### 5.5 Accessibility
