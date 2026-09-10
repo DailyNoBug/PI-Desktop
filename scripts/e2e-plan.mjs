@@ -1059,7 +1059,9 @@ async function scenario115(binary, tempRoot) {
     const invalidLegs = [
       ["zero", 0, ["INVALID_ARGUMENT"]],
       ["negative", -1, ["INVALID_PARAMS"]],
-      ["over-max", 300_001, ["INVALID_ARGUMENT"]],
+      // host-core caps timeoutMs at i32::MAX (MAX_TIMEOUT_MS); the agent-side
+      // 21,600 s ceiling lives in agent-runtime's Bash schema.
+      ["over-max", 2_147_483_648, ["INVALID_ARGUMENT"]],
     ];
     const invalidDetails = [];
     for (const [name, timeoutMs, codes] of invalidLegs) {
