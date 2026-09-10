@@ -48,6 +48,7 @@ import {
   toolResultChips,
 } from "../lib/tool-presentation";
 import {
+  collectDelegationFailures,
   collectDelegationStatuses,
   collectDelegationTimings,
   delegationRoster,
@@ -59,6 +60,7 @@ import {
   subagentOutcome,
   summarizeSubagentActivity,
   type DelegationActivityItem,
+  type DelegationFailure,
   type SubagentOutcome,
   type SubagentTiming,
 } from "../lib/subagent-topology";
@@ -1169,6 +1171,87 @@ function delegateTaskDescription(message: UiMessage): string {
 }
 
 /**
+ * Why a settled delegate failed, at the foot of its detail panel (issue #161).
+ *
+ * The step stream ends on `Failed` / `Timed out` / `Aborted` without saying
+ * why: a delegate that dies before emitting a message row has no other carrier
+ * for its reason, and the badge plus a duration is all a reader gets. The
+ * runtime already reports `error: { code, message }` on the delegation roster
+ * entry, so it is rendered here with the same visual language as the parent
+ * reply's error card instead of being reachable only by reading the raw tool
+ * result.
+ */
+function SubagentFailureCard({
+  outcome,
+  failure,
+}: {
+  outcome: SubagentOutcome;
+  failure: DelegationFailure;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(true);
+  const detailsId = useId();
+  const headingId = useId();
+  // A known runtime code already has a localized sentence; otherwise the
+  // outcome's own label is the summary, which stays truthful and localized.
+  const localizedKey = `errors.${failure.code}`;
+  const localized = failure.code ? t(localizedKey) : localizedKey;
+  const summary =
+    failure.code && localized !== localizedKey
+      ? localized
+      : t(`chat.subagentStatus.${outcome}`);
+  // A code-only error carries no detail to disclose, so it stays a one-line
+  // card rather than opening onto an empty box.
+  const hasMessage = failure.message.length > 0;
+
+  return (
+    <section
+      className="message-error subagent-failure"
+      aria-labelledby={headingId}
+      data-testid="subagent-failure"
+    >
+      <div className="message-error-heading">
+        <span className="message-error-icon" aria-hidden>
+          <IconCircleAlert size={16} />
+        </span>
+        <div className="message-error-copy">
+          <strong id={headingId}>{summary}</strong>
+          {failure.code ? <code>{failure.code}</code> : null}
+        </div>
+        <div className="message-error-actions">
+          {/* The toggle stays outside the collapsed region, otherwise hiding
+            * the details would take away the control that brings them back. */}
+          {hasMessage ? (
+            <button
+              type="button"
+              className="message-error-toggle"
+              aria-expanded={open}
+              aria-controls={detailsId}
+              onClick={() => setOpen((value) => !value)}
+            >
+              <IconChevronRight size={12} aria-hidden />
+              {open ? t("chat.hideErrorDetails") : t("chat.showErrorDetails")}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {hasMessage ? (
+        <div
+          id={detailsId}
+          className={`message-error-details ${open ? "open" : ""}`}
+          hidden={!open}
+        >
+          <div className="message-error-raw">
+            <pre className="selectable">{failure.message}</pre>
+            <CopyButton text={failure.message} label={t("chat.copyErrorDetails")} />
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/**
  * The side-sheet view for a selected delegate. It shows a sticky identity
  * header, the task as an inset grouped card, and the live process timeline.
  * Reports and counters remain omitted from this compact surface.
@@ -1177,11 +1260,13 @@ export function SubagentDetail({
   message,
   delegate,
   delegationStatuses,
+  delegationFailures,
   delegationTimings,
 }: {
   message: UiMessage;
   delegate?: SubagentRun;
   delegationStatuses?: ReadonlyMap<string, SubagentOutcome>;
+  delegationFailures?: ReadonlyMap<string, DelegationFailure>;
   delegationTimings?: ReadonlyMap<string, SubagentTiming>;
 }) {
   const { t } = useTranslation();
@@ -1201,6 +1286,7 @@ export function SubagentDetail({
       ? payloadRecord.delegationId
       : message.toolCallId || message.id;
   const timing = delegationTimings?.get(delegationId);
+  const failure = delegationFailures?.get(delegationId);
   const startedAt =
     timing?.startedAt ??
     (typeof payloadRecord?.startedAt === "number" ? payloadRecord.startedAt : undefined);
@@ -1328,6 +1414,11 @@ export function SubagentDetail({
           scrollable={false}
           variant="dock"
         />
+      ) : null}
+      {/* A completed delegate has nothing to explain, so the card is tied to a
+        * non-success terminal outcome rather than to the error field alone. */}
+      {failure && outcome !== "completed" && outcome !== "running" ? (
+        <SubagentFailureCard outcome={outcome} failure={failure} />
       ) : null}
     </div>
   );
