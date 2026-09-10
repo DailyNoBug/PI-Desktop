@@ -1245,7 +1245,10 @@ Renderer： `apps/desktop/src/components/Markdown.tsx` + `apps/desktop/src/lib/s
   引用块是无线条的柔和 `--ds-tile` 色块（D297）；hr 只是留白；列表使用更安静的标记和弹性任务
   行；内联代码只有柔和的灰色色调、无边框；表格去掉单元格边框，
   改用 `--ds-tile-deep` 表头与 `--ds-tile` 斑马行；桌子包裹
-  在 `.table-wrap`（圆壳、标题行、偶数行洗、悬停洗）；
+  在 `.table-wrap`（圆壳、标题行、偶数行洗、悬停洗）。
+  包装层与表格铺满转录列宽；单元格文字可换行
+  （`overflow-wrap: anywhere`），多列或长 token 不会撑出横向滚动条。
+  `overflow-x: auto` 仅作为无法断开内容的回退。
   显示数学位于一个微妙的插入板上。思考散文重复使用相同的内容
   text-sm-plus / 辅助颜色的层次结构。
 - **浅色主题**：安静的表面 - 链接使用柔和的下划线墨水

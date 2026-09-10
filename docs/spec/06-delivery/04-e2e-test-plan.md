@@ -2834,15 +2834,17 @@ Each scenario is documented in this format:
   contrast on inline code, blockquote rule, and code card.
 - **Expected**: Answer prose uses the `.prose-chat` hierarchy (h1–h6 ramp,
   accent-tinted blockquote, hairline-bordered inline code, zebra/hover table
-  shell, inset code card with monospace language tag). Thinking prose stays
+  shell, inset code card with monospace language tag). A wide GFM table stays
+  inside the transcript column: headers and cells wrap rather than overflowing.
+  Thinking prose stays
   secondary/smaller and does not merge into the answer. Both themes keep
   readable contrast; copy still copies raw fence text.
 - **Specs linked**: `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md` §8.7
 - **Acceptance**: C (chat stream), Quality
 - **Milestone**: M5
-- **Status**: Unit-covered (`user-select.test.mjs`, `thinking-ui.test.mjs`);
-  full visual scenario Draft
+- **Status**: Unit-covered (`user-select.test.mjs`, `thinking-ui.test.mjs`,
+  `markdown-prose-style.test.mjs`); full visual scenario Draft
 
 #### E2E-061: User message plaintext layout survives wrapping and reload
 

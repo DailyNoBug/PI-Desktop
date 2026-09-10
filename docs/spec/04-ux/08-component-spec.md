@@ -1502,8 +1502,12 @@ Renderer: `apps/desktop/src/components/Markdown.tsx` + `apps/desktop/src/lib/shi
   hr is pure spacing; lists use quieter markers and flex task
   rows; inline code gets a soft gray tint and no border; tables drop cell
   borders for a `--ds-tile-deep` header and zebra `--ds-tile` rows and wrap
-  in `.table-wrap` (rounded shell, header row, even-row wash, hover wash);
-  display math sits in a subtle inset plate. Thinking prose reuses the same
+  in `.table-wrap` (rounded shell, header row, even-row wash, hover wash).
+  The wrap and table fill the transcript width; cell text wraps
+  (`overflow-wrap: anywhere`) so many columns or long tokens do not force a
+  horizontal scrollbar. `overflow-x: auto` remains only for unbreakable
+  content.
+  Display math sits in a subtle inset plate. Thinking prose reuses the same
   hierarchy at text-sm-plus / secondary color.
 - **Light theme**: paper-quiet surfaces — links use soft underlined ink
   (not hard black/blue), inline code `#f2f2f2`, fenced code cards use One

@@ -2059,15 +2059,16 @@ MainChat 弥补了缺口。 Maximized/fullscreen 调用保留最新的
   内联代码、块引用规则和代码卡的对比。
 - **预期**：答案散文使用 `.prose-chat` 层次结构（h1–h6 斜坡，
   带重音的块引用、细线边框内联代码、zebra/hover 表
-  shell，带有等宽语言标签的插入代码卡）。思考散文留下来
+  shell，带有等宽语言标签的插入代码卡）。宽 GFM 表格留在转录列宽内：
+  表头与单元格换行，而不是横向溢出。思考散文留下来
   secondary/smaller 并且不会合并到答案中。两个主题都保留
   可读对比度；复制仍然复制原始栅栏文本。
 - **链接规格**：`04-ux/07-ui-design-system.md`，
   `04-ux/08-component-spec.md` §8.7
 - **验收**：C（聊天流），质量
 - **里程碑**：M5
-- **状态**：单位覆盖（`user-select.test.mjs`、`thinking-ui.test.mjs`）；
-  全视觉场景草稿
+- **状态**：单位覆盖（`user-select.test.mjs`、`thinking-ui.test.mjs`、
+  `markdown-prose-style.test.mjs`）；全视觉场景草稿
 
 #### E2E-061：用户消息纯文本布局在包装和重新加载中仍然存在
 
