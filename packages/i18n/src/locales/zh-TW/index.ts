@@ -1779,6 +1779,8 @@ export const zhTW = {
       modelPickHint: "選填。只會顯示設定中可連線的模型。",
       modelPickEmpty: "還沒有可用的模型，請先在模型設定中設定一個。",
       modelPickEmptyAction: "前往模型設定",
+      modelSearch: "篩選模型",
+      modelNoMatches: "沒有符合的模型。",
       modelPickGroup: "{{provider}} 模型",
       sheetNote: "儲存為 markdown 檔案，也可以在應用外編輯。",
       empty: "還沒有你自己的子智慧體",

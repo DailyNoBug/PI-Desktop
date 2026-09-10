@@ -94,9 +94,12 @@ rows and shows the same summary as a compact banner.
 
 The Subagents create/edit sheet reuses the configured, runnable models the
 Composer already offers (enabled providers with a credential or `authKind:
-none`). The control is a grouped select: inherit-session is the empty value,
+none`). The control is a searchable, provider-grouped menu anchored to its
+trigger rather than a native `<select>`: a definition may pin any configured
+model, so the list can run to dozens of rows, and only an anchored surface
+scrolls inside itself and accepts a filter. Inherit-session is the empty value,
 options are `vendorKey-or-name/modelId` grouped by provider display name, and a
-pin that is no longer configured stays as an extra option so an edit cannot
+pin that is no longer configured stays as an extra row so an edit cannot
 silently drop it. Every option comes from the configured provider catalog, so a
 saved pin is always resolvable; the sheet deliberately offers no free-text
 model id, and when no provider has a runnable model it shows an empty state with

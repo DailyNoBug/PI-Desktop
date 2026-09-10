@@ -1780,6 +1780,8 @@ export const zhCN = {
       modelPickHint: "可选。仅显示在设置中可达的模型。",
       modelPickEmpty: "还没有可用的模型，请先在模型设置中配置一个。",
       modelPickEmptyAction: "前往模型设置",
+      modelSearch: "筛选模型",
+      modelNoMatches: "没有匹配的模型。",
       modelPickGroup: "{{provider}} 模型",
       sheetNote: "保存为 markdown 文件，也可以在应用外编辑。",
       empty: "还没有你自己的子智能体",

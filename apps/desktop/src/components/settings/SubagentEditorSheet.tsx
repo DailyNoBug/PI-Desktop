@@ -25,6 +25,7 @@ import {
   subagentModelPinParts,
   subagentModelSelectValue,
 } from "./subagent-models";
+import { SubagentModelPicker } from "./SubagentModelPicker";
 
 /** Hard cap host-core enforces on a definition document. */
 export const MAX_SUBAGENT_BYTES = 32 * 1024;
@@ -381,27 +382,12 @@ function ModelField({
               </Button>
             </div>
           ) : (
-            <Select
+            <SubagentModelPicker
               value={modelValue}
-              aria-label={t("extensions.subagents.model")}
-              onChange={(event) =>
-                setDraft({ ...draft, model: event.target.value })
-              }
-            >
-              <option value="">{t("extensions.subagents.modelInherit")}</option>
-              {modelGroups.map((group) => (
-                <optgroup key={group.providerId} label={group.providerName}>
-                  {group.choices.map((choice) => (
-                    <option key={choice.value} value={choice.value}>
-                      {choice.modelId}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-              {orphanModel ? (
-                <option value={orphanModel}>{orphanModel}</option>
-              ) : null}
-            </Select>
+              groups={modelGroups}
+              orphanPin={orphanModel}
+              onChange={(next) => setDraft({ ...draft, model: next })}
+            />
           )}
         </Field>
         <Field
