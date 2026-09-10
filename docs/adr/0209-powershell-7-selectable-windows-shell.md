@@ -1,10 +1,10 @@
 # ADR 0209: PowerShell 7 as a selectable Windows command shell
 
-- Status: Proposed (issue #151); the maintainer sets the final status on merge
+- Status: Accepted (issue #151, merged in #191)
 - Date: 2026-09-10
 - Baseline: `0.14.6`
-- Protocol: v9
-- Storage schema: v10
+- Protocol: v11 (unchanged; additive catalog ID)
+- Storage schema: v14 (unchanged; no migration)
 - Decision: D381
 - Amends: ADR 0054 §1 (Windows catalog table and Windows catalog list)
 - Related: [03-runtime/03-tools-and-permissions.md](../spec/03-runtime/03-tools-and-permissions.md),
