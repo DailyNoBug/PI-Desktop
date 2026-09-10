@@ -33,6 +33,7 @@ export const NATIVE_MENU_ACTIONS = [
   "minimize",
   "toggleMaximize",
   "close",
+  "restoreMainWindow",
 ] as const;
 
 export type NativeMenuAction = (typeof NATIVE_MENU_ACTIONS)[number];

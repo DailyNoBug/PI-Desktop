@@ -71,6 +71,7 @@ export const en = {
     openProject: "Open Project…",
     settings: "Settings…",
     closeWindow: "Close Window",
+    summonWindow: "Summon Window",
     undo: "Undo",
     redo: "Redo",
     cut: "Cut",
