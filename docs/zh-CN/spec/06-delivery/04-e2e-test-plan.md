@@ -6067,8 +6067,10 @@ IPC 请求无法关闭。
      `docs/zh-CN/guide/screenshots.md`。确认截图都解析到
      `docs/public/screenshots/` 下的文件。
   2. 在 VitePress 预览中打开中英文截图页。确认主页、面板和设置章节的代表性图片正常显示。
-  3. 运行 `pnpm docs:build`，检查生成页面没有图片加载失败。
-- **预期**：GitHub 不再请求仓库根目录的 `/screenshots/` 路径，而是显示全部截图；两个 VitePress 语言页面继续使用同一批已提交资源；文档构建成功。
+  3. 确认两个语言页面的导航 logo 都加载 `docs/public/app-icon.png`。
+  4. 确认两个语言页面的 footer 都包含指向 `https://aiuo.net` 的 `AIUO.NET` 链接。
+  5. 运行 `pnpm docs:build`，检查生成页面没有图片加载失败。
+- **预期**：GitHub 不再请求仓库根目录的 `/screenshots/` 路径，而是显示全部截图；两个 VitePress 语言页面继续使用同一批已提交资源。导航使用应用图标，两个 footer 都显示指向 `https://aiuo.net` 的链接，文档构建成功。
 - **链接规格**：ADR 0079、`docs/README.md`、`docs/guide/screenshots.md`、
   `docs/zh-CN/guide/screenshots.md`
 - **验收**：质量

@@ -8851,11 +8851,17 @@ are withdrawn with ADR 0165.
   2. Open the English and Chinese screenshot pages in the VitePress preview.
      Confirm representative images from the home, panel, and settings sections
      render.
-  3. Run `pnpm docs:build` and inspect the generated pages for image load
+  3. Confirm the navigation logo loads `docs/public/app-icon.png` on both
+     locale pages.
+  4. Confirm each locale footer includes an `AIUO.NET` link to
+     `https://aiuo.net`.
+  5. Run `pnpm docs:build` and inspect the generated pages for image load
      failures.
 - **Expected**: GitHub renders every gallery image instead of requesting a
   repository-root `/screenshots/` path; both VitePress locale pages continue to
-  render the gallery from the same checked-in assets; the docs build succeeds.
+  render the gallery from the same checked-in assets. The navigation uses the
+  app icon, both footers expose the `https://aiuo.net` link, and the docs build
+  succeeds.
 - **Specs linked**: ADR 0079, `docs/README.md`,
   `docs/guide/screenshots.md`, `docs/zh-CN/guide/screenshots.md`
 - **Acceptance**: Quality
