@@ -2008,3 +2008,127 @@
 .settings-proxy-control .field-input {
   width: 100%;
 }
+
+/* Trusted extensions (spec 16 §11): the trust notice and per-row diagnostics. */
+.agent-extension-trust-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile);
+  padding: 10px 12px;
+  color: var(--ds-text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-compact);
+}
+
+.agent-extension-trust-notice svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.agent-extension-diagnostics-toggle {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.agent-extension-diagnostics {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-extension-diagnostic {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--ds-tile);
+  padding: 4px 8px;
+  font-size: var(--text-3xs);
+  color: var(--ds-text-muted);
+}
+
+.agent-extension-diagnostic.is-error .agent-extension-diagnostic-kind {
+  color: var(--ds-error);
+}
+
+.agent-extension-diagnostic-kind {
+  font-weight: var(--font-weight-medium);
+}
+
+.agent-extension-diagnostic-member {
+  font-family: var(--font-mono);
+}
+
+.agent-extension-diagnostic-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.extension-prompt-message {
+  margin: 0 0 12px;
+  color: var(--ds-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.extension-prompt-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.extension-prompt-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile);
+  padding: 8px 10px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.extension-prompt-source-path {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-3xs);
+}
+
+/* Status texts set by trusted extensions for the active session (spec 16 §9). */
+.extension-status-line {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.extension-status-item {
+  border-radius: var(--radius-full);
+  background: var(--ds-bg-elevated-opaque);
+  box-shadow: var(--shadow-sm);
+  padding: 4px 10px;
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+  line-height: var(--leading-normal);
+}

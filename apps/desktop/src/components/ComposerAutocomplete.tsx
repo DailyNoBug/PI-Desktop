@@ -43,11 +43,12 @@ const GROUP_KEYS: Record<ComposerCommand["kind"], string> = {
   template: "chat.slashGroupTemplates",
   builtin: "chat.slashGroupApp",
   plugin: "chat.slashGroupPlugins",
+  extension: "chat.slashGroupExtensions",
 };
 
 function CommandIcon({ kind }: { kind: ComposerCommand["kind"] }) {
   if (kind === "template") return <IconSlash size={14} />;
-  if (kind === "plugin") return <IconPlug size={14} />;
+  if (kind === "plugin" || kind === "extension") return <IconPlug size={14} />;
   return <IconSparkles size={14} />;
 }
 

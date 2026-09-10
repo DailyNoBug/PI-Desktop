@@ -81,6 +81,11 @@ import type {
   UpdateState,
   WindowControlAction,
   CloseBehavior,
+  TrustedExtensionEntry,
+  TrustedExtensionStatusEvent,
+  TrustedExtensionUiPrompt,
+  TrustedExtensionUiPromptResponse,
+  TrustedExtensionsListResult,
 } from "@pi-desktop/shared";
 import {
   defaultCommandShellForPlatform,
@@ -762,6 +767,22 @@ export const api = {
       IPC.invoke.marketApplyUpdates,
       { onlyAuto },
     ),
+  /** Trusted extensions (D378, spec 16 §10.2). */
+  listTrustedExtensions: () =>
+    invoke<TrustedExtensionsListResult>(IPC.invoke.extensionsList),
+  setTrustedExtensionEnabled: (id: string, enabled: boolean) =>
+    invoke<{ entry: TrustedExtensionEntry }>(IPC.invoke.extensionsSetEnabled, { id, enabled }),
+  rescanTrustedExtensions: () =>
+    invoke<TrustedExtensionsListResult>(IPC.invoke.extensionsRescan),
+  addTrustedExtensionPath: () =>
+    invoke<{ canceled: true } | ({ canceled: false } & TrustedExtensionsListResult)>(
+      IPC.invoke.extensionsAddPath,
+    ),
+  removeTrustedExtension: (id: string) => invoke(IPC.invoke.extensionsRemove, { id }),
+  runExtensionCommand: (input: { sessionId: string; name: string; args: string }) =>
+    invoke<{ ok: boolean }>(IPC.invoke.extensionsCommandRun, input),
+  respondExtensionPrompt: (response: TrustedExtensionUiPromptResponse) =>
+    invoke<{ ok: boolean }>(IPC.invoke.extensionsUiRespond, response),
   searchCommands: (query: string) =>
     invoke<{ commands: CommandItem[] }>(
       IPC.invoke.commandPaletteSearch,
@@ -918,6 +939,22 @@ export const api = {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.providersOauth, (payload) =>
       listener(payload as OAuthLoginEvent),
+    );
+  },
+  onExtensionsChanged: (listener: () => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.extensionsChanged, () => listener());
+  },
+  onExtensionPrompt: (listener: (prompt: TrustedExtensionUiPrompt) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.extensionsUiPrompt, (payload) =>
+      listener(payload as TrustedExtensionUiPrompt),
+    );
+  },
+  onExtensionStatus: (listener: (event: TrustedExtensionStatusEvent) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.extensionsStatus, (payload) =>
+      listener(payload as TrustedExtensionStatusEvent),
     );
   },
   onToast: (listener: (message: string) => void) => {

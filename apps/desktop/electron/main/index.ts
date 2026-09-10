@@ -102,6 +102,8 @@ import {
   type UserSubagentRecord,
   type WindowControlAction,
   validateNetworkProxy,
+  trustedExtensionCommandId,
+  trustedExtensionCommandName,
 } from "@pi-desktop/shared";
 import {
   capabilitiesFromModelConfig,
@@ -125,6 +127,8 @@ import {
   type RuntimeProviderConfig,
   type UserSubagentDocument,
 } from "@pi-desktop/agent-runtime";
+import { TrustedExtensionsRegistry } from "./trusted-extensions";
+import { registerTrustedExtensionIpc } from "./trusted-extensions-ipc";
 import { isTemplateName, scaffold } from "@pi-desktop/plugin-devkit";
 import type {
   PluginCompleteResult,
@@ -949,6 +953,19 @@ const IMPORT_SOURCES = new Set<ExternalSource>([
 
 const dataDir =
   process.env.PI_DESKTOP_DATA_DIR || join(homedir(), ".pi-desktop");
+
+// Trusted extensions (D378, ADR 0207): discovery and enablement live here;
+// loading happens in the sidecar per session.
+const trustedExtensions = new TrustedExtensionsRegistry({
+  storePath: join(dataDir, "trusted-extensions.json"),
+  agentDir: process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
+  hasRenderer: () =>
+    !!mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed(),
+  onChanged: () => sendToRenderer(IPC.event.extensionsChanged, {}),
+  onPrompt: (prompt) => sendToRenderer(IPC.event.extensionsUiPrompt, prompt),
+  onToast: (message) => sendToRenderer(IPC.event.toast, { message }),
+  onStatus: (event) => sendToRenderer(IPC.event.extensionsStatus, event),
+});
 
 const logger = new Logger(
   dataDir,
@@ -1812,6 +1829,9 @@ async function resolveAgentRuntimeLaunch(
       // Plugin skills (D174): only the catalog crosses to the sidecar; the
       // document body is fetched on demand through the local `Skill` tool.
       pluginSkills,
+      // Trusted extensions enabled for this project (spec 16 §3.2). The set
+      // is part of the runtime match, so a toggle retires the runtime.
+      trustedExtensions: trustedExtensions.enabledSpecsFor(projectPath),
       subagents: subagentCatalog.definitions,
       subagentProviders: subagentBindings.providers,
     },
@@ -4778,6 +4798,20 @@ async function startSidecar(): Promise<void> {
     // Request auth for a vendor account (ADR 0098). The sidecar names a provider
   // row it was launched with; main resolves that row's account and returns a
   // short-lived `ModelAuth`. The refresh token never crosses this boundary.
+  s.setTrustedExtensionBridge({
+    publishCommands: (params) =>
+      trustedExtensions.publishCommands(
+        String(params.sessionId ?? ""),
+        Array.isArray(params.commands) ? (params.commands as any[]) : [],
+      ),
+    publishDiagnostics: (params) =>
+      trustedExtensions.publishDiagnostics(
+        String(params.sessionId ?? ""),
+        Array.isArray(params.diagnostics) ? (params.diagnostics as any[]) : [],
+        Array.isArray(params.reports) ? (params.reports as any[]) : [],
+      ),
+    requestUi: (params) => trustedExtensions.requestUi(params as any),
+  });
   s.setVendorAuthResolver(async ({ providerId }) =>
     vendorOAuth.resolveAuth(providerId),
   );
@@ -7348,6 +7382,17 @@ function registerIpc() {
     return getWorkspaceFileIndex(root);
   });
 
+  registerTrustedExtensionIpc({
+    handle,
+    registry: trustedExtensions,
+    window: () => mainWindow,
+    workspaceRoot: optionalWorkspaceRoot,
+    runCommand: async (input) => {
+      if (!sidecar) throw new Error("agent sidecar unavailable");
+      return sidecar.call<{ handled: boolean }>("extensions.command.run", input);
+    },
+  });
+
   handle(IPC.invoke.composerCommands, async () => {
     const root = await optionalWorkspaceRoot();
     const templates = await loadComposerTemplatesCached(root).catch(() => []);
@@ -7371,8 +7416,17 @@ function registerIpc() {
         ...(command.category ? { description: command.category } : {}),
         id: command.id,
       }));
+    // Trusted extension commands take arguments and run in the active
+    // session's sidecar (spec 16 §8); they come last in the namespace.
+    const extensionCommands = trustedExtensions.allCommands().map((command) => ({
+      name: command.name,
+      kind: "extension" as const,
+      title: `/${command.name}`,
+      description: command.description ?? command.extensionLabel,
+      id: trustedExtensionCommandId(command.name),
+    }));
     // One namespace: builtin aliases win, then project templates, then user
-    // templates, then plugin commands (spec 04 §7).
+    // templates, then plugin commands, then extension commands (spec 04 §7).
     const merged = new Map<
       string,
       ReturnType<typeof builtinComposerCommands>[number]
@@ -7381,6 +7435,7 @@ function registerIpc() {
       ...builtinComposerCommands(),
       ...templateCommands,
       ...pluginCommands,
+      ...extensionCommands,
     ]) {
       if (!merged.has(command.name)) merged.set(command.name, command);
     }
@@ -8047,6 +8102,8 @@ function registerIpc() {
       )?.[0];
     let result: unknown;
     try {
+      // An open extension prompt resolves with its abort value (spec 16 §9).
+      trustedExtensions.cancelPrompts(req.sessionId);
       result = await sidecar.call("agent.abort", req);
     } finally {
       await finishTurn(req.sessionId, "aborted", "TURN_ABORTED");
@@ -8968,8 +9025,16 @@ function registerIpc() {
         source: "plugin" as const,
         pluginId: c.pluginId,
       }));
+    const extensionCmds = trustedExtensions.allCommands().map((c) => ({
+      id: trustedExtensionCommandId(c.name),
+      title: `/${c.name}`,
+      category: c.extensionLabel,
+      keywords: c.description ? [c.description] : [],
+      source: "extension" as const,
+      extensionId: c.extensionId,
+    }));
     return {
-      commands: [...builtin, ...pluginCmds].filter((c) => {
+      commands: [...builtin, ...pluginCmds, ...extensionCmds].filter((c) => {
         if (!q) return true;
         const hay = `${c.title} ${c.category ?? ""} ${(c as any).keywords?.join(" ") ?? ""}`.toLowerCase();
         return hay.includes(q);
@@ -8980,6 +9045,13 @@ function registerIpc() {
   handle(IPC.invoke.commandPaletteExecute, async (commandId: string) => {
     if (commandId.startsWith("builtin.")) {
       return { ok: true, commandId };
+    }
+    if (trustedExtensionCommandName(commandId) !== undefined) {
+      // Extension commands need a session; the renderer routes them through
+      // `extensions/commands/run` with the active session id.
+      throw Object.assign(new Error("extension commands run inside a session"), {
+        errorCode: ErrorCodes.INVALID_ARGUMENT,
+      });
     }
     const cmd = plugins.getCommands().find((c) => c.id === commandId);
     if (!cmd) throw new Error("command not found");

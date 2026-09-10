@@ -14,6 +14,7 @@ export type SettingsTabId =
   | "skills"
   | "mcp"
   | "subagents"
+  | "trustedExtensions"
   | "import"
   | "projects"
   | "about";
@@ -162,6 +163,20 @@ export const SETTINGS_NAV: SettingsNavEntry[] = [
       "settings.capabilityFilterProject",
       "extensions.mcp.test",
       "extensions.mcp.remove",
+    ],
+  },
+  {
+    id: "trustedExtensions",
+    labelKey: "settings.nav.trustedExtensions",
+    titleKey: "extensions.trusted.title",
+    group: "agent",
+    keywordKeys: [
+      "extensions.trusted.description",
+      "extensions.trusted.trustNotice",
+      "extensions.trusted.rescan",
+      "extensions.trusted.addPath",
+      "extensions.trusted.userRoot",
+      "extensions.trusted.projectRoot",
     ],
   },
   {

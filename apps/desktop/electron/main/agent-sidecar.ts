@@ -67,7 +67,23 @@ const HOST_PROXY_ALLOWED = new Set([
   "provider.resolveAuth",
   "provider.resolveSubagentModel",
   "app.health",
+  // Trusted extensions (D378): answered by main, plus the session methods
+  // the ExtensionAPI reaches (spec 16 §10.1).
+  "extensions.commands.publish",
+  "extensions.ui.request",
+  "extensions.diagnostics.publish",
+  "session.rename",
+  "session.create",
+  "session.fork",
+  "session.queuePush",
 ]);
+
+/** Main-side answers for the `extensions.*` proxy methods. */
+export type TrustedExtensionSidecarBridge = {
+  publishCommands: (params: Record<string, unknown>) => void;
+  publishDiagnostics: (params: Record<string, unknown>) => void;
+  requestUi: (params: Record<string, unknown>) => Promise<unknown>;
+};
 
 function resolveSidecarEntry(): string {
   const candidates = [
@@ -111,6 +127,7 @@ export class AgentSidecar {
   // immediately before starting a runtime turn.
   private projectInstructionRoots = new Map<string, string>();
   private vendorAuthResolver: VendorAuthResolver | null = null;
+  private trustedExtensionBridge: TrustedExtensionSidecarBridge | null = null;
   // Vendor-account rows this session was launched with. The sidecar can only
   // ask for auth it is already using, and a session that never bound an OAuth
   // row can ask for nothing at all.
@@ -271,6 +288,10 @@ export class AgentSidecar {
 
   setVendorAuthResolver(resolver: VendorAuthResolver): void {
     this.vendorAuthResolver = resolver;
+  }
+
+  setTrustedExtensionBridge(bridge: TrustedExtensionSidecarBridge): void {
+    this.trustedExtensionBridge = bridge;
   }
 
   /**
@@ -442,6 +463,18 @@ export class AgentSidecar {
         }
         if (method === "provider.resolveSubagentModel") {
           const result = await this.resolveSubagentModel(params);
+          this.writeToChild(
+            JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }) + "\n",
+          );
+          return;
+        }
+        if (method.startsWith("extensions.")) {
+          const bridge = this.trustedExtensionBridge;
+          if (!bridge) throw new Error("trusted extension bridge unavailable");
+          let result: unknown = { ok: true };
+          if (method === "extensions.commands.publish") bridge.publishCommands(params);
+          else if (method === "extensions.diagnostics.publish") bridge.publishDiagnostics(params);
+          else result = await bridge.requestUi(params);
           this.writeToChild(
             JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }) + "\n",
           );

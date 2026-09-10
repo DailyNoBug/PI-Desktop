@@ -30,6 +30,7 @@ import { WorkPanel } from "./components/workpanel/WorkPanel";
 import { ChatSurface } from "./components/ChatSurface";
 import { SearchDialog } from "./components/SearchDialog";
 import { ToastHost } from "./components/Toast";
+import { ExtensionPromptHost } from "./components/ExtensionPromptDialog";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { WindowControls } from "./components/WindowControls";
 import { useAppStore } from "./stores/app-store";
@@ -1878,6 +1879,7 @@ function AppShell() {
           </Suspense>
           <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
           <ToastHost />
+          <ExtensionPromptHost />
           <UpdateBanner />
         </>
       );
@@ -1996,6 +1998,7 @@ function AppShell() {
 
           <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
           <ToastHost />
+          <ExtensionPromptHost />
         </>
       );
     }

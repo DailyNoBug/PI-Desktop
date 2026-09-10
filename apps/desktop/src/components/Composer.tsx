@@ -45,7 +45,7 @@ import { api } from "../lib/api";
 import { isActivePlanExecution } from "../lib/plan-mode-state";
 import { headAsk, queuedAskCount } from "../lib/pending-asks";
 import type { QueuedPrompt } from "../lib/queued-prompts";
-import { runPaletteCommand } from "../lib/commands";
+import { runExtensionCommand, runPaletteCommand } from "../lib/commands";
 import {
   composerModelBadges,
   composerModelDisplayName,
@@ -1669,6 +1669,20 @@ export function Composer({
               draftSnapshot(visibleCommandBody),
             );
             if (accepted) clearDraftForKey(submittedDraftKey);
+          } catch (e) {
+            showToast(e instanceof Error ? e.message : String(e), {
+              variant: "error",
+            });
+          }
+          return;
+        }
+
+        // Trusted extension commands take the rest of the line as their
+        // argument string (spec 16 §8).
+        if (command.kind === "extension") {
+          try {
+            await runExtensionCommand(command.name, commandBody);
+            clearDraftForKey(submittedDraftKey);
           } catch (e) {
             showToast(e instanceof Error ? e.message : String(e), {
               variant: "error",

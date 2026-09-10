@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   Agent,
   BACKGROUND_CONTEXT,
@@ -1961,13 +1961,22 @@ Delegation rules:
               .map((part) => (isRecord(part) && typeof part.text === "string" ? part.text : ""))
               .join("")
           : String(content);
-        await runtime.host.call("session.queuePush", {
+        // Host-owned queue (D377): the entry drains after the active turn's
+        // terminal event, which is what `followUp` means; `steer` moves it to
+        // the head of the session's queue.
+        const pushed = await runtime.host.call<{ entry?: { id?: string } }>("session.queuePush", {
           sessionId: runtime.sessionId,
           principal: "extension",
           idempotencyKey: randomUUID(),
+          inputHash: createHash("sha256").update(text).digest("hex"),
           content: text,
-          ...(options?.deliverAs === "steer" ? { prioritize: true } : {}),
+          permissionMode: "ask",
         });
+        if (options?.deliverAs === "steer" && pushed?.entry?.id) {
+          await runtime.host
+            .call("session.queuePrioritize", { sessionId: runtime.sessionId, id: pushed.entry.id })
+            .catch(() => undefined);
+        }
       },
       waitForIdle: () => runtime.agent.waitForIdle(),
       newSession: async () => {
