@@ -437,7 +437,7 @@ async function verifyArtifact(ctx, proposal, markdown, title, question) {
 }
 
 function shellDialectForId(id) {
-  if (id === "windows-powershell") return "powershell";
+  if (id === "windows-powershell" || id === "windows-pwsh") return "powershell";
   if (id === "cmd") return "cmd";
   if (id === "git-bash" || id === "bash") return "posix";
   return undefined;
@@ -961,7 +961,7 @@ async function scenario112(binary, tempRoot) {
     assert(choices.length > 0, `empty shell catalog: ${shortJson(catalog)}`);
     const expectedIds =
       process.platform === "win32"
-        ? ["windows-powershell", "cmd", "git-bash"]
+        ? ["windows-powershell", "windows-pwsh", "cmd", "git-bash"]
         : ["bash"];
     for (const id of expectedIds) {
       assert(choices.some((choice) => choice.id === id), `missing platform shell ${id}`);
