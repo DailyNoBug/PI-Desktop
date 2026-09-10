@@ -1,17 +1,18 @@
 # 03. Tools and Permissions
 
 > Decisions applied: D003, D004, D005, D006, D013, D015, D093, D114, D115, D181, D186,
-> D189, D190, D195 (ADR 0057), D315, ADR 0087
+> D189, D190, D195 (ADR 0057), D315, D379 (ADR 0207), ADR 0087
 
 ## 0. Frozen policy summary
 
 | Topic | Decision |
 |---|---|
 | Default mode | Agent |
-| Agent tools | Read / Glob / Grep / Write / Edit / Bash |
-| Plan tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitPlan |
-| Goal tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitGoal |
-| Plan and Goal hard deny | Write / Edit / all plugin tools / unknown tools / the other kind's submit tool |
+| Agent tools | Read / Glob / Grep / Write / Edit / Bash + registered plugin tools |
+| Plan tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitPlan + plugin tools that declare plan-safe actions |
+| Goal tools | Read / Glob / Grep / BrowserPreview / Bash / SubmitGoal + plugin tools that declare plan-safe actions |
+| Plan and Goal hard deny | Write / Edit / plugin tools without `planSafeActions` / unknown tools / the other kind's submit tool |
+| Plugin `planSafeActions` | Non-empty array of `action` strings; runtime hides plugin tools without one in Plan/Goal, host admits listed tools, plugin-runtime rejects any action outside the list (ADR 0207) |
 | Permission timeout | 120s → deny |
 | allow-session scope | toolName |
 | Bash style | non-interactive; selected host catalog shell with streamed output |

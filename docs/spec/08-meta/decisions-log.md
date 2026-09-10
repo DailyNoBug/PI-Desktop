@@ -4194,3 +4194,22 @@ D193, and D194.
   `MUTATION_RETRY_BUDGET_EXHAUSTED`. The same limit applies to recognized shell
   patch commands. No IPC, storage, host-protocol, or tool-result shape changes.
   See E2E-140 / E2E-141.
+
+## 2026-09-10 ??Plan-safe plugin actions and summon-window shortcut (D380)
+
+- Plan and Goal modes could not invoke plugin tools at all, even for
+  read-only actions like fetching a URL through the bundled Browser
+  plugin, and the keyboard shortcut catalog only exposed a close-window
+  binding with no symmetric way to bring a tray-hidden window back.
+- Decision D380 amends ADR 0052 / ADR 0053 with a per-action plugin
+  opt-in: a plugin tool may declare a `planSafeActions` list naming the
+  exact actions it considers safe in contract modes. The runtime hides
+  plugins without such a list in Plan and Goal, the host admits the
+  declared list in `tools.execute`, and the desktop runner rejects any
+  call whose action is not in the list. The bundled Browser plugin
+  declares `["navigate", "snapshot", "screenshot", "console"]`; the
+  mutating actions stay Agent-only. The shortcut catalog gains
+  `summonWindow` (`Mod+Shift+W`) in the `window` group, paired with
+  `closeWindow` (`Mod+W`), and the desktop main process registers it
+  through `globalShortcut` and the native menu. See ADR 0207 and
+  E2E-PLAN-005.

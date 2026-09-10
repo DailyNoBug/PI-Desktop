@@ -9455,3 +9455,42 @@ browser milestones are scheduled.
 - **Acceptance**: Accessibility, Quality
 - **Milestone**: M6+
 - **Status**: Source-contract covered; desktop hover/focus automation pending
+
+#### E2E-PLAN-005: Plan-mode plugin tools with `planSafeActions` are read-only (D380)
+
+- **Preconditions**: PI-Desktop is built with the bundled Browser
+  plugin (`pi.browser`) enabled and a workspace that exposes one
+  http(s) URL the planner can reach. The catalog list is the default
+  bundled one; no third-party plugin needs to be installed for this
+  scenario.
+- **Steps**: 1) Create a new session and switch it to Plan mode from
+  the mode selector. 2) Send the prompt "Use the browser plugin to
+  read `https://example.com`, summarize the page, and tell me what
+  to change." 3) Wait for the planner to call
+  `plugin_pi_browser_Browser` with `action="navigate"` followed by
+  `action="snapshot"`, and to submit a plan with the requested
+  summary. 4) Approve the plan and confirm the Agent run completes.
+  5) Reject the plan, re-send the same prompt in Plan mode, and
+  confirm the planner can still call `navigate` + `snapshot`.
+  6) Ask the planner to "click the sign-in button" through the
+  browser plugin and confirm the call is rejected with
+  `PERMISSION_DENIED` (a Plan call can never click). 7) Inspect the
+  active session tool list and confirm it shows the Browser plugin
+  with the description suffix `Plan mode: only navigate, snapshot,
+  screenshot, console actions`. 8) Switch back to Agent mode and
+  confirm the same prompt lets the model call `click` and `fill`
+  without the suffix.
+- **Expected**: Plan mode can drive the Browser plugin for the four
+  declared read-only actions, the description tells the model which
+  actions are allowed, and any mutating action is denied with a
+  structured `PERMISSION_DENIED` error before the plugin sees the
+  call. Agent mode keeps the full plugin surface.
+- **Specs linked**: `03-runtime/02-agent-runtime.md`,
+  `03-runtime/03-tools-and-permissions.md`, `07-plugins/README.md`
+- **Acceptance**: Functional, Quality
+- **Milestone**: M6
+- **Status**: Unit/source-contract covered (`runtime.test.ts`
+  plan-safe filtering, `bundled-plugins.test.mjs` Browser
+  declaration, `mode-prompts.test.ts` updated wording); desktop
+  journey is Draft (do not run E2E locally unless explicitly
+  requested)
