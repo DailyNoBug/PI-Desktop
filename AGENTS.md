@@ -58,11 +58,13 @@ request is in `main`.
    - Judge the direction, not whether the pull request already satisfies
      spec-sync, tests, style, or other completeness rules.
 3. If the principle is sound: merge **that** pull request first, preserving
-   the contributor's commits. Completeness gaps (specs, tests, i18n, e2e
-   docs, style, naming, commit-message nits) are follow-up work after merge,
-   not merge blockers. Landing blockers that would break `main` may receive
-   the smallest commits on top of the author's work so the pull request can
-   land. Then follow the isolated development workflow for any follow-up.
+   the contributor's commits. If the head branch lives in a fork (third-party
+   contributor), run the relevant local E2E suites against the head first;
+   a failing E2E run is a landing blocker, not a follow-up. Completeness gaps
+   (specs, tests, i18n, e2e docs, style, naming, commit-message nits) are
+   follow-up work after merge, not merge blockers. Landing blockers that
+   would break `main` may receive the smallest commits on top of the author's
+   work so the pull request can land. Then follow the isolated development workflow for any follow-up.
 4. If the principle is not sound, or a harm blocker exists (secrets, sandbox
    or privilege bypass, malicious or clearly destructive changes, out-of-scope
    reversal of a frozen decision): do not merge. Comment with the evidence.
@@ -165,7 +167,13 @@ Every user-visible or protocol-visible behavior change must add or update a scen
 
 * [E2E test plan](docs/spec/06-delivery/04-e2e-test-plan.md)
 
-Do not run local E2E commands or manually trigger remote E2E jobs unless explicitly requested by the user.
+Do not run local E2E commands or manually trigger remote E2E jobs unless
+explicitly requested by the user, **except** when the change comes from a
+forked third-party repository (a pull request whose head branch lives in a
+fork). Fork pull requests do not receive the repository's secrets, so the
+remote E2E jobs cannot be trusted to cover them. For those, run the relevant
+local E2E suites (`npm run test:e2e*`) against the pull request head before
+merging and record the result in the pull request comment.
 
 ### 4. Merge Back into Local `main`
 
