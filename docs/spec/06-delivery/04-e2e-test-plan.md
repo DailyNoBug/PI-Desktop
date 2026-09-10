@@ -3629,18 +3629,18 @@ Each scenario is documented in this format:
   while a turn is running.
 - **Expected**: Every toolbar chip shows its glyph only, with the label
   appearing as a fully visible tooltip 8px above the chip on hover and on
-  keyboard focus (#74); no chip renders caption text. While an assistant
-  response is streaming, its toolbar omits Copy; after the response settles,
-  the assistant toolbar offers Copy, Fork, Regenerate. The user toolbar offers
-  the pager (when variants exist), Copy, Edit, Delete. Edit replaces the prompt
-  bubble with a wider inline
-  textarea with Retry and Cancel controls; Escape or Cancel restores the
-  bubble unchanged. Retry truncates the transcript from that prompt and
-  streams a new answer whether or not the text changed, leaving a
-  `current / total` pager on the user turn that restores the original prompt
-  with its full answer tail in place — surviving reload. The slash turn seeds
-  the typed `/command` form and re-expands the template on retry. Edit is
-  disabled while a turn is running.
+  keyboard focus (#74); the tooltip remains fully painted when it overlaps the
+  sidebar edge and is never occluded by the sidebar background; no chip renders
+  caption text. While an assistant response is streaming, its toolbar omits
+  Copy; after the response settles, the assistant toolbar offers Copy, Fork,
+  Regenerate. The user toolbar offers the pager (when variants exist), Copy,
+  Edit, Delete. Edit replaces the prompt bubble with a wider inline
+  textarea with Retry and Cancel controls; Escape or Cancel restores the bubble
+  unchanged. Retry truncates the transcript from that prompt and streams a new
+  answer whether or not the text changed, leaving a `current / total` pager on
+  the user turn that restores the original prompt with its full answer tail in
+  place — surviving reload. The slash turn seeds the typed `/command` form and
+  re-expands the template on retry. Edit is disabled while a turn is running.
 - **Specs linked**: `04-ux/08-component-spec.md`,
   `03-runtime/01-ipc-protocol.md`, `03-runtime/04-data-storage.md`,
   `08-meta/decisions-log.md` (D137, D274)

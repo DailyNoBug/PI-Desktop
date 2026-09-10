@@ -306,6 +306,9 @@ test("message toolbars are icon-only with hover tooltips", () => {
     stylesSource,
     /\.copy-btn\[data-tip\]::after \{[\s\S]*?box-shadow:\s*var\(--ds-raised-shadow\)/,
   );
+  // The main pane must paint its floating tooltip context above the animated sidebar.
+  const mainPaneStyles = stylesSource.match(/\.main-pane\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.match(mainPaneStyles, /z-index:\s*0/);
   // Worded surfaces (error details) keep their label.
   assert.match(transcriptSource, /withLabel/);
 });
