@@ -228,3 +228,4 @@ Each ADR includes:
 | 0208 | Plugin desktop control requires native user consent | Accepted |
 | 0209 | PowerShell 7 as a selectable Windows command shell | Accepted (amends 0054 / D190; issue #151 / PR #191) |
 | 0210 | Subagent output-token cap | Accepted (extends 0062 / 0063; issue #171 / PR #193) |
+| 0211 | Plan-safe plugin actions for read-only inspection | Accepted (amends 0052 / 0053 / 0170; D384) |

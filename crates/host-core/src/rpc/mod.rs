@@ -769,6 +769,7 @@ async fn execute_plugin_tool(
     tx: &mpsc::UnboundedSender<String>,
     p: &ToolsExecuteParams,
     timeout_ms: u64,
+    session_mode: &str,
 ) -> tools::ToolsExecuteResult {
     let started = std::time::Instant::now();
     let execution_id = uuid::Uuid::new_v4().to_string();
@@ -786,6 +787,11 @@ async fn execute_plugin_tool(
             "toolCallId": p.tool_call_id,
             "toolName": p.tool_name,
             "args": p.args,
+            // Durable session mode, not the sidecar-supplied field: ADR 0052
+            // forbids a conflicting sidecar mode from authorizing a tool
+            // (ADR 0211).
+            "mode": session_mode,
+            "planSafeActions": p.plan_safe_actions,
         }),
     )
     .await;
@@ -2510,6 +2516,7 @@ async fn handle_request(
                             &st.session_grants,
                             p.declared_risk.as_deref(),
                             external_path_permission,
+                            p.plan_safe_actions.as_deref(),
                         );
                     // Write/Edit targeting the session scratch dir never touch
                     // the user's project — skip the prompt (D114). The lexical
@@ -2850,7 +2857,7 @@ async fn handle_request(
                 let mut result = if tools::is_desktop_dispatched(&p.tool_name) {
                     // Plugin dispatch keeps its existing bounded default timeout;
                     // command-shell timeout semantics apply only to Bash.
-                    execute_plugin_tool(&state, &tx, &p, p.timeout_ms.unwrap_or(60_000)).await
+                    execute_plugin_tool(&state, &tx, &p, p.timeout_ms.unwrap_or(60_000), &durable_mode).await
                 } else {
                     tools::execute_tool_with_path_access(
                         ws_path.as_deref(),
@@ -2997,6 +3004,16 @@ async fn handle_request(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let declared_risk = params.get("declaredRisk").and_then(|v| v.as_str());
+            let plan_safe_actions: Option<Vec<String>> = params
+                .get("planSafeActions")
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(str::to_string))
+                        .collect()
+                })
+                .filter(|items: &Vec<String>| !items.is_empty());
             let st = state.lock().await;
             let Some(mode) = sessions::session_mode(&st.db, session_id)
                 .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?
@@ -3042,6 +3059,7 @@ async fn handle_request(
                     &st.session_grants,
                     declared_risk,
                     external_path_permission,
+                    plan_safe_actions.as_deref(),
                 );
             Ok(json!({
                 "decision": decision,
