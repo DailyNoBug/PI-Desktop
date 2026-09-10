@@ -104,9 +104,7 @@ an action that opens Models instead of a hand-typed field. Only the slash in a
 pin is structural: the provider half is matched by a normalized alias, and a
 custom endpoint's display name may contain spaces, so the picker and the draft
 check share one splitter and can never disagree about what is saveable. The
-thinking selector
-offers inherit-session (empty), do-not-send, and the
-offers inherit-session (empty), do-not-send, and the
+thinking selector offers inherit-session (empty), do-not-send, and the
 seven canonical levels; inherit keeps the session level, while do-not-send
 leaves the provider adapter's own default untouched. When a generic or duplicate
 vendor key would be ambiguous, the option uses a unique provider display name;
