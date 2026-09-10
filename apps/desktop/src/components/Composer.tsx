@@ -2538,7 +2538,7 @@ export function Composer({
                                               {optionTitle}
                                             </span>
                                             <span className="composer-model-option-meta">
-                                              {composerModelBadges(model).map(
+                                              {composerModelBadges(model, group.provider).map(
                                                 (badge) => (
                                                   <span
                                                     key={badge}

@@ -1,6 +1,8 @@
 import {
+  bindingSupportsImages,
   modelIdsMatch,
   modelMatchesFilter,
+  type ModelBinding,
   type ModelInfo,
   type ProviderPublic,
 } from "@pi-desktop/shared";
@@ -80,26 +82,44 @@ export function composerModelDisplayName(
   modelId: string,
   fallback?: string,
 ): string {
+  const alias = composerModelBinding(provider, modelId)?.alias?.trim();
+  return alias || fallback?.trim() || modelId;
+}
+
+/**
+ * The provider's configured binding for a model, matched the same tolerant way
+ * as the display name so a namespaced or regional ID still finds its settings.
+ */
+export function composerModelBinding(
+  provider: ConfiguredProvider,
+  modelId: string,
+): ModelBinding | undefined {
   const normalizedModelId = modelId.trim().toLowerCase();
   const bindings = provider.models ?? [];
-  const binding =
+  return (
     bindings.find((candidate) => candidate.id.trim().toLowerCase() === normalizedModelId) ??
-    bindings.find((candidate) => modelIdsMatch(candidate.id, modelId));
-  const alias = binding?.alias?.trim();
-  return alias || fallback?.trim() || modelId;
+    bindings.find((candidate) => modelIdsMatch(candidate.id, modelId))
+  );
 }
 
 /** Short capability markers shown on a composer model row. */
 export type ComposerModelBadge = "reasoning" | "vision";
 
 /**
- * Published capability markers for one configured model. The composer shows
- * these so a model can be chosen on capability rather than on name alone.
+ * Capability markers for one configured model. The composer shows these so a
+ * model can be chosen on capability rather than on name alone. Vision follows
+ * the effective image input: the binding's Advanced "Image input" override
+ * when set, the published capability otherwise, the same answer the transport
+ * gate and the settings switch give (#214).
  */
-export function composerModelBadges(model: ModelInfo): ComposerModelBadge[] {
+export function composerModelBadges(
+  model: ModelInfo,
+  provider?: ConfiguredProvider | null,
+): ComposerModelBadge[] {
   const badges: ComposerModelBadge[] = [];
   if (modelMatchesFilter(model, "reasoning")) badges.push("reasoning");
-  if (modelMatchesFilter(model, "vision")) badges.push("vision");
+  const binding = provider ? composerModelBinding(provider, model.modelId) : undefined;
+  if (bindingSupportsImages(binding, model)) badges.push("vision");
   return badges;
 }
 
