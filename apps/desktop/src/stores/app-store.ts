@@ -1354,9 +1354,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   errorRetriable: null,
 
   bootstrap: async () => {
-    const bootstrapStarted = performance.now();
     let recoveredSettings: AppSettings | undefined;
-    let bootstrapOk = true;
     try {
       const settingsRequest = api.getSettings().then(async (settingsRaw) => {
         let settings = settingsRaw
@@ -1535,18 +1533,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       }
     } catch (e) {
-      bootstrapOk = false;
       set({
         ready: true,
         healthOk: false,
         ...(recoveredSettings ? { settings: recoveredSettings } : {}),
         error: e instanceof Error ? e.message : String(e),
       });
-    } finally {
-      const durationMs = Math.round(performance.now() - bootstrapStarted);
-      console.info(
-        `[timing] kind=boot phase=renderer-bootstrap durationMs=${durationMs} ok=${bootstrapOk}`,
-      );
     }
   },
 

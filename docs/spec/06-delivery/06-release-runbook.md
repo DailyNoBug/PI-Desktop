@@ -381,8 +381,8 @@ Manual smoke on a clean profile (`PI_DESKTOP_DATA_DIR=$(mktemp -d)`):
 5. One permissioned tool call (Write) allow + deny paths.
 6. Quit/relaunch → session history restored, window bounds restored.
 7. `~/.pi-desktop/logs/` contains categorized NDJSON under `app/`, `host/`,
-   and `agent/`; timing records are in `host/timing.log` and
-   `agent/timing.log`.
+   and `agent/`; key lifecycle, tool, provider, plugin, and error records are
+   available without dedicated timing files.
 8. With network access disabled, the shell still starts; English/Chinese
    switching, syntax highlighting, shell highlighting, KaTeX, Mermaid
    fallback/rendering, host health, and sidecar health continue to use packaged

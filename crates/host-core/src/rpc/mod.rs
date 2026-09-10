@@ -2353,12 +2353,6 @@ async fn handle_request(
 
         "tools.list" => Ok(json!({ "tools": tools::builtin_tool_defs() })),
         "tools.execute" => {
-            // Segmented timing (D137): a slow tool call is almost never slow
-            // *inside* the tool — the wait is either the approval prompt or the
-            // model round trip that follows. Splitting the host's own share
-            // into approval / execution / bookkeeping is what makes the three
-            // distinguishable in host/timing.log instead of one opaque
-            // duration.
             let call_started = std::time::Instant::now();
             let p: ToolsExecuteParams = serde_json::from_value(params.clone())
                 .map_err(|e| rpc_err(1002, e.to_string(), "INVALID_PARAMS"))?;
@@ -2685,19 +2679,6 @@ async fn handle_request(
                         Some(&p.session_id),
                         denied_audit,
                     );
-                    tracing::info!(
-                        tool = %p.tool_name,
-                        tool_call_id = %p.tool_call_id,
-                        session_id = %p.session_id,
-                        prompted,
-                        permission_wait_ms,
-                        execute_ms = 0,
-                        overhead_ms = 0,
-                        total_ms = call_started.elapsed().as_millis() as u64,
-                        command_shell_id = permission_shell_id.as_deref(),
-                        outcome = if cancelled { "aborted" } else { "denied" },
-                        "tool timing"
-                    );
                     let error_code = if cancelled {
                         "TOOL_ABORTED"
                     } else if sessions::is_contract_mode(&durable_mode)
@@ -2952,19 +2933,6 @@ async fn handle_request(
                     execute_audit["commandShellId"] = json!(shell_id);
                 }
                 let _ = audit::append(&st.db, "tool_execute", Some(&p.session_id), execute_audit);
-                tracing::info!(
-                    tool = %p.tool_name,
-                    tool_call_id = %p.tool_call_id,
-                    session_id = %p.session_id,
-                    prompted,
-                    permission_wait_ms,
-                    execute_ms = result.duration_ms,
-                    overhead_ms,
-                    total_ms,
-                    command_shell_id = result.command_shell_id.as_deref(),
-                    outcome = if result.ok { "ok" } else { "error" },
-                    "tool timing"
-                );
 
                 serde_json::to_value(result).map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))
             }

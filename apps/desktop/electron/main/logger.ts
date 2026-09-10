@@ -26,7 +26,6 @@ export type LogCategory =
   | "updater"
   | "diagnostics"
   | "runtime"
-  | "timing"
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -243,9 +242,6 @@ export class Logger {
 
   private categoryForChild(message: string): LogCategory {
     const normalized = message.toLowerCase();
-    if (normalized.includes("[timing]") || normalized.includes("tool timing")) {
-      return "timing";
-    }
     if (/\bpermission(?:s)?\b/.test(normalized)) return "permission";
     if (/\bplugin(?:s)?\b/.test(normalized)) return "plugin";
     if (/\btools?\b|tools::/.test(normalized)) return "tool";

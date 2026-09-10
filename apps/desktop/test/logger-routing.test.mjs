@@ -53,10 +53,9 @@ test("logger routes records by category and keeps child stderr line-safe", async
     });
     logger.child(
       "host",
-      "\u001b[2m2026-08-02T00:00:00Z\u001b[0m INFO tool timing tool=Read",
+      "\u001b[2m2026-08-02T00:00:00Z\u001b[0m INFO tool=Read",
     );
     logger.child("host", " tool_call_id=tool-1\n");
-    logger.child("agent", "[timing] kind=model providerWaitMs=12\n");
 
     const appFiles = (await readdir(join(dataDir, "logs", "app"))).sort();
     assert.deepEqual(appFiles, ["session.log", "tool.log"]);
@@ -70,17 +69,13 @@ test("logger routes records by category and keeps child stderr line-safe", async
     assert.equal(sessionRecord.data.apiKey, "***REDACTED***");
 
     const hostRecord = JSON.parse(
-      await readFile(join(dataDir, "logs", "host", "timing.log"), "utf8"),
+      await readFile(join(dataDir, "logs", "host", "tool.log"), "utf8"),
     );
-    assert.equal(hostRecord.category, "timing");
-    assert.match(hostRecord.message, /tool timing tool=Read tool_call_id=tool-1/);
+    assert.equal(hostRecord.category, "tool");
+    assert.match(hostRecord.message, /tool=Read/);
     assert.doesNotMatch(hostRecord.message, /\u001b/);
-
-    const agentRecord = JSON.parse(
-      await readFile(join(dataDir, "logs", "agent", "timing.log"), "utf8"),
-    );
-    assert.equal(agentRecord.category, "timing");
-    assert.match(agentRecord.message, /kind=model/);
+    assert.equal(existsSync(join(dataDir, "logs", "host", "timing.log")), false);
+    assert.equal(existsSync(join(dataDir, "logs", "agent")), false);
   } finally {
     if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previousNodeEnv;

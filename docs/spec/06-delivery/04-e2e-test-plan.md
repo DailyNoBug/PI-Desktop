@@ -277,18 +277,16 @@ Each scenario is documented in this format:
   host-core and Electron startup. Window first shows the branded startup splash
   while bootstrap runs, then reveals the main shell in English with the current
   locale catalog; no compile error, missing-menu runtime error, or crash;
-  version info visible. `~/.pi-desktop/logs/app/timing.log` contains greppable
-  `[timing] kind=boot` lines for `when-ready`, `host`, `sidecar`,
-  `window-shown`, and `renderer-bootstrap` with `elapsedMs` / `durationMs`.
-  GitHub auto-update is not started until after `ensureWindow`, and a hung
+  version info visible. Key lifecycle and error records are written to the
+  categorized logs. GitHub auto-update is not started until after `ensureWindow`, and a hung
   feed cannot keep updater status on `checking` for Chromium's ~60s timeout.
 - **Specs linked**: `03-runtime/07-process-model.md`, `04-ux/01-ui-ia.md`,
-  `03-runtime/09-logging-and-observability.md` §7b
+  `03-runtime/09-logging-and-observability.md`
 - **Acceptance**: A (app startup)
 - **Milestone**: M1
 - **Status**: Partially automated (`runtime-build-contract.test.mjs` covers the
-  dependency build contract; `boot-timing.test.mjs` and `auto-update.test.mjs`
-  cover timing helpers and the bounded auto-check contract; Electron window
+  dependency build contract; `update-timeout.test.mjs` and
+  `auto-update.test.mjs` cover the bounded auto-check contract; Electron window
   launch remains Draft)
 
 #### E2E-002: IPC bridge is functional
@@ -2178,7 +2176,7 @@ Each scenario is documented in this format:
 
 - **Preconditions**: Fresh profile; provider configured; one chat turn completed.
 - **Steps**: 1) Run a prompt with a tool call. 2) Open `~/.pi-desktop/logs/`. 3) Inspect the categorized files under `app/`, `host/`, and `agent/`.
-- **Expected**: NDJSON records exist with `ts/level/channel/category/message`; tool start/end carry `sessionId`/`toolCallId`; no API key material appears; each category file rotates at 5 MB. Additionally (D183) `host/timing.log` has one `tool timing` record per tool call carrying `prompted`/`permission_wait_ms`/`execute_ms`/`overhead_ms`/`total_ms`, and `agent/timing.log` has matching `[timing] kind=tool` and `[timing] kind=model` lines, so an approval wait, a slow tool body, and a slow provider are distinguishable for the same `toolCallId`.
+- **Expected**: NDJSON records exist with `ts/level/channel/category/message`; tool start/end carry `sessionId`/`toolCallId`; no API key material appears; each category file rotates at 5 MB; lifecycle, permission, tool, provider, plugin, persistence, updater, and error records remain available without creating dedicated timing category files.
 - **Specs linked**: `03-runtime/09-logging-and-observability.md`
 - **Acceptance**: H (diagnostics)
 - **Milestone**: M5
@@ -4396,7 +4394,7 @@ Each scenario is documented in this format:
 - **Steps**:
   1. Start a task that emits two mutations for the same session while also
      emitting independent read/search calls.
-  2. Inspect tool timing and the transcript while the first mutation runs.
+  2. Inspect the key tool result and transcript while the first mutation runs.
   3. Force the second `Edit` to carry a `tag` that no longer hashes the file,
      with anchors that recovery cannot remap, then allow the agent to re-read
      the file and retry from the current contents.
@@ -4440,20 +4438,20 @@ Each scenario is documented in this format:
   fifth fixture returns a 503 with `Retry-After`; a sixth fixture returns a
   pre-stream opaque 400/422 once and succeeds when the output-limit fields are
   omitted; the fixture supports both Chat Completions and Responses payloads and
-  aborting after the opaque failure; timing logs are enabled.
+  aborting after the opaque failure.
 - **Steps**:
   1. Start an Agent turn with the one-termination fixture and observe the
      partial assistant response.
   2. Wait for the bounded retry and inspect the transcript, session state, and
-     model timing log after recovery.
+     terminal diagnostics after recovery.
   3. Repeat with the eleven-termination fixture and inspect the terminal error
      message/event and its diagnostic details.
-  4. Run the mixed-phase 502 fixture and inspect the request count and timing
-     log for both the pre-header and the mid-stream 502.
+  4. Run the mixed-phase 502 fixture and inspect the request count and terminal
+     diagnostics for both the pre-header and the mid-stream 502.
   5. Run the persistent eleven-502 fixture and inspect the terminal error.
   6. Run the 503 `Retry-After` fixture and inspect the observed wait.
   7. Run the opaque 400/422 fixture with both API styles and inspect the two
-     request payloads, request count, and timing log.
+     request payloads, request count, and terminal diagnostics.
   8. Abort immediately after the first opaque 400/422 failure and inspect that
      no repair request starts.
   9. Reload the session and verify that only the completed response or the
@@ -4474,8 +4472,8 @@ Each scenario is documented in this format:
   - Only the failed request is replayed: the session, its transcript, and any
     completed tool call are untouched across every retry.
   - The recovered turn emits one terminal lifecycle and keeps the same visible
-    assistant message id. The timing log records `outcome=retry` for each retry
-    with its attempt number, and the final outcome.
+    assistant message id. Its terminal diagnostics retain the bounded retry
+    outcome and attempt number.
   - The eleventh termination emits one terminal `STREAM_FAILED` assistant error
     and lifecycle event; the persistent 502 fixture emits one terminal
     `PROVIDER_ERROR`. Both carry `retryAttempt: 10`. Available details include
@@ -4510,14 +4508,14 @@ Each scenario is documented in this format:
 - **Preconditions**: A project-bound Agent session uses deterministic provider
   fixtures for a setup HTTP 429 and a mid-stream HTTP 429. Each fixture can
   succeed after a retry and can return eleven consecutive 429 responses. Fixtures
-  cover `retry-after-ms`, `retry-after` seconds, and HTTP-date headers, expose
-  timing logs, and support aborting during the wait. A builtin subagent uses a
+  cover `retry-after-ms`, `retry-after` seconds, and HTTP-date headers, and
+  support aborting during the wait. A builtin subagent uses a
   fixture with the same responses.
 - **Steps**:
   1. Start an Agent turn with a setup-429 fixture whose next request succeeds.
   2. Repeat with a mid-stream-429 fixture whose next request succeeds.
-  3. Inspect the transcript, lifecycle events, request count, and timing log
-     for both recoveries.
+  3. Inspect the transcript, lifecycle events, request count, and terminal
+     diagnostics for both recoveries.
   4. Repeat with eleven consecutive 429 responses, then inspect the terminal
      assistant error and diagnostic details.
   5. Start the subagent fixture, then repeat the persistent eleven-429 case.
@@ -4537,8 +4535,8 @@ Each scenario is documented in this format:
     `agent_end`.
   - A recovered attempt removes the failed assistant from model context and
     reuses its visible assistant message id. The transcript has one assistant
-    bubble and one terminal lifecycle; the timing log records each retry with
-    its phase, delay, and attempt number.
+    bubble and one terminal lifecycle; bounded retry diagnostics retain the
+    phase, delay, and attempt number.
   - Delay precedence is `retry-after-ms`, `retry-after` seconds, HTTP-date,
     then exponential backoff with positive jitter. Server and fallback waits
     are capped at 30 seconds and the wait is abortable.
@@ -5115,11 +5113,11 @@ Each scenario is documented in this format:
 - **Preconditions**: A project-bound Agent session uses a deterministic provider
   fixture that ends one turn with no tool call and no text — once with reasoning
   content present, once with nothing at all; a second fixture run ends both the
-  first turn and the re-run that way; timing logs are enabled.
+  first turn and the re-run that way.
 - **Steps**:
   1. Start an Agent turn with the reasoning-only fixture and watch the
      transcript while the runtime recovers.
-  2. Inspect the transcript, session state, and model timing log afterwards.
+  2. Inspect the transcript, session state, and terminal diagnostics afterwards.
   3. Repeat with the nothing-at-all fixture.
   4. Repeat with the twice-silent fixture and inspect the terminal error message,
      its details disclosure, and its action button.
@@ -5131,9 +5129,8 @@ Each scenario is documented in this format:
   - The empty assistant is removed from model context before the re-run, so the
     provider never receives two assistant messages in a row, and it is never
     appended to the durable transcript.
-  - The timing log records `outcome=silent` with `thinkingOnly` true for the
-    reasoning-only fixture and false for the nothing-at-all fixture, then the
-    re-run's own outcome.
+  - The terminal diagnostics identify the empty-response recovery and the
+    re-run's outcome.
   - The second silence emits one terminal retriable `EMPTY_MODEL_RESPONSE`
     assistant error and lifecycle event; the message names both attempts, and
     the retry action re-sends the last prompt.
@@ -5152,12 +5149,11 @@ Each scenario is documented in this format:
 - **Preconditions**: A project-bound session has an approved Plan or Goal and a
   deterministic provider fixture. One fixture ends with short forward-looking
   progress text and no tool call; a second ends with a normal final report;
-  timing logs are enabled.
 - **Steps**:
   1. Start the approved execution with the progress-only fixture and inspect
      the transcript while the runtime recovers.
-  2. Inspect the model request context, lifecycle events, visible message ids,
-     and timing log after the continuation completes.
+  2. Inspect the model request context, lifecycle events, and visible message
+     ids after the continuation completes.
   3. Repeat with the normal final-report fixture.
   4. Repeat the progress fixture with a continuation that emits a real tool
      call, then inspect the tool result and final report.
@@ -9067,7 +9063,7 @@ are withdrawn with ADR 0165.
   agent runtime; the x64 NSIS installer is available.
 - **Steps**: 1) Install PI-Desktop. 2) Launch it for the first time. 3) Wait
   for the startup splash to yield to the main shell. 4) Inspect the runtime
-  and timing logs, then open Settings → Info.
+  logs, then open Settings → Info.
 - **Expected**: The bundled x64 `pi-desktop-host-core.exe` starts and completes
   `app.handshake` without `0xC0000135` (`STATUS_DLL_NOT_FOUND`), the shell does
   not remain on “Can't reach the local service”, host status is healthy, and

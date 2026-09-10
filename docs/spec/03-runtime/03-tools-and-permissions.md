@@ -307,15 +307,6 @@ Serialization also protects the snapshot store, which both producers and `Edit`
 mutate: without the per-session permit, a concurrent record could land between a
 validation and its write.
 
-The sidecar's tool timing line includes `mutationFailureKind` and
-`mutationFailureAttempt` for failed same-path `Edit` calls and recognized shell
-patch commands, `mutationFailureGrace=true` for a failure forgiven under §9.3,
-and `terminate=true` on the failure that exhausts the budget. The last is passed
-through pi-agent-core's runtime-only termination hint; it does not alter the
-durable tool result shape. Because that hint ends the agent loop, the runtime
-also finalizes the assistant row with `MUTATION_RETRY_BUDGET_EXHAUSTED` instead
-of letting the turn complete silently.
-
 ## 5. Bash Rules
 
 Host execution baseline:
@@ -474,12 +465,13 @@ Each tool call records:
 
 MVP may start by writing to SQLite or a log file.
 
-Timing is recorded in segments, not as one duration (D183): `prompted`
-(whether a permission card was shown), `permissionWaitMs`, `durationMs` (the
-tool body), `overheadMs` (host bookkeeping), and `totalMs`. Denied calls carry
-the same fields with a zero tool body. See
-[09. Logging and Observability](09-logging-and-observability.md) for the
-matching log lines.
+Audit rows may retain the existing segmented timing fields for forensic
+inspection: `prompted` (whether a permission card was shown),
+`permissionWaitMs`, `durationMs` (the tool body), `overheadMs` (host
+bookkeeping), and `totalMs`. Denied calls carry the same fields with a zero tool
+body. These are structured audit fields; they are not emitted as process-log
+timing lines. See [09. Logging and Observability](09-logging-and-observability.md)
+for the current key-log policy.
 
 ## 10. Operating-mode matrix
 

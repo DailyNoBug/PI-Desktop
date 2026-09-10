@@ -135,17 +135,14 @@ M5。
   host-core 和 Electron 启动。窗口首先显示品牌启动画面
   当 bootstrap 运行时，然后用当前的英文显示主 shell
   语言环境目录；没有编译错误、缺少菜单运行时错误或崩溃；
-  版本信息可见。`~/.pi-desktop/logs/app/timing.log` 含有可检索的
-  `[timing] kind=boot` 行（`when-ready`、`host`、`sidecar`、`window-shown`、
-  `renderer-bootstrap`）。GitHub 自动更新在首个窗口出现之后才开始，
+  版本信息可见。分类日志会写入关键生命周期和错误记录。GitHub 自动更新在首个窗口出现之后才开始，
   且不会因约 60 秒的网络超时把状态钉在 `checking`。
 - **链接规格**：`03-runtime/07-process-model.md`、`04-ux/01-ui-ia.md`、
   `03-runtime/09-logging-and-observability.md` §7b
 - **接受**：A（应用程序启动）
 - **里程碑**：M1
 - **状态**：部分自动化（`runtime-build-contract.test.mjs` 涵盖
-  依赖构建合约；`boot-timing.test.mjs` 与 `auto-update.test.mjs` 覆盖打点
-  与限时自动检查；Electron 窗口启动仍处于草案状态）
+  依赖构建合约；`update-timeout.test.mjs` 与 `auto-update.test.mjs` 覆盖限时自动检查；Electron 窗口启动仍处于草案状态）
 
 #### E2E-002：IPC 桥功能正常
 
@@ -1381,7 +1378,7 @@ M5。
 
 - **先决条件**：新鲜的个人资料；提供商已配置；一轮聊天结束。
 - **步骤**：1) 通过工具调用运行提示。 2) 打开 `~/.pi-desktop/logs/`。 3) 检查 `app/`、`host/` 和 `agent/` 下的分类文件。
-- **预期**：NDJSON 记录与 `ts/level/channel/category/message` 一起存在；工具 start/end 携带 host-core/RPC；没有出现 API 密钥材料；每个类别文件的大小为 5 MB。此外，(D183) `host/timing.log` 对于携带 Maximized/fullscreen/invalid/tiny/`04-ux/09-interaction-patterns.md`/NDJSON/`~/.pi-desktop/logs/` 的每个工具调用都有一个 `tool timing` 记录，并且 `agent/timing.log` 具有匹配的 `[timing] kind=tool` 和 `[timing] kind=model` 行，因此对于同一 `toolCallId`，批准等待、慢速工具主体和慢速提供程序是可区分的。
+- **预期**：NDJSON 记录与 `ts/level/channel/category/message` 一起存在；工具 start/end 携带 host-core/RPC；没有出现 API 密钥材料；每个类别文件的大小为 5 MB。生命周期、权限、工具、provider、plugin、持久化、更新器和错误记录仍可用，且正常运行不会创建独立的 timing 类别文件。
 - **链接规格**：`03-runtime/09-logging-and-observability.md`
 - **接受**：H（诊断）
 - **里程碑**：M5
@@ -3386,7 +3383,7 @@ IPC 请求无法关闭。
 - **步骤**：
   1. 启动一个任务，为同一会话发出两个突变，同时还
      发出独立的 read/search 调用。
-  2. 在第一个突变运行时检查工具计时和转录本。
+  2. 在第一个突变运行时检查关键工具结果和转录本。
   3. 强制第二个 `Edit` 携带一个已无法哈希出该文件的 `tag`，且其锚点
      无法被恢复重映射，然后允许代理重新读取文件并从当前内容重试。
   4. 运行以非零值退出的 Bash 命令并检查其工具结果
@@ -3424,16 +3421,16 @@ IPC 请求无法关闭。
   第三个装置在一次尝试中于标头之前返回
   `OpenAI API error (502)`，并在下一次尝试中于流中返回它；
   第四个装置返回连续六个 502；第五个装置返回带
-  `Retry-After` 的 503；计时日志已启用。
+  `Retry-After` 的 503。
 - **步骤**：
   1. 使用单端接夹具开始 Agent 转动，并观察
      部分助理回应。
   2. 等待有界重试并检查成绩单、会话状态和
-     恢复后的模型计时日志。
+     恢复后的终端诊断。
   3. 对五端夹具重复并检查端子错误
      message/event 及其诊断详细信息。
   4. 运行混合阶段 502 装置，并针对标头之前和流中的
-     502 检查请求计数与计时日志。
+     502 检查请求计数与终端诊断。
   5. 运行持续六次 502 的装置并检查终端错误。
   6. 运行 503 `Retry-After` 装置并检查观察到的等待。
   7. 重新加载会话并验证是否只有已完成的响应或
@@ -3984,11 +3981,11 @@ IPC 请求无法关闭。
 - **先决条件**：项目绑定的 Agent 会话使用确定性提供程序
   在没有工具调用和没有文本的情况下结束一圈的夹具 - 一次带有推理
   内容呈现，曾经什么也没有；第二场比赛结束
-  第一个回合，然后以同样的方式重新运行；计时日志已启用。
+  第一个回合，然后以同样的方式重新运行。
 - **步骤**：
   1. 使用仅推理夹具启动 Agent 回合并观察
      运行时恢复时的转录。
-  2. 随后检查脚本、会话状态和模型计时日志。
+  2. 随后检查脚本、会话状态和终端诊断。
   3. 对无任何装置重复上述步骤。
   4. 对两次静音的夹具重复此操作并检查终端错误消息，
      其详细信息披露及其操作按钮。
@@ -4000,9 +3997,7 @@ IPC 请求无法关闭。
   - 在重新运行之前，空助手会从模型上下文中删除，因此
 提供商从来不会连续收到两条辅助消息，而且也永远不会
     附加到持久的成绩单中。
-  - 计时日志记录 `outcome=silent` 且 `thinkingOnly` 为 true
-    仅推理固定装置，对于无任何固定装置为 false，则
-    重新运行自己的结果。
+  - 终端诊断标识空响应恢复和重新运行的结果。
   - 第二次静音发出一个终端可重试 `EMPTY_MODEL_RESPONSE`
     辅助错误和生命周期事件；该消息命名了两次尝试，并且
     重试操作会重新发送最后一个提示。

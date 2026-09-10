@@ -286,13 +286,6 @@ type ReviewChange = {
 序列化同时保护快照存储，生产者与 `Edit` 都会修改它：没有按会话的
 突变许可，一次并发记录可能落在校验与写入之间。
 
-sidecar 的工具计时线包括 `mutationFailureKind` 和
-`mutationFailureAttempt` 用于失败的同路径 `Edit` 调用和已识别的 shell
-修补命令，对按 §9.3 被宽限的失败使用 `mutationFailureGrace=true`，并在第 3 次计数
-失败上使用 `terminate=true`。最后一项是通过 pi-agent-core 的仅运行时终止提示；它不会改变
-耐用的工具结果形状。由于该提示会结束代理循环，runtime 还会用
-`MUTATION_RETRY_BUDGET_EXHAUSTED` 敲定该 assistant 行，而不是让本轮无声完成。
-
 在一个提示内同一路径累计三次失败后（见 18-line-anchored-edit-contract §9.3），第 3 次
 计数的失败 `Edit`——或第 3 次失败的 shell 修补命令（`apply_patch`、`git apply` 或
 `patch`）——返回带有错误专属恢复提示的终止工具结果，代理随后停止并报告准确的不匹配。
@@ -455,12 +448,12 @@ tool call
 
 MVP 可以通过写入 SQLite 或日志文件来启动。
 
-计时以分段记录，而不是作为一个持续时间 (D183)：`prompted`
-（是否出示许可卡）、`permissionWaitMs`、`durationMs`（
-工具体）、`overheadMs`（主机簿记）和 `totalMs`。拒绝来电携带
-具有零工具体的相同字段。参见
-[09.日志记录和可观测性](/zh-CN/spec/03-runtime/09-logging-and-observability)
-匹配日志行。
+审计行可以保留既有的分段时长字段用于取证检查：`prompted`
+（是否出示许可卡）、`permissionWaitMs`、`durationMs`（工具体）、
+`overheadMs`（主机簿记）和 `totalMs`。拒绝调用携带工具体为零的相同字段。
+这些是结构化审计字段，不会作为 timing 日志行写入进程日志。关于当前的
+关键日志策略，请参见
+[09.日志记录和可观测性](/zh-CN/spec/03-runtime/09-logging-and-observability)。
 
 ## 10. 操作模式矩阵
 

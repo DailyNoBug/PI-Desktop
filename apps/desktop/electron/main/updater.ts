@@ -27,9 +27,8 @@ import type { Logger } from "./logger";
 import { parseAllowedExternalUrl } from "./safe-open-external";
 import {
   raceWithTimeout,
-  timingMessage,
   UPDATE_CHECK_TIMEOUT_CODE,
-} from "./boot-timing";
+} from "./update-timeout";
 
 const { autoUpdater } = electronUpdaterPkg;
 
@@ -205,23 +204,6 @@ export class AppUpdaterController {
     const timeoutMs = this.manualRequested
       ? MANUAL_CHECK_TIMEOUT_MS
       : AUTO_CHECK_TIMEOUT_MS;
-    const started = Date.now();
-    this.logger.app(
-      "timing",
-      "info",
-      timingMessage("updater", "check-start", {
-        manual: this.manualRequested,
-        timeoutMs,
-      }),
-      {
-        data: {
-          kind: "updater",
-          phase: "check-start",
-          manual: this.manualRequested,
-          timeoutMs,
-        },
-      },
-    );
     try {
       // Fire-and-forget relative to boot: callers must not await this from the
       // first-window path. The race only bounds *our* wait; electron-updater
@@ -231,47 +213,9 @@ export class AppUpdaterController {
         timeoutMs,
         "update check",
       );
-      this.logger.app(
-        "timing",
-        "info",
-        timingMessage("updater", "check-done", {
-          durationMs: Date.now() - started,
-          outcome: "ok",
-          manual: this.manualRequested,
-        }),
-        {
-          data: {
-            kind: "updater",
-            phase: "check-done",
-            durationMs: Date.now() - started,
-            outcome: "ok",
-            manual: this.manualRequested,
-          },
-        },
-      );
     } catch (error) {
-      const durationMs = Date.now() - started;
       const timedOut =
         (error as { code?: unknown } | null)?.code === UPDATE_CHECK_TIMEOUT_CODE;
-      this.logger.app(
-        "timing",
-        "warn",
-        timingMessage("updater", "check-done", {
-          durationMs,
-          outcome: timedOut ? "timeout" : "error",
-          manual: this.manualRequested,
-        }),
-        {
-          data: {
-            kind: "updater",
-            phase: "check-done",
-            durationMs,
-            outcome: timedOut ? "timeout" : "error",
-            manual: this.manualRequested,
-            error: String(error),
-          },
-        },
-      );
       if (timedOut) {
         if (this.manualRequested) {
           this.setState({ status: "error", error: "update check timed out" });
