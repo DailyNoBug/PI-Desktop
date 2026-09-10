@@ -89,10 +89,11 @@
   会话；记录显示每次压缩发生的位置以及上下文
   使用检查器显示是否安装了检查点。
 
-Token 用量**不是设置目的地**（D335 / ADR 0173）。已完成回合历史仍由宿主
-持久化（`session.endTurn.usage`、`stats.getTokenUsageHistory`）。面向用户的
-仪表盘是市场插件 `pi.token-insights`，从命令面板打开（`usage`、`用量`）。
-设置搜索不索引用量页。
+Token 用量**不是设置目的地**（D335 / D390 / ADR 0216）。展开侧边栏页脚的
+Activity 图标会打开只读的十四天已完成回合摘要，数据来自宿主持久化历史
+（`session.endTurn.usage`、`stats.getTokenUsageHistory`）。完整仪表盘仍是
+市场插件 `pi.token-insights`，从命令面板打开（`usage`、`用量`）。设置搜索
+不索引用量页。
 
 ### 快捷方式（`shortcuts` 选项卡）
 - **键盘快捷键**卡：

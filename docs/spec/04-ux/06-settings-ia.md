@@ -134,11 +134,12 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   session; the transcript shows where each compaction happened and the context
   usage inspector shows whether a checkpoint is installed.
 
-Token usage is **not a Settings destination** (D335 / ADR 0173). Completed-turn
-history stays host-owned (`session.endTurn.usage`, `stats.getTokenUsageHistory`).
-The user-facing dashboard is marketplace plugin `pi.token-insights`, opened from
-the command palette (`usage`, `tokens`, `用量`). Settings search does not index
-a usage tab.
+Token usage is **not a Settings destination** (D335 / D390 / ADR 0216). The
+expanded sidebar footer Activity icon opens a read-only fourteen-day
+completed-turn summary from host-owned history
+(`session.endTurn.usage`, `stats.getTokenUsageHistory`). The full dashboard
+remains marketplace plugin `pi.token-insights`, opened from the command palette
+(`usage`, `tokens`, `用量`). Settings search does not index a usage tab.
 
 ### Shortcuts (`shortcuts` tab)
 - **Keyboard shortcuts** card:

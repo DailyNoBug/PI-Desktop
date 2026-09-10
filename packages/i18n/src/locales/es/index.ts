@@ -118,6 +118,20 @@ export const es = {
     "dismiss": "Descartar",
     "devDisabled": "Las actualizaciones están deshabilitadas en las compilaciones de desarrollo."
   },
+  "tokenUsage": {
+    "title": "Consumo de tokens",
+    "range": "Últimos 14 días",
+    "turns": "Turnos",
+    "today": "Hoy",
+    "input": "Entrada",
+    "output": "Salida",
+    "cacheRead": "Lectura de caché",
+    "cacheWrite": "Escritura de caché",
+    "reasoning": "Razonamiento",
+    "loadFailed": "No se pudo cargar el consumo",
+    "retry": "Reintentar",
+    "chartSummary": "{{days}} días · {{tokens}} tokens"
+  },
   "nav": {
     "home": "Inicio",
     "newTask": "Nueva tarea",

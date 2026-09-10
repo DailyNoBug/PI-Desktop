@@ -8632,16 +8632,21 @@ are withdrawn with ADR 0165.
   `feedback.test.mjs`); full UI journey Draft (do not run E2E locally
   unless explicitly requested)
 
-#### E2E-186: Token usage dashboard is plugin-owned; host still stores turn totals
+#### E2E-186: Sidebar shows token summary; dashboard stays plugin-owned
 
 - **Preconditions**: A profile with at least one completed Agent turn that
   reported provider usage after this build. Settings is reachable. Plugin
   `pi.token-insights` may be installed.
-- **Steps**: 1) Complete a turn that also settled a subagent. 2) Open
-  Settings. 3) Search settings for "tokens" / "用量". 4) Open Token Insights
-  from the command palette (`usage` / `用量`). 5) Confirm the transcript
-  assistant chip.
+- **Steps**: 1) Complete a turn that also settled a subagent. 2) Click the
+  Activity icon at the left of the expanded sidebar footer. 3) Reopen the
+  popover and inspect the fourteen-day summary and today's breakdown. 4) Open
+  Settings and search for "tokens" / "用量". 5) Open Token Insights from the
+  command palette (`usage` / `用量`). 6) Confirm the transcript assistant chip.
 - **Expected**:
+  - The sidebar summary shows the host completed-turn range total, turn count,
+    daily distribution, and today's input / output / cache / reasoning totals,
+    including durable subagent spend.
+  - Escape or an outside click closes the summary; reopening refreshes it.
   - The rail has no Usage / 用量 destination. Preferences is General, AI,
     Shortcuts.
   - Settings search does not surface a usage tab.
@@ -8654,13 +8659,14 @@ are withdrawn with ADR 0165.
     without rewriting `message.usage`.
 - **Specs linked**: `04-ux/06-settings-ia.md`,
   `03-runtime/01-ipc-protocol.md`, `03-runtime/06-host-rpc-protocol.md`,
-  ADR 0171, ADR 0173, `08-meta/decisions-log.md` (D331, D335)
+  ADR 0171, ADR 0173, ADR 0216, `08-meta/decisions-log.md`
+  (D331, D335, D390)
 - **Acceptance**: F (persistence), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered (agent-runtime usage split, host-core history
-  aggregation, settings-search / i18n catalogs); plugin remainder merge
-  covered in `pi-desktop-plugins`; full UI journey Draft (do not run E2E
-  locally unless explicitly requested)
+  aggregation, sidebar summary helpers / source contract, settings-search /
+  i18n catalogs); plugin remainder merge covered in `pi-desktop-plugins`; full
+  UI journey Draft (do not run E2E locally unless explicitly requested)
 
 #### E2E-187: History attachments and local markdown images render inline
 

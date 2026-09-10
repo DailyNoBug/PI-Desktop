@@ -191,7 +191,7 @@ Each ADR includes:
 | 0170 | Ship the work-panel browser as a bundled plugin over public CDP | Accepted (amends 0019 / 0104 / 0105) |
 | 0171 | Host-owned completed-turn token history | Accepted (amended by 0173) |
 | 0172 | Contained in-chat image display | Accepted (amends fs/read workspace-only clause) |
-| 0173 | Plugin-owned token usage dashboard | Accepted (amends 0171) |
+| 0173 | Plugin-owned token usage dashboard | Accepted (amended by 0216) |
 | 0174 | Host-owned plugin completions and session context | Accepted (amends D019) |
 | 0175 | Explain quiet active turns with live agent activity status | Accepted |
 | 0176 | Per-provider User-Agent override | Accepted (amends 0095 / 0156; header map superseded by 0178) |
@@ -233,3 +233,4 @@ Each ADR includes:
 | 0213 | Persist the Host-owned turn queue in host-core | Accepted |
 | 0214 | Trusted extensions run in the Agent sidecar | Accepted (v1 implemented; amended by D388 / ADR 0215) |
 | 0215 | Agent extensions are a plugin contribution | Accepted (implemented) |
+| 0216 | Sidebar token usage summary | Accepted (amends 0173) |

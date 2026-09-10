@@ -118,6 +118,20 @@ export const fr = {
     "dismiss": "Ignorer",
     "devDisabled": "Les mises à jour sont désactivées dans les versions de développement."
   },
+  "tokenUsage": {
+    "title": "Consommation de tokens",
+    "range": "14 derniers jours",
+    "turns": "Tours",
+    "today": "Aujourd’hui",
+    "input": "Entrée",
+    "output": "Sortie",
+    "cacheRead": "Lecture cache",
+    "cacheWrite": "Écriture cache",
+    "reasoning": "Raisonnement",
+    "loadFailed": "Impossible de charger la consommation",
+    "retry": "Réessayer",
+    "chartSummary": "{{days}} jours · {{tokens}} tokens"
+  },
   "nav": {
     "home": "Accueil",
     "newTask": "Nouvelle tâche",

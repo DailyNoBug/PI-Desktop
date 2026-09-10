@@ -61,6 +61,7 @@ import {
 import { BrandLogo } from "./BrandLogo";
 import { NotificationCenter } from "./NotificationCenter";
 import { ProjectRenameDialog, SessionRenameDialog } from "./SessionRenameDialog";
+import { TokenUsageSummary } from "./TokenUsageSummary";
 import { useUpdateState } from "../hooks/use-update-state";
 import {
   IconArchive,
@@ -1879,6 +1880,7 @@ export function Sidebar({
 
         <div className="sidebar-footer no-drag">
           <div className="footer-actions">
+            <TokenUsageSummary onBeforeOpen={() => closeMenus(false)} />
             <TooltipButton
               type="button"
               className={`footer-action ${page === "settings" ? "active" : ""}`}

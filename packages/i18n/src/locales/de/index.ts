@@ -118,6 +118,20 @@ export const de = {
     "dismiss": "Verwerfen",
     "devDisabled": "Updates sind in Entwicklungs-Builds deaktiviert."
   },
+  "tokenUsage": {
+    "title": "Tokenverbrauch",
+    "range": "Letzte 14 Tage",
+    "turns": "Runden",
+    "today": "Heute",
+    "input": "Eingabe",
+    "output": "Ausgabe",
+    "cacheRead": "Cache-Lesen",
+    "cacheWrite": "Cache-Schreiben",
+    "reasoning": "Reasoning",
+    "loadFailed": "Verbrauch konnte nicht geladen werden",
+    "retry": "Erneut versuchen",
+    "chartSummary": "{{days}} Tage · {{tokens}} Tokens"
+  },
   "nav": {
     "home": "Startseite",
     "newTask": "Neue Aufgabe",

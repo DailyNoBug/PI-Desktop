@@ -7,6 +7,10 @@ const sidebarSource = await readFile(
   new URL("../src/components/Sidebar.tsx", import.meta.url),
   "utf8",
 );
+const usageSource = await readFile(
+  new URL("../src/components/TokenUsageSummary.tsx", import.meta.url),
+  "utf8",
+);
 const globalStyles = await loadStyles();
 const zhLocale = await readFile(
   new URL("../../../packages/i18n/src/locales/zh-CN/index.ts", import.meta.url),
@@ -31,8 +35,9 @@ test("the sidebar footer is an action bar, not a fabricated identity", () => {
   }
 });
 
-test("footer exposes settings, plugins and notifications in one row", () => {
+test("footer exposes token usage, settings, plugins and notifications in one row", () => {
   assert.match(sidebarSource, /className="footer-actions"/);
+  assert.match(sidebarSource, /<TokenUsageSummary onBeforeOpen=/);
   assert.match(sidebarSource, /data-nav="settings"/);
   assert.match(sidebarSource, /data-nav="plugins"/);
   const pluginsAction = sidebarSource.match(
@@ -51,6 +56,12 @@ test("footer exposes settings, plugins and notifications in one row", () => {
     .split("<TooltipButton")
     .filter((chunk) => /className=(?:"footer-action"|\{`footer-action )/.test(chunk));
   assert.equal(actions.length, 2);
+  assert.match(
+    usageSource,
+    /className=\{`footer-action \$\{open \? "active" : ""\}`\}/,
+  );
+  assert.match(usageSource, /tooltip=\{t\("tokenUsage\.title"\)\}/);
+  assert.match(usageSource, /ariaLabel=\{t\("tokenUsage\.title"\)\}/);
   for (const action of actions) {
     const attrs = action.slice(0, action.indexOf(">"));
     assert.match(attrs, /tooltip=/);

@@ -305,9 +305,9 @@ heading and retained project tabs under a following `Projects` heading; the
 collapsed state is an icon rail. Retained tabs are renderer presentation state,
 not additional host workspaces.
 The sidebar body is reserved for Sessions and Projects; the footer exposes the
-Plugins destination beside Settings. Projects is managed through Settings →
-Project archive, while Pull requests and Scheduled are not rendered in the
-sidebar.
+Activity token summary, Plugins destination, and Settings. Projects is managed
+through Settings → Project archive, while Pull requests and Scheduled are not
+rendered in the sidebar.
 
 Section-level create and sort controls stay visually quiet at rest and reveal
 when the owning Sessions or Projects toolbar is hovered or keyboard-focused.
@@ -328,7 +328,7 @@ Expanded (~275px, D034/D070):
 |   • Project session      |
 | project-B      [>] [+] … |
 |                           |
-| [⚙][plug][bell]          [version]|
+| [activity][⚙][plug][bell] [version]|
 +---------------------------+
 
 Collapsed (48px):
@@ -349,7 +349,7 @@ tier; weight, indentation, and disclosure icons preserve their hierarchy:
 
 | Surface | Token | Notes |
 |---|---|---|
-| Footer action icons | `--text-base` (14px) | Settings, Extensions, notifications; left side of footer |
+| Footer action icons | `--text-base` (14px) | Token usage, Settings, Extensions, notifications; left side of footer |
 | Session / thread titles | `--text-md` (13px) | Compact list content |
 | Project / group titles, empty copy | `--text-md` (13px) | Hierarchy comes from weight and indentation |
 | Section labels (`SESSIONS`, `PROJECTS`) | `--text-sm` (12px) | Uppercase secondary labels |
@@ -417,6 +417,9 @@ visually distinct from list content.
   intentionally omits this brand control from the sidebar header
 - Click the footer Plugins icon immediately right of Settings to open the
   Extensions destination; the icon exposes the localized label on hover/focus
+- Click the leftmost footer Activity icon to open the fourteen-day token usage
+  summary; it shows completed-turn totals from host history and closes with
+  Escape or an outside click
 - The footer action group stays on the left and the build/version chip stays
   right-aligned; clicking the chip checks for updates or opens the available
   release in Settings
