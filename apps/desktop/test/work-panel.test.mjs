@@ -234,6 +234,11 @@ test("work panel header exposes a scrollable tab strip and fixed add menu", () =
   );
   assert.match(globalStyles, /\.work-panel-new-menu\.is-open \{[^}]*visibility:\s*visible;/s);
   assert.match(globalStyles, /\.work-panel-tab-strip \{[^}]*overflow-x:\s*auto;/s);
+  assert.match(globalStyles, /\.work-panel-tab-strip \{[^}]*gap:\s*6px;/s);
+  assert.match(
+    globalStyles,
+    /\.work-panel-tab \{[^}]*min-width:\s*92px;[^}]*flex:\s*0 0 auto;/s,
+  );
   assert.doesNotMatch(globalStyles, /\.work-panel-actions \{[^}]*margin-left:\s*auto;/s);
   assert.doesNotMatch(
     globalStyles,

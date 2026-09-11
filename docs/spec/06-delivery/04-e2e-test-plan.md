@@ -2693,9 +2693,11 @@ Each scenario is documented in this format:
   opacity/slide, so MainChat reflows continuously without a pre-animation jump.
   Opening the panel, collapsing it, or committing a divider resize updates the
   presentation without a native-window jump. The header is a horizontally
-  scrollable tablist with a fixed `+`; the strip alone scrolls, active tabs
-  scroll into view, and close selects the right neighbor then left. The add
-  menu has one Tools & panels group with Review and in-scope plugin views,
+  scrollable tablist with stable `92px–180px` tabs, visible spacing, and a
+  fixed `+`; labels stay readable instead of shrinking into one cluster, the
+  strip alone scrolls, active tabs scroll into view, and close selects the
+  right neighbor then left. The add menu has one Tools & panels group with
+  Review and in-scope plugin views,
   fades in over ≤4px, and is static under reduced motion. Its keyboard focus
   and dismissal return to `+`; opening it moves the menu beside a native
   plugin surface so the surface keeps its full bounds and the plugin body does
