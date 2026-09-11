@@ -62,42 +62,6 @@
   padding-top: 2px;
 }
 
-/* Keep sidebar scrolling available without turning the navigation tree into a
-   second visual rail. The base.css scrollbar is already transparent at rest
-   and revealed on hover or while scrolling; the sidebar lists narrow it to
-   6px, also reveal it while a row has keyboard focus, and use a 20% ink thumb
-   in every revealed state so the thumb never darkens further under the
-   pointer. No `scrollbar-color` here: it would disable the pseudo-elements. */
-.sidebar-session-groups,
-.sidebar-session-group-body.standalone {
-  --sidebar-scrollbar-thumb-hover: color-mix(in oklab, var(--ds-text-primary) 20%, transparent);
-}
-
-.sidebar-session-groups::-webkit-scrollbar,
-.sidebar-session-group-body.standalone::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.sidebar-session-groups::-webkit-scrollbar-thumb,
-.sidebar-session-group-body.standalone::-webkit-scrollbar-thumb {
-  border-width: 1px;
-}
-
-.sidebar-session-groups:hover::-webkit-scrollbar-thumb,
-.sidebar-session-groups:focus-within::-webkit-scrollbar-thumb,
-.sidebar-session-groups[data-scrolling]::-webkit-scrollbar-thumb,
-.sidebar-session-group-body.standalone:hover::-webkit-scrollbar-thumb,
-.sidebar-session-group-body.standalone:focus-within::-webkit-scrollbar-thumb,
-.sidebar-session-group-body.standalone[data-scrolling]::-webkit-scrollbar-thumb,
-.sidebar-session-groups::-webkit-scrollbar-thumb:hover,
-.sidebar-session-groups::-webkit-scrollbar-thumb:active,
-.sidebar-session-group-body.standalone::-webkit-scrollbar-thumb:hover,
-.sidebar-session-group-body.standalone::-webkit-scrollbar-thumb:active {
-  background: var(--sidebar-scrollbar-thumb-hover);
-  background-clip: content-box;
-}
-
 .sidebar-session-group {
   min-width: 0;
 }

@@ -8014,7 +8014,7 @@ This test plan spec is accepted when:
   `subagent-definition.test.ts`, and its document round-trip in host-core
   `user_subagents` tests; the request-level assertion in step 8 stays manual.
 
-#### E2E-157: Sidebar scrollbars stay quiet while remaining discoverable
+#### E2E-157: Global scrollbars stay quiet while remaining discoverable
 
 - **Preconditions**: PI-Desktop is open with the expanded sidebar, more
   temporary sessions than the five-row cap, and enough retained project
@@ -8025,13 +8025,17 @@ This test plan spec is accepted when:
   back into each list, drag its thumb through the region, and keyboard-focus a
   row to confirm the focused list keeps its thumb available. 4) Scroll the
   list with the wheel or trackpad after moving the pointer away from the thumb.
+  5) Open a long conversation and a long right-side work-panel view, including
+  the Files view when the bundled plugin is enabled, and compare their idle,
+  hovered, focused, and scrolling states on Windows.
 - **Expected**: Both regions remain independently scrollable and the footer
-  stays fixed. At rest each scrollbar is trackless, 6px wide, and transparent;
-  hovering or focusing the owning list reveals only its thumb, while scrolling
-  reveals it for 300ms after the last scroll event. Dragging keeps it visible so
-  navigation remains visually quiet without changing the scroll region's width.
-  Chat, code, and Settings scrollbars follow the same rest/reveal rule at 8px:
-  transparent until their scroller is hovered or scrolling (D300).
+  stays fixed. Every in-app scrollbar is trackless, 6px wide, and transparent
+  at rest; hovering or focusing the owning scroller reveals only its thumb,
+  while scrolling reveals it for 300ms after the last scroll event. Dragging
+  keeps it visible without changing the scroll region's width. Chat, code,
+  Settings, and the right-side work-panel scrollbars all match this rule. A
+  docked or detached plugin panel receives the same host-injected rule; an
+  external page inside Browser keeps its own page-owned scrollbar.
 - **Specs linked**: `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`
 - **Acceptance**: Quality (sidebar polish and independent navigation)

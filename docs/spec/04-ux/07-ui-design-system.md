@@ -471,23 +471,25 @@ build/version chip is right-aligned and remains the update check/release entry
 point. Hover and active states use semantic sidebar surfaces; neither side adds
 a persistent card fill.
 
-Every scroll container in the renderer uses one quiet scrollbar: 8px,
+Every scroll container in the renderer uses one quiet scrollbar: 6px,
 trackless, with a thumb that is transparent at rest. The thumb appears only
-while the pointer is over the owning scroll region or while that region is
-scrolling (the renderer marks the scrolling element with `data-scrolling` for
-300ms after the last scroll event, so wheel, trackpad, keyboard, and pinned-
-follow scrolls all reveal it); it strengthens under the pointer and while
-dragged. Scrollbars are styled only through the `::-webkit-scrollbar`
-pseudo-elements. Partials never set `scrollbar-width` or `scrollbar-color`,
-because WebKit and Chromium then ignore the pseudo-elements and the surface
-falls back to an always-visible native bar. Reserved gutters
+while the pointer is over the owning scroll region, the region contains the
+keyboard focus, or the region is scrolling (the renderer marks the scrolling
+element with `data-scrolling` for 300ms after the last scroll event, so wheel,
+trackpad, keyboard, and pinned-follow scrolls all reveal it); it strengthens
+under the pointer and while dragged. Scrollbars are styled only through the
+`::-webkit-scrollbar` pseudo-elements. Partials never set `scrollbar-width` or
+`scrollbar-color`, because WebKit and Chromium then ignore the pseudo-elements
+and the surface falls back to an always-visible native bar. Reserved gutters
 (`scrollbar-gutter: stable`) stay where layout needs them; they are simply
-empty at rest.
+empty at rest. Sidebar lists use this same rule without a narrower or darker
+override, so the navigation tree, conversation, and work-panel scrollbars
+remain visually consistent on Windows as well as macOS and Linux.
 
-Sidebar list scrollers narrow that scrollbar to 6px, also reveal it while a
-row has keyboard focus, and use a 20% semantic-ink thumb in every revealed
-state. This keeps the navigation tree visually quiet while preserving a
-discoverable control during interaction.
+The preload-owned document for a docked or detached plugin panel applies the
+same 6px contract and scroll-reveal mark. This keeps first-party surfaces such
+as the Files view aligned with the host renderer; the external page loaded
+inside the Browser guest remains page-owned and keeps its own scrollbar style.
 
 The expanded sidebar's resize handle keeps its 8px hit area transparent when
 the sidebar surface is merely hovered. Direct handle hover reveals only a
