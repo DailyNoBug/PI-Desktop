@@ -169,6 +169,28 @@ test("manual project order follows persisted metadata while retaining pinned pri
   );
 });
 
+test("manual project order ignores negative and fractional persisted ranks", () => {
+  const projects = [
+    { path: "/work/invalid", name: "Invalid" },
+    { path: "/work/fractional", name: "Fractional" },
+    { path: "/work/valid", name: "Valid" },
+  ];
+  const sorted = sortProjects(
+    projects,
+    {
+      "/work/invalid": { order: -1 },
+      "/work/fractional": { order: 1.5 },
+      "/work/valid": { order: 0 },
+    },
+    "manual",
+  );
+  assert.deepEqual(sorted.map((project) => project.path), [
+    "/work/valid",
+    "/work/fractional",
+    "/work/invalid",
+  ]);
+});
+
 test("all user-facing session sort modes produce stable secondary order", () => {
   const sessions = [
     session({

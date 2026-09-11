@@ -2359,6 +2359,28 @@ async function importLegacyScheduled() {
 
 /** sessionId → open host turn id, for turn bookkeeping across agent events. */
 const activeTurns = new Map<string, string>();
+const sessionOperationTails = new Map<string, Promise<void>>();
+
+async function acquireSessionOperation(sessionId: string): Promise<() => void> {
+  const id = sessionId.trim();
+  const previous = sessionOperationTails.get(id) ?? Promise.resolve();
+  let resolveCurrent!: () => void;
+  const current = new Promise<void>((resolve) => {
+    resolveCurrent = resolve;
+  });
+  const tail = previous.then(() => current);
+  sessionOperationTails.set(id, tail);
+  await previous;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    resolveCurrent();
+    if (sessionOperationTails.get(id) === tail) {
+      sessionOperationTails.delete(id);
+    }
+  };
+}
 /** Plan submission turns end without a task-complete notification. */
 const planSubmissionTurnIds = new Set<string>();
 /** sessionId → host execution id for an approved plan currently dispatched. */
@@ -5354,6 +5376,8 @@ async function dispatchApprovedPlan(rawExecution: unknown): Promise<void> {
     logger.app("runtime", "warn", "approved plan execution descriptor was invalid");
     return;
   }
+  const releaseSessionOperation = await acquireSessionOperation(initial.sessionId);
+  try {
   if (
     initial.state === "running" ||
     initial.state === "interrupted" ||
@@ -5465,8 +5489,11 @@ async function dispatchApprovedPlan(rawExecution: unknown): Promise<void> {
       data: { executionId: initial.id, error: String(error) },
     });
   } finally {
-    dispatchingApprovedExecutions.delete(initial.id);
+      dispatchingApprovedExecutions.delete(initial.id);
+    }  } finally {
+    releaseSessionOperation();
   }
+
 }
 
 async function drainApprovedPlanExecutions(): Promise<void> {
@@ -6389,6 +6416,8 @@ function registerIpc() {
           errorCode: ErrorCodes.INVALID_ARGUMENT,
         });
       }
+      const releaseSessionOperation = await acquireSessionOperation(sessionId);
+      try {
       if (activeTurns.has(sessionId)) {
         throw Object.assign(new Error("Cannot move a running session"), {
           errorCode: ErrorCodes.AGENT_BUSY,
@@ -6432,6 +6461,9 @@ function registerIpc() {
         ...result,
         session: enrichSession(result.session, providers, defaults),
       };
+      } finally {
+        releaseSessionOperation();
+      }
     },
   );
   handle(
@@ -8080,6 +8112,8 @@ function registerIpc() {
 
   handle(IPC.invoke.agentPrompt, async (req: AgentPromptRequest) => {
     if (!host || !sidecar) throw new Error("backend unavailable");
+    const releaseSessionOperation = await acquireSessionOperation(req.sessionId);
+    try {
     // Install the renderer's prompt-time snapshot before any asynchronous
     // setup. This closes the gap where a fast completion could beat the
     // effect that reports the active chat session. Missing or mismatched
@@ -8349,6 +8383,9 @@ function registerIpc() {
       data: { providerId: launch.providerId, modelId: launch.modelId },
     });
     return result;
+    } finally {
+      releaseSessionOperation();
+    }
   });
 
   handle(IPC.invoke.agentCompact, async (req: { sessionId: string }) => {
