@@ -51,6 +51,16 @@ export const de = {
     "allowSession": "Erlauben bis zum Beenden",
     "deny": "Verweigern"
   },
+  "pluginGitConsent": {
+    "discardMessage": "{name} möchte Änderungen in {count} Dateien verwerfen",
+    "switchMessage": "{name} möchte zu {branch} wechseln",
+    "createMessage": "{name} möchte {branch} erstellen und dorthin wechseln",
+    "discard": "Verfolgte Änderungen werden vom letzten Commit wiederhergestellt; nicht verfolgte Dateien wandern in den Papierkorb.",
+    "switch": "Nicht committete Arbeit bleibt im Working Tree. Git kann den Wechsel bei lokalen Konflikten ablehnen.",
+    "create": "Der neue Branch beginnt am aktuellen HEAD. Nicht committete Arbeit bleibt im Working Tree.",
+    "allowOnce": "Einmal zulassen",
+    "deny": "Verweigern"
+  },
   "pluginLauncher": {
     "title": "Ein Plugin öffnen",
     "placeholder": "Plugins nach Name oder Pinyin durchsuchen",
@@ -1568,6 +1578,8 @@ export const de = {
       "bus.publish": "Nachrichten an andere Plugins senden",
       "bus.subscribe": "Nachrichten von anderen Plugins empfangen",
       "browser.cdp": "Den Arbeitspanel-Browser steuern"
+      ,"git.read": "Git-Status und Diffs lesen"
+      ,"git.write": "Repository-Status ändern"
     },
     "permissionHelp": {
       "ui.panel": "Lässt das Plugin sein eigenes Panel innerhalb der App anzeigen.",
@@ -1596,7 +1608,9 @@ export const de = {
       "background.service": "Hält einen Worker am Laufen, während das Plugin aktiviert ist.",
       "bus.publish": "Kann Nachrichten zu den angegebenen Themen senden.",
       "bus.subscribe": "Kann Nachrichten zu den angegebenen Themen empfangen.",
-      "browser.cdp": "Kann im Arbeitsbereichsbrowser navigieren, die Seite lesen, JavaScript ausführen und auf der Zulassungsliste stehende Chrome DevTools-Befehle senden. Cookies und Speichermethoden sind blockiert."
+      "browser.cdp": "Kann im Arbeitsbereichsbrowser navigieren, die Seite lesen, JavaScript ausführen und auf der Zulassungsliste stehende Chrome DevTools-Befehle senden. Cookies und Speichermethoden sind blockiert.",
+      "git.read": "Kann Branch-, Status- und Diff-Metadaten des aktuellen Workspace über host-eigene Git-Befehle lesen.",
+      "git.write": "Kann über feste host-eigene Git-Befehle stagen, unstagen, verwerfen, committen, pushen, pullen und den aktuellen Branch verwalten. Destruktive Aktionen und Branchwechsel erfordern weiterhin native Bestätigung; Zugangsdaten werden nicht gespeichert."
     }
   },
   "extensions": {

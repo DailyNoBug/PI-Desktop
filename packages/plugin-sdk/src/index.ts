@@ -567,6 +567,69 @@ export type PluginFsPreview = {
   size: number;
 };
 
+export type PluginGitFileStatus =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "untracked"
+  | "conflicted";
+
+export type PluginGitFileChange = {
+  path: string;
+  oldPath?: string;
+  status: PluginGitFileStatus;
+  additions: number;
+  deletions: number;
+  binary?: boolean;
+  tooLarge?: boolean;
+};
+
+export type PluginGitStatus = {
+  repo: boolean;
+  detached?: boolean;
+  initialBranch?: boolean;
+  branch?: string;
+  upstream?: string;
+  ahead?: number;
+  behind?: number;
+  staged: PluginGitFileChange[];
+  unstaged: PluginGitFileChange[];
+  conflicts: PluginGitFileChange[];
+  truncated?: boolean;
+};
+
+export type PluginGitBranches = {
+  repo: boolean;
+  branches: Array<{ name: string; isCurrent: boolean }>;
+  currentBranch?: string;
+};
+
+export type PluginGitDiff = {
+  scope: "staged" | "unstaged" | "untracked";
+  file: {
+    path: string;
+    oldPath?: string;
+    status: "added" | "modified" | "deleted" | "renamed" | "untracked";
+    additions: number;
+    deletions: number;
+    binary?: boolean;
+    tooLarge?: boolean;
+    hunks: Array<{
+      header: string;
+      oldStart?: number;
+      newStart?: number;
+      lines: Array<{ type: "add" | "del" | "context"; text: string }>;
+    }>;
+  } | null;
+};
+
+export type PluginGitOperation = {
+  ok: true;
+  status: PluginGitStatus;
+  commitHash?: string;
+};
+
 /**
  * The appearance the host is currently showing. Mirrors `PluginAppearance` in
  * the desktop's plugin panel chrome; keep the two shapes identical.
@@ -749,6 +812,19 @@ export type PluginHostApi = {
       timeoutMs?: number;
     }) => Promise<{ status: number; headers: Record<string, string>; bodyText: string }>;
   };
+  git: {
+    status: () => Promise<PluginGitStatus>;
+    branches: () => Promise<PluginGitBranches>;
+    diff: (input: { path: string; scope: "staged" | "unstaged" | "untracked" }) => Promise<PluginGitDiff>;
+    stage: (input: { paths?: string[]; all?: boolean }) => Promise<PluginGitOperation>;
+    unstage: (input: { paths?: string[]; all?: boolean }) => Promise<PluginGitOperation>;
+    discard: (input: { paths: string[] }) => Promise<PluginGitOperation>;
+    createBranch: (input: { name: string; checkout?: boolean }) => Promise<PluginGitOperation>;
+    switchBranch: (input: { branch: string }) => Promise<PluginGitOperation>;
+    commit: (input: { message: string; stageAll?: boolean }) => Promise<PluginGitOperation>;
+    push: (input: { publish?: boolean }) => Promise<PluginGitOperation>;
+    pull: () => Promise<PluginGitOperation>;
+  };
   events: {
     on: (event: string, handler: (...args: unknown[]) => void) => void;
     off: (event: string, handler: (...args: unknown[]) => void) => void;
@@ -796,6 +872,8 @@ export const PLUGIN_PERMISSIONS = [
   "bus.publish",
   "bus.subscribe",
   "browser.cdp",
+  "git.read",
+  "git.write",
 ] as const;
 
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];

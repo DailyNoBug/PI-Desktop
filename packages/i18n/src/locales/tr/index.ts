@@ -60,6 +60,16 @@ export const tr = {
     allowSession: "Çıkışa kadar izin ver",
     deny: "Reddet",
   },
+  pluginGitConsent: {
+    discardMessage: "{name}, {count} dosyadaki değişiklikleri atmak istiyor",
+    switchMessage: "{name}, {branch} dalına geçmek istiyor",
+    createMessage: "{name}, {branch} dalını oluşturup geçmek istiyor",
+    discard: "İzlenen değişiklikler son commit'ten geri yüklenir; izlenmeyen dosyalar çöpe taşınır.",
+    switch: "Commit edilmemiş iş çalışma ağacında kalır. Yerel değişiklikler çakışırsa Git geçişi reddedebilir.",
+    create: "Yeni dal geçerli HEAD üzerinden başlar. Commit edilmemiş iş çalışma ağacında kalır.",
+    allowOnce: "Bir kez izin ver",
+    deny: "Reddet",
+  },
   pluginLauncher: {
     title: "Eklenti aç",
     placeholder: "Ada veya pinyin ile eklenti ara",
@@ -1588,6 +1598,8 @@ export const tr = {
       "bus.publish": "Diğer eklentilere ileti gönder",
       "bus.subscribe": "Diğer eklentilerden ileti al",
       "browser.cdp": "Çalışma paneli tarayıcısını kontrol et",
+      "git.read": "Git durumunu ve diff'lerini oku",
+      "git.write": "Depo durumunu değiştir",
     },
     permissionHelp: {
       "ui.panel": "Eklentinin uygulama içinde kendi panelini göstermesini sağlar.",
@@ -1628,6 +1640,9 @@ export const tr = {
       "bus.subscribe": "Bildirdiği konularda ileti alabilir.",
       "browser.cdp":
         "Çalışma paneli tarayıcısında gezebilir, sayfayı okuyabilir, JavaScript çalıştırabilir ve izin listesindeki Chrome DevTools komutlarını gönderebilir. Çerez ve depolama yöntemleri engellenir.",
+      "git.read": "Sunucunun sahip olduğu Git komutlarıyla geçerli çalışma alanının dal, durum ve diff üst verilerini okuyabilir.",
+      "git.write":
+        "Sabit ve sunucuya ait Git komutlarıyla stage, unstage, atma, commit, push, pull ve geçerli dal yönetimi yapabilir. Yıkıcı işlemler ve dal değiştirme yine yerel onay ister; kimlik bilgileri saklanmaz.",
     },
   },
   /**

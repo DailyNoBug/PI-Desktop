@@ -58,6 +58,19 @@ export const en = {
     allowSession: "Allow until quit",
     deny: "Deny",
   },
+  pluginGitConsent: {
+    discardMessage: "{name} wants to discard changes in {count} files",
+    switchMessage: "{name} wants to switch to {branch}",
+    createMessage: "{name} wants to create and switch to {branch}",
+    discard:
+      "Tracked changes will be restored from the last commit and untracked files will be moved to the trash.",
+    switch:
+      "Uncommitted work stays in the working tree. Git may refuse the switch if local changes conflict.",
+    create:
+      "The new branch starts from the current HEAD. Uncommitted work stays in the working tree.",
+    allowOnce: "Allow once",
+    deny: "Deny",
+  },
   pluginLauncher: {
     title: "Open a plugin",
     placeholder: "Search plugins by name or pinyin",
@@ -1586,6 +1599,8 @@ export const en = {
       "bus.publish": "Send messages to other plugins",
       "bus.subscribe": "Receive messages from other plugins",
       "browser.cdp": "Control the work-panel browser",
+      "git.read": "Read Git status and diffs",
+      "git.write": "Change repository state",
     },
     permissionHelp: {
       "ui.panel": "Lets the plugin show its own panel inside the app.",
@@ -1627,6 +1642,10 @@ export const en = {
       "bus.subscribe": "Can receive messages on the topics it declared.",
       "browser.cdp":
         "Can navigate the work-panel browser, read the page, run JavaScript, and send allowlisted Chrome DevTools commands. Cookie and storage methods are blocked.",
+      "git.read":
+        "Can read branch, status, and diff metadata for the current workspace through host-owned Git commands.",
+      "git.write":
+        "Can stage, unstage, discard, commit, push, pull, and manage the current branch through fixed host-owned Git commands. Destructive and branch-switching actions still require native confirmation; no credentials are stored.",
     },
   },
   /**

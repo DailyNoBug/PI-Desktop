@@ -18,19 +18,55 @@ import type {
 export const MAX_DIFF_FILES = 100;
 export const MAX_PATCH_BYTES = 200 * 1024;
 
-type RunResult = { code: number; stdout: string; stderr: string };
+type RunResult = { code: number; stdout: string; stderr: string; truncated?: boolean };
 
-function runGit(cwd: string, args: string[]): Promise<RunResult> {
+export function runGit(
+  cwd: string,
+  args: string[],
+  options: { timeoutMs?: number } = {},
+): Promise<RunResult> {
   return new Promise((resolve) => {
-    const child = spawn("git", args, { cwd, env: process.env });
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    const child = spawn("git", args, {
+      cwd,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      windowsHide: true,
+    });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (d) => (stdout += String(d)));
-    child.stderr.on("data", (d) => (stderr += String(d)));
-    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
-    child.on("error", (err) =>
-      resolve({ code: 1, stdout: "", stderr: String(err) }),
-    );
+    let truncated = false;
+    let settled = false;
+    const timer = setTimeout(() => {
+      truncated = true;
+      child.kill();
+    }, timeoutMs);
+    const append = (current: string, chunk: Buffer | string) => {
+      const next = current + String(chunk);
+      if (next.length > 2 * 1024 * 1024) {
+        truncated = true;
+        child.kill();
+        return next.slice(0, 2 * 1024 * 1024);
+      }
+      return next;
+    };
+    child.stdout.on("data", (d) => {
+      stdout = append(stdout, d);
+    });
+    child.stderr.on("data", (d) => {
+      stderr = append(stderr, d);
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, stdout, stderr, truncated: truncated || undefined });
+    });
+    child.on("error", () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code: 1, stdout, stderr, truncated: truncated || undefined });
+    });
   });
 }
 
@@ -153,7 +189,13 @@ export function parseFilePatch(
       continue;
     }
     if (line.startsWith("@@")) {
-      current = { header: line, lines: [] };
+      const header = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      current = {
+        header: line,
+        oldStart: header ? Number.parseInt(header[1], 10) : undefined,
+        newStart: header ? Number.parseInt(header[2], 10) : undefined,
+        lines: [],
+      };
       hunks.push(current);
       continue;
     }

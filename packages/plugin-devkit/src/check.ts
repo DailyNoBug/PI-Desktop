@@ -28,6 +28,7 @@ export const HIGH_RISK_PERMISSIONS = [
   "agent.prompt.inject",
   "agent.tool.register",
   "browser.cdp",
+  "git.write",
 ] as const;
 
 /** Host API surface each permission unlocks, used for the unused-permission hint. */
@@ -66,6 +67,17 @@ const PERMISSION_API_HINTS: Record<string, string[]> = {
     "browser.evaluate",
     "browser.console",
     "browser.cdp",
+  ],
+  "git.read": ["git.status", "git.branches", "git.diff"],
+  "git.write": [
+    "git.stage",
+    "git.unstage",
+    "git.discard",
+    "git.createBranch",
+    "git.switchBranch",
+    "git.commit",
+    "git.push",
+    "git.pull",
   ],
 };
 
