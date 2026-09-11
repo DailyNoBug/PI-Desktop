@@ -8240,9 +8240,7 @@ This test plan spec is accepted when:
   collapse; collapse does not convert the preferred width into the icon-rail
   width. At a composer width of 360px or less, the left and right toolbar
   groups occupy separate rows and mode/permission labels remain single-line
-  and ellipsized; no toolbar text is vertically split or overlapped. The
-  composer remains wholly inside the main chat column and never paints beneath
-  the sidebar or work panel.
+  and ellipsized; no toolbar text is vertically split or overlapped.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`,
   ADR 0141, D280
