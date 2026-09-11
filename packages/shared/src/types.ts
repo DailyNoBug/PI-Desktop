@@ -1685,11 +1685,11 @@ export type CommandItem = {
   extensionId?: string;
 };
 
-/** One entry of the composer "/" menu, merged from three sources (D123). */
+/** One entry of the composer "/" menu, merged from command and skill sources (D123). */
 export type ComposerCommand = {
   /** Slash name typed after "/"; unique across the merged list. */
   name: string;
-  kind: "template" | "builtin" | "plugin" | "extension";
+  kind: "template" | "builtin" | "plugin" | "extension" | "skill";
   /** Display title (templates use their name). */
   title: string;
   description?: string;
@@ -1699,6 +1699,8 @@ export type ComposerCommand = {
   source?: "project" | "user";
   /** Palette command id for builtin/plugin execution. */
   id?: string;
+  /** Skill id passed to the model's Skill tool. */
+  skillId?: string;
 };
 
 /** One clipboard file transferred from the renderer to the composer bridge. */

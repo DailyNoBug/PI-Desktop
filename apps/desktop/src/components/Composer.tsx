@@ -1643,8 +1643,9 @@ export function Composer({
     invalidatePromptEnhancement();
     const submittedDraftKey = draftKey;
     // Slash dispatch (D123): builtin/plugin aliases execute locally without
-    // a session or a model; templates and unknown /names stay prompt text
-    // (main expands templates). Runs before the model-ready gate on purpose.
+    // a session or a model; templates, skills, and unknown /names stay prompt
+    // text (main expands templates and routes skills to the Skill tool). Runs
+    // before the model-ready gate on purpose.
     if (serializedContent.startsWith("/")) {
       const commandEnd = serializedContent.search(/\s/);
       const name = serializedContent.slice(
