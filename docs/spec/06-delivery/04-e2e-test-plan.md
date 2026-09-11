@@ -9851,8 +9851,9 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Steps**: 1) Open the Git view and inspect both change sections as directory
   trees, including collapsed/expanded folder counts. 2) Select a nested modified
   file without expanding its folder through any other surface. 3) Confirm the
-  overlay opens directly in side-by-side mode with aligned old/new line numbers,
-  red old content, green new content, and working change navigation. 4) Switch
+  centered modal opens directly over the tree in side-by-side mode with aligned
+  old/new line numbers, red old content, green new content, and working change
+  navigation. 4) Switch
   to unified and back, close with Escape, and confirm focus returns to the same
   file row. 5) With staged changes present, click AI and edit the generated
   message before committing. 6) Clear the index, click AI with unstaged and
@@ -9860,7 +9861,8 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   a model error and repeat; then repeat from the model-less profile. 8) Use the
   oversized fixture and confirm generation remains bounded.
 - **Expected**: Folder and file rows stay aligned and localized. File clicks
-  open the Git-owned overlay, never message-owned Review or rollback. Split
+  open the Git-owned modal, never message-owned Review or rollback, and the Git
+  tab remains the changed-file tree surface behind its scrim. Split
   diff is the default and red/green old/new content is readable in both themes.
   AI uses the marked ready default model, sends only bounded scoped Git diff
   context through public `models.list` and `agent.complete` channels, and fills

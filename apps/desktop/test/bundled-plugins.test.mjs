@@ -224,6 +224,11 @@ test("Git ships as an ordinary plugin over the public Git bridge", () => {
   assert.match(gitView, /buildChangeTree/);
   assert.match(gitView, /appendTreeNodes/);
   assert.match(gitView, /diffMode:\s*"split"/);
+  assert.match(gitView, /id="review"[^>]*aria-modal="true"/);
+  assert.match(gitView, /class="review-dialog"/);
+  assert.match(gitView, /align-items:\s*center/);
+  assert.match(gitView, /justify-content:\s*center/);
+  assert.match(gitView, /event\.target === \$\("review"\)/);
   assert.match(gitView, /grid-template-columns:\s*42px minmax\(0, 1fr\) 42px minmax\(0, 1fr\)/);
   assert.match(gitView, /generateCommitMessage/);
   assert.match(gitView, /80_000/);

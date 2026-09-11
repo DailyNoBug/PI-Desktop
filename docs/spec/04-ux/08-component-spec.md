@@ -848,13 +848,14 @@ state as collapsible directory trees. Folder rows aggregate descendant file and
 addition/deletion counts; file rows show the status letter, basename, rename
 target, and counts. Binary and oversized files identify themselves without diff
 content. Per-row actions stage, unstage, or discard. Selecting a file opens the
-view-owned review overlay rather than the message-owned Review tab. The overlay
-opens in side-by-side mode with aligned old/new line-number columns, red
-old-side content, and green new-side content; unified mode remains an explicit
-toggle. It supports staged, unstaged, and untracked context, next/previous
-change navigation, file switching, refresh, binary/too-large states, and
-returns focus to its opening row when closed. It reads current Git state and
-offers no rollback.
+view-owned review modal over the changed-file tree rather than the
+message-owned Review tab; the Git tab itself remains the tree surface. The
+centered dialog opens in side-by-side mode with aligned old/new line-number
+columns, red old-side content, and green new-side content; unified mode remains
+an explicit toggle. It supports staged, unstaged, and untracked context,
+next/previous change navigation, file switching, refresh, binary/too-large
+states, and returns focus to its opening row when closed. It reads current Git
+state and offers no rollback.
 
 The commit box sits below the change lists. Commit uses the staged index; when
 nothing is staged, the explicit "stage all and commit" action stages all changes

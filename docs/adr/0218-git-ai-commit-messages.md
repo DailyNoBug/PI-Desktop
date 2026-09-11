@@ -24,8 +24,9 @@ timeout even though side completions have a 90-second budget.
 1. **Change lists are directory trees.** Each section groups descendants under
    collapsible folder rows. Folder rows aggregate descendant file and +/- counts;
    file rows retain status, rename, review, stage, unstage, and discard actions.
-   A file click opens the existing Git-owned review overlay.
-2. **Split diff is the default.** The review overlay opens in left/right mode
+   A file click opens the Git-owned review modal over that tree; the Git tab
+   remains the changed-file tree surface.
+2. **Split diff is the default.** The review modal opens in left/right mode
    with red old-side and green new-side rows and aligned line-number columns.
    Unified mode remains an explicit toggle.
 3. **AI commit messages use existing public boundaries.** `pi.git` additionally

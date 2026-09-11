@@ -293,11 +293,24 @@
         inset: var(--pi-plugin-titlebar-height, 0px) 0 0;
         z-index: 10;
         display: none;
-        min-height: 0;
-        flex-direction: column;
-        background: var(--bg);
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: color-mix(in oklab, #000 45%, transparent);
       }
       .overlay.is-open { display: flex; }
+      .review-dialog {
+        display: flex;
+        width: min(1080px, 100%);
+        height: min(720px, 100%);
+        min-height: 0;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        background: var(--bg);
+        box-shadow: 0 24px 70px rgb(0 0 0 / 34%);
+      }
       .review-header {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -435,8 +448,9 @@
         </div>
       </main>
     </div>
-    <section class="overlay" id="review" role="dialog" aria-modal="false" aria-label="Git review">
-      <header class="review-header">
+    <section class="overlay" id="review" role="dialog" aria-modal="true" aria-label="Git review">
+      <div class="review-dialog">
+        <header class="review-header">
         <div class="review-title">
           <select id="review-file" aria-label="Reviewed file"></select>
         </div>
@@ -450,8 +464,9 @@
           <button class="icon-button" id="review-refresh" title="Refresh diff" aria-label="Refresh diff"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
           <button class="icon-button" id="review-close" title="Close review" aria-label="Close review"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
         </div>
-      </header>
-      <div class="diff" id="diff"></div>
+        </header>
+        <div class="diff" id="diff"></div>
+      </div>
     </section>
     <script>
       const $ = (id) => document.getElementById(id);
@@ -710,6 +725,7 @@
         $("review").classList.add("is-open");
         renderReviewFileOptions();
         renderDiff();
+        $("review-file").focus();
         await loadDiff();
       }
       function closeReview({ restoreFocus = false } = {}) {
@@ -1308,6 +1324,9 @@
         const item = statusItems().find((candidate) => itemKey(candidate) === event.target.value);
         if (item) await openReview(item);
       });
+      $("review").addEventListener("pointerdown", (event) => {
+        if (event.target === $("review")) closeReview({ restoreFocus: true });
+      });
       document.addEventListener("keydown", (event) => {
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         if (event.key === "Escape") {
@@ -1316,6 +1335,20 @@
           return;
         }
         if (!$("review").classList.contains("is-open")) return;
+        if (event.key === "Tab") {
+          const focusable = [...$("review").querySelectorAll("select:not(:disabled), button:not(:disabled)")];
+          if (!focusable.length) return;
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+          return;
+        }
         if (event.key === "ArrowUp") { event.preventDefault(); moveChange(-1); }
         if (event.key === "ArrowDown") { event.preventDefault(); moveChange(1); }
       });
