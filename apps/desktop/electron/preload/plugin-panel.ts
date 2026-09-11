@@ -116,6 +116,67 @@ function pluginOwnsTitlebarSpacing(): boolean {
   return pluginChromeMode() !== "legacy";
 }
 
+/**
+ * Keep plugin-owned panel documents aligned with the app renderer's compact
+ * scrollbar contract. A docked view is a separate WebContentsView, so it
+ * cannot inherit `styles/base.css`; without this host-owned rule Windows falls
+ * back to its wide classic scrollbar. The external page inside Browser is a
+ * different WebContentsView and intentionally keeps the page's own styling.
+ */
+function installPluginScrollbarStyle(): void {
+  if (!document.documentElement || document.getElementById("pi-plugin-scrollbars")) {
+    return;
+  }
+
+  const style = document.createElement("style");
+  style.id = "pi-plugin-scrollbars";
+  style.textContent = `
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background-clip: content-box;
+    }
+    :hover::-webkit-scrollbar-thumb,
+    :focus-within::-webkit-scrollbar-thumb,
+    [data-scrolling]::-webkit-scrollbar-thumb {
+      background: color-mix(in oklab, currentColor 16%, transparent);
+      background-clip: content-box;
+    }
+    ::-webkit-scrollbar-thumb:hover,
+    ::-webkit-scrollbar-thumb:active {
+      background: color-mix(in oklab, currentColor 28%, transparent);
+      background-clip: content-box;
+    }
+  `;
+  document.documentElement.append(style);
+
+  const timers = new Map<HTMLElement, number>();
+  const onScroll = (event: Event) => {
+    const element =
+      event.target instanceof HTMLElement ? event.target : document.documentElement;
+    if (!element) return;
+    element.setAttribute("data-scrolling", "");
+    const pending = timers.get(element);
+    if (pending !== undefined) window.clearTimeout(pending);
+    timers.set(
+      element,
+      window.setTimeout(() => {
+        timers.delete(element);
+        element.removeAttribute("data-scrolling");
+      }, 300),
+    );
+  };
+  document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+}
+
 type PluginPanelChromeMode = "legacy" | "safe-area" | "paint-through";
 
 function pluginChromeMode(): PluginPanelChromeMode {
@@ -413,6 +474,8 @@ function createControlButton(
 function installPanelChrome(): void {
   const body = document.body;
   if (!body || document.querySelector("pi-plugin-panel-chrome")) return;
+
+  installPluginScrollbarStyle();
 
   // Publish this before the page's DOMContentLoaded handlers run so modern
   // plugin CSS can resolve its variable without an extra reflow or a second

@@ -256,6 +256,9 @@ are reachable there) and CPU/memory limits.
   on the root `html`/`body` viewport as well. Windows' classic scrollbar
   rendering makes a duplicated root reservation visible as an empty right-side
   rail outside the plugin surface.
+- The host preload applies the global 6px, trackless, reveal-while-interacting
+  scrollbar contract to docked and detached plugin panel documents. External
+  pages loaded inside the Browser guest remain page-owned and are not restyled.
 - The plugin owns its title, toolbar, and every other visible panel surface.
 - Render the host capsule in a closed preload-owned Shadow DOM so plugin CSS
   cannot restyle its controls

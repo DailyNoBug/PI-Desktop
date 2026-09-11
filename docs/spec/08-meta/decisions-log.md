@@ -69,6 +69,7 @@ This log freezes previously open questions into concrete decisions.
 | D392 | Effective image-input overrides across Composer and transport | **Amend D243 / ADR 0101: image capability starts with the published model record, then an exact binding's `supportsImages` value wins when it is `true` or `false`; absent or `null` follows the published value. Composer badges, attachment status, and main-process image transport use the same effective result. Unknown/custom models remain conservative without an explicit override. See ADR 0218 and E2E-163.** | A configured endpoint could already transport an image through its binding override while the Composer row still hid the vision badge, or could show a published badge after image input was disabled for that endpoint. |
 | D393 | User-invoked Skills in the composer | **Amend D123 / D174 / ADR 0024 / ADR 0039: active built-in, plugin, and user Skills appear in a separate `Skills` group at the end of the composer slash menu. Selecting one inserts its exact id; Electron main revalidates the active project scope at send time and asks the model to call the local `Skill` tool, preserving on-demand body loading and existing permissions. Existing command names win collisions; inactive Skills remain literal slash text. See ADR 0219 and E2E-088b.** | D174's model-invoked catalog remains the body-loading and security contract, while a final explicit entry makes known workflows discoverable without moving Skill bodies into the renderer, prompt, or host protocol. |
 | D394 | Windows work-panel chrome keeps one resource action cluster | **Amend D154 / D357 / ADR 0195: the open work-panel header keeps one compact resource switcher; resource close is owned by the existing keyboard-operable context-menu rows, the viewport-fixed toggle remains the only panel collapse control, and subagent detail returns with a back chevron. Windows/Linux native controls remain fixed at the window edge. Renderer-only; no panel state, window geometry, IPC, protocol, or storage change. See ADR 0220 and E2E-067.** | The header resource `X`, viewport-fixed toggle, and Windows native close cluster read as duplicate close actions and became cramped at narrow panel widths. |
+| D396 | Renderer and plugin-panel scrollbars share one compact contract | **Amend D300: every renderer scroll container uses one 6px, trackless, transparent-at-rest scrollbar with the same hover, focus-within, scroll-reveal, and dragged-thumb states. Remove the sidebar-specific width and opacity override. The plugin-panel preload applies the same contract and 300ms reveal mark to docked and detached plugin documents, including the bundled Files view. External pages loaded inside the Browser guest remain page-owned. Presentation-only; no protocol, storage, host runtime, or external-page behavior change. See E2E-157.** | Windows' classic scrollbar made the right-side work-panel Files view visibly heavier than the conversation, while the sidebar retained a second scrollbar treatment. |
 
 
 | D244 | Compact context usage summary | **Amend D103 / D184 / ADR 0047: keep the context inspector's remaining-capacity trigger, used/window counts, turn total, completed-turn speed, exact provider values, aggregate tool types/calls/tokens, and checkpoint summary, but render them as a short summary. Remove the per-tool rows, share bars, source badges, explanatory estimate paragraph, and used-capacity meter from the default panel. No protocol, storage, runtime accounting, or model metadata changes.** *(Amended by D347: the trigger moves to the composer toolbar.)* | The prior diagnostic layout made a routine capacity check tall and visually dense. Keeping the aggregate signal while removing drill-down chrome makes the default status surface scannable without changing the underlying usage data. See ADR 0103 and E2E-060d / US-UI-61. |
@@ -924,6 +925,22 @@ section mirrors only marketplace/catalog items still blocking nothing.
   `medium`, `high`, `xhigh`, and `max` directly. These values are removed from
   every locale catalog; effective metadata, clamping, provider requests,
   protocol, and storage are unchanged. See E2E-219.
+
+## 2026-09-11 — Renderer and plugin-panel scrollbars share one compact contract (D396)
+
+- Windows' classic scrollbar made the right-side work-panel Files view visibly
+  heavier than the conversation even though the host renderer already had a
+  quiet custom scrollbar. The sidebar also retained a separate width and thumb
+  opacity override, so the app had two scrollbar treatments.
+- Decision D396 amends D300: every renderer scroll container uses the same 6px,
+  trackless, transparent-at-rest scrollbar with the same hover, focus-within,
+  scroll-reveal, and dragged-thumb states. The sidebar-specific override is
+  removed. The plugin-panel preload applies the same contract and 300ms reveal
+  mark to docked and detached plugin documents, including the bundled Files
+  view. An external page loaded inside the Browser guest remains page-owned.
+- This is a presentation-only change; there is no protocol, storage, host
+  runtime, or external-page behavior change. See `04-ux/07-ui-design-system.md`,
+  `04-ux/08-component-spec.md`, and E2E-157.
 
 ## 2026-07-31 — Plugin themes ship CSS files
 
