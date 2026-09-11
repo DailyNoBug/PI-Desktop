@@ -26,7 +26,7 @@ function forkPluginProcess({ entry }) {
   };
 }
 
-async function harness(t, { id, permissions, git, consent }) {
+async function harness(t, { id, permissions, git, consent, complete }) {
   const audits = [];
   const consents = [];
   const answers = [...(consent ?? [])];
@@ -35,6 +35,7 @@ async function harness(t, { id, permissions, git, consent }) {
     spawnProcess: forkPluginProcess,
     audit: (entry) => audits.push(entry),
     git,
+    complete,
     ...(consent
       ? {
           confirmGitOperation: async (request) => {
@@ -99,6 +100,44 @@ test("Git read and write channels enforce their declared permissions", async (t)
     writeOnly.audits.some(
       (entry) => entry.api === "git.status" && entry.errorCode === "PERMISSION_DENIED",
     ),
+  );
+});
+
+test("panel AI completions use the permissioned agent.complete channel", async (t) => {
+  const completions = [];
+  const complete = async (input) => {
+    completions.push(input);
+    return { text: "feat: update files", modelKey: input.modelKey };
+  };
+  const allowed = await harness(t, {
+    id: "git.ai.allowed",
+    permissions: ["agent.complete"],
+    complete,
+  });
+  const result = await allowed.runtime.invokePanelBridge(
+    "git.ai.allowed",
+    "agent.complete",
+    { modelKey: "provider/model", messages: [{ role: "user", content: "write a commit" }] },
+  );
+  assert.equal(result.text, "feat: update files");
+  assert.equal(completions.length, 1);
+  assert.equal(completions[0].modelKey, "provider/model");
+  assert.deepEqual(completions[0].messages, [{ role: "user", content: "write a commit" }]);
+  assert.ok(allowed.audits.some((entry) => entry.api === "agent.complete" && entry.ok === true));
+
+  const denied = await harness(t, {
+    id: "git.ai.denied",
+    permissions: ["git.read"],
+    complete,
+  });
+  await assert.rejects(
+    () => denied.runtime.invokePanelBridge("git.ai.denied", "agent.complete", {
+      modelKey: "provider/model",
+    }),
+    (error) => error.code === "PERMISSION_DENIED",
+  );
+  assert.ok(
+    denied.audits.some((entry) => entry.api === "agent.complete" && entry.errorCode === "PERMISSION_DENIED"),
   );
 });
 

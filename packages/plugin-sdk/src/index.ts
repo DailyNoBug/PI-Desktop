@@ -434,6 +434,8 @@ export type PluginModelInfo = {
   providerName: string;
   modelId: string;
   label: string;
+  /** True for the application's current default model, when it is ready. */
+  isDefault?: boolean;
   supportsReasoning: boolean;
   thinkingLevels: string[];
 };

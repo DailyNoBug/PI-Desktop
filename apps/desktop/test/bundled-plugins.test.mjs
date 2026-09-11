@@ -196,7 +196,7 @@ test("Git ships as an ordinary plugin over the public Git bridge", () => {
   assert.equal(gitManifest.contributes.views[0].icon, "branch");
   assert.deepEqual(
     [...gitManifest.permissions].sort(),
-    ["git.read", "git.write", "ui.view"],
+    ["agent.complete", "git.read", "git.write", "models.list", "ui.view"],
   );
   assert.equal(typeof gitManifest.contributes.views[0].title.en, "string");
   assert.equal(typeof gitManifest.contributes.views[0].title["zh-CN"], "string");
@@ -214,11 +214,19 @@ test("Git ships as an ordinary plugin over the public Git bridge", () => {
     "git.commit",
     "git.push",
     "git.pull",
+    "models.list",
+    "agent.complete",
   ]) {
     assert.ok(gitView.includes(`"${channel}"`), `expected Git view channel: ${channel}`);
   }
   assert.doesNotMatch(gitView, /require\(|import\s+.*from\s+["']node:|ipcRenderer/);
   assert.doesNotMatch(gitView, /desktop\.control|fs\.writeText|net\.fetch|shell\.openExternal/);
+  assert.match(gitView, /buildChangeTree/);
+  assert.match(gitView, /appendTreeNodes/);
+  assert.match(gitView, /diffMode:\s*"split"/);
+  assert.match(gitView, /grid-template-columns:\s*42px minmax\(0, 1fr\) 42px minmax\(0, 1fr\)/);
+  assert.match(gitView, /generateCommitMessage/);
+  assert.match(gitView, /80_000/);
 });
 
 test("bundled plugins are packaged and located at runtime", () => {

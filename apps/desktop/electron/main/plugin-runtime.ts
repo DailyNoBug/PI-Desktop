@@ -1589,6 +1589,8 @@ export class PluginRuntime {
         return api.app.getAppearance();
       case "workspace.get":
         return api.workspace.get();
+      case "agent.complete":
+        return this.runAgentComplete(loaded, payload as PluginCompleteInput);
       case "git.status":
         return api.git.status();
       case "git.branches":

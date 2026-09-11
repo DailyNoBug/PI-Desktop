@@ -4474,3 +4474,21 @@ D193, and D194.
 - Git audits contain operation metadata only. The plugin's review overlay reads
   current Git state and is independent from the message-owned Review snapshot
   and its rollback behavior.
+
+## 2026-09-11 — Tree review and AI Git commit messages (D392)
+
+- D391's flat change rows made deep workspaces harder to scan, and its unified
+  default did not match the requested old/new review posture.
+- Decision D392 / ADR 0218 amends D391: each Git section renders collapsible
+  directory trees with aggregated descendant counts, while file clicks open the
+  existing overlay in side-by-side mode with red old-side and green new-side
+  rows; unified mode remains an explicit toggle.
+- The commit box gains an explicit AI action. `pi.git` declares the existing
+  public `models.list` and `agent.complete` permissions, selects the marked
+  application default when ready, and sends only current Git status plus scoped
+  diffs, capped at 50 files and 80,000 prompt characters. It receives no file,
+  shell, network, credential, or arbitrary remote capability.
+- The fixed panel bridge forwards `agent.complete` through the permission
+  gateway and side-completion service so the 90-second completion budget is not
+  reduced by the generic 30-second plugin-process panel timeout. Generated text
+  only fills the editable message field; Commit remains a separate user action.

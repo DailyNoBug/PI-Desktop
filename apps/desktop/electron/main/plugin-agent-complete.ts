@@ -46,7 +46,10 @@ type ListedProvider = {
   }>;
 };
 
-export function listReadyPluginModels(providers: ListedProvider[]): PluginModelInfo[] {
+export function listReadyPluginModels(
+  providers: ListedProvider[],
+  defaults?: { defaultProviderId?: string; defaultModelId?: string },
+): PluginModelInfo[] {
   const models: PluginModelInfo[] = [];
   for (const provider of providers) {
     if (provider.enabled === false) continue;
@@ -74,6 +77,10 @@ export function listReadyPluginModels(providers: ListedProvider[]): PluginModelI
         providerName: provider.name,
         modelId,
         label: `${modelId} (${provider.name})`,
+        isDefault:
+          provider.id === defaults?.defaultProviderId && modelId === defaults?.defaultModelId
+            ? true
+            : undefined,
         supportsReasoning:
           thinkingLevels.some((level) => level !== "off") || provider.supportsReasoning === true,
         thinkingLevels,

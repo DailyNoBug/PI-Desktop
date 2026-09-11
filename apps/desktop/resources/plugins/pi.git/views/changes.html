@@ -163,6 +163,35 @@
         text-transform: uppercase;
       }
       .section-count { color: var(--faint); font-variant-numeric: tabular-nums; }
+      .tree-folder { margin: 0 4px; }
+      .folder {
+        display: grid;
+        width: calc(100% - 8px);
+        grid-template-columns: 15px minmax(0, 1fr) auto;
+        min-height: 28px;
+        align-items: center;
+        gap: 7px;
+        border-radius: 6px;
+        padding: 2px 5px 2px 4px;
+        color: var(--muted);
+        text-align: left;
+      }
+      .folder:hover { background: var(--surface-hover); color: var(--secondary); }
+      .folder .chevron { display: inline-flex; justify-content: center; transition: transform 120ms ease; }
+      .tree-folder.open .folder .chevron { transform: rotate(90deg); }
+      .folder-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tree-children {
+        display: none;
+        margin: 0 0 1px 17px;
+        border-left: 1px solid var(--border);
+        padding-left: 3px;
+      }
+      .tree-folder.open > .tree-children { display: block; }
       .file {
         display: grid;
         width: calc(100% - 8px);
@@ -213,7 +242,7 @@
       .mini-button.danger:hover:not(:disabled) { color: var(--danger); }
       .commit {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 98px;
+        grid-template-columns: minmax(0, 1fr) 28px 98px;
         gap: 7px;
         margin: 8px 8px 0;
       }
@@ -227,6 +256,7 @@
         background: color-mix(in oklab, var(--fg) 4%, transparent);
       }
       .commit .primary { height: auto; min-height: 64px; align-self: stretch; }
+      .commit .icon-button { align-self: start; margin-top: 18px; }
       .notice {
         display: none;
         margin: 10px 8px 0;
@@ -327,7 +357,7 @@
       }
       .line-side {
         display: grid;
-        grid-template-columns: 42px minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-columns: 42px minmax(0, 1fr) 42px minmax(0, 1fr);
         min-width: 0;
       }
       .line.no, .side.no {
@@ -343,6 +373,10 @@
       }
       .line[data-type="add"] .text, .side[data-type="add"] .text.right { color: var(--add); }
       .line[data-type="del"] .text, .side[data-type="del"] .text.left { color: var(--del); }
+      .line[data-type="add"] .text { background: color-mix(in oklab, var(--add) 10%, transparent); }
+      .line[data-type="del"] .text { background: color-mix(in oklab, var(--del) 10%, transparent); }
+      .side.text.left[data-type="del"] { background: color-mix(in oklab, var(--del) 10%, transparent); }
+      .side.text.right[data-type="add"] { background: color-mix(in oklab, var(--add) 10%, transparent); }
       .side .text.empty { background: color-mix(in oklab, var(--fg) 3%, transparent); }
       .line.current, .side.current { background: var(--surface-active); }
       .diff-state { margin: 42px 28px; color: var(--muted); text-align: center; }
@@ -353,8 +387,8 @@
       @media (max-width: 360px) {
         .toolbar { flex-wrap: wrap; }
         .branch-wrap { flex-basis: 100%; }
-        .commit { grid-template-columns: 1fr; }
-        .commit .primary { min-height: 32px; }
+        .commit { grid-template-columns: minmax(0, 1fr) 28px; }
+        .commit .primary { grid-column: 1 / -1; min-height: 32px; }
         .review-header { grid-template-columns: 1fr; }
         .review-title select { max-width: none; }
       }
@@ -396,6 +430,7 @@
         <div class="notice" id="notice" role="status"></div>
         <div class="commit">
           <textarea id="message" placeholder="Commit message" aria-label="Commit message"></textarea>
+          <button class="icon-button" id="generate-message" title="Generate commit message" aria-label="Generate commit message"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.9 4.7L18.6 9.6l-4.7 1.9L12 16.2l-1.9-4.7L5.4 9.6l4.7-1.9L12 3ZM18.5 15l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>
           <button class="primary" id="commit">Commit</button>
         </div>
       </main>
@@ -409,8 +444,8 @@
           <button class="icon-button" id="previous-change" title="Previous change" aria-label="Previous change"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 6-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
           <button class="icon-button" id="next-change" title="Next change" aria-label="Next change"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
           <div class="segmented" role="group" aria-label="Diff mode">
-            <button id="unified-mode" title="Unified" aria-pressed="true">U</button>
-            <button id="split-mode" title="Side by side" aria-pressed="false">S</button>
+            <button id="unified-mode" title="Unified" aria-pressed="false">U</button>
+            <button id="split-mode" title="Side by side" aria-pressed="true">S</button>
           </div>
           <button class="icon-button" id="review-refresh" title="Refresh diff" aria-label="Refresh diff"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
           <button class="icon-button" id="review-close" title="Close review" aria-label="Close review"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
@@ -437,8 +472,10 @@
         timer: 0,
         review: null,
         reviewOpener: null,
-        diffMode: "unified",
+        diffMode: "split",
         changeIndex: -1,
+        collapsedFolders: new Set(),
+        aiBusy: false,
       };
       let localeTag = (navigator.language || "en").toLowerCase();
       let zh = localeTag === "zh" || localeTag.startsWith("zh-");
@@ -457,7 +494,10 @@
         empty: zh ? "没有更改" : "No changes",
         commit: zh ? "提交" : "Commit",
         stageAllCommit: zh ? "暂存全部并提交" : "Stage all & commit",
+        generateCommit: zh ? "AI 生成提交信息" : "Generate commit message with AI",
         message: zh ? "提交信息" : "Commit message",
+        noModel: zh ? "没有可用的模型，请先在设置中配置模型" : "No model is available. Configure a model in Settings first.",
+        aiFailed: zh ? "AI 提交信息生成失败" : "AI commit message failed",
         loading: zh ? "正在读取 Git 状态…" : "Loading Git state…",
         noWorkspace: zh ? "未打开项目" : "No project open",
         noRepo: zh ? "当前项目不是 Git 仓库" : "This project is not a Git repository",
@@ -506,7 +546,10 @@
           empty: zh ? "没有更改" : "No changes",
           commit: zh ? "提交" : "Commit",
           stageAllCommit: zh ? "暂存全部并提交" : "Stage all & commit",
+          generateCommit: zh ? "AI 生成提交信息" : "Generate commit message with AI",
           message: zh ? "提交信息" : "Commit message",
+          noModel: zh ? "没有可用的模型，请先在设置中配置模型" : "No model is available. Configure a model in Settings first.",
+          aiFailed: zh ? "AI 提交信息生成失败" : "AI commit message failed",
           loading: zh ? "正在读取 Git 状态…" : "Loading Git state…",
           noWorkspace: zh ? "未打开项目" : "No project open",
           noRepo: zh ? "当前项目不是 Git 仓库" : "This project is not a Git repository",
@@ -568,6 +611,8 @@
         $("changes-label").textContent = text.changes;
         $("message").placeholder = text.message;
         $("message").ariaLabel = text.message;
+        $("generate-message").title = text.generateCommit;
+        $("generate-message").ariaLabel = text.generateCommit;
         $("branch-label").textContent = text.branchName;
         $("branch-name").placeholder = text.branchName;
         $("branch-name").ariaLabel = text.branchName;
@@ -731,7 +776,123 @@
           }
         }
       }
+      function changesForCommitMessage() {
+        const status = state.status;
+        if (!status?.repo) return [];
+        if (status.staged.length) {
+          return status.staged.map((change) => ({ ...change, scope: "staged" }));
+        }
+        return status.unstaged.map((change) => ({
+          ...change,
+          scope: change.status === "untracked" ? "untracked" : "unstaged",
+        }));
+      }
+      function formatPatch(item) {
+        const file = item.result?.file;
+        if (!file) {
+          const reason = item.diffError
+            ? `diff unavailable (${item.diffError})`
+            : item.binary
+              ? "binary change"
+              : item.tooLarge
+                ? "oversized change"
+                : "no text diff";
+          return `${item.path}: ${reason}`;
+        }
+        const lines = [`diff --git a/${item.path} b/${item.path}`];
+        if (item.oldPath) lines.push(`rename from ${item.oldPath}`, `rename to ${item.path}`);
+        lines.push(`${file.additions} additions, ${file.deletions} deletions`);
+        for (const hunk of file.hunks) {
+          lines.push(hunk.header);
+          for (const line of hunk.lines) {
+            lines.push(`${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`);
+          }
+        }
+        return lines.join("\n");
+      }
+      async function collectCommitPatches(items) {
+        const patches = [];
+        let total = 0;
+        const truncationNote = "Additional changes were omitted to keep the prompt bounded.";
+        const boundPrompt = () => patches.join("\n\n").slice(0, 80_000);
+        for (const item of items.slice(0, 50)) {
+          let patchItem = item;
+          if (!item.binary && !item.tooLarge) {
+            try {
+              const result = await invoke("git.diff", { path: item.path, scope: item.scope });
+              patchItem = { ...item, result };
+            } catch (error) {
+              patchItem = { ...item, diffError: error?.message || String(error) };
+            }
+          }
+          const patch = formatPatch(patchItem);
+          if (total + patch.length > 80_000) {
+            const remaining = Math.max(0, 80_000 - total - truncationNote.length);
+            if (remaining) patches.push(patch.slice(0, remaining));
+            patches.push(truncationNote);
+            return boundPrompt();
+          }
+          total += patch.length;
+          patches.push(patch);
+        }
+        if (patches.length < items.length) {
+          patches.push(truncationNote);
+        }
+        return boundPrompt();
+      }
+      function normalizeCommitMessage(raw) {
+        return String(raw ?? "")
+          .trim()
+          .replace(/^```(?:text|markdown)?\s*/i, "")
+          .replace(/\s*```$/, "")
+          .replace(/^commit message\s*:\s*/i, "")
+          .trim()
+          .slice(0, 4000);
+      }
+      async function generateCommitMessage() {
+        if (state.aiBusy || state.busy) return;
+        const generation = state.workspaceGeneration;
+        const statusSignature = state.statusSignature;
+        const items = changesForCommitMessage();
+        if (!items.length) return;
+        state.aiBusy = true;
+        renderControls();
+        try {
+          const models = await invoke("models.list");
+          const model = models.find((entry) => entry.isDefault) ?? models[0];
+          if (!model) throw Object.assign(new Error(text.noModel), { code: "MODEL_NOT_CONFIGURED" });
+          const patchText = await collectCommitPatches(items);
+          const result = await invoke("agent.complete", {
+            modelKey: model.key,
+            system: "You write concise Git commit messages. Use the imperative mood and conventional-commit style when the change makes it clear. Return only the commit message; do not use Markdown fencing.",
+            messages: [
+              {
+                role: "user",
+                content: `Write one commit message for these workspace changes. A subject line is required; add a short body only when it clarifies a non-obvious decision.\n\n${patchText}`,
+              },
+            ],
+          });
+          if (generation !== state.workspaceGeneration || statusSignature !== state.statusSignature) return;
+          const message = normalizeCommitMessage(result.text);
+          if (!message) throw Object.assign(new Error(text.aiFailed), { code: "AI_COMMIT_FAILED" });
+          $("message").value = message;
+          state.error = "";
+          state.errorCode = "";
+          render();
+        } catch (error) {
+          if (generation !== state.workspaceGeneration || statusSignature !== state.statusSignature) return;
+          state.error = error?.message || String(error);
+          state.errorCode = "AI_COMMIT_FAILED";
+          render();
+        } finally {
+          if (generation === state.workspaceGeneration) {
+            state.aiBusy = false;
+            renderControls();
+          }
+        }
+      }
       function errorTitle() {
+        if (state.errorCode === "AI_COMMIT_FAILED") return text.aiFailed;
         if (state.errorCode === "NO_WORKSPACE") return text.noWorkspace;
         if (state.errorCode === "GIT_AUTH_FAILED") return text.authFailed;
         if (state.errorCode === "GIT_HOOK_FAILED") return text.hookFailed;
@@ -796,45 +957,127 @@
       function renderFiles(kind, files) {
         const container = $(`${kind}-files`);
         container.replaceChildren();
+        appendTreeNodes(container, buildChangeTree(files), kind);
+      }
+      function buildChangeTree(files) {
+        const root = { name: "", path: "", dirs: new Map(), files: [] };
         for (const change of files) {
-          const row = document.createElement("button");
-          row.className = "file";
-          row.type = "button";
-          row.dataset.itemKey = itemKey({ ...change, scope: change.scope ?? (kind === "staged" ? "staged" : change.status === "untracked" ? "untracked" : "unstaged") });
-          row.setAttribute("aria-current", state.review && itemKey({ ...change, scope: change.scope ?? (kind === "staged" ? "staged" : change.status === "untracked" ? "untracked" : "unstaged") }) === itemKey(state.review) ? "true" : "false");
-          const letter = document.createElement("span");
-          letter.className = "status-letter";
-          letter.dataset.status = change.status;
-          letter.textContent = statusLetter[change.status] ?? "M";
-          letter.title = statusText[change.status] ?? change.status;
-          const path = document.createElement("span");
-          path.className = "path";
-          path.title = change.oldPath ? `${change.oldPath} → ${change.path}` : change.path;
-          path.innerHTML = `<span>${esc(change.path)}</span>`;
-          const actions = document.createElement("span");
-          actions.className = "row-actions";
-          if (change.additions || change.deletions) {
-            const counts = document.createElement("span");
-            counts.className = "counts";
-            counts.innerHTML = `${change.additions ? `<b>+${change.additions}</b>` : ""}${change.additions && change.deletions ? " " : ""}${change.deletions ? `<i>-${change.deletions}</i>` : ""}`;
-            actions.append(counts);
+          const segments = String(change.path).split("/").filter(Boolean);
+          let node = root;
+          for (let index = 0; index < segments.length - 1; index += 1) {
+            const name = segments[index];
+            if (!node.dirs.has(name)) {
+              node.dirs.set(name, {
+                name,
+                path: segments.slice(0, index + 1).join("/"),
+                dirs: new Map(),
+                files: [],
+              });
+            }
+            node = node.dirs.get(name);
           }
-          const scope = kind === "staged" ? "staged" : change.status === "untracked" ? "untracked" : "unstaged";
-          const open = (event) => openReview({ ...change, scope }, event.currentTarget);
-          row.addEventListener("click", open);
-          if (change.status === "conflicted") {
-            // Conflict resolution stays outside v1; review remains available.
-          } else if (kind === "staged") {
-            actions.append(miniButton(text.unstage, icons.minus, () => operate("git.unstage", { paths: [change.path] }, "unstage")));
-          } else {
-            actions.append(miniButton(text.stage, icons.plus, () => operate("git.stage", { paths: [change.path] }, "stage")));
-          }
-          if (change.status !== "conflicted") {
-            actions.append(miniButton(text.discard, icons.undo, () => operate("git.discard", { paths: [change.path] }, "discard"), true));
-          }
-          row.append(letter, path, actions);
-          container.append(row);
+          node.files.push(change);
         }
+        return root;
+      }
+      function sortTree(node) {
+        for (const dir of node.dirs.values()) sortTree(dir);
+        node.files.sort((a, b) => a.path.localeCompare(b.path));
+      }
+      function treeStats(node) {
+        let additions = 0;
+        let deletions = 0;
+        let count = node.files.length;
+        for (const dir of node.dirs.values()) {
+          const stats = treeStats(dir);
+          additions += stats.additions;
+          deletions += stats.deletions;
+          count += stats.count;
+        }
+        for (const file of node.files) {
+          additions += file.additions ?? 0;
+          deletions += file.deletions ?? 0;
+        }
+        return { additions, deletions, count };
+      }
+      function appendTreeNodes(container, node, kind) {
+        sortTree(node);
+        const dirs = [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name));
+        for (const dir of dirs) {
+          const key = `${kind}:${dir.path}`;
+          const open = !state.collapsedFolders.has(key);
+          const wrapper = document.createElement("div");
+          wrapper.className = `tree-folder${open ? " open" : ""}`;
+          const row = document.createElement("button");
+          row.className = "folder";
+          row.type = "button";
+          row.title = dir.path;
+          row.setAttribute("aria-expanded", open ? "true" : "false");
+          const chevron = document.createElement("span");
+          chevron.className = "chevron";
+          chevron.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+          const name = document.createElement("span");
+          name.className = "folder-name";
+          name.textContent = dir.name;
+          const stats = treeStats(dir);
+          const counts = document.createElement("span");
+          counts.className = "counts";
+          counts.innerHTML = `${stats.count}${stats.additions || stats.deletions ? ` · ${stats.additions ? `<b>+${stats.additions}</b>` : ""}${stats.additions && stats.deletions ? " " : ""}${stats.deletions ? `<i>-${stats.deletions}</i>` : ""}` : ""}`;
+          row.addEventListener("click", () => {
+            const nowOpen = !wrapper.classList.contains("open");
+            wrapper.classList.toggle("open", nowOpen);
+            row.setAttribute("aria-expanded", nowOpen ? "true" : "false");
+            if (nowOpen) state.collapsedFolders.delete(key);
+            else state.collapsedFolders.add(key);
+          });
+          row.append(chevron, name, counts);
+          const children = document.createElement("div");
+          children.className = "tree-children";
+          appendTreeNodes(children, dir, kind);
+          wrapper.append(row, children);
+          container.append(wrapper);
+        }
+        for (const change of node.files) appendFileRow(container, change, kind);
+      }
+      function appendFileRow(container, change, kind) {
+        const scope = change.scope ?? (kind === "staged" ? "staged" : change.status === "untracked" ? "untracked" : "unstaged");
+        const key = itemKey({ ...change, scope });
+        const row = document.createElement("button");
+        row.className = "file";
+        row.type = "button";
+        row.dataset.itemKey = key;
+        row.setAttribute("aria-current", state.review && key === itemKey(state.review) ? "true" : "false");
+        const letter = document.createElement("span");
+        letter.className = "status-letter";
+        letter.dataset.status = change.status;
+        letter.textContent = statusLetter[change.status] ?? "M";
+        letter.title = statusText[change.status] ?? change.status;
+        const path = document.createElement("span");
+        path.className = "path";
+        path.title = change.oldPath ? `${change.oldPath} → ${change.path}` : change.path;
+        const basename = change.path.split("/").filter(Boolean).at(-1) || change.path;
+        path.innerHTML = `<span>${esc(basename)}</span>`;
+        const actions = document.createElement("span");
+        actions.className = "row-actions";
+        if (change.additions || change.deletions) {
+          const counts = document.createElement("span");
+          counts.className = "counts";
+          counts.innerHTML = `${change.additions ? `<b>+${change.additions}</b>` : ""}${change.additions && change.deletions ? " " : ""}${change.deletions ? `<i>-${change.deletions}</i>` : ""}`;
+          actions.append(counts);
+        }
+        row.addEventListener("click", (event) => openReview({ ...change, scope }, event.currentTarget));
+        if (change.status === "conflicted") {
+          // Conflict resolution stays outside v1; review remains available.
+        } else if (kind === "staged") {
+          actions.append(miniButton(text.unstage, icons.minus, () => operate("git.unstage", { paths: [change.path] }, "unstage")));
+        } else {
+          actions.append(miniButton(text.stage, icons.plus, () => operate("git.stage", { paths: [change.path] }, "stage")));
+        }
+        if (change.status !== "conflicted") {
+          actions.append(miniButton(text.discard, icons.undo, () => operate("git.discard", { paths: [change.path] }, "discard"), true));
+        }
+        row.append(letter, path, actions);
+        container.append(row);
       }
       function miniButton(label, icon, run, danger = false) {
         const button = document.createElement("button");
@@ -886,7 +1129,13 @@
         $("publish").disabled = !namedBranch || status.upstream || status.initialBranch || Boolean(state.busy);
         const message = $("message").value.trim();
         const hasStaged = Boolean(status?.staged.length);
-        $("commit").disabled = !status?.repo || !message || Boolean(state.busy) || Boolean(status?.conflicts.length);
+        const hasChanges = Boolean(status?.staged.length || status?.unstaged.length);
+        const blocked = Boolean(state.busy || state.aiBusy || status?.conflicts.length);
+        const generate = $("generate-message");
+        generate.disabled = !status?.repo || !hasChanges || blocked;
+        generate.ariaBusy = state.aiBusy ? "true" : "false";
+        generate.firstElementChild?.classList.toggle("spin", state.aiBusy);
+        $("commit").disabled = !status?.repo || !message || blocked;
         $("commit").textContent = hasStaged ? text.commit : text.stageAllCommit;
         $("commit").title = hasStaged ? text.commit : text.stageAllCommit;
       }
@@ -972,10 +1221,12 @@
       }
       function appendSide(target, type, leftNo, leftText, rightNo, rightText) {
         const row = document.createElement("div");
+        const leftType = leftText === undefined ? "" : "del";
+        const rightType = rightText === undefined ? "" : "add";
         row.className = "line-side";
         row.dataset.type = type;
         row.dataset.change = "true";
-        row.innerHTML = `<span class="side no">${leftNo}</span><span class="side text left ${leftText === undefined ? "empty" : ""}">${esc(leftText ?? "")}</span><span class="side no">${rightNo}</span><span class="side text right ${rightText === undefined ? "empty" : ""}">${esc(rightText ?? "")}</span>`;
+        row.innerHTML = `<span class="side no">${leftNo}</span><span class="side text left ${leftText === undefined ? "empty" : ""}" data-type="${leftType}">${esc(leftText ?? "")}</span><span class="side no">${rightNo}</span><span class="side text right ${rightText === undefined ? "empty" : ""}" data-type="${rightType}">${esc(rightText ?? "")}</span>`;
         target.append(row);
       }
       function moveChange(direction) {
@@ -1038,6 +1289,7 @@
       $("push").addEventListener("click", () => operate("git.push", {}, "push"));
       $("publish").addEventListener("click", () => operate("git.push", { publish: true }, "publish"));
       $("message").addEventListener("input", renderControls);
+      $("generate-message").addEventListener("click", () => void generateCommitMessage());
       $("commit").addEventListener("click", async () => {
         const message = $("message").value.trim();
         if (!message) return;
@@ -1084,6 +1336,7 @@
         state.status = null;
         state.statusSignature = "";
         state.branches = [];
+        state.aiBusy = false;
         state.error = "";
         state.errorCode = "";
         closeReview();

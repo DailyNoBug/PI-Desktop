@@ -727,19 +727,22 @@ const plugins: PluginRuntime = new PluginRuntime({
     // transport is expected during shutdown and supervised restarts.
     if (!host?.isAvailable()) return [];
     try {
-      const listed = await host.call<{ providers: Array<{
-        id: string;
-        name: string;
-        enabled?: boolean;
-        hasSecret?: boolean;
-        hasOauth?: boolean;
-        authKind?: string;
-        supportsReasoning?: boolean;
-        supportedThinkingLevels?: ThinkingLevel[];
-        defaultModelId?: string;
-        models?: ModelBinding[];
-      }> }>("providers.list", { includeDisabled: false });
-      return listReadyPluginModels(listed.providers ?? []);
+      const [listed, settings] = await Promise.all([
+        host.call<{ providers: Array<{
+          id: string;
+          name: string;
+          enabled?: boolean;
+          hasSecret?: boolean;
+          hasOauth?: boolean;
+          authKind?: string;
+          supportsReasoning?: boolean;
+          supportedThinkingLevels?: ThinkingLevel[];
+          defaultModelId?: string;
+          models?: ModelBinding[];
+        }> }>("providers.list", { includeDisabled: false }),
+        host.call<{ defaultProviderId?: string; defaultModelId?: string }>("settings.get"),
+      ]);
+      return listReadyPluginModels(listed.providers ?? [], settings);
     } catch (error) {
       if (!isHostUnavailable(error)) throw error;
       return [];

@@ -248,13 +248,15 @@ type PluginModelInfo = {
   providerName: string
   modelId: string
   label: string
+  isDefault?: boolean       // 当前应用默认模型；仅在已就绪时标记
   supportsReasoning: boolean
   thinkingLevels: ThinkingLevel[]
 }
 ```
 
 只返回已启用且已认证的 provider 行（API key、OAuth 或 `authKind: "none"`）。不含密钥。
-`models.list` 也是面板桥通道，选择器页面可以自行填充。宿主传输不可用时返回空列表，不记警告（D080）。
+只有精确的 provider/model 默认绑定已就绪时才标记当前默认模型。`models.list`
+也是面板桥通道，选择器页面可以自行填充。宿主传输不可用时返回空列表，不记警告（D080）。
 
 ### session（需要 `session.read`）
 ```ts
@@ -362,6 +364,9 @@ pi.agent.complete(input: {
 插件拿不到密钥。`includeSessionContext: true` 还需要 `session.read` 以及进行中的
 工具会话。system ≤ 32 KiB；消息合计 ≤ 200k 字符；每个插件每滚动 60 秒 8 次
 （`RATE_LIMITED`）；预算 90 秒（`TIMEOUT`）。
+
+`agent.complete` 也是固定面板桥通道。宿主网关检查同一权限并直接调用补全服务，
+因此停靠或独立面板获得 side-completion 预算，而不是通用插件进程面板的 30 秒超时。
 
 ### 剪贴板/外壳
 ```ts
@@ -575,6 +580,7 @@ window.pluginBridge.on(event, handler)
 | `ui.getNotificationPermission`、`ui.requestNotificationPermission`、`ui.showNativeNotification` | `notify` |
 | `plugin.getSettings`、`workspace.get`、`app.getAppearance` | 无 |
 | `models.list` | `models.list` |
+| `agent.complete` | `agent.complete` |
 | `fs.readText`、`fs.readPreview`、`fs.openDefault`、`fs.reveal`、`fs.glob`、`fs.list` | `fs.read` |
 | `fs.writeText` | `fs.write` |
 | `clipboard.readText`、`clipboard.getHistory` | `clipboard.read` |

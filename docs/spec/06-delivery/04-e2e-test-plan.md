@@ -6179,7 +6179,7 @@ Each scenario is documented in this format:
 | Post-baseline local automation | E2E-220 |
 | Post-MVP remote control | E2E-221, E2E-222, E2E-223, E2E-224, E2E-225, E2E-226, E2E-227, E2E-228, E2E-229, E2E-230, E2E-231, E2E-232 |
 | Trusted extensions (R7 v1) | E2E-241, E2E-242, E2E-243, E2E-244, E2E-245 |
-| Git work panel (M6+) | E2E-246 |
+| Git work panel (M6+) | E2E-246, E2E-247 |
 
 The `US-UI-*` visual scenarios (§UI shell visual scenarios) trace to the
 Codex parity decisions in [decisions-log §D](../08-meta/decisions-log.md)
@@ -9840,6 +9840,41 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Status**: Draft; service, runtime, and source-contract tests cover the
   structured Git operations, permission/consent gates, and bundled-plugin
   contract; browser E2E not run
+
+#### E2E-247: Git tree review and AI commit message generation
+
+- **Preconditions**: A Git repository contains nested changed directories with
+  staged and unstaged text files, at least one multi-line modification, and a
+  ready default model. A second ready model is available, a model-less profile
+  can disable all providers, and an oversized or 51-file fixture can exercise
+  prompt truncation.
+- **Steps**: 1) Open the Git view and inspect both change sections as directory
+  trees, including collapsed/expanded folder counts. 2) Select a nested modified
+  file without expanding its folder through any other surface. 3) Confirm the
+  overlay opens directly in side-by-side mode with aligned old/new line numbers,
+  red old content, green new content, and working change navigation. 4) Switch
+  to unified and back, close with Escape, and confirm focus returns to the same
+  file row. 5) With staged changes present, click AI and edit the generated
+  message before committing. 6) Clear the index, click AI with unstaged and
+  untracked changes, and confirm the generated message reflects them. 7) Force
+  a model error and repeat; then repeat from the model-less profile. 8) Use the
+  oversized fixture and confirm generation remains bounded.
+- **Expected**: Folder and file rows stay aligned and localized. File clicks
+  open the Git-owned overlay, never message-owned Review or rollback. Split
+  diff is the default and red/green old/new content is readable in both themes.
+  AI uses the marked ready default model, sends only bounded scoped Git diff
+  context through public `models.list` and `agent.complete` channels, and fills
+  only the editable commit field. Model, empty-output, and no-model failures
+  show localized errors without clearing the user's draft; truncated prompts do
+  not exceed the public completion input limits. Commit remains a separate
+  explicit action.
+- **Specs linked**: `07-plugins/03-plugin-api.md` (models and agent.complete),
+  `04-ux/08-component-spec.md` §5.2.3,
+  `04-ux/09-interaction-patterns.md` §1.8; ADR 0218, D392
+- **Acceptance**: D (plugins), Security, Quality
+- **Milestone**: M6+
+- **Status**: Draft; runtime permission and bundled-plugin source-contract tests
+  cover the fixed channels and bounded prompt construction; browser E2E not run
 ---
 
 #### E2E-233: Icon-only actions explain their purpose in the active language

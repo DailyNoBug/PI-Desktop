@@ -392,7 +392,7 @@ may be retained while exactly one workspace supplies the visible shell context.
   presentation boundary from structured fields; persisted rows never contain
   localized prose.
 
-### 1.8 Work panel entry and resources (D128, D142, D154, D173, D179, D207, D221, D391)
+### 1.8 Work panel entry and resources (D128, D142, D154, D173, D179, D207, D221, D391, D392)
 
 - The shell starts without a visible work panel. The viewport-fixed toggle and
   `Cmd/Ctrl + J` both toggle the active session's panel: they reveal the
@@ -408,7 +408,9 @@ may be retained while exactly one workspace supplies the visible shell context.
   change, after operations, manually, and by a five-second poll only while the
   view is visible. Stage, unstage, commit, push, and pull act directly after
   their button action; discard and branch switching or create-and-switch first
-  require host-owned native confirmation.
+  require host-owned native confirmation. Change sections are collapsible
+  directory trees; selecting a file opens the Git review overlay in side-by-side
+  old/new mode, and the AI commit action only fills the editable message field.
 - File resources use normalized paths as identity. Browser and plugin views
   are singletons; repeated triggers preserve resource order and activate the
   existing resource.

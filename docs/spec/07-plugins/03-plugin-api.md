@@ -287,15 +287,18 @@ type PluginModelInfo = {
   providerName: string
   modelId: string
   label: string
+  isDefault?: boolean       // Current application default, when ready
   supportsReasoning: boolean
   thinkingLevels: ThinkingLevel[]
 }
 ```
 
 Only enabled, authenticated provider rows are returned (API key, OAuth, or
-`authKind: "none"`). No secrets. `models.list` is also a panel-bridge channel
-so a picker page can populate itself. When the host transport is unavailable,
-the call returns an empty list instead of warning (D080).
+`authKind: "none"`). No secrets. The current default model is marked only when
+that exact provider/model binding is ready. `models.list` is also a
+panel-bridge channel so a picker page can populate itself. When the host
+transport is unavailable, the call returns an empty list instead of warning
+(D080).
 
 ### session (requires `session.read`)
 ```ts
@@ -431,6 +434,11 @@ empty, appends `Please advise on the executor's situation above.` System prompt
 ≤ 32 KiB; combined messages ≤ 200k characters; eight calls per plugin per
 rolling 60s (`RATE_LIMITED`); 90s budget (`TIMEOUT`). Empty model output is
 `INVALID_ARGUMENT`.
+
+`agent.complete` is also a fixed panel-bridge channel. The host gateway checks
+the same permission and calls the completion service directly, so a docked or
+detached panel receives the side-completion budget rather than the generic
+30-second plugin-process panel timeout.
 
 ### clipboard / shell
 ```ts
@@ -669,6 +677,7 @@ The host-owned preload forwards only fixed channels to the plugin runtime:
 | `ui.getNotificationPermission`, `ui.requestNotificationPermission`, `ui.showNativeNotification` | `notify` |
 | `plugin.getSettings`, `workspace.get`, `app.getAppearance` | None |
 | `models.list` | `models.list` |
+| `agent.complete` | `agent.complete` |
 | `fs.readText`, `fs.stat`, `fs.readRange`, `fs.readPreview`, `fs.openDefault`, `fs.reveal`, `fs.glob`, `fs.list` | `fs.read` |
 | `fs.writeText` | `fs.write` |
 | `clipboard.readText`, `clipboard.getHistory` | `clipboard.read` |
