@@ -955,6 +955,8 @@ export type AppState = {
   archiveSession: (id: string) => void;
   restoreSession: (id: string) => void;
   renameSession: (id: string, title: string) => Promise<void>;
+  /** Move an idle session into an already-known project, preserving history. */
+  moveSessionProject: (id: string, projectPath: string) => Promise<boolean>;
   deleteSession: (id: string) => Promise<void>;
   setSessionSort: (sort: SessionSort) => void;
   setSessionArchiveVisibility: (show: boolean) => void;
@@ -3124,6 +3126,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }));
     persistCurrentSidebar(get);
+  },
+
+  moveSessionProject: async (id, projectPath) => {
+    const destinationKey = normalizeProjectPath(projectPath);
+    const state = get();
+    const session = state.sessions.find((item) => item.id === id);
+    if (!id || !session || !destinationKey) return false;
+    // A running turn owns the current project's instructions and working
+    // directory; the host rejects the move as well.
+    if (state.runningSessions[id]) return false;
+    if (normalizeProjectPath(session.projectPath) === destinationKey) return true;
+    if (
+      !state.openProjectPaths.some(
+        (path) => normalizeProjectPath(path) === destinationKey,
+      )
+    ) {
+      return false;
+    }
+    const result = await api.moveSessionProject(id, projectPath);
+    set((current) => ({
+      sessions: current.sessions.map((item) =>
+        item.id === id ? { ...item, ...result.session } : item,
+      ),
+    }));
+    return true;
   },
 
   deleteSession: async (id) => {

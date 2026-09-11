@@ -164,6 +164,12 @@ export const fr = {
     "sortName": "Nom",
     "sortCreated": "Date de création",
     "sortManual": "Épinglé en premier",
+    "moveToProject": "Déplacer vers un projet",
+    "sessionMoved": "Déplacé vers {{name}}",
+    "moveRunningSessionBlocked": "Arrêtez la session en cours avant de la déplacer.",
+    "moveSessionUnavailable": "Cette session ne peut pas être déplacée vers ce projet.",
+    "dropFolderToAddProject": "Déposez un dossier pour l'ajouter comme projet.",
+    "dismissFolderDrop": "Fermer",
     "showArchived": "Afficher l'archivé",
     "hideArchived": "Masquer l'archivé",
     "pinTask": "Épingler",
@@ -1154,6 +1160,9 @@ export const fr = {
     "archive": "Archiver le projet",
     "restore": "Restaurer le projet",
     "openAndNewTask": "Ouvrir le projet et créer une tâche",
+    "droppedFolder": "Dossier déposé",
+    "openAsProject": "Ouvrir comme projet",
+    "referenceFolder": "Référencer le dossier",
     "noProjects": "Aucun projet pour l'instant"
   },
   "pulls": {

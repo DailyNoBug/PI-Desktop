@@ -349,6 +349,11 @@ export const api = {
     invoke<{ ok: boolean; path: string }>(IPC.invoke.projectOpenFolder, path),
   renameSession: (id: string, title: string) =>
     invoke<{ ok: boolean }>(IPC.invoke.sessionRename, id, title),
+  moveSessionProject: (sessionId: string, projectPath: string) =>
+    invoke<{ session: SessionSummary }>(IPC.invoke.sessionMoveProject, {
+      sessionId,
+      projectPath,
+    }).then((result) => ({ ...result, session: normalizeSession(result.session) })),
   summarizeSessionTitle: (req: SessionSummarizeTitleRequest) =>
     invoke<SessionSummarizeTitleResponse>(IPC.invoke.sessionSummarizeTitle, req),
   configureSession: (

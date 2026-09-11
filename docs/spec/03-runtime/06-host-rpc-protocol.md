@@ -271,6 +271,14 @@ to later refresh and inference; the vendor picker does not collect them.
   `INVALID_PARAMS`; mode is `plan | goal | agent` and changing any session
   configuration is allowed only while idle and without a pending/queued/running
   Plan or Goal record
+- `session.moveProject({ sessionId, projectPath })` moves an idle session to a
+  project and returns `{ session }` carrying the canonical project path. It
+  upserts the project row and updates only `sessions.project_id` and
+  `updated_at`; transcript, revisions, artifacts, notifications, and scratch
+  data stay with the session. Blank ids or paths are `INVALID_PARAMS`, an
+  unknown session is `NOT_FOUND`, and a session with a running turn is
+  `CONFLICT` so a live agent never switches instruction roots mid-turn.
+  Additive RPC; no protocol version bump.
 - `session.appendMessage`
 - `session.saveInflightMessage` — Electron-main-only checkpoint of the
   assistant reply currently streaming, including the finished `message_end`

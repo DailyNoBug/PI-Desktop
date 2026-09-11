@@ -164,6 +164,12 @@ export const de = {
     "sortName": "Name",
     "sortCreated": "Erstellungsdatum",
     "sortManual": "Zuerst gepinnt",
+    "moveToProject": "In Projekt verschieben",
+    "sessionMoved": "Verschoben nach {{name}}",
+    "moveRunningSessionBlocked": "Beende zuerst die laufende Sitzung.",
+    "moveSessionUnavailable": "Diese Sitzung kann nicht in dieses Projekt verschoben werden.",
+    "dropFolderToAddProject": "Ordner ablegen, um ihn als Projekt hinzuzufügen.",
+    "dismissFolderDrop": "Schließen",
     "showArchived": "Archiviert anzeigen",
     "hideArchived": "Archiviert ausblenden",
     "pinTask": "Anheften",
@@ -1154,6 +1160,9 @@ export const de = {
     "archive": "Projekt archivieren",
     "restore": "Projekt wiederherstellen",
     "openAndNewTask": "Projekt öffnen und Aufgabe erstellen",
+    "droppedFolder": "Ordner abgelegt",
+    "openAsProject": "Als Projekt öffnen",
+    "referenceFolder": "Ordner referenzieren",
     "noProjects": "Noch keine Projekte"
   },
   "pulls": {

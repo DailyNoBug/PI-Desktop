@@ -722,3 +722,20 @@
 .project-menu {
   top: calc(100% + 3px);
 }
+
+/* Sidebar drag/drop: a session row moves between project groups. */
+.thread-item.is-dragging {
+  opacity: 0.5;
+}
+
+.project-group.is-drop-target {
+  border-radius: var(--radius-sm);
+  outline: 1px solid var(--ds-accent);
+  outline-offset: -1px;
+}
+
+.sidebar-session-groups.is-drop-target {
+  border-radius: var(--radius-sm);
+  outline: 1px dashed var(--ds-border-strong);
+  outline-offset: -2px;
+}

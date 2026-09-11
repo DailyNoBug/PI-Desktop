@@ -1521,6 +1521,48 @@ pub fn rename_session(db: &Database, id: &str, title: &str) -> Result<bool> {
     Ok(n > 0)
 }
 
+/// Outcome of moving a session to a different project.
+pub enum MoveSessionProjectResult {
+    Moved(SessionSummary),
+    NotFound,
+    Busy,
+}
+
+/// Move an idle session to another project.
+///
+/// Only the session's project association and `updated_at` change: transcript,
+/// revisions, artifacts, notifications, scratch data, and runtime state belong
+/// to the session rather than the project and stay untouched. A session with a
+/// running turn is rejected so a live agent never switches instruction roots
+/// mid-turn.
+pub fn move_session_project(
+    db: &Database,
+    id: &str,
+    project_path: &str,
+) -> Result<MoveSessionProjectResult> {
+    if get_session(db, id)?.is_none() {
+        return Ok(MoveSessionProjectResult::NotFound);
+    }
+    let has_running_turn: bool = db.conn().query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM turns WHERE session_id = ?1 AND status = 'running'
+         )",
+        params![id],
+        |row| row.get(0),
+    )?;
+    if has_running_turn {
+        return Ok(MoveSessionProjectResult::Busy);
+    }
+    let project_id = db.ensure_project(project_path, false)?;
+    db.conn()
+        .prepare_cached("UPDATE sessions SET project_id = ?1, updated_at = ?2 WHERE id = ?3")?
+        .execute(params![project_id, now_ms(), id])?;
+    let Some(moved) = get_session(db, id)? else {
+        return Ok(MoveSessionProjectResult::NotFound);
+    };
+    Ok(MoveSessionProjectResult::Moved(moved.summary))
+}
+
 /// Per-message records plus their extracted index text, in input order.
 fn records_and_texts(messages: &[UiMessage]) -> (Vec<MessageRecord>, Vec<Option<String>>) {
     let mut records = Vec::with_capacity(messages.len());
@@ -4404,6 +4446,55 @@ mod tests {
 
         end_turn(&db, &first, "aborted", None, None, false).unwrap();
         assert!(begin_turn(&db, &session.id, None, None).is_ok());
+    }
+
+    #[test]
+    fn move_session_project_reassigns_only_the_project_and_rejects_running_turns() {
+        let db = test_db();
+        let source = std::env::temp_dir().join(format!("pi-move-source-{}", Uuid::new_v4()));
+        let target = std::env::temp_dir().join(format!("pi-move-target-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        let session = create_session(
+            &db,
+            Some("Move me".into()),
+            Some("agent".into()),
+            Some("provider".into()),
+            Some("model".into()),
+            Some(source.to_string_lossy().to_string()),
+        )
+        .unwrap();
+
+        let target_path = target.canonicalize().unwrap().to_string_lossy().to_string();
+        let moved = move_session_project(&db, &session.id, &target.to_string_lossy()).unwrap();
+        let MoveSessionProjectResult::Moved(summary) = moved else {
+            panic!("an idle session must move to the requested project");
+        };
+        assert_eq!(summary.project_path.as_deref(), Some(target_path.as_str()));
+        // Title, provider, model, and message count stay with the session.
+        assert_eq!(summary.title, "Move me");
+        assert_eq!(summary.provider_id.as_deref(), Some("provider"));
+        assert_eq!(summary.model_id.as_deref(), Some("model"));
+        assert_eq!(summary.message_count, 0);
+
+        // A running turn blocks the move so the live agent cannot switch
+        // instruction roots mid-turn.
+        let turn = begin_turn(&db, &session.id, None, None).unwrap();
+        assert!(matches!(
+            move_session_project(&db, &session.id, &source.to_string_lossy()).unwrap(),
+            MoveSessionProjectResult::Busy
+        ));
+        end_turn(&db, &turn, "aborted", None, None, false).unwrap();
+        assert!(matches!(
+            move_session_project(&db, &session.id, &source.to_string_lossy()).unwrap(),
+            MoveSessionProjectResult::Moved(_)
+        ));
+
+        assert!(matches!(
+            move_session_project(&db, "missing-session", &source.to_string_lossy()).unwrap(),
+            MoveSessionProjectResult::NotFound
+        ));
+        assert!(move_session_project(&db, &session.id, "   ").is_err());
     }
 
     #[test]

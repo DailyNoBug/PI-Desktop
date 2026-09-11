@@ -1515,6 +1515,33 @@ async fn handle_request(
                 };
             Ok(json!({ "session": session }))
         }
+        "session.moveProject" => {
+            let session_id = params
+                .get("sessionId")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| rpc_err(1002, "sessionId required", "INVALID_PARAMS"))?;
+            let project_path = params
+                .get("projectPath")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| rpc_err(1002, "projectPath required", "INVALID_PARAMS"))?;
+            let st = state.lock().await;
+            let session = match sessions::move_session_project(&st.db, session_id, project_path)
+                .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?
+            {
+                sessions::MoveSessionProjectResult::Moved(session) => session,
+                sessions::MoveSessionProjectResult::NotFound => {
+                    return Err(rpc_err(1007, "session not found", "NOT_FOUND"))
+                }
+                sessions::MoveSessionProjectResult::Busy => {
+                    return Err(rpc_err(1008, "session is running", "CONFLICT"))
+                }
+            };
+            Ok(json!({ "session": session }))
+        }
         "session.get" => {
             let id = params
                 .get("id")
