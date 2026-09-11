@@ -759,12 +759,14 @@ Each scenario is documented in this format:
   next model turn. For a user-visible HTML deliverable, `BrowserPreview` is
   called once after creation or the first meaningful visual edit, then reused
   through live reload while the page is refined. Generated, test-only, and
-  non-visual HTML files do not trigger a preview call. The loaded set does not
-  leak into the next prompt's first request. Tool activation markers survive
-  transcript reload without granting a host permission or workspace escape.
+  non-visual HTML files do not trigger a preview call. At the second prompt,
+  successful activation markers still in the effective context may restore the
+  matching deferred schemas in the first request; failed, interrupted, and
+  missing-result rows do not. Catalog and mode changes also prevent restoration.
+  No host permission or workspace escape is granted by restoration.
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §7.1,
-  `03-runtime/03-tools-and-permissions.md` §2.1, ADR 0048,
-  `08-meta/decisions-log.md` (D185)
+  `03-runtime/03-tools-and-permissions.md` §2.1, ADR 0048, ADR 0225,
+  `08-meta/decisions-log.md` (D185, D400)
 - **Acceptance**: C (first turn and stream) + E (tool execution)
 - **Milestone**: M5
 - **Status**: Unit-covered (`agent-runtime` deferred-tool tests); live-model
