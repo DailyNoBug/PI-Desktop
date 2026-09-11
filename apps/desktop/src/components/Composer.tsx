@@ -2401,7 +2401,11 @@ export function Composer({
                       return;
                     }
                   }
-                  if (e.key === "Enter" && !e.shiftKey && enterToSend) {
+                  if (
+                    e.key === "Enter" &&
+                    !e.shiftKey &&
+                    (enterToSend || e.metaKey || e.ctrlKey)
+                  ) {
                     e.preventDefault();
                     void submit();
                   }
