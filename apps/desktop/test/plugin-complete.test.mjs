@@ -63,6 +63,27 @@ test("listReadyPluginModels omits providers without credentials", () => {
   assert.equal(parsePluginModelKey("p1/org/model")?.modelId, "org/model");
 });
 
+test("listReadyPluginModels marks the configured application default", () => {
+  const models = listReadyPluginModels(
+    [
+      {
+        id: "p1",
+        name: "Ready",
+        hasSecret: true,
+        models: [{ id: "m1" }, { id: "m2" }],
+      },
+    ],
+    { defaultProviderId: "p1", defaultModelId: "m2" },
+  );
+  assert.deepEqual(
+    models.map((row) => [row.key, row.isDefault === true]),
+    [
+      ["p1/m1", false],
+      ["p1/m2", true],
+    ],
+  );
+});
+
 test("pluginCompleteContext serializes session context and appends the default tail", () => {
   const context = pluginCompleteContext({
     modelKey: "p1/m1",

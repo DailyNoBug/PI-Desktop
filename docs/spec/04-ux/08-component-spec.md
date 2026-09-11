@@ -843,19 +843,25 @@ publish explicitly uses `origin/<current-branch>`, and pull is fast-forward
 only. Failed synchronizations preserve repository state and show the bounded
 Git error without creating a merge commit.
 
-Below the branch bar, **Staged Changes** and **Changes** list current Git state
-separately. Rows show the status letter, ellipsized path, rename target, and
-addition/deletion counts; binary and oversized files identify themselves
-without diff content. Per-row actions stage, unstage, or discard. Selecting a
-file opens the view-owned review overlay rather than the message-owned Review
-tab. The overlay supports staged, unstaged, and untracked context, side-by-side
-and unified modes, next/previous change navigation, file switching, refresh,
-binary/too-large states, and returns focus to its opening row when closed. It
-reads current Git state and offers no rollback.
+Below the branch bar, **Staged Changes** and **Changes** render current Git
+state as collapsible directory trees. Folder rows aggregate descendant file and
+addition/deletion counts; file rows show the status letter, basename, rename
+target, and counts. Binary and oversized files identify themselves without diff
+content. Per-row actions stage, unstage, or discard. Selecting a file opens the
+view-owned review overlay rather than the message-owned Review tab. The overlay
+opens in side-by-side mode with aligned old/new line-number columns, red
+old-side content, and green new-side content; unified mode remains an explicit
+toggle. It supports staged, unstaged, and untracked context, next/previous
+change navigation, file switching, refresh, binary/too-large states, and
+returns focus to its opening row when closed. It reads current Git state and
+offers no rollback.
 
 The commit box sits below the change lists. Commit uses the staged index; when
 nothing is staged, the explicit "stage all and commit" action stages all changes
-first. Empty messages and empty commits are rejected. Discard and branch
+first. Its AI action uses the ready application default model when available
+and fills the editable message from bounded current Git diffs; staged changes
+are preferred, otherwise all unstaged changes supply context. Empty messages
+and empty commits are rejected. Discard and branch
 switching or create-and-switch use host-owned native confirmation; tracked
 discard restores from `HEAD`, while untracked files move to the OS trash. The
 view refreshes on open, workspace change, after every Git operation, manual
