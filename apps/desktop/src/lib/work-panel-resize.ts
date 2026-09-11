@@ -6,7 +6,7 @@ export const WORK_PANEL_DEFAULT_WIDTH = 360;
 export const WORK_PANEL_MAX_WIDTH = 720;
 export const WORK_PANEL_CHAT_MIN_WIDTH = 1040;
 export const WORK_PANEL_CHAT_MAX_WIDTH = 10000;
-export const MAIN_PANE_MIN_WIDTH = 360;
+export const MAIN_PANE_MIN_WIDTH = 515;
 
 export type WorkPanelChatResizeGesture = {
   startClientX: number;

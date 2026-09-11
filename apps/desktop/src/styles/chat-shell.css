@@ -39,7 +39,8 @@
 .main-pane {
   position: relative;
   display: flex;
-  min-width: 0;
+  /* Reserve the composer control row before either side dock can grow. */
+  min-width: 515px;
   flex: 1;
   flex-direction: column;
   background: var(--ds-bg-primary);
@@ -63,7 +64,7 @@
 .route-page {
   position: relative;
   display: flex;
-  min-width: 360px;
+  min-width: 515px;
   min-height: 0;
   flex: 1;
   flex-direction: column;

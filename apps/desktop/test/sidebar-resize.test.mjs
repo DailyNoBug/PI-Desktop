@@ -52,14 +52,18 @@ test("sidebar hover does not paint a full-height resize rail", () => {
   );
 });
 
-test("a narrow composer wraps toolbar groups before localized labels can overlap", () => {
+test("the chat reserves one row for unsqueezed composer controls", () => {
   assert.match(
     globalStyles,
-    /@container composer-stack \(max-width: 360px\)[\s\S]*?\.composer-toolbar\s*\{[\s\S]*?flex-wrap:\s*wrap;/,
+    /\.main-pane\s*\{[\s\S]*?min-width:\s*515px;/,
   );
   assert.match(
     globalStyles,
-    /@container composer-stack \(max-width: 360px\)[\s\S]*?\.composer-left,\s*\.composer-right\s*\{[\s\S]*?flex:\s*1 1 100%;/,
+    /\.composer-toolbar\s*\{[\s\S]*?flex-wrap:\s*nowrap;/,
+  );
+  assert.match(
+    globalStyles,
+    /\.composer-left,\s*\.composer-right\s*\{[\s\S]*?flex:\s*0 0 auto;/,
   );
   assert.match(
     globalStyles,
