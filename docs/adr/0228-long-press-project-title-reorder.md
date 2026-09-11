@@ -1,6 +1,6 @@
 # ADR 0228: Long-press the project title to reorder
 
-- Status: Accepted
+- Status: Accepted (amended by 0229)
 - Date: 2026-09-11
 - Amends: [ADR 0227](0227-project-group-manual-ordering.md)
 - Related: [D402](../spec/08-meta/decisions-log.md) · [Component spec](../spec/04-ux/08-component-spec.md) · E2E-253

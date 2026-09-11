@@ -1,25 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  PROJECT_REORDER_LONG_PRESS_MS,
-  PROJECT_REORDER_MOVE_CANCEL_PX,
+  PROJECT_REORDER_ARM_PX,
   projectGroupKeyFromPoint,
   projectReorderInsertAfter,
-  projectReorderMovedTooFar,
+  projectReorderShouldArm,
   sameProjectReorderBucket,
 } from "../src/lib/sidebar-project-reorder.ts";
 
-test("project title reorder uses a long-press delay rather than immediate drag", () => {
-  assert.equal(PROJECT_REORDER_LONG_PRESS_MS, 400);
-  assert.equal(PROJECT_REORDER_MOVE_CANCEL_PX, 8);
-});
-
-test("pending long-press cancels after a small pointer movement", () => {
-  assert.equal(projectReorderMovedTooFar(0, 0), false);
-  assert.equal(projectReorderMovedTooFar(4, 4), false);
-  assert.equal(projectReorderMovedTooFar(8, 0), false);
-  assert.equal(projectReorderMovedTooFar(9, 0), true);
-  assert.equal(projectReorderMovedTooFar(0, 9), true);
+test("project title reorder arms after a small pointer movement, not a time delay", () => {
+  assert.equal(PROJECT_REORDER_ARM_PX, 8);
+  assert.equal(projectReorderShouldArm(0, 0), false);
+  assert.equal(projectReorderShouldArm(4, 4), false);
+  assert.equal(projectReorderShouldArm(8, 0), false);
+  assert.equal(projectReorderShouldArm(9, 0), true);
+  assert.equal(projectReorderShouldArm(0, 9), true);
 });
 
 test("drop inserts after the target when the pointer is in the lower half", () => {

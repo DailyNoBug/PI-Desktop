@@ -44,10 +44,9 @@ import {
   hasComposerFileDrag,
 } from "../lib/composer-drop";
 import {
-  PROJECT_REORDER_LONG_PRESS_MS,
   projectGroupKeyFromPoint,
   projectReorderInsertAfter,
-  projectReorderMovedTooFar,
+  projectReorderShouldArm,
   sameProjectReorderBucket,
 } from "../lib/sidebar-project-reorder";
 import {
@@ -145,10 +144,10 @@ type ProjectReorderPointerState = {
   lastX: number;
   lastY: number;
   armed: boolean;
-  timer: number | null;
   dropKey: string | null;
   dropTop: number;
   dropHeight: number;
+  insertAfter: boolean;
   onMove: (event: PointerEvent) => void;
   onUp: (event: PointerEvent) => void;
   onCancel: (event: PointerEvent) => void;
@@ -319,7 +318,7 @@ export function Sidebar({
   const [projectsDropActive, setProjectsDropActive] = useState(false);
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [draggingProjectKey, setDraggingProjectKey] = useState<string | null>(null);
-  const [dropTargetProjectKey, setDropTargetProjectKey] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{ key: string; insertAfter: boolean } | null>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const menuFirstItemRef = useRef<HTMLButtonElement | null>(null);
   const sessionPrefetchTimerRef = useRef<number | undefined>(undefined);
@@ -784,7 +783,6 @@ export function Sidebar({
   const finishProjectReorderPress = useCallback((opts?: { keepClickSuppressed?: boolean }) => {
     const state = projectReorderRef.current;
     if (state) {
-      if (state.timer != null) window.clearTimeout(state.timer);
       window.removeEventListener("pointermove", state.onMove, true);
       window.removeEventListener("pointerup", state.onUp, true);
       window.removeEventListener("pointercancel", state.onCancel, true);
@@ -792,7 +790,7 @@ export function Sidebar({
     }
     if (!opts?.keepClickSuppressed) suppressProjectTitleClickRef.current = false;
     setDraggingProjectKey(null);
-    setDropTargetProjectKey(null);
+    setDropIndicator(null);
     document.documentElement.removeAttribute("data-project-reordering");
   }, []);
 
@@ -833,7 +831,9 @@ export function Sidebar({
 
   const beginProjectReorderPress = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>, projectKey: string) => {
-      if (event.button !== 0 || projectReorderRef.current) return;
+      if (event.button !== 0 || event.pointerType === "touch" || projectReorderRef.current) {
+        return;
+      }
 
       const onMove = (moveEvent: PointerEvent) => {
         const current = projectReorderRef.current;
@@ -842,14 +842,17 @@ export function Sidebar({
         current.lastY = moveEvent.clientY;
         if (!current.armed) {
           if (
-            projectReorderMovedTooFar(
+            !projectReorderShouldArm(
               moveEvent.clientX - current.startX,
               moveEvent.clientY - current.startY,
             )
           ) {
-            finishProjectReorderPress();
+            return;
           }
-          return;
+          current.armed = true;
+          suppressProjectTitleClickRef.current = true;
+          document.documentElement.setAttribute("data-project-reordering", "true");
+          setDraggingProjectKey(current.projectKey);
         }
         moveEvent.preventDefault();
         const target = projectGroupKeyFromPoint(moveEvent.clientX, moveEvent.clientY);
@@ -864,13 +867,19 @@ export function Sidebar({
           target.key !== current.projectKey &&
           sameProjectReorderBucket(source.meta, destination.meta)
         ) {
+          const insertAfter = projectReorderInsertAfter(
+            moveEvent.clientY,
+            target.top,
+            target.height,
+          );
           current.dropKey = target.key;
           current.dropTop = target.top;
           current.dropHeight = target.height;
-          setDropTargetProjectKey(target.key);
+          current.insertAfter = insertAfter;
+          setDropIndicator({ key: target.key, insertAfter });
         } else {
           current.dropKey = null;
-          setDropTargetProjectKey(null);
+          setDropIndicator(null);
         }
       };
 
@@ -883,7 +892,7 @@ export function Sidebar({
             reorderProjectEntriesRef.current(
               current.projectKey,
               current.dropKey,
-              projectReorderInsertAfter(current.lastY, current.dropTop, current.dropHeight),
+              current.insertAfter,
             );
           }
           finishProjectReorderPress({ keepClickSuppressed: true });
@@ -906,23 +915,14 @@ export function Sidebar({
         lastX: event.clientX,
         lastY: event.clientY,
         armed: false,
-        timer: null,
         dropKey: null,
         dropTop: 0,
         dropHeight: 0,
+        insertAfter: false,
         onMove,
         onUp,
         onCancel,
       };
-      state.timer = window.setTimeout(() => {
-        const current = projectReorderRef.current;
-        if (current !== state) return;
-        current.armed = true;
-        current.timer = null;
-        suppressProjectTitleClickRef.current = true;
-        document.documentElement.setAttribute("data-project-reordering", "true");
-        setDraggingProjectKey(current.projectKey);
-      }, PROJECT_REORDER_LONG_PRESS_MS);
       projectReorderRef.current = state;
       window.addEventListener("pointermove", onMove, true);
       window.addEventListener("pointerup", onUp, true);
@@ -1663,7 +1663,7 @@ export function Sidebar({
     return (
       <section
         key={entry.key}
-        className={`sidebar-session-group project-group ${entry.active ? "active" : ""} ${entry.meta.archived ? "archived" : ""} ${dropProjectKey === entry.key ? "is-drop-target" : ""} ${draggingProjectKey === entry.key ? "is-dragging" : ""} ${dropTargetProjectKey === entry.key ? "is-drop-target" : ""}`}
+        className={`sidebar-session-group project-group ${entry.active ? "active" : ""} ${entry.meta.archived ? "archived" : ""} ${dropProjectKey === entry.key ? "is-drop-target" : ""} ${draggingProjectKey === entry.key ? "is-dragging" : ""} ${dropIndicator?.key === entry.key ? (dropIndicator.insertAfter ? "is-drop-after" : "is-drop-before") : ""}`}
         aria-labelledby={projectId}
         data-sidebar-project-group={entry.key}
         onDragOver={(event) => {

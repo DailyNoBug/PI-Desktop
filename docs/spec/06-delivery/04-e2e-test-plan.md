@@ -10081,8 +10081,8 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   including one pinned or archived project, and each project has a stable
   host workspace/path/directory.
 - **Steps**:
-  1. Long-press a project title for 400ms, then drag it above or below
-     another project group; inspect the drop target and release.
+  1. Press a project title, move it above or below another project group,
+     inspect the insertion line, and release.
   2. Click a project title and confirm it still selects the project and
      toggles collapse without changing order.
   3. Focus the same title and press `ArrowUp` or `ArrowDown`; repeat once in
@@ -10091,14 +10091,15 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   5. Open a session from a reordered project and confirm its host workspace,
      path, and directory are unchanged.
 - **Expected**: The project groups render in the released order and the
-  manual order survives restart. There is no reorder grip. The title exposes
-  a keyboard-accessible reorder action, a short click does not reorder,
+  manual order survives restart. There is no reorder grip and no 400ms
+  delay. An insertion line shows drop placement. The title exposes a
+  keyboard-accessible reorder action, a short click does not reorder,
   `Escape` cancels an active drag, and the existing pinned / archived
   priority rules remain intact. Reordering never changes a project's host
   workspace, path, directory, or session sort.
 - **Specs linked**: `04-ux/08-component-spec.md`,
   `04-ux/09-interaction-patterns.md`, `03-runtime/04-data-storage.md`,
-  `08-meta/decisions-log.md` (D399, D402)
+  `08-meta/decisions-log.md` (D399, D402, D403)
 - **Acceptance**: D (workspace), F (persistence), Quality
 - **Milestone**: M5
 - **Status**: Source-contract covered (`app-store-sidebar.test.mjs`,

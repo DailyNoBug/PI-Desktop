@@ -6494,13 +6494,13 @@ IPC 请求无法关闭。
 
 - **前提条件**：侧边栏至少有 3 个项目组，其中包含一个已固定或已归档项目；每个项目都有稳定的 host workspace/path/directory。
 - **步骤**：
-  1. 长按项目标题 400ms，将其拖到另一个项目组上方或下方，观察放置目标后释放。
+  1. 按住项目标题并拖到另一个项目组上方或下方，观察插入线后释放。
   2. 单击项目标题，确认仍会选中项目并切换折叠，且不会改变顺序。
   3. 聚焦同一标题，按 `ArrowUp` 或 `ArrowDown` 各移动一次。
   4. 重启应用并检查项目顺序。
   5. 从重排后的项目打开会话，确认 host workspace、path 和 directory 未改变。
-- **预期**：项目组按释放后的顺序显示，手动顺序在重启后保留。没有重排手柄。标题支持键盘排序，短按不会重排，`Escape` 可取消拖动，既有固定/归档优先级保持不变；排序不会改变项目的 host workspace、path、directory 或会话排序。
-- **链接规格**：`04-ux/08-component-spec.md`、`04-ux/09-interaction-patterns.md`、`03-runtime/04-data-storage.md`、`08-meta/decisions-log.md`（D399、D402）
+- **预期**：项目组按释放后的顺序显示，手动顺序在重启后保留。没有重排手柄，也没有 400ms 等待。插入线标出放置位置。标题支持键盘排序，短按不会重排，`Escape` 可取消拖动，既有固定/归档优先级保持不变；排序不会改变项目的 host workspace、path、directory 或会话排序。
+- **链接规格**：`04-ux/08-component-spec.md`、`04-ux/09-interaction-patterns.md`、`03-runtime/04-data-storage.md`、`08-meta/decisions-log.md`（D399、D402、D403）
 - **验收**：D（工作区）、F（持久化）、品质
 - **里程碑**：M5
 - **状态**：源代码契约覆盖（`app-store-sidebar.test.mjs`、`sidebar-preferences.test.mjs`、`sidebar-project-reorder.test.mjs`）；渲染桌面旅程为草稿

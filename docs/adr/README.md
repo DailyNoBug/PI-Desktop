@@ -245,4 +245,5 @@ Each ADR includes:
 | 0225 | Restore deferred tools from effective session context | Accepted (issue #225) |
 | 0226 | Reserve chat width for composer controls | Accepted |
 | 0227 | Project group manual ordering | Accepted (amended by 0228) |
-| 0228 | Long-press the project title to reorder | Accepted (amends 0227) |
+| 0228 | Long-press the project title to reorder | Accepted (amended by 0229) |
+| 0229 | Press-and-move project title reorder | Accepted (amends 0228) |

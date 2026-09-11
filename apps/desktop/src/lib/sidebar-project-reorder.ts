@@ -1,12 +1,10 @@
-/** Long-press delay before a project title starts a reorder drag. */
-export const PROJECT_REORDER_LONG_PRESS_MS = 400;
-/** Pointer travel that cancels a pending long-press (scroll / click jitter). */
-export const PROJECT_REORDER_MOVE_CANCEL_PX = 8;
+/** Pointer travel that arms a title drag (click vs ChatGPT-style press-and-move). */
+export const PROJECT_REORDER_ARM_PX = 8;
 
-export function projectReorderMovedTooFar(
+export function projectReorderShouldArm(
   dx: number,
   dy: number,
-  thresholdPx = PROJECT_REORDER_MOVE_CANCEL_PX,
+  thresholdPx = PROJECT_REORDER_ARM_PX,
 ): boolean {
   return dx * dx + dy * dy > thresholdPx * thresholdPx;
 }
