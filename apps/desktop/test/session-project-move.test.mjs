@@ -151,3 +151,32 @@ test("new drag/drop copy ships in the reviewed locales", () => {
   assert.match(en, /moveToProject: "Move to project"/);
   assert.match(zhCN, /moveToProject: "移动到项目"/);
 });
+
+test("drag state cannot outlive the dragged row or trust a stale id", () => {
+  // A row can unmount mid-drag (sort refresh, archive, delete) before its own
+  // dragend fires, so the drag session is also cleared from the window.
+  assert.match(sidebar, /window\.addEventListener\("dragend", clearDragState\)/);
+  assert.match(sidebar, /window\.addEventListener\("drop", clearDragState\)/);
+
+  const overBlock = sidebar.match(
+    /const onProjectDropTargetOver = \([\s\S]*?\n  \};\n/,
+  )?.[0] ?? "";
+  const dropBlock = sidebar.match(
+    /const onProjectDropTargetDrop = \([\s\S]*?\n  \};\n/,
+  )?.[0] ?? "";
+  // The transfer payload wins over renderer state in both directions, and an
+  // unknown id is dropped rather than moving a session the user never dragged.
+  for (const block of [overBlock, dropBlock]) {
+    assert.match(
+      block,
+      /const sessionId = sessionIdFromDrag\(event\.dataTransfer\) \?\? draggingSessionId;/,
+    );
+  }
+  assert.match(dropBlock, /if \(!dragged\) return;/);
+  // A drop without a session payload belongs to the native folder handler.
+  assert.match(dropBlock, /const dragged = sessionId/);
+  assert.match(
+    sidebar,
+    /onDragLeave=\{\(event\) => \{[\s\S]*?event\.currentTarget\.contains\(related\)/,
+  );
+});

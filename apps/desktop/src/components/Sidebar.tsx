@@ -1191,6 +1191,23 @@ export function Sidebar({
     setDropProjectKey(null);
   }, []);
 
+  // A dragged row can unmount before its own `dragend` fires (sort refresh,
+  // archive, delete), which would otherwise leave the drag session and the
+  // group highlight active for the next, unrelated drag.
+  useEffect(() => {
+    if (!draggingSessionId) return;
+    const clearDragState = () => {
+      setDraggingSessionId(null);
+      setDropProjectKey(null);
+    };
+    window.addEventListener("dragend", clearDragState);
+    window.addEventListener("drop", clearDragState);
+    return () => {
+      window.removeEventListener("dragend", clearDragState);
+      window.removeEventListener("drop", clearDragState);
+    };
+  }, [draggingSessionId]);
+
   const sessionIdFromDrag = (dataTransfer: DataTransfer): string | null =>
     dataTransfer.getData(SESSION_DRAG_MIME) ||
     dataTransfer.getData("text/plain") ||
@@ -1202,7 +1219,7 @@ export function Sidebar({
     event: ReactDragEvent<HTMLElement>,
     entry: ProjectEntry,
   ) => {
-    const sessionId = draggingSessionId ?? sessionIdFromDrag(event.dataTransfer);
+    const sessionId = sessionIdFromDrag(event.dataTransfer) ?? draggingSessionId;
     if (!sessionId) return;
     const dragged = sessions.find((item) => item.id === sessionId);
     if (!dragged || normalizeProjectPath(dragged.projectPath) === entry.key) return;
@@ -1219,13 +1236,20 @@ export function Sidebar({
     event: ReactDragEvent<HTMLElement>,
     entry: ProjectEntry,
   ) => {
-    const sessionId = draggingSessionId ?? sessionIdFromDrag(event.dataTransfer);
+    // The transfer payload is authoritative: a stale dragging id must never
+    // move a session the user did not drag.
+    const sessionId = sessionIdFromDrag(event.dataTransfer) ?? draggingSessionId;
     setDraggingSessionId(null);
     setDropProjectKey(null);
-    if (!sessionId) return;
+    const dragged = sessionId
+      ? sessions.find((item) => item.id === sessionId)
+      : undefined;
+    // Without a session payload this is a native folder drop for the projects
+    // list, which the container handles.
+    if (!dragged) return;
     event.preventDefault();
     event.stopPropagation();
-    void moveSessionToProject(sessionId, entry.path, entry.name);
+    void moveSessionToProject(dragged.id, entry.path, entry.name);
   };
 
   // Native folder drops on the projects list add or switch to that project.
@@ -1427,7 +1451,13 @@ export function Sidebar({
         aria-labelledby={projectId}
         data-sidebar-project-group={entry.key}
         onDragOver={(event) => onProjectDropTargetOver(event, entry)}
-        onDragLeave={() => onProjectDropTargetLeave(entry)}
+        onDragLeave={(event) => {
+          const related = event.relatedTarget;
+          if (related instanceof Node && event.currentTarget.contains(related)) {
+            return;
+          }
+          onProjectDropTargetLeave(entry);
+        }}
         onDrop={(event) => onProjectDropTargetDrop(event, entry)}
       >
         <div
