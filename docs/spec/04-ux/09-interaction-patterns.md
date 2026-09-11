@@ -928,15 +928,17 @@ Work-panel and application-window resizing are implemented in MVP:
 
 - The 10px inner left-edge separator anchors to the press position and
   starting panel width, then follows pointer delta without jumping. Moving it
-  left grows the panel; moving it right gives space back to MainChat.
+  left grows the panel until MainChat's 515px minimum; moving it right gives
+  space back to MainChat.
 - The inner divider's target clamps to the renderer-owned panel range of
   `244px–720px`; pointer movement is frame-coalesced and release commits the
   preferred width. Escape, pointer cancellation, and lost capture restore the
   press-time panel width.
 - Opening and closing animate the dock's `width` and `flex-basis` together with
   the bounded opacity/transform feedback, so MainChat reflows continuously
-  inside the existing client area instead of changing width before the first
-  motion frame.
+  inside the existing client area until its 515px minimum instead of changing
+  width before the first motion frame. The composer toolbar remains a single
+  unsqueezed row throughout.
 - No panel action requests a positive native reservation. The preferred panel
   width is renderer-local, and native window edges resize only the fixed app
   window. Background-session artifacts never update the visible panel or window
@@ -1298,5 +1300,6 @@ This does not prevent state changes — it makes them instant.
     navigation, composer, completed rows, and work-panel content do not rerender
     solely because the current assistant message appended content
 21. The work panel opens and collapses inside the fixed client area; the inner
-    divider changes the renderer-owned panel target within 244px–720px, and
-    divider cancellation restores the prior panel width (ADR 0151)
+    divider changes the renderer-owned panel target within 244px–720px while
+    MainChat keeps its 515px minimum, and divider cancellation restores the
+    prior panel width (ADR 0151 / ADR 0226)

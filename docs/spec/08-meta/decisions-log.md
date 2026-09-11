@@ -4612,3 +4612,14 @@ D193, and D194.
   range; persisted widths are left unchanged. No protocol, storage schema,
   plugin manifest, or native-window reservation changes. ADR 0224, UX §4–§5,
   and E2E-056 define the shipped behavior.
+
+## 2026-09-11 — Reserve chat width for composer controls (D401)
+
+- MainPane and its chat surface retain a 515px minimum when the sidebar or
+  in-flow work panel changes width. Side docks cannot consume or paint over the
+  reserved composer space.
+- The composer toolbar stays on one row with non-shrinking left and right
+  control groups. Mode and permission labels remain single-line and ellipsize
+  inside their chips when localized text is longer than the label slot.
+- No IPC, storage, or native-window reservation changes. See ADR 0226 and
+  E2E-168.

@@ -319,7 +319,7 @@ test("closing the final tab keeps the panel open for the New launcher", () => {
 });
 
 test("work panel width is renderer-owned inside the fixed window", () => {
-  assert.equal(MAIN_PANE_MIN_WIDTH, 360);
+  assert.equal(MAIN_PANE_MIN_WIDTH, 515);
   assert.equal(WORK_PANEL_DEFAULT_WIDTH, 360);
   assert.equal(WORK_PANEL_MIN_WIDTH, 244);
   assert.equal(WORK_PANEL_MAX_WIDTH, 720);
@@ -329,7 +329,8 @@ test("work panel width is renderer-owned inside the fixed window", () => {
   assert.doesNotMatch(panelSource, /api\.setWorkPanelChatWidth/);
   assert.doesNotMatch(panelSource, /api\.onWorkPanelResize/);
   assert.doesNotMatch(panelSource, /\.sidebar, \.sidebar-rail/);
-  assert.match(globalStyles, /\.main-pane \{[^}]*min-width:\s*0;/s);
+  assert.match(globalStyles, /\.main-pane \{[^}]*min-width:\s*515px;/s);
+  assert.match(globalStyles, /\.chat-surface,[\s\S]*?\.route-page \{[^}]*min-width:\s*515px;/s);
   assert.match(globalStyles, /\.work-panel \{[^}]*flex: 0 0 var\(--work-panel-width\)/s);
   // The Electron seam remains available for old callers but is deliberately
   // inert, so no positive target can expand the native window.
