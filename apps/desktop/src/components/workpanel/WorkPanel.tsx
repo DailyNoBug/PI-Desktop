@@ -1,11 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { PluginViewMeta } from "@pi-desktop/shared";
 import {
@@ -40,6 +42,7 @@ import {
   WORK_PANEL_MIN_WIDTH,
   clampWorkPanelWidth,
 } from "../../lib/work-panel-resize";
+import { placeWorkPanelMenu } from "../../lib/work-panel-menu-position";
 
 const TAB_ICONS = {
   review: IconDiff,
@@ -110,9 +113,14 @@ export function WorkPanel({
   const panelResizeState = useRef<WorkPanelResizeState | null>(null);
   const contextRef = useRef<HTMLDivElement | null>(null);
   const contextButtonRef = useRef<HTMLButtonElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   /** Where focus lands when the menu opens: the active row, or its last row. */
   const contextOpenFocus = useRef<"active" | "last">("active");
   const [contextOpen, setContextOpen] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   const [nativeSurfaceReadyForExit, setNativeSurfaceReadyForExit] =
     useState(false);
 
@@ -132,17 +140,45 @@ export function WorkPanel({
 
   const menuItems = useCallback(
     () =>
-      Array.from(
-        contextRef.current?.querySelectorAll<HTMLButtonElement>(
-          "[data-work-panel-menu-item]",
-        ) ?? [],
-      ),
+      Array.from(contextMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+        "[data-work-panel-menu-item]",
+      ) ?? []),
     [],
   );
 
   const closeContext = useCallback(() => {
     setContextOpen(false);
+    setContextMenuPosition(null);
     contextButtonRef.current?.focus();
+  }, []);
+
+  const updateContextMenuPosition = useCallback(() => {
+    const trigger = contextButtonRef.current;
+    const menu = contextMenuRef.current;
+    if (!trigger || !menu) return;
+
+    const triggerRect = trigger.getBoundingClientRect();
+    if (triggerRect.bottom <= 0 || triggerRect.top >= window.innerHeight) {
+      setContextOpen(false);
+      setContextMenuPosition(null);
+      return;
+    }
+
+    const menuRect = menu.getBoundingClientRect();
+    const placement = placeWorkPanelMenu({
+      trigger: {
+        left: triggerRect.left,
+        top: triggerRect.top,
+        bottom: triggerRect.bottom,
+      },
+      menu: { width: menuRect.width, height: menuRect.height },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    });
+    setContextMenuPosition((previous) =>
+      previous?.top === placement.top && previous.left === placement.left
+        ? previous
+        : placement,
+    );
   }, []);
 
   useEffect(() => {
@@ -158,34 +194,67 @@ export function WorkPanel({
   useEffect(() => {
     if (!contextOpen) return;
     const onPointer = (e: PointerEvent) => {
-      if (contextRef.current?.contains(e.target as Node)) return;
+      const target = e.target as Node;
+      if (
+        contextRef.current?.contains(target) ||
+        contextMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
       setContextOpen(false);
+      setContextMenuPosition(null);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       closeContext();
     };
-    const onViewportChange = () => setContextOpen(false);
+    const onViewportChange = () => updateContextMenuPosition();
     // The native plugin surface is a sibling WebContentsView, so a click
     // outside the renderer menu can blur this document before its pointer
     // event reaches the renderer-level listener.
-    const onRendererBlur = () => setContextOpen(false);
+    const onRendererBlur = () => {
+      setContextOpen(false);
+      setContextMenuPosition(null);
+    };
     window.addEventListener("pointerdown", onPointer);
     window.addEventListener("keydown", onKey);
     window.addEventListener("resize", onViewportChange);
+    window.addEventListener("scroll", onViewportChange, true);
     window.addEventListener("blur", onRendererBlur);
     return () => {
       window.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("scroll", onViewportChange, true);
       window.removeEventListener("blur", onRendererBlur);
     };
-  }, [closeContext, contextOpen]);
+  }, [closeContext, contextOpen, updateContextMenuPosition]);
+
+  useEffect(() => {
+    if (!contextOpen) setContextMenuPosition(null);
+  }, [contextOpen]);
+
+  useLayoutEffect(() => {
+    if (!contextOpen) return;
+    const frame = window.requestAnimationFrame(updateContextMenuPosition);
+    return () => window.cancelAnimationFrame(frame);
+  }, [contextOpen, pluginViews.length, resourceTabs.length, updateContextMenuPosition]);
+
+  useEffect(() => {
+    if (!contextOpen) return;
+    const menu = contextMenuRef.current;
+    const trigger = contextButtonRef.current;
+    if (!menu || !trigger || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateContextMenuPosition);
+    observer.observe(menu);
+    observer.observe(trigger);
+    return () => observer.disconnect();
+  }, [contextOpen, updateContextMenuPosition]);
 
   // Menu rows own focus (ARIA menu pattern), and the row that is already
   // active is the one the pointer or keyboard most likely wants next.
   useEffect(() => {
-    if (!contextOpen) return;
+    if (!contextOpen || !contextMenuPosition) return;
     const target = contextOpenFocus.current;
     contextOpenFocus.current = "active";
     requestAnimationFrame(() => {
@@ -200,7 +269,7 @@ export function WorkPanel({
       );
       (checked ?? items[0])?.focus();
     });
-  }, [contextOpen, menuItems]);
+  }, [contextMenuPosition, contextOpen, menuItems]);
 
   // Selecting a resource closes the menu explicitly; only a context switch
   // dismisses it behind the user's back.
@@ -480,146 +549,161 @@ export function WorkPanel({
                 />
               </button>
             )}
-            {!subagentPanel && contextOpen && (
-              <div
-                id="work-panel-context-menu"
-                className="work-panel-context-menu"
-                role="menu"
-                aria-label={t("panel.title")}
-                onKeyDown={onContextKeyDown}
-              >
-                {pluginViews.length > 0 && (
+            {!subagentPanel && contextOpen && typeof document !== "undefined"
+              ? createPortal(
                   <div
-                    className="work-panel-menu-group"
-                    role="group"
-                    aria-labelledby="work-panel-menu-plugin-views"
+                    ref={contextMenuRef}
+                    id="work-panel-context-menu"
+                    className={cx(
+                      "work-panel-context-menu",
+                      contextMenuPosition && "is-open",
+                    )}
+                    role="menu"
+                    aria-label={t("panel.title")}
+                    onKeyDown={onContextKeyDown}
+                    style={
+                      contextMenuPosition
+                        ? {
+                            top: `${contextMenuPosition.top}px`,
+                            left: `${contextMenuPosition.left}px`,
+                          }
+                        : undefined
+                    }
                   >
+                    {pluginViews.length > 0 && (
                       <div
-                        className="work-panel-menu-title"
-                        id="work-panel-menu-plugin-views"
+                        className="work-panel-menu-group"
+                        role="group"
+                        aria-labelledby="work-panel-menu-plugin-views"
                       >
-                        {t("panel.pluginViews")}
-                      </div>
-                      {pluginViews.map((view, index) => {
-                        const tabId = pluginWorkPanelTab(view.pluginId, view.viewId).id;
-                        const tab = tabs.find((candidate) => candidate.id === tabId);
-                        const selected = tab?.id === activeTabId;
-                        const Icon = pluginViewIcon(view.icon);
-                        const itemIndex = index;
-                        return (
-                          <div
-                            className={cx("work-panel-menu-row", selected && "active")}
-                            role="none"
-                            key={view.ref}
-                          >
-                            <button
-                              type="button"
-                              role="menuitemradio"
-                              aria-checked={selected}
-                              tabIndex={-1}
-                              data-work-panel-menu-item=""
-                              data-work-panel-close-id={tab ? tab.id : undefined}
-                              data-work-panel-plugin-view={view.ref}
-                              className="work-panel-menu-item"
-                              title={`${view.title} — ${view.pluginName}`}
-                              onClick={() => openPluginView(view)}
+                        <div
+                          className="work-panel-menu-title"
+                          id="work-panel-menu-plugin-views"
+                        >
+                          {t("panel.pluginViews")}
+                        </div>
+                        {pluginViews.map((view, index) => {
+                          const tabId = pluginWorkPanelTab(view.pluginId, view.viewId).id;
+                          const tab = tabs.find((candidate) => candidate.id === tabId);
+                          const selected = tab?.id === activeTabId;
+                          const Icon = pluginViewIcon(view.icon);
+                          const itemIndex = index;
+                          return (
+                            <div
+                              className={cx("work-panel-menu-row", selected && "active")}
+                              role="none"
+                              key={view.ref}
                             >
-                              {Icon ? (
-                                <Icon size={15} />
-                              ) : (
-                                <span className="work-panel-view-initial" aria-hidden>
-                                  {pluginViewInitial(view.title)}
-                                </span>
-                              )}
-                              <span className="work-panel-menu-label">{view.title}</span>
-                              {tab && !selected && (
-                                <span className="work-panel-open-dot" aria-hidden />
-                              )}
-                            </button>
-                            <span className="work-panel-menu-slot">
-                              {tab && (
+                              <button
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={selected}
+                                tabIndex={-1}
+                                data-work-panel-menu-item=""
+                                data-work-panel-close-id={tab ? tab.id : undefined}
+                                data-work-panel-plugin-view={view.ref}
+                                className="work-panel-menu-item"
+                                title={`${view.title} — ${view.pluginName}`}
+                                onClick={() => openPluginView(view)}
+                              >
+                                {Icon ? (
+                                  <Icon size={15} />
+                                ) : (
+                                  <span className="work-panel-view-initial" aria-hidden>
+                                    {pluginViewInitial(view.title)}
+                                  </span>
+                                )}
+                                <span className="work-panel-menu-label">{view.title}</span>
+                                {tab && !selected && (
+                                  <span className="work-panel-open-dot" aria-hidden />
+                                )}
+                              </button>
+                              <span className="work-panel-menu-slot">
+                                {tab && (
+                                  <TooltipButton
+                                    type="button"
+                                    tabIndex={-1}
+                                    data-work-panel-menu-close=""
+                                    className="work-panel-menu-close"
+                                    tooltip={t("panel.closeTab", { name: view.title })}
+                                    ariaLabel={t("panel.closeTab", { name: view.title })}
+                                    onClick={() => closeTabFromMenu(tab.id, itemIndex)}
+                                  >
+                                    <IconClose size={12} />
+                                  </TooltipButton>
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {resourceTabs.length > 0 && (
+                      <>
+                        {pluginViews.length > 0 && (
+                          <div className="work-panel-context-divider" />
+                        )}
+                        <div
+                          className="work-panel-menu-group"
+                          role="group"
+                          aria-labelledby="work-panel-menu-resources"
+                        >
+                          <div
+                            className="work-panel-menu-title"
+                            id="work-panel-menu-resources"
+                          >
+                            {t("panel.openItems")}
+                          </div>
+                          {resourceTabs.map((tab, index) => {
+                            const label = tabLabel(tab, t, pluginViews);
+                            const Icon = TAB_ICONS[tab.kind];
+                            const selected = tab.id === activeTabId;
+                            // Focus restoration after a close counts menu rows, so
+                            // this index has to include every group drawn above.
+                            const itemIndex = pluginViews.length + index;
+                            return (
+                              <div
+                                className={cx("work-panel-menu-row", selected && "active")}
+                                role="none"
+                                key={tab.id}
+                                data-work-panel-tab={tab.id}
+                              >
+                                <button
+                                  type="button"
+                                  role="menuitemradio"
+                                  aria-checked={selected}
+                                  tabIndex={-1}
+                                  data-work-panel-switch-item=""
+                                  data-work-panel-menu-item=""
+                                  data-work-panel-close-id={tab.id}
+                                  className="work-panel-menu-item"
+                                  title={tab.resource ?? label}
+                                  onClick={() => selectTab(tab.id)}
+                                >
+                                  <Icon size={15} />
+                                  <span className="work-panel-menu-label">{label}</span>
+                                </button>
                                 <TooltipButton
                                   type="button"
                                   tabIndex={-1}
                                   data-work-panel-menu-close=""
                                   className="work-panel-menu-close"
-                                  tooltip={t("panel.closeTab", { name: view.title })}
-                                  ariaLabel={t("panel.closeTab", { name: view.title })}
+                                  tooltip={t("panel.closeTab", { name: label })}
+                                  ariaLabel={t("panel.closeTab", { name: label })}
                                   onClick={() => closeTabFromMenu(tab.id, itemIndex)}
                                 >
                                   <IconClose size={12} />
                                 </TooltipButton>
-                              )}
-                            </span>
-                          </div>
-                        );
-                      })}
-                  </div>
-                )}
-                {resourceTabs.length > 0 && (
-                  <>
-                    {pluginViews.length > 0 && (
-                      <div className="work-panel-context-divider" />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     )}
-                    <div
-                      className="work-panel-menu-group"
-                      role="group"
-                      aria-labelledby="work-panel-menu-resources"
-                    >
-                      <div
-                        className="work-panel-menu-title"
-                        id="work-panel-menu-resources"
-                      >
-                        {t("panel.openItems")}
-                      </div>
-                      {resourceTabs.map((tab, index) => {
-                        const label = tabLabel(tab, t, pluginViews);
-                        const Icon = TAB_ICONS[tab.kind];
-                        const selected = tab.id === activeTabId;
-                        // Focus restoration after a close counts menu rows, so
-                        // this index has to include every group drawn above.
-                        const itemIndex = pluginViews.length + index;
-                        return (
-                          <div
-                            className={cx("work-panel-menu-row", selected && "active")}
-                            role="none"
-                            key={tab.id}
-                            data-work-panel-tab={tab.id}
-                          >
-                            <button
-                              type="button"
-                              role="menuitemradio"
-                              aria-checked={selected}
-                              tabIndex={-1}
-                              data-work-panel-switch-item=""
-                              data-work-panel-menu-item=""
-                              data-work-panel-close-id={tab.id}
-                              className="work-panel-menu-item"
-                              title={tab.resource ?? label}
-                              onClick={() => selectTab(tab.id)}
-                            >
-                              <Icon size={15} />
-                              <span className="work-panel-menu-label">{label}</span>
-                            </button>
-                              <TooltipButton
-                                type="button"
-                                tabIndex={-1}
-                                data-work-panel-menu-close=""
-                                className="work-panel-menu-close"
-                                tooltip={t("panel.closeTab", { name: label })}
-                                ariaLabel={t("panel.closeTab", { name: label })}
-                                onClick={() => closeTabFromMenu(tab.id, itemIndex)}
-                              >
-                                <IconClose size={12} />
-                              </TooltipButton>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                  </div>,
+                  document.body,
+                )
+              : null}
           </div>
           <div className="work-panel-actions no-drag">
             {subagentPanel && onCloseSubagentPanel ? (
@@ -688,7 +772,9 @@ export function WorkPanel({
                     blocked={
                       exiting || panelBlocked
                     }
-                    occludedById={contextOpen ? "work-panel-context-menu" : undefined}
+                    occludedById={
+                      contextMenuPosition ? "work-panel-context-menu" : undefined
+                    }
                   />
                 </div>
               );

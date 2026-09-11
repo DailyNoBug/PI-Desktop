@@ -94,7 +94,7 @@ test("plugin views reach the panel body and the empty state", () => {
 test("the native surface stays visible below the open context menu", () => {
   assert.match(
     panelSource,
-    /occludedById=\{contextOpen \? "work-panel-context-menu" : undefined\}/,
+    /occludedById=\{\s*contextMenuPosition \? "work-panel-context-menu" : undefined/s,
   );
   assert.match(viewTabSource, /occludedById\?: string/);
   assert.match(viewTabSource, /document\.getElementById\(occludedById\)/);

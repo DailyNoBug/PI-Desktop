@@ -12,8 +12,8 @@ import { WorkTabEmpty } from "./WorkTabEmpty";
  * page a `ui.panel` window hosts; this component renders nothing into it. It
  * measures the placeholder rect and drives visibility. The view composites
  * above renderer content, so a panel-wide blocking overlay still hides it;
- * the local work-panel menu instead clips it below the menu while open rather
- * than exposing the panel background.
+ * the body-level work-panel menu instead clips it below the menu while open
+ * rather than exposing the panel background.
  */
 export function PluginViewTab({
   pluginId,

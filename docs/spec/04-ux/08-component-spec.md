@@ -507,8 +507,9 @@ visually distinct from list content.
 - Profile and notification popovers portal to `document.body` with fixed
   positioning so the main chat pane cannot paint over them; work-panel tool
   context menus and the Settings font picker menu use the same body-level
-  floating layer (the font menu is measured against its trigger, clamped to
-  the viewport, and flips above the trigger when there is no room below);
+  floating layer (the work-panel menu is measured against its trigger so
+  opening it never reflows the panel body; both menus clamp to the viewport
+  and flip above the trigger when there is no room below);
   the font list is windowed (fixed row heights with absolute positioning,
   overscan buffer, and an exact-offset scroll-into-view, mirroring the
   virtual-scroller pattern DBX uses for its data grid) so only the visible

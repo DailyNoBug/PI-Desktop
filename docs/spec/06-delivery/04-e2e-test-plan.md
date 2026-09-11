@@ -2650,7 +2650,11 @@ Each scenario is documented in this format:
   context menu: verify Browser and in-scope plugin views appear once, with active,
   open-inactive, and closed states, and that transcript-opened resources appear
   only in the second section. Open/select each available view with pointer
-  and keyboard,
+  and keyboard. Record the work-panel body bounds before and after opening the
+  menu and confirm the body does not move or resize; the menu floats over it
+  as a body-level overlay. Resize or scroll the window and confirm the menu
+  remains anchored to the trigger (flipping above it when the lower edge has
+  no room),
   reopen a Browser that already has a URL and confirm the URL survives, walk the
   rows with ArrowDown/ArrowUp/Home/End (focus must skip the close buttons), close
   an inactive row with Delete and confirm the menu stays open with focus on the
