@@ -17,6 +17,8 @@ import {
   calculateContextUsage,
   calculateTokenRate,
   contextOccupancyTokens,
+  contextUsageView,
+  resolveContextUsageDisplay,
 } from "../lib/context-usage";
 import {
   placeContextInspector,
@@ -65,6 +67,12 @@ export function ContextUsageInspector({
   const [popoverPosition, setPopoverPosition] =
     useState<ContextInspectorPlacement | null>(null);
   const context = calculateContextUsage(usage, contextWindow);
+  // The display preference flips the leading figure only; capacity colors
+  // still follow remaining space so the warning state keeps one meaning.
+  const usageDisplay = useAppStore((state) =>
+    resolveContextUsageDisplay(state.settings?.contextUsageDisplay),
+  );
+  const display = contextUsageView(context, usageDisplay);
   // Occupancy, turn total, and provider cache/input/output are the last
   // model request. Summing every tool-loop call inflates cache read past
   // the window (OpenCode last-message accounting).
@@ -87,7 +95,18 @@ export function ContextUsageInspector({
       ? "critical"
       : context.remainingPercent <= 25
         ? "warning"
-      : "comfortable";
+        : "comfortable";
+  // One accessible sentence serves both display modes: the localized `state`
+  // phrase carries "remaining"/"used", so the key stays literal for the
+  // tooltip contract while `percent`/`count` stay numeric.
+  const ariaArguments = {
+    percent: display.percent,
+    count: formatTokenCount(display.tokens),
+    state:
+      display.display === "used"
+        ? t("chat.usageContextAriaUsed")
+        : t("chat.usageContextAriaRemaining"),
+  };
 
   const closeInspector = useCallback(() => {
     setOpen(false);
@@ -229,12 +248,16 @@ export function ContextUsageInspector({
     >
       <div className="context-inspector-heading">
         <strong className="context-inspector-heading-value">
-          {t("chat.usageContextLeft", {
-            count: formatTokenCount(context.remainingTokens),
-          })}
+          {display.display === "used"
+            ? t("chat.usageContextSpent", {
+                count: formatTokenCount(display.tokens),
+              })
+            : t("chat.usageContextLeft", {
+                count: formatTokenCount(display.tokens),
+              })}
         </strong>
         <strong className="context-inspector-heading-percent">
-          {context.remainingPercent}%
+          {display.percent}%
         </strong>
       </div>
       <div className="context-inspector-window">
@@ -336,14 +359,8 @@ export function ContextUsageInspector({
         ref={triggerRef}
         type="button"
         className="context-inspector-trigger"
-        tooltip={t("chat.usageContextAria", {
-          percent: context.remainingPercent,
-          remaining: formatTokenCount(context.remainingTokens),
-        })}
-        ariaLabel={t("chat.usageContextAria", {
-          percent: context.remainingPercent,
-          remaining: formatTokenCount(context.remainingTokens),
-        })}
+        tooltip={t("chat.usageContextAria", ariaArguments)}
+        ariaLabel={t("chat.usageContextAria", ariaArguments)}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
@@ -367,12 +384,12 @@ export function ContextUsageInspector({
             r={CONTEXT_RING_RADIUS}
             strokeDasharray={CONTEXT_RING_CIRCUMFERENCE}
             strokeDashoffset={
-              CONTEXT_RING_CIRCUMFERENCE * (1 - context.remainingRatio)
+              CONTEXT_RING_CIRCUMFERENCE * (1 - display.ratio)
             }
           />
         </svg>
         <span className="context-inspector-ring-value">
-          {context.remainingPercent}%
+          {display.percent}%
         </span>
       </TooltipButton>
       {popover && typeof document !== "undefined"

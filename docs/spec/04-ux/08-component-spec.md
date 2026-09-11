@@ -1376,11 +1376,17 @@ Single message render — either user (plaintext) or assistant (markdown streami
   assistant message (the last model request), using
   `input + output + reasoning + cacheRead + cacheWrite` (D355). They are not
   the sum of every model call in the visual tool-loop. It is hidden until that
-  usage exists. The trigger keeps a small remaining-capacity ring beside the
-  percentage and omits the redundant `Context` label; low capacity changes
-  the semantic color without making color the only signal. Clicking the
-  trigger (or activating it from the keyboard) toggles a non-modal panel with
-  a remaining-token-plus-percentage heading, used/window counts, and two
+  usage exists. The trigger keeps a small capacity ring beside the
+  percentage and omits the redundant `Context` label; the leading figure
+  (ring arc, percentage, token label, popover heading, tooltip, and
+  `aria-label`) follows `settings.contextUsageDisplay` — `"remaining"`
+  (default) or `"used"` — so the ring fills by `remainingRatio` or
+  `usedRatio` accordingly. Low capacity changes the semantic color based
+  on remaining capacity (remaining ≤ 25 % warning, ≤ 10 % critical)
+  regardless of display mode, without making color the only signal.
+  Clicking the trigger (or activating it from the keyboard) toggles a
+  non-modal panel whose heading follows the same display-mode figure,
+  followed by used/window counts and two
   unboxed turn/speed summary values. Model usage is compressed into one
   inline summary row that retains exact last-request
   input/output/cache/reasoning values

@@ -70,6 +70,7 @@ This log freezes previously open questions into concrete decisions.
 | D393 | User-invoked Skills in the composer | **Amend D123 / D174 / ADR 0024 / ADR 0039: active built-in, plugin, and user Skills appear in a separate `Skills` group at the end of the composer slash menu. Selecting one inserts its exact id; Electron main revalidates the active project scope at send time and asks the model to call the local `Skill` tool, preserving on-demand body loading and existing permissions. Existing command names win collisions; inactive Skills remain literal slash text. See ADR 0219 and E2E-088b.** | D174's model-invoked catalog remains the body-loading and security contract, while a final explicit entry makes known workflows discoverable without moving Skill bodies into the renderer, prompt, or host protocol. |
 | D394 | Windows work-panel chrome keeps one resource action cluster | **Amend D154 / D357 / ADR 0195: the open work-panel header keeps one compact resource switcher; resource close is owned by the existing keyboard-operable context-menu rows, the viewport-fixed toggle remains the only panel collapse control, and subagent detail returns with a back chevron. Windows/Linux native controls remain fixed at the window edge. Renderer-only; no panel state, window geometry, IPC, protocol, or storage change. See ADR 0220 and E2E-067.** | The header resource `X`, viewport-fixed toggle, and Windows native close cluster read as duplicate close actions and became cramped at narrow panel widths. |
 | D396 | Renderer and plugin-panel scrollbars share one compact contract | **Amend D300: every renderer scroll container uses one 6px, trackless, transparent-at-rest scrollbar with the same hover, focus-within, scroll-reveal, and dragged-thumb states. Remove the sidebar-specific width and opacity override. The plugin-panel preload applies the same contract and 300ms reveal mark to docked and detached plugin documents, including the bundled Files view. External pages loaded inside the Browser guest remain page-owned. Presentation-only; no protocol, storage, host runtime, or external-page behavior change. See E2E-157.** | Windows' classic scrollbar made the right-side work-panel Files view visibly heavier than the conversation, while the sidebar retained a second scrollbar treatment. |
+| D398 | Context usage display preference | **Amend D347 / ADR 0184: the context usage inspector's leading figure — the trigger ring arc, percentage, token label, popover heading, tooltip, and `aria-label` — is configurable via `AppSettings.contextUsageDisplay` (`"remaining"` or `"used"`). Default and fallback for absent/unrecognised values is `"remaining"`. When `"used"`, the ring fills by `usedRatio`, and text shows the used-capacity pair. Warning and critical color thresholds (remaining ≤ 25 % / ≤ 10 %) stay based on remaining capacity regardless of display mode. Settings → AI → Defaults adds a segmented control (Remaining / Used) after Link open destination and before Enter-to-send. Renderer only; no protocol, storage, host, or migration change. See ADR 0222 and E2E-250.** | The remaining-only display gave weak signal at low occupancy and did not match users who reason in terms of "how much have I spent". Color must stay on remaining to avoid a misleading green ring at 90 % used. |
 
 
 | D244 | Compact context usage summary | **Amend D103 / D184 / ADR 0047: keep the context inspector's remaining-capacity trigger, used/window counts, turn total, completed-turn speed, exact provider values, aggregate tool types/calls/tokens, and checkpoint summary, but render them as a short summary. Remove the per-tool rows, share bars, source badges, explanatory estimate paragraph, and used-capacity meter from the default panel. No protocol, storage, runtime accounting, or model metadata changes.** *(Amended by D347: the trigger moves to the composer toolbar.)* | The prior diagnostic layout made a routine capacity check tall and visually dense. Keeping the aggregate signal while removing drill-down chrome makes the default status surface scannable without changing the underlying usage data. See ADR 0103 and E2E-060d / US-UI-61. |
@@ -955,6 +956,21 @@ section mirrors only marketplace/catalog items still blocking nothing.
   saving. No host RPC, protocol, workspace, or durable-schema change is added.
 - Decision D397 amends ADR 0101's previous drag/drop scope. See ADR 0222 and
   E2E-102i.
+
+## 2026-09-11 — Context usage display preference (D398)
+
+- The context usage inspector's leading figure — the trigger ring arc
+  (`strokeDashoffset`), percentage, token label, popover heading, tooltip,
+  and `aria-label` — is configurable via `AppSettings.contextUsageDisplay`
+  (`"remaining"` or `"used"`). Default and fallback for absent or
+  unrecognised values is `"remaining"`.
+- When `"used"`, the ring fills by `usedRatio`, and text shows the
+  used-capacity pair instead of the remaining pair.
+- Warning and critical color thresholds (remaining ≤ 25 % / ≤ 10 %) stay
+  based on remaining capacity regardless of display mode.
+- Settings → AI → Defaults adds a segmented control (Remaining / Used) after
+  Link open destination and before Enter-to-send.
+- Decision D398 amends D347 / ADR 0184. See ADR 0223 and E2E-250.
 
 ## 2026-07-31 — Plugin themes ship CSS files
 
