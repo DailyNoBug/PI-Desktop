@@ -210,10 +210,7 @@ export function WorkPanel({
     }
 
     const menuRect = menu.getBoundingClientRect();
-    const pluginSurface = trigger
-      .closest(".work-panel")
-      ?.querySelector<HTMLElement>(".work-plugin-view-surface")
-      ?.getBoundingClientRect();
+    const panelRect = trigger.closest(".work-panel")?.getBoundingClientRect();
     const placement = placeWorkPanelMenu({
       trigger: {
         left: triggerRect.left,
@@ -222,13 +219,8 @@ export function WorkPanel({
       },
       menu: { width: menuRect.width, height: menuRect.height },
       viewport: { width: window.innerWidth, height: window.innerHeight },
-      avoid: pluginSurface
-        ? {
-            left: pluginSurface.left,
-            top: pluginSurface.top,
-            right: pluginSurface.right,
-            bottom: pluginSurface.bottom,
-          }
+      boundary: panelRect
+        ? { left: panelRect.left, right: panelRect.right }
         : undefined,
     });
     setMenuPosition((previous) =>
@@ -740,7 +732,11 @@ export function WorkPanel({
                     icon={activePluginView?.icon}
                     sessionId={activeSessionId ?? undefined}
                     location={activeTab.location}
-                    blocked={exiting || panelBlocked}
+                    // Native WebContentsViews composite above renderer content.
+                    // Temporarily detach the active plugin surface so the
+                    // portaled menu can stay inside the dock instead of being
+                    // pushed into the conversation column.
+                    blocked={exiting || panelBlocked || menuOpen}
                   />
                 </div>
               );

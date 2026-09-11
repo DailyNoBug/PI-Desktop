@@ -86,17 +86,16 @@ test("plugin views reach the panel body and the empty state", () => {
   assert.doesNotMatch(panelSource, /openPluginView\(view\)/);
 });
 
-test("the native surface keeps its full bounds while the add menu moves aside", () => {
-  assert.match(
-    panelSource,
-    /querySelector<HTMLElement>\("\.work-plugin-view-surface"\)/s,
-  );
-  assert.match(panelSource, /avoid: pluginSurface/);
+test("the native surface keeps its full bounds while the add menu stays in the dock", () => {
+  assert.match(panelSource, /boundary: panelRect/);
+  assert.match(panelSource, /blocked=\{\s*exiting \|\| panelBlocked \|\| menuOpen\s*\}/s);
+  assert.doesNotMatch(panelSource, /avoid: pluginSurface/);
   assert.doesNotMatch(viewTabSource, /occludedById/);
   assert.match(viewTabSource, /y: rect\.y/);
   assert.match(viewTabSource, /height: rect\.height/);
-  // Visibility and bounds are separate effects: opening the menu must not
-  // detach the plugin page or change its measured rectangle.
+  // Visibility and bounds are separate effects: menu blocking detaches the
+  // native page without changing its measured rectangle, so the same surface
+  // returns when the menu closes.
   assert.match(
     viewTabSource,
     /pluginViewSetVisible\(pluginId, viewId, !blocked, sessionId\)[\s\S]*pluginViewSetBounds/s,

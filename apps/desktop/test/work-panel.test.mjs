@@ -102,6 +102,10 @@ test("a viewport-fixed toggle is the sole pointer collapse control", () => {
   assert.match(mainSource, /querySelector\('\.work-panel-new-tab'\)/);
   assert.doesNotMatch(mainSource, /work-panel-switcher-trigger/);
   assert.match(mainSource, /probe\.gap < 24/);
+  assert.match(mainSource, /pi-panel-browser-menu/);
+  assert.match(mainSource, /pi-panel-browser-menu-dark/);
+  assert.match(mainSource, /WORK_PANEL_MENU_PROBE/);
+  assert.match(mainSource, /insidePanel/);
   assert.match(
     globalStyles,
     /:root\[data-platform="win32"\] \.work-panel-header,[\s\S]*:root\[data-platform="linux"\] \.work-panel-header\s*\{[^}]*margin-right:\s*var\(--ds-window-controls-width\);/,
@@ -156,11 +160,11 @@ test("work panel uses the fixed-window internal dock", () => {
   assert.match(appSource, /finishWorkPanelExit\(workPanelExitGeneration\.current\)/);
   // Native surfaces hide via `blocked` before work-panel-out starts, so the
   // guest clamped to the plugin view is gone before the dock CSS animation.
-  // The context menu avoids the native surface, so opening it does not expose
-  // the panel background or change the plugin view's measured bounds.
+  // The add menu also blocks the active surface while open, keeping the menu
+  // inside the dock without exposing a second layout or moving the body.
   assert.match(
     panelSource,
-    /blocked=\{\s*exiting \|\| panelBlocked\s*\}/,
+    /blocked=\{\s*exiting \|\| panelBlocked \|\| menuOpen\s*\}/,
   );
   assert.match(panelSource, /nativeSurfaceReadyForExit/);
   assert.match(panelSource, /is-exit-pending/);
@@ -230,24 +234,23 @@ test("work panel header exposes a scrollable tab strip and fixed add menu", () =
   assert.doesNotMatch(panelSource, /onCollapse/);
   assert.doesNotMatch(panelSource, /work-panel-toolbar-collapse/);
   assert.match(panelSource, /panel\.tabs\.file/);
-  assert.match(panelSource, /querySelector<HTMLElement>\("\.work-plugin-view-surface"\)/);
-  assert.match(panelSource, /avoid: pluginSurface/);
   // Every native surface in the panel — the preview browser and each plugin
   // view — composites above the renderer. Exit and panel-wide overlays hide
-  // it; divider resize and the floating context menu keep its full bounds so
-  // the plugin body never shifts down.
+  // it; the floating add menu temporarily detaches the active surface so the
+  // menu can remain inside the dock without shifting the plugin body.
   const pluginSurfaceStart = panelSource.indexOf("<PluginViewTab");
   const pluginSurfaceEnd = panelSource.indexOf("/>", pluginSurfaceStart);
   const pluginSurface = panelSource.slice(pluginSurfaceStart, pluginSurfaceEnd);
   assert.match(
     pluginSurface,
-    /blocked=\{\s*exiting \|\| panelBlocked\s*\}/s,
+    /blocked=\{\s*exiting \|\| panelBlocked \|\| menuOpen\s*\}/s,
   );
   assert.doesNotMatch(pluginSurface, /isResizing/);
   assert.match(panelSource, /import \{ createPortal \} from "react-dom"/);
   assert.match(panelSource, /ref=\{newTabMenuRef\}/);
   assert.match(panelSource, /createPortal\([\s\S]*document\.body/);
   assert.doesNotMatch(panelSource, /onContextMenu|work-panel-context-menu/);
+  assert.match(panelSource, /boundary: panelRect/);
   assert.match(
     globalStyles,
     /\.work-panel-new-menu \{[^}]*position:\s*fixed;[^}]*z-index:\s*60;[^}]*min-width:/s,
@@ -296,7 +299,7 @@ test("work panel add menu keeps focus and motion stable while it is open", () =>
   );
 });
 
-test("work panel context menu placement stays within the viewport", () => {
+test("work panel add menu placement stays within the dock and viewport", () => {
   assert.equal(WORK_PANEL_MENU_MARGIN, 8);
   assert.equal(WORK_PANEL_MENU_GAP, 4);
 
@@ -321,9 +324,9 @@ test("work panel context menu placement stays within the viewport", () => {
       trigger: { left: 1100, top: 8, bottom: 40 },
       menu: { width: 220, height: 240 },
       viewport: { width: 1200, height: 800 },
-      avoid: { left: 980, top: 46, right: 1200, bottom: 800 },
+      boundary: { left: 840, right: 1080 },
     }),
-    { left: 756, top: 44 },
+    { left: 852, top: 44 },
   );
 });
 
