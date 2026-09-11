@@ -29,6 +29,7 @@ export type CaptureRigMethods = {
   ) => void;
   collapseWorkPanel: () => void;
   openWorkPanel: () => void;
+  openNewWorkPanelTab: () => void;
   setWorkPanelWidth: (width: number) => void;
   seedTranscript: (count?: number) => void;
   seedReviewChanges: (count?: number) => void;
@@ -93,6 +94,10 @@ export function installCaptureRig(): CaptureRig {
     openWorkPanel: () => {
       if (!window.__PI_CAPTURE__) return;
       useAppStore.getState().openWorkPanel();
+    },
+    openNewWorkPanelTab: () => {
+      if (!window.__PI_CAPTURE__) return;
+      useAppStore.getState().openNewWorkPanelTab();
     },
     setWorkPanelWidth: (width) => {
       if (!window.__PI_CAPTURE__) return;

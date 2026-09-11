@@ -175,7 +175,6 @@
   overflow-y: hidden;
   overscroll-behavior-inline: contain;
   scroll-padding-inline: 2px;
-  scrollbar-width: none;
 }
 
 .work-panel-tab-strip::-webkit-scrollbar {
@@ -275,133 +274,6 @@
   background: #ffffff;
 }
 
-/* The add menu is portaled so it never participates in the tab strip's
-   layout. When a native plugin view is active, its positioner opens the menu
-   beside that surface so the view keeps its full measured bounds. */
-.work-panel-new-menu {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 60;
-  width: max-content;
-  min-width: 200px;
-  max-width: calc(100vw - 16px);
-  max-height: min(420px, calc(100vh - 72px));
-  overflow-y: auto;
-  padding-bottom: 5px;
-  border: 1px solid var(--ds-border-default);
-  border-radius: var(--radius-md);
-  background: var(--ds-bg-elevated-opaque);
-  box-shadow: var(--ds-shadow-dialog);
-  -webkit-app-region: no-drag;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-4px);
-  visibility: hidden;
-}
-
-.work-panel-new-menu.is-open {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
-  visibility: visible;
-  animation: work-panel-menu-in var(--motion-duration-fast) var(--motion-ease-out)
-  both;
-}
-
-@keyframes work-panel-menu-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .work-panel-new-menu.is-open {
-    animation: none;
-    transform: none;
-  }
-}
-
-.work-panel-menu-group {
-  padding: 0 5px 5px;
-}
-
-.work-panel-menu-title {
-  padding: 9px 5px 6px;
-  color: var(--ds-text-muted);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--leading-compact);
-  letter-spacing: var(--tracking-normal);
-}
-
-.work-panel-menu-item {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 4px 0 8px;
-  border-radius: var(--radius-sm);
-  color: var(--ds-text-secondary);
-  text-align: left;
-  transition:
-    background var(--motion-duration-fast) var(--motion-ease-out),
-    color var(--motion-duration-fast) var(--motion-ease-out);
-}
-
-.work-panel-menu-item:hover,
-.work-panel-menu-item:focus-visible,
-.work-panel-menu-item.active {
-  background: var(--ds-bg-hover);
-  color: var(--ds-text-primary);
-}
-
-.work-panel-menu-item > svg,
-.work-panel-menu-item > .work-panel-view-initial {
-  flex: 0 0 auto;
-}
-
-/* The label is the only element allowed to absorb slack; the open dot next to
-   it must keep its own 4px box, so target the label by class, not by element. */
-.work-panel-menu-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-md);
-}
-
-/* Rows take real focus (ARIA menu pattern), so keyboard navigation needs its
-   own ring inside the row fill. */
-.work-panel-menu-item:focus-visible {
-  outline: 2px solid var(--ds-focus);
-  outline-offset: -2px;
-}
-
-.work-panel-menu-shortcut {
-  margin-left: auto;
-  color: var(--ds-text-muted);
-  font-size: var(--text-2xs);
-}
-
-/* An open-but-inactive tool keeps a neutral dot; the active row is carried by
-   fill plus the 2px edge marker, never by color alone. */
-.work-panel-open-dot {
-  width: 4px;
-  height: 4px;
-  flex: 0 0 auto;
-  border-radius: var(--radius-full);
-  background: var(--ds-text-secondary);
-}
-
 .work-panel-subagent-back {
   display: inline-flex;
   width: 28px;
@@ -437,7 +309,7 @@
 }
 
 .work-panel-new-tab:hover,
-.work-panel-new-tab[aria-expanded="true"] {
+.work-panel-new-tab:focus-visible {
   background: var(--ds-bg-active);
   color: var(--ds-text-primary);
 }
@@ -1152,7 +1024,7 @@
 }
 
 /* Fallback for a view whose icon token this build does not know. Sized to the
-   15px icon box the menu rows use so rows never shift between the two. */
+   15px icon box the launcher rows use so rows never shift between tools. */
 .work-panel-view-initial {
   display: inline-flex;
   width: 15px;

@@ -27,7 +27,6 @@ const dropdownSurfaces = [
   "model-default-menu",
   "provider-model-multi-menu",
   "provider-model-menu",
-  "work-panel-new-menu",
   "notification-popover",
   "sidebar-row-menu",
   "sidebar-popover",

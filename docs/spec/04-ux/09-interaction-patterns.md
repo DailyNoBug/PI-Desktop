@@ -411,8 +411,8 @@ may be retained while exactly one workspace supplies the visible shell context.
   retained context without creating a resource tab, and collapse the visible
   panel without deleting tabs, retaining tabs, active resource, and committed
   width. They are a no-op without an active session or while Settings is the
-  active page. The panel's context trigger can then create Browser or an
-  in-scope plugin view.
+  active page. The panel's `+` trigger can then create a New launcher tab whose
+  body offers Browser or an in-scope plugin view.
 - An artifact trigger atomically creates or reuses its resource, activates it,
   and opens the panel. Background artifacts never open the visible panel.
 - File resources use normalized paths as identity. Browser and plugin views
@@ -420,14 +420,15 @@ may be retained while exactly one workspace supplies the visible shell context.
   existing resource.
 - Once open, the panel header is a `tablist` that scrolls horizontally while a
   tight `+` trigger stays fixed beside it. Each tab owns its active state and
-  close button; the active tab is scrolled into view. The add menu is one
-  Tools & panels group containing host-owned Review followed by every in-scope
-  plugin view, so Files and Browser stay data-driven (D173).
+  close button; the active tab is scrolled into view. Clicking `+` creates a
+  unique New launcher tab; its data-driven Review, Files, Browser, and plugin
+  view rows are ordinary buttons in the page body.
 - Tab focus uses roving `tabIndex`: ArrowLeft/ArrowRight/Home/End move across
   tabs and Delete/Backspace closes the focused tab. Middle-click closes a tab;
-  closing an active tab selects the right neighbor, then the left. The `+`
-  menu uses Arrow/Home/End, Escape, and Tab, and returns focus to `+` on
-  dismissal. Shortcut labels appear only for bindings that actually exist.
+  closing an active tab selects the right neighbor, then the left. Selecting a
+  launcher row replaces that New tab with the destination or activates its
+  existing singleton. Shortcut labels appear only for bindings that actually
+  exist.
 - Activating a tool that is already open activates its existing resource instead
   of replacing it, so Browser keeps its URL and Files its selection (D173).
 - Every resource can be closed from its tab. Closing the active resource selects
