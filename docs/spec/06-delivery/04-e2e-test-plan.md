@@ -2819,7 +2819,9 @@ Each scenario is documented in this format:
   `file:` siblings. The preview hides under every blocking overlay and while
   unmounted, reappearing with correct bounds afterwards. An inline permission
   card does not hide or remount the preview; resize/drag keeps the native view
-  visible and aligned with the placeholder rect without a black flash.
+  visible and aligned with the placeholder rect without a black flash. Opening
+  the work-panel context dropdown keeps the native view visible below the
+  opaque menu bounds and restores the full surface rect when the menu closes.
   Open-external launches an http(s) page in the default browser and an in-root
   file preview via `openPath`. The view uses an isolated persist partition
   (no session bleed from the app shell).

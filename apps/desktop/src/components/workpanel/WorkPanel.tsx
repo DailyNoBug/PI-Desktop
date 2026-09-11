@@ -166,13 +166,19 @@ export function WorkPanel({
       closeContext();
     };
     const onViewportChange = () => setContextOpen(false);
+    // The native plugin surface is a sibling WebContentsView, so a click
+    // outside the renderer menu can blur this document before its pointer
+    // event reaches the renderer-level listener.
+    const onRendererBlur = () => setContextOpen(false);
     window.addEventListener("pointerdown", onPointer);
     window.addEventListener("keydown", onKey);
     window.addEventListener("resize", onViewportChange);
+    window.addEventListener("blur", onRendererBlur);
     return () => {
       window.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("blur", onRendererBlur);
     };
   }, [closeContext, contextOpen]);
 
@@ -676,12 +682,13 @@ export function WorkPanel({
                     icon={activePluginView?.icon}
                     sessionId={activeSessionId ?? undefined}
                     location={activeTab.location}
-                    // Keep the native surface mounted while the divider moves.
-                    // PluginViewTab's ResizeObserver tracks the placeholder,
-                    // so hiding it here would expose the panel background.
+                    // Keep the native surface mounted while the divider or
+                    // context menu changes. PluginViewTab clips only the
+                    // opaque menu overlap, so the panel never flashes empty.
                     blocked={
-                      exiting || panelBlocked || contextOpen
+                      exiting || panelBlocked
                     }
+                    occludedById={contextOpen ? "work-panel-context-menu" : undefined}
                   />
                 </div>
               );

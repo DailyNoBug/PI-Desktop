@@ -91,6 +91,23 @@ test("plugin views reach the panel body and the empty state", () => {
   assert.match(panelSource, /work-panel-empty-tool[\s\S]*openPluginView\(view\)/);
 });
 
+test("the native surface stays visible below the open context menu", () => {
+  assert.match(
+    panelSource,
+    /occludedById=\{contextOpen \? "work-panel-context-menu" : undefined\}/,
+  );
+  assert.match(viewTabSource, /occludedById\?: string/);
+  assert.match(viewTabSource, /document\.getElementById\(occludedById\)/);
+  assert.match(viewTabSource, /observer\.observe\(occludedBy\)/);
+  assert.match(viewTabSource, /height: Math\.max\(0, rect\.bottom - top\)/);
+  // Visibility and bounds are separate effects: menu clipping must not
+  // briefly detach the plugin page while its renderer overlay opens.
+  assert.match(
+    viewTabSource,
+    /pluginViewSetVisible\(pluginId, viewId, !blocked, sessionId\)[\s\S]*pluginViewSetBounds/s,
+  );
+});
+
 test("an unknown icon token degrades instead of rendering plugin markup", () => {
   const iconSource = read("src/lib/plugin-view-icons.ts");
   // The manifest carries a token, never SVG: the icon is drawn inside host

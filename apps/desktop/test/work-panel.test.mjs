@@ -120,9 +120,11 @@ test("work panel uses the fixed-window internal dock", () => {
   assert.match(appSource, /finishWorkPanelExit\(workPanelExitGeneration\.current\)/);
   // Native surfaces hide via `blocked` before work-panel-out starts, so the
   // guest clamped to the plugin view is gone before the dock CSS animation.
+  // The context menu is handled by clipping the native surface below its
+  // opaque bounds, so opening it does not expose the panel background.
   assert.match(
     panelSource,
-    /blocked=\{\s*exiting \|\| panelBlocked \|\| contextOpen/,
+    /blocked=\{\s*exiting \|\| panelBlocked\s*\}/,
   );
   assert.match(panelSource, /nativeSurfaceReadyForExit/);
   assert.match(panelSource, /is-exit-pending/);
@@ -209,16 +211,19 @@ test("work panel header exposes one unified menu with no duplicated entries", ()
   assert.match(panelSource, /panel\.pluginViews/);
   assert.doesNotMatch(panelSource, /panel\.openTool/);
   // Every native surface in the panel — the preview browser and each plugin
-  // view — composites above the renderer, so one blocking condition governs
-  // them all. A divider resize is intentionally absent: the placeholder
-  // observer keeps the native surface aligned without flashing the panel
-  // background.
+  // view — composites above the renderer. Exit and panel-wide overlays hide
+  // it; divider resize and the local context menu keep it mounted so the panel
+  // never flashes its background.
   const pluginSurfaceStart = panelSource.indexOf("<PluginViewTab");
   const pluginSurfaceEnd = panelSource.indexOf("/>", pluginSurfaceStart);
   const pluginSurface = panelSource.slice(pluginSurfaceStart, pluginSurfaceEnd);
   assert.match(
     pluginSurface,
-    /blocked=\{\s*exiting \|\| panelBlocked \|\| contextOpen\s*\}/s,
+    /blocked=\{\s*exiting \|\| panelBlocked\s*\}/s,
+  );
+  assert.match(
+    pluginSurface,
+    /occludedById=\{contextOpen \? "work-panel-context-menu" : undefined\}/s,
   );
   assert.doesNotMatch(pluginSurface, /isResizing/);
   assert.doesNotMatch(panelSource, /onContextMenu|createPortal|work-panel-tools-menu/);
@@ -245,6 +250,7 @@ test("work panel menu keeps focus, layout, and motion stable while it is open", 
   assert.match(panelSource, /"\[data-work-panel-menu-item\]"/);
   assert.match(panelSource, /const contextOpenFocus = useRef<"active" \| "last">/);
   assert.match(panelSource, /event\.key === "ArrowUp" \? "last" : "active"/);
+  assert.match(panelSource, /window\.addEventListener\("blur", onRendererBlur\)/);
   assert.match(
     panelSource,
     /item\.getAttribute\("aria-checked"\) === "true"/,
