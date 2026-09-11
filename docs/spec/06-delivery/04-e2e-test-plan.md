@@ -660,6 +660,29 @@ Each scenario is documented in this format:
 - **Status**: Unit-covered (preset matching, catalog aliases, Completions
   compat); rendered UI scenario Draft
 
+#### E2E-248: Responses turn completes without waiting for the server to close the connection
+
+- **Preconditions**: A provider whose model pins `api: "openai-responses"` (or
+  a provider with `apiStyle: "responses"`) is configured; the endpoint is
+  fronted by a proxy that holds the HTTP connection open after the final
+  SSE event (a local reverse proxy or a stub server that never sends FIN).
+- **Steps**: 1) Start a session with that model and send a short prompt. 2)
+  Capture the SSE frames and confirm the server emitted
+  `response.completed` with `status: "completed"` and usage. 3) Keep the
+  stub/proxy connection open without sending a TCP FIN. 4) Observe the
+  assistant turn state and send a follow-up prompt.
+- **Expected**: The turn completes as soon as `response.completed` is
+  finalized: usage is recorded, `stopReason` is `stop`, and the client stops
+  consuming the stream (the underlying request is aborted) instead of
+  blocking on the idle connection. The composer becomes idle immediately and
+  the follow-up turn starts normally. The stream must not hang when the
+  server never closes the connection.
+- **Specs linked**: `03-runtime/11-provider-model-system.md` (§16.1)
+- **Acceptance**: B (provider Responses compatibility)
+- **Milestone**: M2
+- **Status**: Unit-covered (stream processor terminates on the terminal
+  event via the pi-ai patch); live-proxy scenario Draft
+
 #### E2E-005E: DeepSeek thinking replay includes reasoning_content on aggregator endpoints
 
 - **Preconditions**: An OpenAI-compatible provider whose base URL is not

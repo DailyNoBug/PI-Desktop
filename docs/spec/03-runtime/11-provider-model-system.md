@@ -610,6 +610,19 @@ model-level pin the provider-wide style applies unchanged.
 
 This is the **universal escape hatch** guaranteeing market coverage beyond native integrations.
 
+### 16.1 Responses stream termination (pi-ai patch)
+
+The OpenAI Responses adapter must treat `response.completed` (and
+`response.incomplete`) as the end of the stream: after finalizing the
+response, it stops consuming the stream instead of awaiting the server's
+TCP FIN. Upstream pi-ai keeps iterating until the server closes the
+connection, which hangs the turn behind reverse proxies that hold the idle
+connection open. Until the fix ships upstream, `patches/` carries a pnpm
+patch on `@earendil-works/pi-ai@0.85.1` that breaks the event loop on the
+terminal event (the OpenAI SDK aborts the underlying request when the
+consumer stops iterating). Drop the patch once a pi-ai release includes the
+fix.
+
 ## 17. Multi-provider product rules
 
 1. Multiple providers of the same `vendorKey` are allowed and independent (for
