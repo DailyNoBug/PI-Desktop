@@ -1,6 +1,6 @@
 # ADR 0104: Plugin-contributed work panel views
 
-- Status: Accepted
+- Status: Accepted (amended in part by ADR 0219 / D393)
 - Date: 2026-08-19
 - Deciders: PI-Desktop core
 - Related: [ADR 0019](0019-work-panel-subsystems.md) ·

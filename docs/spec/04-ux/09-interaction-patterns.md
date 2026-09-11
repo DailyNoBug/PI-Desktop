@@ -409,9 +409,10 @@ may be retained while exactly one workspace supplies the visible shell context.
   view is visible. Stage, unstage, commit, push, and pull act directly after
   their button action; discard and branch switching or create-and-switch first
   require host-owned native confirmation. Change sections are collapsible
-  directory trees; selecting a file opens a centered Git review modal over that
-  tree in side-by-side old/new mode, and the AI commit action only fills the
-  editable message field.
+  directory trees; selecting a file expands the Git view to a host-owned inset
+  application-window surface and opens a centered review dialog over the tree
+  in side-by-side old/new mode, and the AI commit action only fills the editable
+  message field.
 - File resources use normalized paths as identity. Browser and plugin views
   are singletons; repeated triggers preserve resource order and activate the
   existing resource.

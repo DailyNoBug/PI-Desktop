@@ -576,6 +576,7 @@ window.pluginBridge.on(event, handler)
 | 频道 | 所需许可 |
 |---|---|
 | `ui.showToast`、`ui.closePanel` | 没有超出加载的面板 |
+| `view.prepareModal`、`view.setModal` | `ui.view`；仅当前活跃的停靠视图 |
 | `ui.notify` | `notify` |
 | `ui.getNotificationPermission`、`ui.requestNotificationPermission`、`ui.showNativeNotification` | `notify` |
 | `plugin.getSettings`、`workspace.get`、`app.getAppearance` | 无 |
@@ -589,6 +590,21 @@ window.pluginBridge.on(event, handler)
 | `net.fetch` | `net.fetch` |
 | `git.status`、`git.branches`、`git.diff` | `git.read` |
 | `git.stage`、`git.unstage`、`git.discard`、`git.createBranch`、`git.switchBranch`、`git.commit`、`git.push`、`git.pull` | `git.write` |
+
+```ts
+view.prepareModal(): Promise<{
+  dock: { x: number; y: number; width: number; height: number }
+  modal: { x: number; y: number; width: number; height: number }
+}>
+view.setModal(input: { modal: boolean }): Promise<{
+  dock: { x: number; y: number; width: number; height: number }
+  modal: { x: number; y: number; width: number; height: number }
+}>
+```
+
+两个矩形都由宿主拥有。`prepareModal` 让页面在原生视图扩展前应用停靠位置；
+`setModal` 进入或退出临时的窗口级弹窗布局。视图被隐藏或切换时会恢复停靠
+布局，即使页面没有主动请求退出。
 
 `plugin.setSettings`、`fs.remove` 和任意 Electron IPC 未暴露。主机自己
 没有实现的通道会被转发到插件的 `onPanelInvoke(channel, payload)`，
@@ -606,6 +622,10 @@ window.pluginBridge.on(event, handler)
   语言发生变化时发送，因此面板可以实时重新着色和重新标注文案。
 - `workspace:changed` —— 载荷为 `{ path: string; name: string } | null`，
   与 `workspace.get()` 一致，在打开的项目变化时发送。
+- `view:visibility` —— 载荷为 `{ pluginId: string; visible: boolean }`，
+  在停靠视图附加或分离时发送。
+- `view:modal-geometry` —— 载荷为宿主拥有的 `{ dock, modal }` 几何信息；
+  仅在该停靠视图处于弹窗模式且窗口边界变化时发送。
 
 ## 7. 通话审计
 

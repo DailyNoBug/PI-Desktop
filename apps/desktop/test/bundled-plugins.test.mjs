@@ -203,6 +203,8 @@ test("Git ships as an ordinary plugin over the public Git bridge", () => {
   assert.doesNotMatch(gitMain, /require\(|ipcRenderer|process\./);
   assert.match(gitView, /pluginBridge/);
   for (const channel of [
+    "view.prepareModal",
+    "view.setModal",
     "git.status",
     "git.branches",
     "git.diff",

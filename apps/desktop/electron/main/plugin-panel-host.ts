@@ -169,7 +169,11 @@ export class PluginPanelHost {
           channel === "fs.registerDropped"
             ? this.consumeDroppedPath(event.sender.id, payload?.path)
             : undefined;
-        return this.bridge(pluginId, channel, payload, droppedPath ? { droppedPath } : undefined);
+        const context = {
+          senderId: event.sender.id,
+          ...(droppedPath ? { droppedPath } : {}),
+        };
+        return this.bridge(pluginId, channel, payload, context);
       },
     );
 

@@ -9820,8 +9820,9 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Expected**: The Git view uses the `branch` icon and current locale. It
   reports repository, branch, upstream, ahead/behind, staged, unstaged,
   untracked, conflicts, and truncation state without exposing diff output in
-  logs. The review overlay stays inside Git, supports all scopes and navigation,
-  and never creates or activates message-owned Review or rollback. Stage and
+  logs. The review dialog spans the host-owned inset application-window surface,
+  supports all scopes and navigation, and never creates or activates
+  message-owned Review or rollback. Stage and
   unstage update the correct sections; discard and branch switching require the
   host-owned native confirmation, with tracked restore from `HEAD` and untracked
   removal to the OS trash. Empty-message, empty-commit, hook, authorization, and
@@ -9851,18 +9852,21 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Steps**: 1) Open the Git view and inspect both change sections as directory
   trees, including collapsed/expanded folder counts. 2) Select a nested modified
   file without expanding its folder through any other surface. 3) Confirm the
-  centered modal opens directly over the tree in side-by-side mode with aligned
-  old/new line numbers, red old content, green new content, and working change
-  navigation. 4) Switch
-  to unified and back, close with Escape, and confirm focus returns to the same
-  file row. 5) With staged changes present, click AI and edit the generated
-  message before committing. 6) Clear the index, click AI with unstaged and
-  untracked changes, and confirm the generated message reflects them. 7) Force
-  a model error and repeat; then repeat from the model-less profile. 8) Use the
+  window-centered modal spans nearly the application window without being
+  clipped to the right panel, opens in side-by-side mode with aligned old/new
+  line numbers, red old content, green new content, and working change
+  navigation. 4) Resize the window and verify the dialog and anchored tree follow
+  it; switch away from Git, verify the expanded native view disappears, then
+  return to the docked tree. 5) Switch to unified and back, close with Escape,
+  and confirm focus returns to the same file row. 6) With staged changes present,
+  click AI and edit the generated message before committing. 7) Clear the index,
+  click AI with unstaged and untracked changes, and confirm the generated message
+  reflects them. 8) Force a model error and repeat; then repeat from the
+  model-less profile. 9) Use the
   oversized fixture and confirm generation remains bounded.
 - **Expected**: Folder and file rows stay aligned and localized. File clicks
   open the Git-owned modal, never message-owned Review or rollback, and the Git
-  tab remains the changed-file tree surface behind its scrim. Split
+  tab remains the changed-file tree surface anchored in the right panel. Split
   diff is the default and red/green old/new content is readable in both themes.
   AI uses the marked ready default model, sends only bounded scoped Git diff
   context through public `models.list` and `agent.complete` channels, and fills
@@ -9872,7 +9876,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   explicit action.
 - **Specs linked**: `07-plugins/03-plugin-api.md` (models and agent.complete),
   `04-ux/08-component-spec.md` §5.2.3,
-  `04-ux/09-interaction-patterns.md` §1.8; ADR 0218, D392
+  `04-ux/09-interaction-patterns.md` §1.8; ADR 0218, ADR 0219, D392, D393
 - **Acceptance**: D (plugins), Security, Quality
 - **Milestone**: M6+
 - **Status**: Draft; runtime permission and bundled-plugin source-contract tests

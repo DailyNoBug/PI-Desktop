@@ -4492,3 +4492,16 @@ D193, and D194.
   gateway and side-completion service so the 90-second completion budget is not
   reduced by the generic 30-second plugin-process panel timeout. Generated text
   only fills the editable message field; Commit remains a separate user action.
+
+## 2026-09-12 — Window-sized Git review modal (D393)
+
+- D392's review dialog remained clipped to the docked `WebContentsView`, even
+  though the requested review posture needed an application-window dialog.
+- Decision D393 / ADR 0219 adds fixed `view.prepareModal` and `view.setModal`
+  panel channels under `ui.view`. Only the active docked view may use them; the
+  host computes every rectangle, keeps the dock geometry authoritative, pushes
+  resize updates, and restores docked placement whenever the view is hidden,
+  switched, closed, reloaded, disabled, or crashed.
+- The Git tree stays anchored at its right-panel position while the review
+  dialog spans an inset application-window surface. The plugin cannot supply
+  window bounds, and message-owned Review snapshots and rollback are unchanged.
