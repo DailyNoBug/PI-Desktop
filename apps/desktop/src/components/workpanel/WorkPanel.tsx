@@ -210,6 +210,10 @@ export function WorkPanel({
     }
 
     const menuRect = menu.getBoundingClientRect();
+    const pluginSurface = trigger
+      .closest(".work-panel")
+      ?.querySelector<HTMLElement>(".work-plugin-view-surface")
+      ?.getBoundingClientRect();
     const placement = placeWorkPanelMenu({
       trigger: {
         left: triggerRect.left,
@@ -218,6 +222,14 @@ export function WorkPanel({
       },
       menu: { width: menuRect.width, height: menuRect.height },
       viewport: { width: window.innerWidth, height: window.innerHeight },
+      avoid: pluginSurface
+        ? {
+            left: pluginSurface.left,
+            top: pluginSurface.top,
+            right: pluginSurface.right,
+            bottom: pluginSurface.bottom,
+          }
+        : undefined,
     });
     setMenuPosition((previous) =>
       previous?.top === placement.top && previous.left === placement.left
@@ -729,7 +741,6 @@ export function WorkPanel({
                     sessionId={activeSessionId ?? undefined}
                     location={activeTab.location}
                     blocked={exiting || panelBlocked}
-                    occludedById={menuPosition ? "work-panel-new-menu" : undefined}
                   />
                 </div>
               );

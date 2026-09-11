@@ -132,8 +132,8 @@ test("work panel uses the fixed-window internal dock", () => {
   assert.match(appSource, /finishWorkPanelExit\(workPanelExitGeneration\.current\)/);
   // Native surfaces hide via `blocked` before work-panel-out starts, so the
   // guest clamped to the plugin view is gone before the dock CSS animation.
-  // The context menu is handled by clipping the native surface below its
-  // opaque bounds, so opening it does not expose the panel background.
+  // The context menu avoids the native surface, so opening it does not expose
+  // the panel background or change the plugin view's measured bounds.
   assert.match(
     panelSource,
     /blocked=\{\s*exiting \|\| panelBlocked\s*\}/,
@@ -206,21 +206,18 @@ test("work panel header exposes a scrollable tab strip and fixed add menu", () =
   assert.doesNotMatch(panelSource, /onCollapse/);
   assert.doesNotMatch(panelSource, /work-panel-toolbar-collapse/);
   assert.match(panelSource, /panel\.tabs\.file/);
-  assert.match(panelSource, /occludedById=\{menuPosition \? "work-panel-new-menu" : undefined\}/);
+  assert.match(panelSource, /querySelector<HTMLElement>\("\.work-plugin-view-surface"\)/);
+  assert.match(panelSource, /avoid: pluginSurface/);
   // Every native surface in the panel — the preview browser and each plugin
   // view — composites above the renderer. Exit and panel-wide overlays hide
-  // it; divider resize and the floating context menu keep it mounted so the panel
-  // never flashes its background.
+  // it; divider resize and the floating context menu keep its full bounds so
+  // the plugin body never shifts down.
   const pluginSurfaceStart = panelSource.indexOf("<PluginViewTab");
   const pluginSurfaceEnd = panelSource.indexOf("/>", pluginSurfaceStart);
   const pluginSurface = panelSource.slice(pluginSurfaceStart, pluginSurfaceEnd);
   assert.match(
     pluginSurface,
     /blocked=\{\s*exiting \|\| panelBlocked\s*\}/s,
-  );
-  assert.match(
-    pluginSurface,
-    /occludedById=\{menuPosition \? "work-panel-new-menu" : undefined\}/s,
   );
   assert.doesNotMatch(pluginSurface, /isResizing/);
   assert.match(panelSource, /import \{ createPortal \} from "react-dom"/);
@@ -289,6 +286,15 @@ test("work panel context menu placement stays within the viewport", () => {
       viewport: { width: 1200, height: 800 },
     }),
     { left: 972, top: 296 },
+  );
+  assert.deepEqual(
+    placeWorkPanelMenu({
+      trigger: { left: 1100, top: 8, bottom: 40 },
+      menu: { width: 220, height: 240 },
+      viewport: { width: 1200, height: 800 },
+      avoid: { left: 980, top: 46, right: 1200, bottom: 800 },
+    }),
+    { left: 756, top: 44 },
   );
 });
 

@@ -86,17 +86,17 @@ test("plugin views reach the panel body and the empty state", () => {
   assert.doesNotMatch(panelSource, /openPluginView\(view\)/);
 });
 
-test("the native surface stays visible below the open add menu", () => {
+test("the native surface keeps its full bounds while the add menu moves aside", () => {
   assert.match(
     panelSource,
-    /occludedById=\{menuPosition \? "work-panel-new-menu" : undefined\}/s,
+    /querySelector<HTMLElement>\("\.work-plugin-view-surface"\)/s,
   );
-  assert.match(viewTabSource, /occludedById\?: string/);
-  assert.match(viewTabSource, /document\.getElementById\(occludedById\)/);
-  assert.match(viewTabSource, /observer\.observe\(occludedBy\)/);
-  assert.match(viewTabSource, /height: Math\.max\(0, rect\.bottom - top\)/);
-  // Visibility and bounds are separate effects: menu clipping must not
-  // briefly detach the plugin page while its renderer overlay opens.
+  assert.match(panelSource, /avoid: pluginSurface/);
+  assert.doesNotMatch(viewTabSource, /occludedById/);
+  assert.match(viewTabSource, /y: rect\.y/);
+  assert.match(viewTabSource, /height: rect\.height/);
+  // Visibility and bounds are separate effects: opening the menu must not
+  // detach the plugin page or change its measured rectangle.
   assert.match(
     viewTabSource,
     /pluginViewSetVisible\(pluginId, viewId, !blocked, sessionId\)[\s\S]*pluginViewSetBounds/s,
