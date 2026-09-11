@@ -238,10 +238,10 @@ combined model × reasoning selection (§11).
   120px for native window controls (112px hit targets plus an 8px visual
   buffer). The conversation titlebar also reserves the 28px work-panel toggle
   while the panel is closed. While the panel is open, that 120px band plus the
-  toggle overlay the panel header instead, and the header pads to keep
-  resource switcher clear of the native control band. Resource close actions
-  stay in its menu rows so a second header `×` does not echo the native
-  Windows close control (D357).
+  toggle overlay the panel header instead, and the header ends its box before
+  the band so the resource switcher stays clear of the native control band.
+  Resource close actions stay in its menu rows so a second header `×` does not
+  echo the native Windows close control (D357).
 - Title cluster (task title) flexes and shows at most the first 10 Unicode
   characters plus an ellipsis; the full title remains in the native tooltip.
   The right cluster (action icons) is `flex: 0 0 auto`
@@ -257,7 +257,9 @@ combined model × reasoning selection (§11).
   `--ds-toolbar-height`. Windows/Linux keep the same `--ds-window-controls-width`
   for the viewport-fixed control band; when the work panel opens, that
   reservation moves from the conversation titlebar onto the panel header so the
-  controls do not travel with MainPane (D357). The control band continues the
+  controls do not travel with MainPane (D357). The panel header carries it by
+  ending its own box before the band — a margin, not padding — because the
+  native drag rectangle is the border box. The control band continues the
   titlebar's `border-subtle` bottom rule and uses the same token for its
   leading divider.
 - Band reservation is platform-independent (D269). The band is opaque and

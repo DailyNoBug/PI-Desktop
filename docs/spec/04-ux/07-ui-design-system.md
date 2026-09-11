@@ -513,12 +513,15 @@ leading and bottom edges use the same `border-subtle` rule as the adjacent
 titlebar so the 46px chrome reads as one continuous surface. Main, Settings,
 and work-panel drag regions must terminate before this reservation rather than
 overlap it and rely only on descendant `no-drag`, so every visible control
-pixel remains clickable. The open work-panel header uses one compact resource
-switcher with menu-owned close actions; it does not add a second `×` beside the
-native Windows close control. The band floats over the destination pages, so on
-Windows/Linux a page frame and any right-edge detail sheet start below it
-instead of placing their own header actions or close control under the window
-controls. No application menu is rendered inside the window.
+pixel remains clickable. Termination is geometric: a region ends where the
+element's border box ends, so an element that only pads its content clear of
+the band still covers the controls with its rectangle. The open work-panel
+header uses one compact resource switcher with menu-owned close actions; it
+does not add a second `×` beside the native Windows close control. The band
+floats over the destination pages, so on Windows/Linux a page frame and any
+right-edge detail sheet start below it instead of placing their own header
+actions or close control under the window controls. No application menu is
+rendered inside the window.
 Other menu popovers use the standard opaque elevated-menu surface, `radius-sm`,
 subtle border, and dialog shadow; they are never translucent over readable
 content.

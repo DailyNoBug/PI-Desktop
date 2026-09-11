@@ -74,7 +74,13 @@ test("a viewport-fixed toggle is the sole pointer collapse control", () => {
   );
   assert.match(
     globalStyles,
-    /:root\[data-platform="win32"\] \.work-panel-header,[\s\S]*:root\[data-platform="linux"\] \.work-panel-header\s*\{[^}]*padding-right:\s*calc\(var\(--ds-window-controls-width\) \+ 46px\);/,
+    /:root\[data-platform="win32"\] \.work-panel-header,[\s\S]*:root\[data-platform="linux"\] \.work-panel-header\s*\{[^}]*margin-right:\s*var\(--ds-window-controls-width\);/,
+  );
+  // The reservation ends the header's box so its native drag rectangle stops
+  // before the control band: padding alone still covers the window controls.
+  assert.doesNotMatch(
+    globalStyles,
+    /padding-right:\s*calc\(var\(--ds-window-controls-width\)/,
   );
   assert.match(
     globalStyles,
