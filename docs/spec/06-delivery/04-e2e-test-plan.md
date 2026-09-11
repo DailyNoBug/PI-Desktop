@@ -10028,3 +10028,26 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Milestone**: M5
 - **Status**: Unit-covered (`context-usage.test.mjs`,
   `settings-general.test.mjs`); full scenario Draft
+
+#### E2E-251: Session and folder drag/drop across projects
+
+- **Preconditions**: Two projects are open in the sidebar; one holds an idle
+  session, and one session somewhere is running a turn.
+- **Steps**: 1) Drag the idle session row onto the other project group and drop
+  it. 2) Reopen that session and read its transcript. 3) Attempt to drag the
+  running session and, separately, open its session menu. 4) Drop a folder onto
+  the projects list. 5) Drop a folder on the composer.
+- **Expected**: The dragged idle session lists under the target project with its
+  transcript, attachments, and tasks unchanged, and the move survives a restart.
+  The running session is not draggable, its "Move to project" entries are
+  disabled, and a move issued after a turn starts is rejected as busy rather
+  than rebinding the agent. Dropping a folder on the projects list adds or
+  switches to that project without creating a duplicate row, and a non-folder
+  drop explains that a folder is required. Dropping a folder on the composer
+  offers an explicit choice and never attaches directory contents: "Open as
+  project" opens the project, and "Reference folder" inserts the literal path.
+- **Specs linked**: `04-ux/09-interaction-patterns.md` §8,
+  `03-runtime/06-host-rpc-protocol.md` (session.moveProject)
+- **Acceptance**: D (project/session lifecycle), H (interaction quality)
+- **Milestone**: M5
+- **Status**: Documented; automation pending

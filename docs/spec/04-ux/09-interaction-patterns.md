@@ -958,10 +958,29 @@ The following gesture remains reserved for future milestones:
 
 - Drag project/session items to assign manual order
 
+Sidebar drag/drop is implemented:
+
+- A session row is draggable while idle. Dropping it on another project group
+  moves that session to the project: the host updates only the session's
+  project association, and the transcript, attachments, tasks, revisions,
+  artifacts, notifications, and scratch data stay with the session.
+- A running session is not draggable, and the session menu's project targets
+  are disabled for it. The host rejects the move as well, so a turn that starts
+  mid-drag cannot leave the agent bound to the previous project's instructions.
+- The dragged row paints at opacity 0.5 and the eligible project group
+  highlights with an accent outline. A session's own project group is not a
+  drop target, so a same-project drag never issues a request.
+- The session menu keeps a "Move to project" list of every other project, so
+  the same move is available without a pointer drag.
+- Dropping a folder on the projects list adds it as a project, or switches to
+  it when it is already known; duplicate paths resolve to one project row. A
+  drop that carries no folder reports why nothing happened.
+
 Native file-system drops into the composer are implemented. The target uses an
 accent outline without changing layout; regular files use the session-scratch
-reference flow below, while folders keep their complete path as a literal
-directory reference in the draft.
+reference flow below. A dropped folder is never attached: it raises an explicit
+choice between opening it as a project and inserting the literal directory path
+into the draft, so an unknown directory tree cannot enter the context.
 
 ### 8.2 Spec reservation
 
