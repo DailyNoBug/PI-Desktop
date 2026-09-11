@@ -18,9 +18,11 @@
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@pi-desktop/shared": "workspace:*"
+    "@pi-desktop/shared": "workspace:*",
+    "ws": "8.21.1"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "@types/node": "^24.13.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"

@@ -1918,6 +1918,14 @@
           },
           "version": {
             "type": "string"
+          },
+          "hostProtocolVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "storageSchemaVersion": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       },
@@ -2129,6 +2137,10 @@
             "minimum": 1
           }
         }
+      },
+      "deviceToken": {
+        "type": "string",
+        "minLength": 32
       }
     }
   },

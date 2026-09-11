@@ -374,6 +374,41 @@ export const RacpProjectSummarySchema = Type.Object({
 });
 export type RacpProjectSummary = Static<typeof RacpProjectSummarySchema>;
 
+export type RacpProjectListResult = {
+  projects: RacpProjectSummary[];
+};
+
+export type RacpSessionListResult = {
+  sessions: RacpSession[];
+};
+
+export type RacpSessionCreateParams = {
+  projectId?: string;
+  title?: string;
+  mode?: RacpSessionMode;
+  permissionMode?: RacpPermissionMode;
+  providerId?: string;
+  modelId?: string;
+  thinkingLevel?: string;
+};
+
+export type RacpSessionConfigureParams = {
+  sessionId: string;
+  mode?: string;
+  permissionMode?: RacpPermissionMode;
+  providerId?: string;
+  modelId?: string;
+  thinkingLevel?: string;
+};
+
+export type RacpSessionMutationResult = {
+  session: RacpSession;
+};
+
+export type RacpWorkspaceBrowseParams = {
+  path?: string;
+};
+
 export const RacpSessionSnapshotSchema = Type.Object({
   session: RacpSessionSchema,
   activeTurn: Type.Optional(RacpTurnSchema),
@@ -480,7 +515,12 @@ export type RacpInitializeParams = Static<typeof RacpInitializeParamsSchema>;
 
 export const RacpInitializeResultSchema = Type.Object({
   protocolVersion: Type.String({ minLength: 1 }),
-  server: Type.Object({ name: Type.String(), version: Type.String() }),
+  server: Type.Object({
+    name: Type.String(),
+    version: Type.String(),
+    hostProtocolVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+    storageSchemaVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+  }),
   connectionId: Type.String({ minLength: 1 }),
   principal: Type.Object({
     subject: Type.String({ minLength: 1 }),
@@ -489,6 +529,8 @@ export const RacpInitializeResultSchema = Type.Object({
   capabilities: RacpServerCapabilitiesSchema,
   limits: RacpLimitsSchema,
   policy: RacpPolicySchema,
+  /** Present only when a one-time SSH pairing token is exchanged. */
+  deviceToken: Type.Optional(Type.String({ minLength: 32 })),
 });
 export type RacpInitializeResult = Static<typeof RacpInitializeResultSchema>;
 
@@ -546,6 +588,7 @@ export const RACP_OPERATIONS = {
   "session/delete": { role: "owner", profile: "remote-host", mutation: true },
   "session/compact": { role: "controller", profile: "remote-host", mutation: true },
   "workspace/list": { role: "viewer", profile: "remote-host", mutation: false },
+  "workspace/browse": { role: "owner", profile: "remote-host", mutation: false },
   "workspace/read": { role: "viewer", profile: "remote-host", mutation: false },
   "workspace/diff": { role: "viewer", profile: "remote-host", mutation: false },
   "terminal/open": { role: "controller", profile: "remote-host", mutation: true },

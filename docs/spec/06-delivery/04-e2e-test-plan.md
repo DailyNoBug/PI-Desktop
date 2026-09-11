@@ -9875,6 +9875,28 @@ browser milestones are scheduled.
 - **Milestone**: Post-MVP (rollout R3)
 - **Status**: Draft; integration fixture required
 
+#### E2E-249: RACP-WS pairing and resumable event delivery
+
+- **Preconditions**: A loopback test `pi-host` has one idle Session, a valid
+  one-time pairing token, and a deterministic runtime fixture.
+- **Steps**: 1) Attempt a WebSocket connection without a bearer token. 2)
+  Connect with the pairing token, initialize RACP, and retain the issued device
+  token. 3) Subscribe to the Session and start a turn that emits one durable
+  event. 4) Close the socket, reconnect with the device token and the last
+  `{ epoch, sequence }` cursor, and subscribe again. 5) Attempt to reuse the
+  pairing token.
+- **Expected**: Step 1 is rejected before initialization. The paired desktop
+  receives owner roles and a device token; the live subscription delivers the
+  durable event with a sequence; reconnect resumes without duplicating it; the
+  spent pairing token is rejected. The Host never accepts a non-loopback peer.
+- **Specs linked**: `03-runtime/19-remote-agent-control-protocol.md` §§3, 6.2,
+  7.2, and 11.1, `05-security/02-remote-control-security.md` §§3.4 and 5.1,
+  ADR 0234
+- **Acceptance**: Security, Recovery, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: binding-covered by `packages/agent-host/src/racp-ws.test.ts`;
+  full SSH journey E2E-231 remains draft
+
 ## Trusted extension scenarios (R7 v1)
 
 The following scenarios are the acceptance targets of D387 / ADR 0214 and

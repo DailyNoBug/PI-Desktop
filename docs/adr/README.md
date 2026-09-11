@@ -251,3 +251,4 @@ Each ADR includes:
 | 0231 | Bundled Git work panel | Accepted (D405; amended by 0232 / D406) |
 | 0232 | Tree review and AI commit messages in Git | Accepted (D406) |
 | 0233 | Window-sized plugin view modals | Accepted (D407) |
+| 0234 | Remote SSH Agent Runtime | Accepted for implementation (D408) |

@@ -22,6 +22,7 @@ This log freezes previously open questions into concrete decisions.
 | D010 | First release platform | **macOS arm64 only** | Focus acceptance and packaging |
 | D373 | Remote Agent Control host boundary | *(amended by D374 and D375)* **Remote control (post-MVP) runs through a logical Agent Host that owns Sessions, Turns, event cursors, approvals, attachments, workspace policy, and crash recovery; a production Gateway owns identity, routing, rate limits, revocation, and audit, and the Agent Host connects outbound. The existing Electron IPC, `host.proxy`, and host-core stdio boundaries are never exposed.** | A remote surface needs its own boundary rather than a tunnel into local IPC or the host-core stdio contract (ADR 0205, E2E-221 through E2E-230) |
 | D374 | Remote Agent Control v1 target amendments | **Amend D373 / ADR 0205: `RACP-WS` is the only normative v1 binding (`RACP-HTTP` is the browser profile, `RACP-GRPC` is reserved); typebox in `packages/shared` is the single contract source; the headless `packages/agent-host` module is the first deliverable and is shared by desktop IPC, local MCP, and RACP; cursors are `{ epoch, sequence }` with ephemeral deltas; the turn queue moves into the Host; host-core exposes `permissions.pending`; remote approvals carry the full local decision vocabulary under a default `ask` ceiling; browser clients use a cookie profile; the first deployment is single-tenant.** | Reviewing the D373 draft against the shipped desktop found the remote approval vocabulary narrower than the local contracts, pending requests held as connection state, per-token deltas exhausting the replay window, and more bindings than v1 can carry (ADR 0205) |
+| D408 | Remote SSH Agent Runtime | **Implement Remote SSH as a `pi-host` runtime on the user's Linux machine, reached only by loopback `RACP-WS` over system OpenSSH; Electron Main owns SSH/pairing/bootstrap/reconnect and renderer routing; `ssh://` project URIs distinguish remote roots; remote session/tool/secret state is authoritative on the Host.** | Remote coding requires one execution boundary beside the workspace; forwarding individual commands or mirroring the repository would split filesystem, shell, session, and recovery authority (ADR 0234) |
 
 ## B. Secondary implementation defaults
 
@@ -4731,3 +4732,19 @@ D193, and D194.
 - The Git tree stays anchored at its right-panel position while the review
   dialog spans an inset application-window surface. The plugin cannot supply
   window bounds, and message-owned Review snapshots and rollback are unchanged.
+
+## 2026-09-12 — Remote SSH Agent Runtime (D408)
+
+- Decision D408 / ADR 0234 implements the Remote SSH milestone on the D373
+  boundary: a Linux `pi-host` runs the headless Agent Host module, host-core,
+  and agent sidecar beside the remote workspace.
+- Electron Main resolves system OpenSSH configuration, bootstraps and pairs the
+  Host, forwards an ephemeral local port to remote loopback, and reconnects with
+  Host cursors. The renderer stays transport-agnostic and receives no SSH key
+  material.
+- Remote projects use canonical `ssh://<connection-key><absolute-path>` URIs.
+  Multiple remote projects and sessions may share one Host while tools remain
+  bound to the session's originating root.
+- Remote sessions, queues, approvals, event state, tools, Skills, MCP,
+  subagents, and provider secrets are owned by the remote Host. Provider
+  configuration is written over the SSH bootstrap channel, never through RACP.
