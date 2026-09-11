@@ -523,8 +523,8 @@
 .conversation-topbar .ct-icon-btn,
 .app-work-panel-toggle {
   display: inline-flex;
-  height: 28px;
-  width: 28px;
+  height: var(--ds-work-panel-toggle-size);
+  width: var(--ds-work-panel-toggle-size);
   align-items: center;
   justify-content: center;
   border: none;
@@ -571,7 +571,7 @@
 .app-work-panel-toggle {
   position: fixed;
   top: 9px;
-  right: 12px;
+  right: var(--ds-work-panel-toggle-inset);
   z-index: 30;
   pointer-events: auto;
   -webkit-app-region: no-drag;
@@ -604,7 +604,9 @@
 
 :root[data-platform="win32"] .app-work-panel-toggle,
 :root[data-platform="linux"] .app-work-panel-toggle {
-  right: calc(var(--ds-window-controls-width) + 12px);
+  right: calc(
+    var(--ds-window-controls-width) + var(--ds-work-panel-toggle-inset)
+  );
 }
 
 /* macOS traffic lights occupy the top-left ~76px; only reserve that space

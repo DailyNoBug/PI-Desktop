@@ -130,9 +130,14 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
-  /* Keep the fixed work-panel toggle in its own hit-target lane. The 56px
-     reserve covers its 28px control, 12px viewport inset, and a 16px gap. */
-  padding: 0 56px 0 12px;
+  /* Keep the fixed work-panel toggle in its own hit-target lane. The reserve
+     is shared with the toggle's size/inset tokens and leaves a real gap. */
+  padding: 0
+    calc(
+      var(--ds-work-panel-toggle-size) + var(--ds-work-panel-toggle-inset) +
+        var(--ds-work-panel-toggle-gap)
+    )
+    0 12px;
   -webkit-app-region: drag;
 }
 
@@ -141,15 +146,15 @@
   /* End this header's box — and therefore its native drag rectangle — before
      the viewport-fixed control band. The drag rectangle is the border box, so
      padding the content clear of the band still leaves that rectangle across
-     the controls, and Electron swallows their hover and click. The base 56px
-     right padding keeps the same content inset once the box stops early. */
+     the controls, and Electron swallows their hover and click. The shared
+     right-side control lane keeps the same content inset once the box stops
+     early. */
   margin-right: var(--ds-window-controls-width);
 }
 
 /* The header is a clipped tab strip plus a fixed add trigger. On Windows/Linux
-   the 56px padding and 120px margin reserve the toggle and native controls,
-   leaving 176px unavailable to the strip exactly as the titlebar geometry
-   requires. */
+   the shared control lane and 120px margin reserve the toggle and native
+   controls without allowing the strip to claim either hit target. */
 .work-panel-tab-strip-wrap {
   display: flex;
   min-width: 0;
@@ -261,6 +266,9 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
+  margin-right: 8px;
+  padding-right: 8px;
+  border-right: 1px solid var(--ds-border-subtle);
 }
 
 :root[data-theme="light"] .work-panel-header {
@@ -415,12 +423,13 @@
 
 .work-panel-new-tab {
   display: inline-flex;
-  width: 28px;
-  height: 28px;
+  width: var(--ds-work-panel-toggle-size);
+  height: var(--ds-work-panel-toggle-size);
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-md);
+  background: var(--ds-tile);
   color: var(--ds-text-secondary);
   transition:
     background var(--motion-duration-fast) var(--motion-ease-out),

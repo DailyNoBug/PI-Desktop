@@ -80,9 +80,9 @@ destination, chat as the home surface, tools and permissions inline.
 - **Work panel**: docked right column (not an overlay) opened by an artifact,
   the viewport-fixed toggle, or `Cmd/Ctrl + J`. File, URL, browser-preview, and successful workspace-edit
   artifacts create their resources atomically. The 46px content header exposes
-  a tablist and a fixed `+` trigger. Its 56px right-side clear lane keeps the
-  trigger separate from the viewport-fixed work-panel toggle. Its single Tools
-  & panels menu contains
+  a tablist and a fixed `+` trigger. Its tokenized 60px right-side safe lane
+  plus separated action rail keep the trigger distinct from the viewport-fixed
+  work-panel toggle. Its single Tools & panels menu contains
   host-owned Review followed by every in-scope plugin view, without hardcoding
   or duplicating plugin tabs. File paths stay distinct while plugin views
   deduplicate by view reference. The viewport-fixed toggle and

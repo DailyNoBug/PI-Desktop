@@ -76,8 +76,32 @@ test("a viewport-fixed toggle is the sole pointer collapse control", () => {
   );
   assert.match(
     globalStyles,
-    /\.work-panel-header \{[^}]*padding:\s*0 56px 0 12px;/s,
+    /--ds-work-panel-toggle-size:\s*28px/,
   );
+  assert.match(
+    globalStyles,
+    /--ds-work-panel-toggle-inset:\s*12px/,
+  );
+  assert.match(
+    globalStyles,
+    /--ds-work-panel-toggle-gap:\s*20px/,
+  );
+  assert.match(
+    globalStyles,
+    /\.work-panel-header \{[^}]*padding:\s*0\s+calc\([\s\S]*?var\(--ds-work-panel-toggle-size\)[\s\S]*?var\(--ds-work-panel-toggle-inset\)[\s\S]*?var\(--ds-work-panel-toggle-gap\)[\s\S]*?\)\s+0 12px;/s,
+  );
+  assert.match(
+    globalStyles,
+    /\.work-panel-actions \{[^}]*margin-right:\s*8px;[^}]*padding-right:\s*8px;[^}]*border-right:\s*1px solid var\(--ds-border-subtle\);/s,
+  );
+  assert.match(
+    globalStyles,
+    /\.work-panel-new-tab \{[^}]*background:\s*var\(--ds-tile\);/s,
+  );
+  assert.match(mainSource, /WORK_PANEL_HEADER_PROBE/);
+  assert.match(mainSource, /querySelector\('\.work-panel-new-tab'\)/);
+  assert.doesNotMatch(mainSource, /work-panel-switcher-trigger/);
+  assert.match(mainSource, /probe\.gap < 24/);
   assert.match(
     globalStyles,
     /:root\[data-platform="win32"\] \.work-panel-header,[\s\S]*:root\[data-platform="linux"\] \.work-panel-header\s*\{[^}]*margin-right:\s*var\(--ds-window-controls-width\);/,
