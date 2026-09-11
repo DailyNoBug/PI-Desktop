@@ -33,6 +33,7 @@ pub const SHELL_MISSING_GUIDANCE: &str =
 /// Guidance for a selected but absent PowerShell 7. It names the locations the
 /// resolver searched so the user can fix the install or PATH instead of
 /// guessing why the choice is unavailable.
+#[cfg(windows)]
 pub const PWSH_MISSING_GUIDANCE: &str =
     "PowerShell 7 (pwsh.exe) was not found. Install PowerShell 7, or add its install directory to PATH. Searched %ProgramFiles%\\PowerShell\\7\\pwsh.exe, then pwsh.exe on PATH.";
 
@@ -712,6 +713,7 @@ mod tests {
         assert!(catalog.fallback);
     }
 
+    #[cfg(windows)]
     #[test]
     fn missing_powershell_7_guidance_names_the_searched_locations() {
         // "was not found" alone leaves the user unable to act; the message has

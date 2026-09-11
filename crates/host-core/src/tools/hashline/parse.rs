@@ -382,10 +382,6 @@ pub fn mv_dest(ops: &ParsedOps) -> Option<&str> {
     })
 }
 
-pub fn is_rem(ops: &ParsedOps) -> bool {
-    ops.ops.iter().any(|op| matches!(op, ParsedOp::Rem))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +440,6 @@ mod tests {
         assert_eq!(parsed.header_tag.as_deref(), Some("AB12"));
         assert!(matches!(parsed.ops[0], ParsedOp::Cut { .. }));
         assert!(matches!(parsed.ops[1], ParsedOp::Mv { .. }));
-        assert!(is_rem(&parse_ops("REM\n").unwrap()));
+        assert!(matches!(parse_ops("REM\n").unwrap().ops[0], ParsedOp::Rem));
     }
 }
