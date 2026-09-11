@@ -36,6 +36,8 @@ PI-Desktop/
 │ ├── shared/                 # IPC/protocol contracts, error codes, changelog
 │ ├── i18n/                   # shipped UI catalogs plus locale helpers
 │ ├── agent-runtime/          # pi sidecar and runtime wrapper (bundled into the app)
+│ ├── agent-host/             # headless Host session/turn/approval module
+│ ├── pi-host/                # Linux remote Host process and bundle entry
 │ ├── plugin-sdk/             # plugin author types and validators
 │ └── plugin-devkit/          # pi-plugin CLI: scaffold, check, pack, publish
 ├── examples/
@@ -84,6 +86,18 @@ Node wrapper over pi:
 - agent turn control
 - event normalization
 - host tool bridge client
+
+### `packages/agent-host`
+Headless Agent Host:
+- RACP session, turn, queue, approval, and event semantics
+- transport-independent remote-host profile port
+- the normative loopback `RACP-WS` server and desktop client
+
+### `packages/pi-host`
+Remote Linux runtime:
+- host-core and agent-sidecar process supervision
+- remote session/workspace adapters around `agent-host`
+- one-time pairing/device-token authentication and daemon lifecycle
 
 ### `packages/shared`
 Cross-boundary contracts:
@@ -134,6 +148,9 @@ Cross-boundary contracts:
  ├── window-state.json       # last main-window bounds (main)
  └── close-behavior.json     # persisted close-to-tray choice (main)
 ```
+
+The remote `pi-host` uses its own `~/.pi-desktop/host/runtime` directory and
+never shares the local desktop's database, secrets, logs, or workspace state.
 
 ## 4. Naming conventions
 

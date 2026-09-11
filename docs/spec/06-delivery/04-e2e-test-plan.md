@@ -9897,6 +9897,28 @@ browser milestones are scheduled.
 - **Status**: binding-covered by `packages/agent-host/src/racp-ws.test.ts`;
   full SSH journey E2E-231 remains draft
 
+#### E2E-256: Release lanes publish verifiable pi-host bundles
+
+- **Preconditions**: Native Linux x64 and arm64 release runners can build the
+  workspace and Rust host-core. A fixture serves a bundle with a tampered
+  SHA-256 record.
+- **Steps**: 1) Run `scripts/package-pi-host.mjs` on each native architecture.
+  2) Verify both `.sha256` siblings. 3) Inspect each tarball for exactly one
+  `pi-host.js`, one `agent-runtime/sidecar.js`, one executable native
+  host-core, and one executable Node runtime. 4) Run the bootstrap with the
+  valid checksum, then repeat with the tampered record.
+- **Expected**: The release lanes publish only the versioned tarball and
+  checksum. The valid bootstrap installs under `~/.pi-desktop/host`, records a
+  PID and port, and starts through `setsid` without sudo. The tampered record
+  fails before extraction and never executes the downloaded bundle.
+- **Specs linked**: `03-runtime/07-process-model.md` §§6–7,
+  `06-delivery/06-release-runbook.md` §§3–4, ADR 0234
+- **Acceptance**: Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by
+  `packages/pi-host/src/packaging.test.ts`; native Linux release journeys
+  remain release qualification
+
 ## Trusted extension scenarios (R7 v1)
 
 The following scenarios are the acceptance targets of D387 / ADR 0214 and

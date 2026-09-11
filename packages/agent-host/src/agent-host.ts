@@ -158,6 +158,7 @@ export class AgentHost {
   private readonly runtimeAliases = new Map<string, string>();
   private readonly idempotency = new Map<string, IdempotencyEntry>();
   private readonly draining = new Set<string>();
+  private readonly abortingSessions = new Set<string>();
 
   constructor(options: AgentHostOptions) {
     this.runtime = options.runtime;
@@ -192,7 +193,9 @@ export class AgentHost {
     const state = this.state(envelope.sessionId);
     const event = envelope.event;
     const turnId = envelope.turnId ? this.resolveTurnId(state, envelope.turnId) : state.activeTurnId;
-    const mapping = racpKindForAgentEvent(event.type, { interrupted: meta.interrupted });
+    const interrupted = meta.interrupted ?? (event.type === "agent_end" && this.abortingSessions.has(envelope.sessionId));
+    if (event.type === "agent_end" || event.type === "error") this.abortingSessions.delete(envelope.sessionId);
+    const mapping = racpKindForAgentEvent(event.type, { interrupted });
     const meta2 = {
       turnId,
       parentToolCallId: envelope.parentToolCallId,
@@ -343,6 +346,11 @@ export class AgentHost {
     if (summary.planningState) state.planningState = summary.planningState;
     if (kind !== "session.created") this.emit(state, "session.changed", { session: summary }, {});
     this.hub.publish({ scope: "host", sessionId: summary.id, revision: state.revision, kind, payload: { session: summary } });
+  }
+
+  /** Mark a runtime abort so the next `agent_end` is an interruption. */
+  markAborting(sessionId: string): void {
+    this.abortingSessions.add(sessionId);
   }
 
   // -------------------------------------------------------------------------

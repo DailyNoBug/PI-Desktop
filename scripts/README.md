@@ -25,6 +25,8 @@ disagrees, so a green `check:release-docs` is a precondition, not a substitute.
 | `staple-macos-release-dmg.sh` | `scripts/staple-macos-release-dmg.sh [release-dir]` | Attach Apple's notarization ticket (`xcrun stapler staple`) to the single DMG a native macOS job produced; run by the Release workflow when `sign_macos` is set |
 | `verify-macos-release.sh` | `scripts/verify-macos-release.sh [release-dir]` | Fail unless the one `PI-Desktop.app` and DMG under the release directory are Developer ID-signed, notarized, and stapled; run by the Release workflow after stapling |
 | `export-linux-asar.mjs` | `node scripts/export-linux-asar.mjs` | Copy the Linux `linux-unpacked/resources/app.asar` into the versioned release asset used for system-Electron repackaging |
+| `package-pi-host.mjs` | `node scripts/package-pi-host.mjs --arch x64\|arm64` | Build the checksummed Linux `pi-host` runtime bundle from native Linux runners |
+| `pi-host-bootstrap.sh` | uploaded over SSH by Desktop | Download, SHA-256 verify, install, and start a user-owned versioned `pi-host` without sudo |
 | `check-linux-host-glibc.mjs` | `node scripts/check-linux-host-glibc.mjs [bin]` | Fail a Linux host-core binary whose needed glibc is above 2.35 |
 | `make-icon.py` | `python3 scripts/make-icon.py` | Derive the package PNG, the macOS tray template, and the iconset/ICNS from the canonical PNG |
 | `publish-screenshots.py` | `python3 scripts/publish-screenshots.py` | Publish documentation screenshots |
@@ -76,8 +78,9 @@ runs the native `dist:mac`, `dist:win`, or `dist:linux` command. The Linux
 job uses Ubuntu 22.04 so host-core stays on glibc 2.35, then
 `scripts/check-linux-host-glibc.mjs` refuses a binary that needs a newer
 glibc. The Linux runner also exports the exact app.asar from `linux-unpacked`
-as a versioned release asset; the macOS matrix covers arm64 and Intel x64 and
-the publish job assembles the GitHub Release. The release workflow defaults to
+as a versioned release asset. Separate native Linux x64 and arm64 jobs package
+and verify `pi-host` before upload; the macOS matrix covers arm64 and Intel
+x64 and the publish job assembles the GitHub Release. The release workflow defaults to
 unsigned macOS artifacts; manually dispatch it with `sign_macos: true` to opt
 into signing and notarization. See the [release
 runbook](../docs/spec/06-delivery/06-release-runbook.md).

@@ -12,7 +12,8 @@
 # with its native pi-desktop-host-core Rust sidecar. The Linux app.asar is also
 # exported as a system-Electron repackaging asset, and all outputs — with their
 # electron-updater latest*.yml feeds — are published to the GitHub Release
-# (D126/D285/D364).
+# (D126/D285/D364). Linux x64 and arm64 tag builds also publish checksummed
+# pi-host runtime bundles for Remote SSH (D408).
 
 name: Release
 
@@ -275,10 +276,49 @@ jobs:
             apps/desktop/release/*.blockmap
             apps/desktop/release/latest*.yml
 
+  package-pi-host:
+    name: Package pi-host ${{ matrix.arch }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: x64
+          - os: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Package checksummed Host bundle
+        run: node scripts/package-pi-host.mjs --arch ${{ matrix.arch }}
+      - name: Verify checksum
+        run: |
+          set -euo pipefail
+          cd release/pi-host
+          sha256sum -c ./*.sha256
+      - name: Upload Host bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-pi-host-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          compression-level: 0
+          path: release/pi-host/*
+
   publish:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, package-pi-host]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

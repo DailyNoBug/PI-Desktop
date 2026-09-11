@@ -38,7 +38,12 @@ export type RacpWsServerOptions = {
   agentHost: AgentHost;
   profile: RacpRemoteProfile;
   authenticate: (bearerToken: string) => RacpAuthenticationResult | null;
-  serverInfo: { name: string; version: string };
+  serverInfo: {
+    name: string;
+    version: string;
+    hostProtocolVersion?: number;
+    storageSchemaVersion?: number;
+  };
   maxFrameBytes?: number;
 };
 
