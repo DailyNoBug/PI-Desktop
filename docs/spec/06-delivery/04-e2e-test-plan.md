@@ -7792,7 +7792,11 @@ This test plan spec is accepted when:
      appears once under the row. Confirm there is no long subtitle, no
      per-chip Apply label, and that Advanced starts collapsed. Confirm
      hyphenated ids (`code-reviewer`, `test-runner`) render catalog names,
-     not raw keys such as `presetCode-reviewerName`.
+     not raw keys such as `presetCode-reviewerName`. At normal desktop width,
+     confirm the name/description/select controls read as compact filled wells,
+     the prompt editor is the only tall field, and the Save/Cancel actions stay
+     visually subordinate to the form. Focus a field and confirm its accent
+     ring remains visible without a permanent divider.
   2. Click the **Explorer** chip without touching any field. Confirm the
      form is pre-filled: name `Explorer`, the description from the
      builtin, the `Read / Glob / Grep / Bash` tool grant, and the full
