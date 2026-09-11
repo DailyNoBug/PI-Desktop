@@ -326,6 +326,18 @@ may be retained while exactly one workspace supplies the visible shell context.
   capped for narrow viewports. This includes the Sessions sort menu,
   session/project overflow menus, and section create menus.
 
+#### Floating dropdown surfaces
+
+- Every renderer-owned custom dropdown/menu opens as a viewport-fixed floating
+  layer, outside its triggering row or card, so opening it never changes parent
+  height, width, or scroll allocation.
+- Shared anchored menus are measured before reveal, clamp to the viewport,
+  prefer the requested side, and recalculate on anchor movement, scroll, and
+  resize. Outside press and Escape close the surface and restore focus to its
+  trigger unless the pattern explicitly retains input focus.
+- Native `<select>` popups remain platform-owned; this rule covers custom
+  renderer surfaces only.
+
 ### 1.6 Local profile footer
 
 - The `44px` profile trigger toggles the menu; its chevron and

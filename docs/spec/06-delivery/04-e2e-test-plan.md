@@ -10021,3 +10021,27 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Milestone**: M5
 - **Status**: Unit-covered (`context-usage.test.mjs`,
   `settings-general.test.mjs`); full scenario Draft
+
+#### E2E-251: Custom dropdowns float without changing page layout
+
+- **Preconditions**: A desktop build with a configured provider, at least one
+  project/session, and the default dark theme. The Settings, Plugins, Projects,
+  chat composer, work panel, and sidebar surfaces are reachable.
+- **Steps**: 1) Open each available custom dropdown/menu from Settings,
+  Projects, Plugins, the sidebar, the composer, Plan approval, Scope, and the
+  work-panel `+` control. 2) Repeat with the trigger near the bottom and right
+  edges of the window, and while the surrounding page/card has scrollable
+  content. 3) Scroll the owning pane and resize the window while a menu remains
+  open. 4) Close each menu with Escape and by pressing outside it.
+- **Expected**: Every custom dropdown is a body-level fixed layer that overlays
+  content without increasing row/card height or changing page/sidebar/work-panel
+  allocation. It stays within the viewport, flips or clamps when space is tight,
+  follows its trigger after scroll/resize, is not clipped by settings cards or
+  page overflow, and restores focus to its trigger on close. Native `<select>`
+  popups are excluded because they are rendered by the operating system.
+- **Specs linked**: `04-ux/07-ui-design-system.md`,
+  `04-ux/09-interaction-patterns.md`
+- **Acceptance**: Quality, responsive layout, Accessibility
+- **Milestone**: M5+
+- **Status**: Source-contract covered (`fixed-dropdown-surfaces.test.mjs`);
+  desktop journey Draft (do not run E2E locally unless explicitly requested)

@@ -718,9 +718,11 @@
 }
 
 .notification-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
+  position: fixed;
+  top: auto;
   left: 0;
+  right: auto;
+  bottom: auto;
   z-index: 60;
   display: flex;
   width: min(360px, calc(100vw - 24px));
@@ -735,8 +737,6 @@
 
 /* Portaled to document.body so the main pane cannot paint over the dialog. */
 .notification-popover-portaled {
-  position: fixed;
-  right: auto;
   z-index: 60;
 }
 
@@ -948,6 +948,7 @@
 @media (max-width: 480px) {
   .notification-popover {
     position: fixed;
+    top: auto;
     bottom: 8px;
     right: 8px;
     left: 8px;

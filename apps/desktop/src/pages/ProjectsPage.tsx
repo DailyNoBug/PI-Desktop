@@ -32,6 +32,7 @@ import {
 } from "../lib/sidebar-session-groups";
 import { ProjectInstructionsDialog } from "../components/ProjectInstructionsDialog";
 import { ProjectRenameDialog, SessionRenameDialog } from "../components/SessionRenameDialog";
+import { AnchoredMenu } from "../components/settings/AnchoredMenu";
 
 const INITIAL_VISIBLE_SESSION_COUNT = 8;
 
@@ -125,7 +126,6 @@ export function ProjectsPage() {
     path: string;
     name: string;
   } | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [instructionsFor, setInstructionsFor] = useState<{
     name: string;
@@ -146,24 +146,6 @@ export function ProjectsPage() {
       canceled = true;
     };
   }, [sessions]);
-
-  // Row menus are popovers: Escape or any outside press dismisses them so a menu
-  // never outlives the row the pointer left.
-  useEffect(() => {
-    if (!menuFor) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuFor(null);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuFor(null);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuFor]);
 
   const items = useMemo(() => {
     const byPath = new Map<string, RecentProject>();
@@ -636,25 +618,33 @@ export function ProjectsPage() {
                         >
                           <IconPlus size={15} />
                         </TooltipButton>
-                        <div
+                        <AnchoredMenu
                           className="projects-menu-wrap"
-                          ref={menuOpen ? menuRef : undefined}
+                          open={menuOpen}
+                          onClose={() => setMenuFor(null)}
+                          menuClassName="projects-menu"
+                          label={t("project.openActions", { name: project.name })}
+                          role="menu"
+                          align="end"
+                          trigger={(ref) => (
+                            <TooltipButton
+                              ref={ref}
+                              type="button"
+                              className="projects-icon-btn"
+                              tooltip={t("project.openActions", { name: project.name })}
+                              ariaLabel={t("project.openActions", { name: project.name })}
+                              aria-haspopup="menu"
+                              aria-expanded={menuOpen}
+                              onClick={() =>
+                                setMenuFor((cur) =>
+                                  cur === project.path ? null : project.path,
+                                )
+                              }
+                            >
+                              <IconMore size={16} />
+                            </TooltipButton>
+                          )}
                         >
-                          <TooltipButton
-                            type="button"
-                            className="projects-icon-btn"
-                            tooltip={t("project.openActions", { name: project.name })}
-                            ariaLabel={t("project.openActions", { name: project.name })}
-                            aria-haspopup="menu"
-                            aria-expanded={menuOpen}
-                            onClick={() =>
-                              setMenuFor((cur) => (cur === project.path ? null : project.path))
-                            }
-                          >
-                            <IconMore size={16} />
-                          </TooltipButton>
-                          {menuOpen ? (
-                            <div className="projects-menu" role="menu">
                               <button
                                 type="button"
                                 role="menuitem"
@@ -733,9 +723,7 @@ export function ProjectsPage() {
                                   {t("project.close")}
                                 </button>
                               ) : null}
-                            </div>
-                          ) : null}
-                        </div>
+                        </AnchoredMenu>
                       </div>
                     </div>
                     {isOpen ? (

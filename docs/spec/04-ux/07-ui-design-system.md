@@ -529,6 +529,12 @@ Other menu popovers use the standard opaque elevated-menu surface, `radius-sm`,
 subtle border, and dialog shadow; they are never translucent over readable
 content.
 
+All renderer-owned custom dropdowns and menus are viewport-fixed floating layers:
+they are body-portaled (or use the shared anchored-menu primitive), measured
+before reveal, clamped to the viewport, and repositioned when the anchor or
+viewport moves. Opening one never adds to or squeezes its parent layout. Native
+`<select>` popups remain OS-owned and are outside this renderer contract.
+
 Composer elevation (Codex `elevation-prominent`):
 
 - soft: `0 3px 7.5px rgba(0,0,0,0.039)` + `0 0 20px rgba(0,0,0,0.051)` (Codex `#0000000a` / `#0000000d`, both themes)
