@@ -430,13 +430,6 @@ export const es = {
     "agent": "Agente",
     "requestApproval": "Solicitar aprobación",
     "effortCustom": "Personalizado",
-    "effortOff": "Apagado",
-    "effortMinimal": "Mínimo",
-    "effortLow": "Ligero",
-    "effortMid": "Medio",
-    "effortHigh": "Alto",
-    "effortXhigh": "Muy alto",
-    "effortMax": "Máx.",
     "permissionMode": "Modo de permiso",
     "reasoningLevel": "Nivel de razonamiento",
     "reasoningSupportedBy": "El modelo actual {{model}} admite estos niveles de razonamiento",
@@ -1088,15 +1081,6 @@ export const es = {
     "fontSizeSaveError": "No se pudo guardar el tamaño de fuente.",
     "bottomPanel": "Panel inferior",
     "bottomPanelDesc": "Muestra el control del panel inferior en el encabezado de la aplicación."
-  },
-  "thinkingLevel": {
-    "off": "Apagado",
-    "minimal": "Mínimo",
-    "low": "Bajo",
-    "medium": "Medio",
-    "high": "Alto",
-    "xhigh": "Extra alto",
-    "max": "Máx."
   },
   "project": {
     "open": "Abrir proyecto",

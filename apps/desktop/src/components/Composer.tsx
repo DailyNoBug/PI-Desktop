@@ -485,26 +485,6 @@ export const THINKING_LEVELS: readonly ThinkingLevel[] = [
   "max",
 ];
 
-export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
-  off: "Off",
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "XHigh",
-  max: "Max",
-};
-
-const THINKING_LEVEL_I18N_KEYS: Record<ThinkingLevel, string> = {
-  off: "chat.effortOff",
-  minimal: "chat.effortMinimal",
-  low: "chat.effortLow",
-  medium: "chat.effortMid",
-  high: "chat.effortHigh",
-  xhigh: "chat.effortXhigh",
-  max: "chat.effortMax",
-};
-
 function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === "string" && THINKING_LEVELS.includes(value as ThinkingLevel);
 }
@@ -1218,9 +1198,7 @@ export function Composer({
     thinkingProvider,
     configuredThinkingLevel,
   );
-  const thinkingLabel = t(THINKING_LEVEL_I18N_KEYS[thinkingLevel], {
-    defaultValue: THINKING_LEVEL_LABELS[thinkingLevel],
-  });
+  const thinkingLabel = thinkingLevel;
   const selectedModel = provider?.id
     ? composerModelsForProvider(provider, providerModels[provider.id]).find(
         (model) => modelIdsMatch(model.modelId, modelId ?? ""),
@@ -2609,9 +2587,7 @@ export function Composer({
                                   onClick={() => void selectThinkingLevel(level)}
                                 >
                                   <span className="flex-1">
-                                    {t(THINKING_LEVEL_I18N_KEYS[level], {
-                                      defaultValue: THINKING_LEVEL_LABELS[level],
-                                    })}
+                                    {level}
                                   </span>
                                   {thinkingLevel === level ? (
                                     <IconCheck

@@ -294,7 +294,9 @@
 
 | D187 | 资源隔离主机 RPC stdio | **host-core 通过每个方向的一个专用命名操作系统线程读取 stdin 并序列化 stdout，而不是通过 Tokio 的动态阻塞池。线程重试中断和瞬态 `STREAM_FAILED`/`NETWORK_ERROR` 错误，同时保留 NDJSON 帧；无法创建控制线程是结构化启动失败。登录 shell 路径探测还将帮助程序线程创建视为尽力而为，并回退到继承的路径。 RPC/tool 入场限制保持不变。** | 当操作系统线程创建返回 `Resource temporarily unavailable`（macOS 上的错误号 35）时，Tokio stdio 可能会出现恐慌，从而将临时资源压力转变为 `HOST_UNAVAILABLE`；隔离控制管道会删除该进程级崩溃路径，同时保留有限的过载行为 (ADR 0051)。 |
 | D191 | 仅限代理模式；聊天已重命名为只读 | *（被 D188/D189 取代：模式选择器返回为 `Agent | Plan`, and `chat` migrates to `plan`)* **`agent` is the only session mode the product exposes. The former `chat` profile is renamed `只读` and keeps its `Read`/`Glob`/`Grep` hard deny in host-core, but it has no UI surface: no top-bar toggle, no composer chip, no Settings row, no palette command or slash alias, and no localized labels. The host normalizes `chat` to `只读` on every write path (`session.create`, `session.configure`, `session.import`) and the permission gate is negative — anything that is not `agent` gets the read-only surface — so an unknown or legacy value can never widen the tool set. Error codes become `BASH_DISABLED_IN_READ_ONLY` / `WRITE_DISABLED_IN_READ_ONLY`. A boot fix-up rewrites existing `sessions.mode =“聊天”` rows and a stored `defaultMode` of `chat` to `代理`。** | 该产品从来不希望用户实现的模式切换是枪炮和沉重的 UI 重量：会话可能会滞留在只读配置文件上而无法返回，并且两个工具集使每个工具、提示和权限更改的表面增加了一倍，都必须进行推理。在主机端保持窄配置文件强制执行可以保留导入行和旧行的安全边界，而无需为其提供控件 (ADR 0055)。 |
-| D369 | 有效的子智能体思考元数据 | **即时 `Task` 结果、`SubagentRunResult` 与生命周期快照携带传给每个子运行的有效 `modelId` 与 `thinkingLevel`；拓扑节点与侧栏标题在模型名后显示本地化的非 `off` 级别，`off`、`omit` 与不支持推理时仅显示模型。宿主协议、存储 schema、provider 请求与生命周期行为不变。** | 委托卡片需要目标模型钳制后实际发送的级别，而不是从父级或定义重新推导的值（ADR 0202，E2E-219） |
+| D369 | 有效的子智能体思考元数据 | **（由 D395 修订）** 即时 `Task` 结果、`SubagentRunResult` 与生命周期快照携带传给每个子运行的有效 `modelId` 与 `thinkingLevel`；拓扑节点与侧栏标题在模型名后显示原始规范非 `off` 级别，`off`、`omit` 与不支持推理时仅显示模型。宿主协议、存储 schema、provider 请求与生命周期行为不变。** | 委托卡片需要目标模型钳制后实际发送的级别，而不是从父级或定义重新推导的值（ADR 0202、ADR 0221、E2E-219） |
+
+| D395 | UI 中的规范思考等级值 | **修订 D369 / ADR 0202：Composer、模型配置和委派界面直接显示 `off`、`minimal`、`low`、`medium`、`high`、`xhigh` 和 `max`，不再翻译。所有语言目录移除这些值；有效元数据、钳位、provider 请求、协议和存储保持不变。见 ADR 0221 与 E2E-219。** | 思考等级是稳定的协议值，本地化标签会使同一个 provider/runtime 设置在不同应用语言下显示不同。 |
 
 ## N. 通知决定
 
@@ -3527,8 +3529,9 @@ D193 和 D194。
   从父级或定义重新推导出来的值。
 - 决策 D369 / ADR 0202 把有效的 `modelId` 和 `thinkingLevel` 加进 `Task` 的即时
   结果、`SubagentRunResult` 和生命周期快照。拓扑节点和侧边停靠栏头部在模型名
-  之后显示本地化的非 `off` 等级；`off`、`omit` 和不支持的推理仍只显示模型。
-  不改动主机协议、存储架构、provider 请求或生命周期行为。参见 E2E-219。
+  之后显示原始规范的非 `off` 等级；`off`、`omit` 和不支持的推理仍只显示模型。
+  不改动主机协议、存储架构、provider 请求或生命周期行为。D395 / ADR 0221
+  移除了规范值的翻译。参见 E2E-219。
 
 ## 2026-09-09 —— 未签名 macOS 首次启动助手（D371）
 
@@ -3795,3 +3798,10 @@ D193 和 D194。
   Windows/Linux 原生控件仍固定在窗口边缘。
 - 决策 D394 修订 D154 / D357 / ADR 0195。这是仅渲染器的变更，不改变面板状态、窗口几何、
   IPC、协议或存储。见 ADR 0220 与 E2E-067。
+
+## 2026-09-11 —— UI 中的规范思考等级值（D395）
+
+- 思考等级是稳定的协议值，但本地化会使同一个 provider/runtime 设置随应用语言变化。
+- 决策 D395 / ADR 0221 修订 D369 / ADR 0202：Composer、模型配置和委派界面直接显示
+  `off`、`minimal`、`low`、`medium`、`high`、`xhigh` 和 `max`。这些值从所有语言目录中移除；
+  有效元数据、钳位、provider 请求、协议和存储保持不变。见 E2E-219。

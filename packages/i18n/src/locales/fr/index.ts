@@ -430,13 +430,6 @@ export const fr = {
     "agent": "Agent",
     "requestApproval": "Demander l'approbation",
     "effortCustom": "Personnalisé",
-    "effortOff": "Désactivé",
-    "effortMinimal": "Minimal",
-    "effortLow": "Lumière",
-    "effortMid": "Moyen",
-    "effortHigh": "Élevé",
-    "effortXhigh": "Très élevé",
-    "effortMax": "Max",
     "permissionMode": "Mode d'autorisation",
     "reasoningLevel": "Niveau de raisonnement",
     "reasoningSupportedBy": "Le modèle actuel {{model}} prend en charge ces niveaux de raisonnement",
@@ -1088,15 +1081,6 @@ export const fr = {
     "fontSizeSaveError": "Impossible d'enregistrer la taille de la police.",
     "bottomPanel": "Panneau inférieur",
     "bottomPanelDesc": "Afficher le contrôle du panneau inférieur dans l'en-tête de l'application."
-  },
-  "thinkingLevel": {
-    "off": "Désactivé",
-    "minimal": "Minimal",
-    "low": "Faible",
-    "medium": "Moyen",
-    "high": "Élevé",
-    "xhigh": "Très élevé",
-    "max": "Max"
   },
   "project": {
     "open": "Ouvrir le projet",

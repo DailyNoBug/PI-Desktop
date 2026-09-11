@@ -238,3 +238,4 @@ Each ADR includes:
 | 0218 | Effective image-input overrides across Composer and transport | Accepted (amends 0101 / D243) |
 | 0219 | User-invoked Skills in the composer slash menu | Accepted (amends D123 / D174 / ADR 0024 / ADR 0039) |
 | 0220 | Keep Windows work-panel chrome single-purpose | Accepted (amends D154 / D357 / ADR 0195) |
+| 0221 | Render canonical thinking-level values without translation | Accepted (amends D369 / ADR 0202) |

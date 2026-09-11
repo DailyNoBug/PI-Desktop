@@ -2141,7 +2141,9 @@ reasoning-level control.
   reasoning-level chip, then the standalone prompt-enhancement action and the
   single Stop/Send submit slot (D347). The inspector trigger shows the ring
   and percentage only. The chip shows Bot, the current model name, and the
-  current reasoning level separated by `·`; `off` omits the level text. The
+  current canonical reasoning level value separated by `·`; `off` omits the
+  level text. The canonical value is rendered as-is (`low`, `high`, `xhigh`,
+  or `max`) and is not localized. The
   prompt-enhancement action shows Sparkles while idle, uses the shared
   `.tool-spinner` and localized `Enhancing…` label while running, and remains
   a one-shot draft rewrite action. Inline file-reference chips, including
@@ -2906,8 +2908,10 @@ compatibility remains owned by pi-ai.
    tooltip), context window and max output as a two-column numeric pair
    without native spinners, seven thinking-level chips, a constrained
    default-thinking select on the thinking label row, and one wrapping row
-   for attachment and delegation checkboxes. The thinking label, optional
-   catalog hint, and default selector sit above one compact, keyboard-operable
+   for attachment and delegation checkboxes. The seven thinking controls use
+   the canonical values as-is and are not localized. The thinking label,
+   optional catalog hint, and default selector sit above one compact,
+   keyboard-operable
    grouped control that spans the pane; its seven options share the width
    equally and wrap only when the pane is narrow. The first row starts
    expanded and additional rows start collapsed so large model sets do not

@@ -291,7 +291,9 @@ Gold source: local Codex electron captures; latest row wins where rows conflict.
 
 | D187 | Resource-isolated host RPC stdio | **host-core reads stdin and serializes stdout through one dedicated named OS thread per direction, never through Tokio's dynamic blocking pool. The threads retry interrupted and transient `EAGAIN`/`EWOULDBLOCK` errors while preserving NDJSON framing; inability to create a control thread is a structured startup failure. The login-shell PATH probe also treats helper-thread creation as best effort and falls back to the inherited PATH. RPC/tool admission limits remain unchanged.** | Tokio stdio can panic when OS thread creation returns `Resource temporarily unavailable` (errno 35 on macOS), turning temporary resource pressure into `HOST_UNAVAILABLE`; isolating the control pipe removes that process-level crash path while retaining bounded overload behavior (ADR 0051). |
 | D191 | Agent-only mode; Chat renamed to read-only | *(superseded by D188/D189: the mode selector returned as `Agent | Plan`, and `chat` migrates to `plan`)* **`agent` is the only session mode the product exposes. The former `chat` profile is renamed `read-only` and keeps its `Read`/`Glob`/`Grep` hard deny in host-core, but it has no UI surface: no top-bar toggle, no composer chip, no Settings row, no palette command or slash alias, and no localized labels. The host normalizes `chat` to `read-only` on every write path (`session.create`, `session.configure`, `session.import`) and the permission gate is negative — anything that is not `agent` gets the read-only surface — so an unknown or legacy value can never widen the tool set. Error codes become `BASH_DISABLED_IN_READ_ONLY` / `WRITE_DISABLED_IN_READ_ONLY`. A boot fix-up rewrites existing `sessions.mode = 'chat'` rows and a stored `defaultMode` of `chat` to `agent`.** | A mode switch the product never intends users to reach is a footgun and dead UI weight: sessions could be stranded on a read-only profile with no way back, and two toolsets doubled the surface every tool, prompt, and permission change had to be reasoned about. Keeping the narrow profile enforced host-side preserves the security boundary for imported and legacy rows without shipping a control for it (ADR 0055). |
-| D369 | Effective subagent thinking metadata | **The immediate `Task` result, `SubagentRunResult`, and lifecycle snapshots carry the effective `modelId` and `thinkingLevel` passed to each child run; the topology node and side-dock header show a localized non-`off` level after the model name, while `off`, `omit`, and unsupported reasoning stay model-only. No host protocol, storage schema, provider request, or lifecycle behavior change.** | Delegation cards need the level actually sent after the target model clamps it, not a value re-derived from the parent or the definition (ADR 0202, E2E-219) |
+| D369 | Effective subagent thinking metadata | *(amended by D395)* **The immediate `Task` result, `SubagentRunResult`, and lifecycle snapshots carry the effective `modelId` and `thinkingLevel` passed to each child run; the topology node and side-dock header show the raw canonical non-`off` level after the model name, while `off`, `omit`, and unsupported reasoning stay model-only. No host protocol, storage schema, provider request, or lifecycle behavior change.** | Delegation cards need the level actually sent after the target model clamps it, not a value re-derived from the parent or the definition (ADR 0202, ADR 0221, E2E-219) |
+
+| D395 | Canonical thinking-level values in the UI | **Amend D369 / ADR 0202: Composer, model configuration, and delegation surfaces render `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` directly instead of translating them. Remove these values from every locale catalog; effective metadata, clamping, provider requests, protocol, and storage remain unchanged. See ADR 0221 and E2E-219.** | Thinking levels are stable protocol values, and locale-specific labels made the same provider/runtime setting vary across the application. |
 
 ## N. Notification decisions
 
@@ -912,6 +914,16 @@ section mirrors only marketplace/catalog items still blocking nothing.
 - Decision D394 amends D154 / D357 / ADR 0195. This is renderer-only and does
   not change panel state, window geometry, IPC, protocol, or storage. See ADR
   0220 and E2E-067.
+
+## 2026-09-11 — Canonical thinking-level values in the UI (D395)
+
+- Thinking levels are stable protocol values, but translating them made the
+  same provider/runtime setting vary with the application locale.
+- Decision D395 / ADR 0221 amends D369 / ADR 0202: Composer, model
+  configuration, and delegation surfaces render `off`, `minimal`, `low`,
+  `medium`, `high`, `xhigh`, and `max` directly. These values are removed from
+  every locale catalog; effective metadata, clamping, provider requests,
+  protocol, and storage are unchanged. See E2E-219.
 
 ## 2026-07-31 — Plugin themes ship CSS files
 
@@ -4113,10 +4125,11 @@ D193, and D194.
   clamps it.
 - Decision D369 / ADR 0202 adds effective `modelId` and `thinkingLevel` to the
   immediate `Task` result, `SubagentRunResult`, and lifecycle snapshots. The
-  topology node and side-dock header show a localized non-`off` level after the
-  model name; `off`, `omit`, and unsupported reasoning remain model-only.
-  No host protocol, storage schema, provider request, or lifecycle behavior
-  changes. See E2E-219.
+  topology node and side-dock header show the raw canonical non-`off` level
+  after the model name; `off`, `omit`, and unsupported reasoning remain
+  model-only. No host protocol, storage schema, provider request, or lifecycle
+  behavior changes. D395 / ADR 0221 removes translation of the canonical value.
+  See E2E-219.
 
 ## 2026-09-09 — Explicit unsigned macOS first-launch helper (D371)
 

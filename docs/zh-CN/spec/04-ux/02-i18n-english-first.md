@@ -27,6 +27,10 @@ UI 必须使用 **i18next + React-i18next** (D012)。
 7. Electron 应用程序菜单自定义标签和渲染器窗口控件
    消耗目录键；本机角色标签可以使用 Electron/OS 本地化
 
+规范的思考等级值是可见字符串规则的一个有意例外：Composer、模型配置和
+委派界面直接显示协议值 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`
+和 `max`。这些稳定的技术值不得加入语言目录或进行翻译。
+
 ## 3. 目录结构
 
 ```text

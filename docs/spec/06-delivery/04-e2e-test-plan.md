@@ -9279,14 +9279,14 @@ are withdrawn with ADR 0165.
   session, and inspect the same card and side-dock details again.
 - **Expected**: Each node and its side-dock header use the delegation result's
   effective `modelId` and `thinkingLevel`, independently of sibling delegates.
-  The reasoning-capable node shows its localized `Max`/equivalent level label
-  after the model name; the unsupported node shows only its model name. No
+  The reasoning-capable node shows the raw canonical `max` value after the
+  model name; the unsupported node shows only its model name. No
   `Off` or `omit` suffix appears. Inheritance and model capability clamping are
   reflected without UI re-derivation, the full label remains available through
   the accessible name and hover title, and narrow layouts ellipsize without
   overflow. Reloaded history matches the live presentation.
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §5f,
-  `04-ux/08-component-spec.md` §5.7, ADR 0202
+  `04-ux/08-component-spec.md` §5.7, ADR 0202, ADR 0221
 - **Acceptance**: C (chat/stream) + Quality
 - **Milestone**: M6+
 - **Status**: Unit/source-contract covered; full multi-provider rendered journey

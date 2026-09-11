@@ -64,6 +64,15 @@ test("composer exposes the runtime thinking level order and provider filtering",
   assert.match(composerSource, /thinkingMenuLevels/);
 });
 
+test("thinking levels use their canonical English values without i18n", () => {
+  assert.match(composerSource, /const thinkingLabel = thinkingLevel;/);
+  assert.match(composerSource, /<span className="flex-1">\s*\{level\}/);
+  assert.doesNotMatch(composerSource, /THINKING_LEVEL_(LABELS|I18N_KEYS)/);
+  assert.doesNotMatch(composerSource, /chat\.effort(?:Off|Minimal|Low|Mid|High|Xhigh|Max)/);
+  assert.doesNotMatch(transcriptSource, /thinkingLevel\./);
+  assert.doesNotMatch(settingsSource, /thinkingLevel\./);
+});
+
 test("Composer owns the mode and model controls", () => {
   const leftToolbar = composerSource.slice(
     composerSource.indexOf('<div className="composer-left">'),

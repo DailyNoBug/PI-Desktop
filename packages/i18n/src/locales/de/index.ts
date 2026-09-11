@@ -430,13 +430,6 @@ export const de = {
     "agent": "Agent",
     "requestApproval": "Genehmigung anfordern",
     "effortCustom": "Benutzerdefiniert",
-    "effortOff": "Aus",
-    "effortMinimal": "Minimal",
-    "effortLow": "Leicht",
-    "effortMid": "Mittel",
-    "effortHigh": "Hoch",
-    "effortXhigh": "Sehr hoch",
-    "effortMax": "Maximal",
     "permissionMode": "Berechtigungsmodus",
     "reasoningLevel": "Argumentationsebene",
     "reasoningSupportedBy": "Aktuelles Modell {{model}} unterstützt diese Argumentationsebenen",
@@ -1088,15 +1081,6 @@ export const de = {
     "fontSizeSaveError": "Die Schriftgröße konnte nicht gespeichert werden.",
     "bottomPanel": "Unteres Bedienfeld",
     "bottomPanelDesc": "Zeigt das untere Bedienfeld-Steuerelement im App-Header an."
-  },
-  "thinkingLevel": {
-    "off": "Aus",
-    "minimal": "Minimal",
-    "low": "Niedrig",
-    "medium": "Mittel",
-    "high": "Hoch",
-    "xhigh": "Extra hoch",
-    "max": "Max"
   },
   "project": {
     "open": "Projekt öffnen",
