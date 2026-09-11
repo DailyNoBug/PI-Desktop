@@ -2209,6 +2209,13 @@ reasoning-level control.
 ### 11.5 Interactions
 
 - Enter: send message (configurable: Shift+Enter for newline)
+- Native file-system drop: while a file or folder is dragged over the Composer
+  shell, prevent the browser default and show an accent outline without
+  changing layout. Regular files are saved through the existing bounded
+  session-scratch paste flow and appear as removable leaf-name chips in drop
+  order. Folders are not traversed or copied; insert the complete native path
+  at the caret as the literal `@<path>/` directory form. Mixed drops preserve
+  item order and restore focus/caret after file materialization.
 - Send clears the box before the host round trip (D287): the draft leaves the
   textarea in the frame Enter is pressed, so a slow host cannot make a send look
   ignored or let a second Enter queue the same prompt twice. If the store
@@ -2369,6 +2376,11 @@ reasoning-level control.
 - Stop button: `aria-label="Stop generating"`
 - Queued prompt list: `aria-label="Queued messages"`; each row has an
   accessible Remove button and a Send now button.
+- Native file-system drag-over highlights the complete Composer shell with an
+  outline that does not change layout; dropping a folder leaves its complete
+  path visible in the editable draft, and dropping regular files exposes the
+  existing removable chip labels and full paths through their title and
+  accessible name.
 - Disabled send: `aria-disabled="true"` with tooltip explanation
 - The combined model × reasoning chip exposes `aria-haspopup="menu"` and
   `aria-expanded`. Its root entries use `role="menuitem"`; model and reasoning
@@ -2389,8 +2401,10 @@ reasoning-level control.
   The picker accepts regular files, and the importer classifies each selected
   item as an image or file from its MIME/extension metadata before copying it
   into the active session's scratch `pasted/` directory and adding its compact
-  chip; the original absolute picker paths never enter the prompt. Directory
-  selections are rejected with the normal error toast in the current MVP.
+  chip; the original absolute picker paths never enter the prompt. Native
+  drag-and-drop additionally accepts regular files and folders: file bytes use
+  the same bounded paste bridge, while folders remain visible as literal full
+  paths and are never copied or traversed.
 - The compact chips retain structured kind/name/MIME metadata while keeping
   the textarea free of binary data. The selected model's published record
   supplies the baseline, then the exact binding's `supportsImages` override
@@ -2402,7 +2416,7 @@ reasoning-level control.
   There are no visual previews in MVP.
 - No voice input
 
-### 11.8 Slash commands, @ file references, and clipboard files (D123–D125, D197, D209, D262, D362, ADR 0024, ADR 0059, ADR 0070, ADR 0131)
+### 11.8 Slash commands, @ file references, and clipboard files (D123–D125, D197, D209, D262, D362, D395, D397, ADR 0024, ADR 0059, ADR 0070, ADR 0131, ADR 0221, ADR 0222)
 
 The composer owns an inline autocomplete menu — one component serving two
 modes. Focus never leaves the textarea (D125).

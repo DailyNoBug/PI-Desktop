@@ -941,6 +941,20 @@ section mirrors only marketplace/catalog items still blocking nothing.
 - This is a presentation-only change; there is no protocol, storage, host
   runtime, or external-page behavior change. See `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md`, and E2E-157.
+## 2026-09-11 — Composer accepts native file and folder drops (D397)
+
+- Native file-system drops into the Composer now prevent the browser default
+  and use one accent outline around the complete shell without changing its
+  layout. Regular files reuse the bounded session-scratch paste bridge and
+  become removable leaf-name chips; folders are never read, traversed, or
+  copied.
+- The preload resolves the path of each user-dropped `File` with Electron's
+  `webUtils.getPathForFile`. The renderer inserts a dropped folder's complete
+  native path at the caret as literal `@<path>/` text, preserving mixed item
+  order, the surrounding draft, focus, and the caret after asynchronous file
+  saving. No host RPC, protocol, workspace, or durable-schema change is added.
+- Decision D397 amends ADR 0101's previous drag/drop scope. See ADR 0222 and
+  E2E-102i.
 
 ## 2026-07-31 — Plugin themes ship CSS files
 

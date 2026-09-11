@@ -131,6 +131,8 @@ declare global {
       platform: NodeJS.Platform;
       /** Authoritative OS locale passed from the main process at window creation. */
       locale?: string;
+      /** Resolve a native dropped File to its source path. */
+      getDroppedFilePath?: (file: File) => string | null;
     };
   }
 }
@@ -462,6 +464,8 @@ export const api = {
     ),
   pickFiles: () =>
     invoke<{ token: string | null; canceled?: boolean }>(IPC.invoke.composerPickFiles),
+  getDroppedFilePath: (file: File) =>
+    window.piDesktop?.getDroppedFilePath?.(file) ?? null,
   pickPhotos: () =>
     invoke<{ token: string | null; canceled?: boolean }>(IPC.invoke.composerPickPhotos),
   importFiles: (sessionId: string, token: string) =>

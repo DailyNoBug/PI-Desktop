@@ -954,11 +954,14 @@ Sidebar width resizing is also implemented in MVP:
 - Collapsing the sidebar hides the handle but does not discard the preferred
   expanded width; re-expanding restores that width.
 
-The following gestures remain reserved for future milestones:
+The following gesture remains reserved for future milestones:
 
 - Drag project/session items to assign manual order
-- File drag into the composer remains unhandled; clipboard file/image paste
-  uses the session-scratch reference flow below
+
+Native file-system drops into the composer are implemented. The target uses an
+accent outline without changing layout; regular files use the session-scratch
+reference flow below, while folders keep their complete path as a literal
+directory reference in the draft.
 
 ### 8.2 Spec reservation
 
@@ -969,7 +972,7 @@ When drag/drop is implemented, these patterns should apply:
 - Cancel drag with Escape
 - Drag feedback: opacity 0.5 on source, accent outline on target
 
-## 8a. Composer autocomplete and clipboard files (D123–D125, D197, D209, D262, D362, ADR 0131)
+## 8a. Composer autocomplete and clipboard files (D123–D125, D197, D209, D262, D362, D397, ADR 0131, ADR 0222)
 
 ### 8a.1 Triggers
 
@@ -1033,6 +1036,15 @@ When drag/drop is implemented, these patterns should apply:
   line. It names visual transport for a model whose pi-ai `input` includes
   `image`, and names the file-path fallback for unknown/non-vision models.
   The status is informational, keyboard-safe, and never relies on color alone.
+- A native file-system drop over the Composer prevents the browser's default
+  file-open behavior and shows the same accent target outline for the whole
+  shell. Regular files are read through the existing bounded paste bridge and
+  become removable leaf-name chips in drop order. A dropped folder is not
+  traversed or copied; its complete native path is inserted at the caret using
+  the literal `@<path>/` directory form so the path remains visible; directory
+  tokens without spaces can continue into `@` completion. Mixed file/folder
+  drops preserve their order, and the draft/focus/caret are retained across the
+  asynchronous file save.
 - Accepted dispatch retains an in-memory, session/turn-scoped copy of the
   visible text and structured references only while unanswered smart Stop can
   undo the send. That undo restores the original chip order and labels; it
