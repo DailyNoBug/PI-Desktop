@@ -1444,6 +1444,12 @@ message its checkpoint covers.
   `aria-expanded`, and an `aria-controls` relationship to the panel, and opens
   the same compact summary on click or keyboard activation; Escape or a click
   outside closes it and returns focus to the trigger
+- The inspector panel is portaled to the document body and positioned in
+  viewport coordinates, but its horizontal clamp is the conversation pane: the
+  work panel's native browser and plugin surfaces composite above every
+  renderer layer, so a panel that reached the panel column would be covered
+  whatever its z-index. When the pane is narrower than the panel, the popover
+  narrows with the pane instead of crossing that edge.
 - Timestamps: `aria-label` with full time string, visual shows relative time
 
 ### 8.6 MVP constraints

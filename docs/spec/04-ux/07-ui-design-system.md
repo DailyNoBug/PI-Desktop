@@ -906,6 +906,10 @@ Rules:
 - Never use `z-index: 9999` or similar arbitrary high values
 - Each layer is a fixed offset; no custom z-index outside these layers
 - Stacking within a layer uses DOM order, not higher z-values
+- Browser-preview and plugin views are native surfaces composited above every
+  renderer layer, so no `z-index` in the table above can raise a popover over
+  them. A body-portaled popover clamps to the conversation pane, which ends
+  where the work panel begins, instead of to the viewport.
 
 ## 10. Layout shell metrics
 

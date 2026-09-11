@@ -2954,7 +2954,10 @@ Each scenario is documented in this format:
   section hairlines. 5) Scroll the transcript and resize the window while the
   panel is open. 6) Move the pointer away from the panel, then dismiss it by
   clicking the trigger again, clicking outside it, and pressing Escape from
-  the keyboard. 7) Click Retry on that turn while idle. 8) Confirm a session
+  the keyboard. 7) Open the work panel on a browser-preview artifact, open the
+  context inspector, and confirm the summary stays inside the conversation pane:
+  fully visible, clear of the panel column, and narrowed rather than clipped on
+  a narrow pane. 8) Click Retry on that turn while idle. 9) Confirm a session
   without usage still offers Retry on completed turns and omits the composer
   inspector.
 - **Expected**: Model badge appears under completed assistant answers when a
@@ -2978,8 +2981,9 @@ Each scenario is documented in this format:
   Advanced override remains honored. Generation rate remains a completed-turn
   value and does not update during streaming; Retry
   re-sends the nearest preceding user prompt and is disabled while a turn is
-  running; the portaled panel remains fully visible within the viewport, never
-  clipped by the composer or transcript, and follows the trigger after
+  running; the portaled panel stays inside the conversation pane so the work
+  panel's native browser or plugin surface can never cover it, narrows with a
+  narrow pane instead of crossing that edge, and follows the trigger after
   scrolling or resize; Copy still excludes thinking text.
 - **Specs linked**: `04-ux/08-component-spec.md`,
   `04-ux/10-workbuddy-benchmark-ux.md`, `03-runtime/01-ipc-protocol.md`
