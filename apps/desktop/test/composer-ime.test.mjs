@@ -10,11 +10,19 @@ const composerSource = await readFile(
 const modifierSendCondition =
   /e\.key === "Enter"\s*&&\s*!e\.shiftKey\s*&&\s*\(enterToSend \|\| e\.metaKey \|\| e\.ctrlKey\)/;
 
+function promptEditorKeyDown(source) {
+  const start = source.indexOf("onCompositionStart={() => setComposing(true)}");
+  const end = source.indexOf("composer-toolbar", start);
+  assert.ok(start > -1 && end > start, "prompt editor keydown must exist");
+  return source.slice(start, end);
+}
+
 test("enter-to-send ignores the IME confirm keystroke", () => {
-  const guardIndex = composerSource.indexOf(
+  const handler = promptEditorKeyDown(composerSource);
+  const guardIndex = handler.indexOf(
     "e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229",
   );
-  const sendIndex = composerSource.search(modifierSendCondition);
+  const sendIndex = handler.search(modifierSendCondition);
   assert.ok(guardIndex > -1, "composer keydown must check IME composition");
   assert.ok(sendIndex > -1, "composer keydown must keep the send branch");
   assert.ok(
@@ -24,25 +32,27 @@ test("enter-to-send ignores the IME confirm keystroke", () => {
 });
 
 test("modifier Enter sends when Enter-to-send is disabled", () => {
-  const sendBranch = composerSource.match(
-    /if \(\s*e\.key === "Enter"[\s\S]*?\(enterToSend \|\| e\.metaKey \|\| e\.ctrlKey\)[\s\S]*?void submit\(\);\s*\}/,
-  )?.[0] ?? "";
-  assert.ok(sendBranch, "composer keydown must include the modifier send branch");
-  assert.match(sendBranch, /!e\.shiftKey/);
-  assert.match(sendBranch, /e\.metaKey/);
-  assert.match(sendBranch, /e\.ctrlKey/);
+  const handler = promptEditorKeyDown(composerSource);
+  const sendIndex = handler.search(modifierSendCondition);
+  const autocompleteIndex = handler.search(
+    /\(e\.key === "Enter" \|\| e\.key === "Tab"\) && !e\.shiftKey/,
+  );
+  assert.ok(sendIndex > -1, "prompt editor must include the modifier send branch");
+  assert.ok(
+    autocompleteIndex > -1 && autocompleteIndex < sendIndex,
+    "autocomplete Enter must run before the send branch",
+  );
+  assert.match(handler.slice(sendIndex), /void submit\(\);/);
 
-  const shouldSend = ({ key, shiftKey, metaKey, ctrlKey }, enterToSend) =>
-    key === "Enter" && !shiftKey && (enterToSend || metaKey || ctrlKey);
-  const cases = [
-    [{ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: true }, true],
-    [{ key: "Enter", shiftKey: false, metaKey: true, ctrlKey: false }, true],
-    [{ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false }, false],
-    [{ key: "Enter", shiftKey: true, metaKey: false, ctrlKey: true }, false],
-  ];
-  for (const [event, expected] of cases) {
-    assert.equal(shouldSend(event, false), expected);
-  }
+  const modelMenu = composerSource.slice(
+    composerSource.indexOf("const onModelThinkingMenuKeyDown"),
+    composerSource.indexOf("composer-toolbar"),
+  );
+  assert.doesNotMatch(
+    modelMenu.slice(0, modelMenu.indexOf("onCompositionStart")),
+    modifierSendCondition,
+    "model menu keydown must not own the composer send predicate",
+  );
 });
 
 test("model menu keydown ignores IME composition keystrokes", () => {
