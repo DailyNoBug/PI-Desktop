@@ -74,6 +74,51 @@
   padding: 0 2px;
 }
 
+.sidebar-project-drag-handle {
+  display: inline-flex;
+  width: 20px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-2xs);
+  color: var(--ds-text-muted);
+  cursor: grab;
+  opacity: 0;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-out),
+    background var(--motion-duration-fast) var(--motion-ease-out),
+    color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.sidebar-session-group-header:hover .sidebar-project-drag-handle,
+.sidebar-session-group-header:focus-within .sidebar-project-drag-handle,
+.sidebar-project-drag-handle:focus-visible,
+.sidebar-project-drag-handle[aria-grabbed="true"] {
+  opacity: 1;
+}
+
+.sidebar-project-drag-handle:hover,
+.sidebar-project-drag-handle:focus-visible {
+  background: var(--ds-bg-hover);
+  color: var(--ds-text-primary);
+}
+
+.sidebar-project-drag-handle:active,
+.project-group.is-dragging .sidebar-project-drag-handle {
+  cursor: grabbing;
+}
+
+.project-group.is-dragging {
+  opacity: 0.5;
+}
+
+.project-group.is-drop-target > .sidebar-session-group-header {
+  outline: 1px solid var(--ds-accent);
+  outline-offset: -1px;
+  background: color-mix(in oklab, var(--ds-accent) 12%, transparent);
+}
+
 .sidebar-session-group-title {
   display: flex;
   min-width: 0;

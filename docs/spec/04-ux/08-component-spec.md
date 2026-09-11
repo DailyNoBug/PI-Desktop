@@ -463,7 +463,8 @@ visually distinct from list content.
   left edge never flips to the trigger's left side; the surface has a viewport
   width cap for narrow windows. The sort choices remain Recently updated,
   Created date, Oldest first, and Name; pinned rows stay ahead of unpinned rows.
-  A stored `manual` compatibility value requires no drag-reorder UI.
+  Project rows also expose a hover/focus drag handle; moving it selects the
+  persisted `manual` project order without changing the session sort.
 - When a session hover card is revealed for the active project, the renderer
   re-reads the host workspace metadata before displaying the card so an
   externally changed Git branch is current. This refresh does not activate a
@@ -495,6 +496,8 @@ visually distinct from list content.
   check/radio items expose `aria-checked`
 - Hover-hidden section and project actions remain in the tab order and reveal
   through `:focus-within`; keyboard focus never depends on pointer hover
+- Each project group exposes a localized drag handle with `aria-grabbed` during
+  a drag and ArrowUp/ArrowDown keyboard reordering
 - Collapsed state: each icon has `aria-label` with session title
 - Keyboard: arrow keys navigate session list
 - Footer Settings, Plugins, and notification controls expose localized
@@ -557,7 +560,8 @@ visually distinct from list content.
 - Global search opens from the conversation topbar, keyboard shortcuts, and
   the application menu; the expanded sidebar header does not host a search
   control
-- No drag-to-reorder contract; `manual` is a persisted compatibility value
+- Project drag/manual reorder is renderer-local and changes presentation only;
+  it never moves an on-disk directory or changes the host-selected workspace
 - Project tabs do not create another host workspace or a second main pane
 
 ### 3.9 Project group contract
@@ -571,6 +575,7 @@ controls.
 | Group root | localized project name; hover and keyboard focus expose the full path in a portaled tooltip plus an accessible description without changing row geometry |
 | Directory disclosure | single full-row target with `aria-expanded` / `aria-controls`; may activate an inactive project before toggling, but never archives |
 | Project pin | presentation priority only; no host row deletion/move |
+| Project reorder handle | hover/focus-visible grip; native drag/drop or ArrowUp/ArrowDown writes contiguous normalized-path order to sidebar preferences |
 | Project archive | omitted from default view; restorable from archived view |
 | Project close | removes retained tab only; durable project/sessions remain |
 | Session list | exact-path matches only; no basename grouping |

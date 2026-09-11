@@ -1154,6 +1154,7 @@ export const en = {
     expandDetails: "Expand {{name}}",
     collapseDetails: "Collapse {{name}}",
     openActions: "Open actions for {{name}}",
+    reorder: "Reorder {{name}}",
     rename: "Rename project",
     renameTitle: "Rename project",
     renameDescription: "Give this project a name you can recognize later.",

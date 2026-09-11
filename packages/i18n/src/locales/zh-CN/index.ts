@@ -1146,6 +1146,7 @@ export const zhCN = {
     expandDetails: "展开“{{name}}”",
     collapseDetails: "收起“{{name}}”",
     openActions: "打开“{{name}}”的操作菜单",
+    reorder: "调整“{{name}}”顺序",
     rename: "重命名项目",
     renameTitle: "重命名项目",
     renameDescription: "为这个项目设置一个便于之后识别的名称。",

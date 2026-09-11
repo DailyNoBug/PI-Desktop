@@ -1137,6 +1137,7 @@ export const es = {
     "expandDetails": "Expandir {{name}}",
     "collapseDetails": "Contraer {{name}}",
     "openActions": "Abrir acciones para {{name}}",
+    "reorder": "Reordenar {{name}}",
     "rename": "Cambiar nombre del proyecto",
     "renameTitle": "Cambiar nombre del proyecto",
     "renameDescription": "Asigne a este proyecto un nombre que pueda reconocer más adelante.",

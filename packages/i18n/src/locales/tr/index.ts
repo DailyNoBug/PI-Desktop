@@ -1156,6 +1156,7 @@ export const tr = {
     expandDetails: "{{name}} öğesini genişlet",
     collapseDetails: "{{name}} öğesini daralt",
     openActions: "{{name}} eylemlerini aç",
+    reorder: "{{name}} sırasını değiştir",
     rename: "Projeyi yeniden adlandır",
     renameTitle: "Projeyi yeniden adlandır",
     renameDescription: "Projeye daha sonra tanıyabileceğiniz bir ad verin.",
