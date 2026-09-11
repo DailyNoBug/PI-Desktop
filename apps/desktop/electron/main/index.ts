@@ -6284,6 +6284,67 @@ function registerIpc() {
     return host.call("session.rename", { id, title });
   });
   handle(
+    IPC.invoke.sessionMoveProject,
+    async (input: { sessionId?: string; projectPath?: string } = {}) => {
+      if (!host) throw new Error("host unavailable");
+      const sessionId = String(input.sessionId ?? "").trim();
+      const projectPath = String(input.projectPath ?? "").trim();
+      if (!sessionId) {
+        throw Object.assign(new Error("sessionId required"), {
+          errorCode: ErrorCodes.INVALID_ARGUMENT,
+        });
+      }
+      if (!projectPath) {
+        throw Object.assign(new Error("projectPath required"), {
+          errorCode: ErrorCodes.INVALID_ARGUMENT,
+        });
+      }
+      if (activeTurns.has(sessionId)) {
+        throw Object.assign(new Error("Cannot move a running session"), {
+          errorCode: ErrorCodes.AGENT_BUSY,
+        });
+      }
+      let result: { session?: (RuntimeSession & { projectPath?: string | null }) | null };
+      try {
+        result = await host.call("session.moveProject", { sessionId, projectPath });
+      } catch (error: any) {
+        // The durable running-turn guard can still reject a session whose turn
+        // began between the check above and the host call.
+        if (error?.data?.errorCode === ErrorCodes.CONFLICT) {
+          throw Object.assign(new Error("Cannot move a running session"), {
+            errorCode: ErrorCodes.AGENT_BUSY,
+          });
+        }
+        throw error;
+      }
+      if (!result.session) return result;
+      const movedProjectPath = result.session.projectPath?.trim() || null;
+      sessionProjects.set(sessionId, movedProjectPath);
+      // The live pi-agent caches the project instruction root and vendor auth
+      // bindings. Drop it after a successful move so the next turn is rebuilt
+      // from the moved session's own project instead of the previous one.
+      if (sidecar) {
+        sidecar.clearProjectInstructionRoot(sessionId);
+        sidecar.clearVendorAuthBindings(sessionId);
+        await sidecar
+          .call("agent.disposeSession", { sessionId })
+          .catch(() => undefined);
+        if (movedProjectPath) {
+          sidecar.setProjectInstructionRoot(sessionId, movedProjectPath);
+        }
+      }
+      const { providers, defaults } = await sessionCapabilityContext();
+      logger.app("session", "info", "session project moved", {
+        sessionId,
+        data: { projectPath: movedProjectPath },
+      });
+      return {
+        ...result,
+        session: enrichSession(result.session, providers, defaults),
+      };
+    },
+  );
+  handle(
     IPC.invoke.sessionReplaceMessages,
     async (input: { sessionId: string; messages: unknown[] }) => {
       if (!host) throw new Error("host unavailable");
