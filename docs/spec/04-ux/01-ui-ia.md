@@ -85,7 +85,10 @@ destination, chat as the home surface, tools and permissions inline.
   work-panel toggle. Its single Tools & panels menu contains
   host-owned Review followed by every in-scope plugin view, without hardcoding
   or duplicating plugin tabs. File paths stay distinct while plugin views
-  deduplicate by view reference. The viewport-fixed toggle and
+  deduplicate by view reference. The menu stays inside the work-panel bounds;
+  when Browser is active, its native surface is temporarily detached for the
+  menu lifetime so the menu never leaks into the conversation column. The
+  viewport-fixed toggle and
   `Cmd/Ctrl + J` both toggle the active session's retained panel context —
   revealing it without creating a resource tab and collapsing it without
   discarding one; the create trigger remains unavailable while the panel is

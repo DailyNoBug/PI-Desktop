@@ -3916,6 +3916,63 @@ async function createWindow() {
             await openPanelArtifact("browser");
             await new Promise((r) => setTimeout(r, 400));
             await shot("pi-panel-browser");
+            const probeWorkPanelMenu = async (scene: string) => {
+              const probe = await mainWindow!.webContents.executeJavaScript(`(() => {
+                const rectFor = (selector) => {
+                  const element = document.querySelector(selector);
+                  if (!element) return null;
+                  const rect = element.getBoundingClientRect();
+                  return {
+                    left: Math.round(rect.left),
+                    top: Math.round(rect.top),
+                    right: Math.round(rect.right),
+                    bottom: Math.round(rect.bottom),
+                  };
+                };
+                const menu = rectFor('.work-panel-new-menu');
+                const panel = rectFor('.work-panel');
+                return {
+                  scene: ${JSON.stringify(scene)},
+                  viewport: { width: innerWidth, height: innerHeight },
+                  menu,
+                  panel,
+                  insidePanel: menu && panel
+                    ? menu.left >= panel.left && menu.right <= panel.right
+                    : false,
+                };
+              })()`);
+              console.log("WORK_PANEL_MENU_PROBE", probe);
+              if (!probe?.menu || !probe.panel || !probe.insidePanel) {
+                throw new Error(`work-panel menu escaped its dock in ${scene}`);
+              }
+            };
+            await mainWindow!.webContents.executeJavaScript(`
+              document.querySelector('.work-panel-new-tab')?.dispatchEvent(
+                new MouseEvent('click', { bubbles: true }),
+              )
+            `);
+            await new Promise((r) => setTimeout(r, 350));
+            await shot("pi-panel-browser-menu");
+            await probeWorkPanelMenu("browser-menu");
+            await mainWindow!.webContents.executeJavaScript(`
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            `);
+            await new Promise((r) => setTimeout(r, 200));
+            await setTheme("dark");
+            await new Promise((r) => setTimeout(r, 300));
+            await mainWindow!.webContents.executeJavaScript(`
+              document.querySelector('.work-panel-new-tab')?.dispatchEvent(
+                new MouseEvent('click', { bubbles: true }),
+              )
+            `);
+            await new Promise((r) => setTimeout(r, 350));
+            await shot("pi-panel-browser-menu-dark");
+            await probeWorkPanelMenu("browser-menu-dark");
+            await mainWindow!.webContents.executeJavaScript(`
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            `);
+            await setTheme("light");
+            await new Promise((r) => setTimeout(r, 250));
             await openPanelArtifact("file", "apps/desktop/src/App.tsx");
             await new Promise((r) => setTimeout(r, 500));
             await shot("pi-panel-files");

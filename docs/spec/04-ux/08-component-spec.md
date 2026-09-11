@@ -752,7 +752,10 @@ in-scope `contributes.views` entry; Files and Browser are not hardcoded in the
 renderer (ADR 0104). The header reserves a tokenized 60px right-side safe lane
 for the viewport-fixed work-panel toggle. The `+` trigger also sits in a
 separated action rail, so it keeps a distinct hit target with at least 24px of
-visual gap on every supported platform.
+visual gap on every supported platform. The menu is clamped to the work-panel
+bounds; while Browser is active, its native surface is temporarily detached
+for the menu lifetime so the menu remains in the dock and the panel body does
+not reflow.
 
 With no resource the body remains open and becomes a concise **New** launcher.
 It uses the same data-driven tool list as the `+` menu, so selecting a row

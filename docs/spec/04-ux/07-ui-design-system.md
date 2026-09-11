@@ -534,9 +534,12 @@ All renderer-owned custom dropdowns and menus are viewport-fixed floating layers
 they are body-portaled (or use the shared anchored-menu primitive), measured
 before reveal, clamped to the viewport, and repositioned when the anchor or
 viewport moves. Opening one never adds to or squeezes its parent layout. The
-work-panel Tools & panels menu also avoids the measured native plugin surface
-and opens beside it, because a `WebContentsView` composites above renderer
-content; the plugin surface keeps its full bounds while the menu is open.
+work-panel Tools & panels menu is also clamped to the dock that owns its trigger.
+When a native plugin surface such as Browser is active, the surface is
+temporarily detached while the menu is open because a `WebContentsView`
+composites above renderer content; the surface keeps its bounds and returns
+when the menu closes. The menu therefore never leaks into the conversation
+column or pushes plugin content down.
 Native `<select>` popups remain OS-owned and are outside this renderer
 contract.
 
