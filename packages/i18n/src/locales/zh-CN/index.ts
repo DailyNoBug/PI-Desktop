@@ -53,6 +53,16 @@ export const zhCN = {
     allowSession: "本次运行内允许",
     deny: "拒绝",
   },
+  pluginGitConsent: {
+    discardMessage: "{name} 想丢弃 {count} 个文件的更改",
+    switchMessage: "{name} 想切换到 {branch}",
+    createMessage: "{name} 想创建并切换到 {branch}",
+    discard: "已跟踪的更改会恢复到最后一次提交，未跟踪文件会移入系统回收站。",
+    switch: "未提交的工作会保留在工作区。如果本地更改冲突，Git 可能拒绝切换。",
+    create: "新分支会从当前 HEAD 创建。未提交的工作会保留在工作区。",
+    allowOnce: "允许一次",
+    deny: "拒绝",
+  },
   pluginLauncher: {
     title: "打开插件",
     placeholder: "输入插件名称、拼音或拼音首字母",
@@ -1576,6 +1586,8 @@ export const zhCN = {
       "bus.publish": "向其他插件发送消息",
       "bus.subscribe": "接收其他插件的消息",
       "browser.cdp": "控制工作面板浏览器",
+      "git.read": "读取 Git 状态和 diff",
+      "git.write": "更改仓库状态",
     },
     permissionHelp: {
       "ui.panel": "允许插件在应用内显示独立面板。",
@@ -1608,6 +1620,9 @@ export const zhCN = {
       "bus.subscribe": "可在其声明的主题上接收消息。",
       "browser.cdp":
         "可导航工作面板浏览器、读取页面、运行 JavaScript，并发送白名单内的 Chrome DevTools 命令。Cookie 与存储相关方法会被拒绝。",
+      "git.read": "可通过宿主持有的 Git 命令读取当前工作区的分支、状态和 diff 元数据。",
+      "git.write":
+        "可通过固定的宿主 Git 命令暂存、取消暂存、丢弃、提交、推送、拉取并管理当前分支。破坏性和切分支操作仍需原生确认；不会保存凭据。",
     },
   },
   extensions: {

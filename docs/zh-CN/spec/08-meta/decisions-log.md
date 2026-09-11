@@ -3761,3 +3761,19 @@ D193 和 D194。
   重新打开会刷新；失败时可重试。
 - Token Insights 仍是热力图 / KPI / 过滤仪表盘，设置没有用量目的地。协议、存储
   schema 与消息用量归属不变。
+
+## 2026-09-11 —— 内置 Git 工作面板（D391）
+
+- 右侧工作面板新增默认内置的 `pi.git` 插件，其 `changes` 视图使用宿主
+  `branch` 图标。该插件是普通插件，默认启用、可禁用，只声明 `ui.view`、
+  `git.read` 与 `git.write`。
+- 决策 D391 / ADR 0217 在 Electron Main 中增加结构化、白名单化的 Git 边界。
+  `git.read` 暴露当前状态、分支和按范围的文件 diff；`git.write` 暴露固定的
+  stage、unstage、discard、分支、commit、push 与 pull 操作。路径经过校验，
+  输出和文件数量有界，操作有超时并按工作区串行，不暴露任意命令或远端。
+- Discard、切换分支和创建并切换需要宿主拥有的原生确认。已跟踪文件的
+  discard 从 `HEAD` 恢复，未跟踪文件移入系统回收站。Push 和 pull 仅作用于
+  当前分支，发布使用 `origin/<current-branch>`，pull 只允许 fast-forward。
+  凭据仍由用户的 Git credential helper 管理。
+- Git 审计只包含操作元数据。插件内的 review 覆盖层读取当前 Git 状态，独立于
+  消息持有的 Review 快照及其回滚行为。

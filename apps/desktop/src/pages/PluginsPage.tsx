@@ -90,6 +90,8 @@ const PERMISSION_RISK: Record<string, RiskTier> = {
   "desktop.control": "high",
   "session.read": "high",
   "browser.cdp": "high",
+  "git.read": "medium",
+  "git.write": "high",
   // Reading is a tier below writing because what makes a read dangerous is
   // where the data can go, and outbound requests are declared separately.
   "fs.read": "medium",

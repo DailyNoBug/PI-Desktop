@@ -320,6 +320,21 @@ Electron 主进程通知 API 并共享清单 `notify`
 执行简短的本机探测。这些通知不是持久任务
 收件箱记录，单击时不会激活会话。
 
+### Git（需要许可）
+
+- `pi.git.status()` / `pi.git.branches()` / `pi.git.diff({ path, scope })` //
+  `git.read`
+- `pi.git.stage(...)` / `pi.git.unstage(...)` / `pi.git.discard(...)` //
+  `git.write`；discard 需要原生确认
+- `pi.git.createBranch(...)` / `pi.git.switchBranch(...)` //
+  `git.write`；切换或创建并切换需要原生确认
+- `pi.git.commit(...)` / `pi.git.push(...)` / `pi.git.pull()` // `git.write`
+
+Git 只能通过这些固定的公开方法访问。Electron Main 把它们映射到活动工作区的
+白名单 Git argv，校验相对路径、限制输出、应用操作超时、按工作区串行变更操作，
+并且只审计元数据。凭据仍由用户的 Git credential helper 管理；PI-Desktop 既不
+保存凭据，也不暴露任意远端或命令。
+
 ### 明确不直接提供
 - 任意主机内部 Electron 对象
 - 通过代理的 `pi.fs` API 进行任意绝对路径访问
@@ -353,6 +368,8 @@ Electron 主进程通知 API 并共享清单 `notify`
 | `background.service` | 中等 | 保持常驻服务运行 |
 | `bus.publish` | 中等 | 发布到已声明的总线主题 |
 | `bus.subscribe` | 中等 | 订阅已声明的总线模式 |
+| `git.read` | 中等 | 读取当前 Git 状态、分支和按范围的 diff |
+| `git.write` | 高 | Stage、unstage、discard、commit、push、pull 并管理当前分支 |
 
 主题、MCP 服务器、服务和总线主题均在清单中声明，因此
 他们的权限在验证时和运行时都会受到检查 - 请参阅

@@ -60,6 +60,16 @@ export const ko = {
     allowSession: "종료할 때까지 허용",
     deny: "거부",
   },
+  pluginGitConsent: {
+    discardMessage: "{name}이(가) {count}개 파일의 변경 사항을 버리려고 합니다",
+    switchMessage: "{name}이(가) {branch}(으)로 전환하려고 합니다",
+    createMessage: "{name}이(가) {branch} 브랜치를 만들고 전환하려고 합니다",
+    discard: "추적된 변경 사항은 마지막 커밋으로 복원되고 추적되지 않은 파일은 휴지통으로 이동합니다.",
+    switch: "커밋하지 않은 작업은 작업 트리에 남습니다. 로컬 변경이 충돌하면 Git이 전환을 거부할 수 있습니다.",
+    create: "새 브랜치는 현재 HEAD에서 시작합니다. 커밋하지 않은 작업은 작업 트리에 남습니다.",
+    allowOnce: "한 번 허용",
+    deny: "거부",
+  },
   pluginLauncher: {
     title: "플러그인 열기",
     placeholder: "이름 또는 병음으로 플러그인 검색",
@@ -1588,6 +1598,8 @@ export const ko = {
       "bus.publish": "다른 플러그인에 메시지 보내기",
       "bus.subscribe": "다른 플러그인의 메시지 받기",
       "browser.cdp": "작업 패널 브라우저 제어",
+      "git.read": "Git 상태와 diff 읽기",
+      "git.write": "저장소 상태 변경",
     },
     permissionHelp: {
       "ui.panel": "플러그인이 앱 안에 자체 패널을 표시할 수 있습니다.",
@@ -1628,6 +1640,9 @@ export const ko = {
       "bus.subscribe": "선언한 주제의 메시지를 받을 수 있습니다.",
       "browser.cdp":
         "작업 패널 브라우저를 탐색하고 페이지를 읽으며 JavaScript를 실행하고 허용 목록에 있는 Chrome DevTools 명령을 보낼 수 있습니다. 쿠키 및 저장소 메서드는 차단됩니다.",
+      "git.read": "호스트가 소유한 Git 명령으로 현재 작업 공간의 브랜치, 상태, diff 메타데이터를 읽을 수 있습니다.",
+      "git.write":
+        "고정된 호스트 소유 Git 명령으로 스테이지, 스테이지 해제, 버리기, 커밋, 푸시, 풀 및 현재 브랜치 관리를 할 수 있습니다. 파괴적 작업과 브랜치 전환은 여전히 네이티브 확인이 필요하며 자격 증명은 저장하지 않습니다.",
     },
   },
   /**

@@ -189,6 +189,7 @@ Dev mode may colocate some services, but contracts stay the same.
 - Permission policy packs
 - Locale packs
 - Market providers (post-MVP)
+- Bundled plugin views such as `pi.files`, `pi.browser`, and `pi.git`
 
 ## 8. Packaging implications
 

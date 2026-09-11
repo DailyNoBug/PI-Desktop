@@ -392,7 +392,7 @@ may be retained while exactly one workspace supplies the visible shell context.
   presentation boundary from structured fields; persisted rows never contain
   localized prose.
 
-### 1.8 Work panel entry and resources (D128, D142, D154, D173, D179, D207, D221)
+### 1.8 Work panel entry and resources (D128, D142, D154, D173, D179, D207, D221, D391)
 
 - The shell starts without a visible work panel. The viewport-fixed toggle and
   `Cmd/Ctrl + J` both toggle the active session's panel: they reveal the
@@ -403,6 +403,12 @@ may be retained while exactly one workspace supplies the visible shell context.
   in-scope plugin view.
 - An artifact trigger atomically creates or reuses its resource, activates it,
   and opens the panel. Background artifacts never open the visible panel.
+- Git is an ordinary bundled plugin view, not an artifact trigger: the user
+  explicitly opens `pi.git`, whose current status refreshes on open, workspace
+  change, after operations, manually, and by a five-second poll only while the
+  view is visible. Stage, unstage, commit, push, and pull act directly after
+  their button action; discard and branch switching or create-and-switch first
+  require host-owned native confirmation.
 - File resources use normalized paths as identity. Browser and plugin views
   are singletons; repeated triggers preserve resource order and activate the
   existing resource.
@@ -450,6 +456,10 @@ may be retained while exactly one workspace supplies the visible shell context.
   after that session is selected; its event never renders in the currently
   visible session. Successful workspace artifacts may still create or
   activate the singleton Review tab.
+- Selecting a Git change opens a review overlay inside the Git view. That
+  overlay reads current Git state, offers no rollback, and never creates,
+  rewrites, or activates the message-owned Review tab. Existing Review
+  snapshots continue to survive commits and external repository changes.
 - Each session retains `{open, tabs, activeTabId, browserResource}` in renderer
   memory. Selecting another session swaps the visible context atomically and
   switching back restores it; selecting a workspace without an active

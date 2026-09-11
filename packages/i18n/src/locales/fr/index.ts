@@ -51,6 +51,16 @@ export const fr = {
     "allowSession": "Autoriser jusqu'à quitter",
     "deny": "Refuser"
   },
+  "pluginGitConsent": {
+    "discardMessage": "{name} veut abandonner les modifications de {count} fichiers",
+    "switchMessage": "{name} veut passer à {branch}",
+    "createMessage": "{name} veut créer puis passer à {branch}",
+    "discard": "Les modifications suivies seront restaurées depuis le dernier commit et les fichiers non suivis iront à la corbeille.",
+    "switch": "Le travail non commité reste dans l'arbre de travail. Git peut refuser le changement en cas de conflit local.",
+    "create": "La nouvelle branche part du HEAD actuel. Le travail non commité reste dans l'arbre de travail.",
+    "allowOnce": "Autoriser une fois",
+    "deny": "Refuser"
+  },
   "pluginLauncher": {
     "title": "Ouvrir un plugin",
     "placeholder": "Rechercher des plugins par nom ou pinyin",
@@ -1568,6 +1578,8 @@ export const fr = {
       "bus.publish": "Envoyer des messages à d'autres plugins",
       "bus.subscribe": "Recevoir des messages d'autres plugins",
       "browser.cdp": "Contrôler le navigateur du panneau de travail"
+      ,"git.read": "Lire l'état et les diffs Git"
+      ,"git.write": "Modifier l'état du dépôt"
     },
     "permissionHelp": {
       "ui.panel": "Permet au plugin d'afficher son propre panneau dans l'application.",
@@ -1596,7 +1608,9 @@ export const fr = {
       "background.service": "Maintient un travailleur en cours d'exécution pendant que le plugin est activé.",
       "bus.publish": "Peut envoyer des messages sur les sujets qu'il a déclarés.",
       "bus.subscribe": "Peut recevoir des messages sur les sujets qu'il a déclarés.",
-      "browser.cdp": "Peut naviguer dans le navigateur du panneau de travail, lire la page, exécuter JavaScript et envoyer des commandes Chrome DevTools sur liste autorisée. Les cookies et les méthodes de stockage sont bloqués."
+      "browser.cdp": "Peut naviguer dans le navigateur du panneau de travail, lire la page, exécuter JavaScript et envoyer des commandes Chrome DevTools sur liste autorisée. Les cookies et les méthodes de stockage sont bloqués.",
+      "git.read": "Peut lire les métadonnées de branche, d'état et de diff de l'espace courant via des commandes Git contrôlées par l'hôte.",
+      "git.write": "Peut indexer, désindexer, abandonner, commiter, pousser, tirer et gérer la branche courante via des commandes Git fixes contrôlées par l'hôte. Les actions destructives et de changement de brange demandent toujours une confirmation native ; aucun identifiant n'est stocké."
     }
   },
   "extensions": {

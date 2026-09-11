@@ -158,6 +158,8 @@ import { PluginRuntime, resolveInsidePlugin as resolveInsidePluginRoot } from ".
 import { ClipboardHistory } from "./clipboard-history";
 import { createFsConsentService } from "./plugin-fs-consent";
 import { createDesktopConsentService } from "./plugin-desktop-consent";
+import { createGitConsentService } from "./plugin-git-consent";
+import { GitService } from "./git-service";
 import { UserMcpRuntime } from "./user-mcp";
 import {
   MCP_CALL_TIMEOUT_MS,
@@ -687,6 +689,22 @@ const plugins: PluginRuntime = new PluginRuntime({
   confirmDesktopControl: createDesktopConsentService({
     getWindow: () => mainWindow,
     getLocale: () => updaterLocale,
+  }),
+  confirmGitOperation: createGitConsentService({
+    getWindow: () => mainWindow,
+    getLocale: () => updaterLocale,
+  }),
+  git: new GitService({
+    getWorkspacePath: () => {
+      try {
+        return (globalThis as any).__piWorkspacePath ?? null;
+      } catch {
+        return null;
+      }
+    },
+    trashItem: async (fullPath) => {
+      await shell.trashItem(fullPath);
+    },
   }),
   // The OS trash is what makes a plugin delete recoverable, and it is the
   // reason none of the user's data is copied anywhere by us.

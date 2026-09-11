@@ -53,6 +53,16 @@ export const zhTW = {
     allowSession: "本次執行內允許",
     deny: "拒絕",
   },
+  pluginGitConsent: {
+    discardMessage: "{name} 想丟棄 {count} 個檔案的變更",
+    switchMessage: "{name} 想切換到 {branch}",
+    createMessage: "{name} 想建立並切換到 {branch}",
+    discard: "已追蹤的變更會還原到最後一次提交，未追蹤檔案會移入系統回收站。",
+    switch: "未提交的工作會保留在工作區。如果本機變更衝突，Git 可能拒絕切換。",
+    create: "新分支會從目前 HEAD 建立。未提交的工作會保留在工作區。",
+    allowOnce: "允許一次",
+    deny: "拒絕",
+  },
   pluginLauncher: {
     title: "開啟外掛",
     placeholder: "輸入外掛名稱、拼音或拼音首字母",
@@ -1576,6 +1586,8 @@ export const zhTW = {
       "bus.publish": "向其他外掛傳送訊息",
       "bus.subscribe": "接收其他外掛的訊息",
       "browser.cdp": "控制工作面板瀏覽器",
+      "git.read": "讀取 Git 狀態和 diff",
+      "git.write": "變更儲存庫狀態",
     },
     permissionHelp: {
       "ui.panel": "允許外掛在應用內顯示獨立面板。",
@@ -1607,6 +1619,9 @@ export const zhTW = {
       "bus.subscribe": "可在其宣告的主題上接收訊息。",
       "browser.cdp":
         "可導航工作面板瀏覽器、讀取頁面、執行 JavaScript，併發送白名單內的 Chrome DevTools 命令。Cookie 與儲存相關方法會被拒絕。",
+      "git.read": "可透過宿主持有的 Git 命令讀取目前工作區的分支、狀態和 diff 中繼資料。",
+      "git.write":
+        "可透過固定的宿主 Git 命令暫存、取消暫存、捨棄、提交、推送、拉取並管理目前分支。破壞性與切換分支操作仍需原生確認；不會保存憑證。",
     },
   },
   extensions: {

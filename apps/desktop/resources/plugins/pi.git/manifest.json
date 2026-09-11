@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "pi.git",
+  "name": "Git",
+  "version": "1.0.0",
+  "description": "Review and manage workspace changes in the work panel.",
+  "author": "PI-Desktop",
+  "main": "main.js",
+  "contributes": {
+    "views": [
+      {
+        "id": "changes",
+        "title": {
+          "en": "Git",
+          "zh-CN": "Git"
+        },
+        "icon": "branch",
+        "entry": "views/changes.html",
+        "order": 20
+      }
+    ]
+  },
+  "permissions": ["ui.view", "git.read", "git.write"],
+  "engines": {
+    "piDesktop": ">=0.8.0"
+  }
+}

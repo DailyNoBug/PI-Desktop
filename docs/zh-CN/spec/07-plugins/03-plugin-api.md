@@ -160,6 +160,52 @@ pi.fs.requestDirectory(): Promise<{ path: string; name: string } | null>
 受保护路径不会出现，`node_modules` 之类的重目录会被跳过。目录始终返回，
 因此即使范围很窄也能得到可导航的树；单次调用最多返回 1000 个条目。
 
+### git（需要 `git.read` / `git.write`）
+
+```ts
+pi.git.status(): Promise<PluginGitStatus>
+pi.git.branches(): Promise<PluginGitBranches>
+pi.git.diff(input: {
+  path: string
+  scope: "staged" | "unstaged" | "untracked"
+}): Promise<PluginGitDiff>
+
+pi.git.stage(input: { paths?: string[]; all?: boolean }): Promise<PluginGitOperation>
+pi.git.unstage(input: { paths?: string[]; all?: boolean }): Promise<PluginGitOperation>
+pi.git.discard(input: { paths: string[] }): Promise<PluginGitOperation>
+pi.git.createBranch(input: {
+  name: string
+  checkout?: boolean
+}): Promise<PluginGitOperation>
+pi.git.switchBranch(input: { branch: string }): Promise<PluginGitOperation>
+pi.git.commit(input: {
+  message: string
+  stageAll?: boolean
+}): Promise<PluginGitOperation>
+pi.git.push(input?: { publish?: boolean }): Promise<PluginGitOperation>
+pi.git.pull(): Promise<PluginGitOperation>
+```
+
+Git 执行由宿主拥有并使用白名单：每个公开方法都映射到活动工作区中的固定
+Git argv，绝不会运行插件提供的 shell 命令。`git.read` 覆盖状态、分支和 diff；
+所有变更操作都需要 `git.write`。路径是相对根目录且经过校验，输出与结果数量
+有界，操作有超时，同一工作区的变更操作会串行执行。
+Stage 与 unstage 必须提供有界的非空路径列表，或显式传入 `all: true`；
+discard 始终必须提供明确路径。
+
+`status` 报告仓库可用性、当前分支与上游、ahead/behind 数量、已暂存变更、
+未暂存变更、未跟踪文件、冲突以及文件列表是否被截断。同一路径可以同时出现在
+staged 与 unstaged 分组。`diff` 针对一个选中的范围返回有界 hunk，并提供二进制
+与文件过大状态。Commit 默认使用已暂存索引；`stageAll` 是显式的“全部暂存并
+提交”动作。空消息与空提交会被拒绝，仓库 hook 照常运行。
+
+Push 使用当前分支已配置的上游；`publish: true` 显式发布到
+`origin/<current-branch>`。Pull 永远只允许 fast-forward。Discard、切换分支和
+创建并切换需要宿主拥有的原生确认。已跟踪文件的 discard 从 `HEAD` 恢复；
+未跟踪文件移入系统回收站。凭据仍由用户的 Git credential helper 管理，终端
+提示被禁用，PI-Desktop 不保存 Git 凭据。Force push、任意远端、stash、merge
+处理、标签和历史浏览不属于该 API。
+
 ###代理
 ```ts
 pi.agent.registerTool(tool: {
@@ -535,6 +581,8 @@ window.pluginBridge.on(event, handler)
 | `clipboard.writeText` | `clipboard.write` |
 | `shell.openExternal` | `shell.openExternal` |
 | `net.fetch` | `net.fetch` |
+| `git.status`、`git.branches`、`git.diff` | `git.read` |
+| `git.stage`、`git.unstage`、`git.discard`、`git.createBranch`、`git.switchBranch`、`git.commit`、`git.push`、`git.pull` | `git.write` |
 
 `plugin.setSettings`、`fs.remove` 和任意 Electron IPC 未暴露。主机自己
 没有实现的通道会被转发到插件的 `onPanelInvoke(channel, payload)`，
@@ -575,6 +623,8 @@ window.pluginBridge.on(event, handler)
 - models.list（返回行数）
 - session.getLlmContext（会话 id、消息数、truncated 标志 —— 不含转录文本）
 - agent.complete（模型 key、体积、usage —— 不含提示或补全文本）
+- 每次 Git 调用，包括权限与确认拒绝：插件 id、操作、结果/错误代码、路径数量
+  和分支 —— 绝不记录路径、diff 内容、提交消息、凭据或原始远端输出
 
 日志字段：
 - 插件ID
@@ -602,6 +652,7 @@ window.pluginBridge.on(event, handler)
 - `models.list`、`session.getLlmContext`
 - `clipboard.*`、`shell.openExternal`、`net.fetch`
 - `browser.*`（访客页 CDP；`browser.cdp`）
+- `git.*`（活动工作区内结构化、白名单化的 Git 操作）
 - `services.register` / `unregister`、`bus.publish` / `subscribe`、`events.on` / `off`
 
 本机插件通知使用 Electron 主进程通知界面；

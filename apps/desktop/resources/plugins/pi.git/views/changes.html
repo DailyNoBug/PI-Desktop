@@ -1,0 +1,1118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="pi-plugin-chrome" content="v2" />
+    <title>Git</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #181818;
+        --surface: #181818;
+        --surface-raised: #202020;
+        --surface-hover: color-mix(in oklab, #ffffff 6%, transparent);
+        --surface-active: color-mix(in oklab, #ffffff 10%, transparent);
+        --fg: #ffffff;
+        --secondary: color-mix(in oklab, #ffffff 72%, transparent);
+        --muted: color-mix(in oklab, #ffffff 52%, transparent);
+        --faint: color-mix(in oklab, #ffffff 38%, transparent);
+        --border: color-mix(in oklab, #ffffff 5%, transparent);
+        --border-strong: color-mix(in oklab, #ffffff 14%, transparent);
+        --accent: #ffffff;
+        --danger: #ff6764;
+        --add: color-mix(in oklab, #4ade80 52%, transparent);
+        --del: color-mix(in oklab, #ff6764 48%, transparent);
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font: 12px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      }
+      :root[data-base="light"] {
+        color-scheme: light;
+        --bg: #fafafa;
+        --surface: #ffffff;
+        --surface-raised: #ffffff;
+        --surface-hover: color-mix(in oklab, #1a1c1f 5%, transparent);
+        --surface-active: color-mix(in oklab, #1a1c1f 8%, transparent);
+        --fg: #1a1c1f;
+        --secondary: color-mix(in oklab, #1a1c1f 74%, transparent);
+        --muted: #5d5d5d;
+        --faint: #afafaf;
+        --border: color-mix(in oklab, #1a1c1f 5%, transparent);
+        --border-strong: color-mix(in oklab, #1a1c1f 12%, transparent);
+        --accent: #1a1c1f;
+        --danger: #e02e2a;
+        --add: color-mix(in oklab, #15803d 70%, transparent);
+        --del: color-mix(in oklab, #dc2626 66%, transparent);
+      }
+      * { box-sizing: border-box; }
+      body {
+        height: 100vh;
+        margin: 0;
+        padding-top: var(--pi-plugin-titlebar-height, 0px);
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--fg);
+      }
+      button, input, select, textarea { font: inherit; color: inherit; }
+      button, select, input, textarea:focus { outline: none; }
+      button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+        outline: 2px solid color-mix(in oklab, var(--accent) 58%, transparent);
+        outline-offset: -2px;
+      }
+      button { border: 0; background: transparent; cursor: pointer; }
+      button:disabled { cursor: default; opacity: .42; }
+      .app { display: flex; height: 100%; min-height: 0; flex-direction: column; }
+      .toolbar {
+        display: flex;
+        min-height: 38px;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 8px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .branch-wrap {
+        display: flex;
+        min-width: 0;
+        height: 27px;
+        flex: 1 1 90px;
+        align-items: center;
+        border: 1px solid var(--border-strong);
+        border-radius: 6px;
+        background: color-mix(in oklab, var(--fg) 4%, transparent);
+      }
+      .branch-wrap:focus-within { border-color: color-mix(in oklab, var(--accent) 40%, var(--border-strong)); }
+      .branch-wrap svg { flex: 0 0 auto; margin-left: 7px; color: var(--muted); }
+      select {
+        min-width: 0;
+        height: 25px;
+        flex: 1;
+        border: 0;
+        background: transparent;
+      }
+      .sync {
+        display: flex;
+        min-width: 56px;
+        flex: 0 0 auto;
+        justify-content: center;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .icon-button {
+        display: inline-flex;
+        width: 28px;
+        height: 28px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        color: var(--secondary);
+      }
+      .icon-button:hover:not(:disabled) { background: var(--surface-hover); color: var(--fg); }
+      .primary {
+        display: inline-flex;
+        height: 28px;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border-radius: 6px;
+        padding: 0 10px;
+        background: var(--accent);
+        color: var(--bg);
+        font-weight: 500;
+      }
+      .primary:hover:not(:disabled) { opacity: .88; }
+      .secondary {
+        display: inline-flex;
+        height: 28px;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: 1px solid var(--border-strong);
+        border-radius: 6px;
+        padding: 0 9px;
+        color: var(--secondary);
+      }
+      .secondary:hover:not(:disabled) { background: var(--surface-hover); color: var(--fg); }
+      .content {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding-bottom: 10px;
+        scrollbar-gutter: stable;
+      }
+      .state {
+        display: none;
+        margin: 42px 28px;
+        color: var(--muted);
+        text-align: center;
+      }
+      .state strong { display: block; margin-bottom: 4px; color: var(--secondary); font-size: 13px; }
+      .section {
+        display: flex;
+        min-height: 27px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 10px 4px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: .06em;
+        text-transform: uppercase;
+      }
+      .section-count { color: var(--faint); font-variant-numeric: tabular-nums; }
+      .file {
+        display: grid;
+        width: calc(100% - 8px);
+        grid-template-columns: 20px minmax(0, 1fr) auto;
+        min-height: 31px;
+        align-items: center;
+        gap: 7px;
+        margin: 0 4px;
+        border-radius: 6px;
+        padding: 3px 5px 3px 7px;
+        color: var(--secondary);
+        text-align: left;
+      }
+      .file:hover { background: var(--surface-hover); color: var(--fg); }
+      .file[aria-current="true"] { background: var(--surface-active); color: var(--fg); }
+      .status-letter {
+        width: 15px;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+        text-align: center;
+      }
+      .status-letter[data-status="added"], .status-letter[data-status="untracked"] { color: var(--add); }
+      .status-letter[data-status="deleted"], .status-letter[data-status="conflicted"] { color: var(--del); }
+      .path {
+        min-width: 0;
+        overflow: hidden;
+        direction: rtl;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .path span { direction: ltr; unicode-bidi: isolate; }
+      .counts { margin-right: 3px; color: var(--faint); font-variant-numeric: tabular-nums; }
+      .counts b { color: var(--add); font-weight: 400; }
+      .counts i { color: var(--del); font-style: normal; }
+      .row-actions { display: inline-flex; align-items: center; gap: 2px; }
+      .mini-button {
+        display: inline-flex;
+        width: 24px;
+        height: 24px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 5px;
+        color: var(--muted);
+      }
+      .mini-button:hover:not(:disabled) { background: var(--surface-active); color: var(--fg); }
+      .mini-button.danger:hover:not(:disabled) { color: var(--danger); }
+      .commit {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 98px;
+        gap: 7px;
+        margin: 8px 8px 0;
+      }
+      .commit textarea {
+        min-height: 64px;
+        max-height: 160px;
+        resize: vertical;
+        border: 1px solid var(--border-strong);
+        border-radius: 6px;
+        padding: 7px 8px;
+        background: color-mix(in oklab, var(--fg) 4%, transparent);
+      }
+      .commit .primary { height: auto; min-height: 64px; align-self: stretch; }
+      .notice {
+        display: none;
+        margin: 10px 8px 0;
+        border-left: 2px solid var(--danger);
+        padding: 6px 8px;
+        background: color-mix(in oklab, var(--danger) 8%, transparent);
+        color: var(--secondary);
+      }
+      .branch-popover {
+        position: absolute;
+        z-index: 5;
+        top: 42px;
+        left: 10px;
+        display: none;
+        width: min(300px, calc(100vw - 20px));
+        border: 1px solid var(--border-strong);
+        border-radius: 7px;
+        padding: 9px;
+        background: var(--surface-raised);
+        box-shadow: 0 14px 38px rgb(0 0 0 / 26%);
+      }
+      .branch-popover.is-open { display: block; }
+      .branch-popover input {
+        width: 100%;
+        height: 28px;
+        border: 1px solid var(--border-strong);
+        border-radius: 6px;
+        padding: 0 8px;
+        background: color-mix(in oklab, var(--fg) 4%, transparent);
+      }
+      .branch-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+      .overlay {
+        position: fixed;
+        inset: var(--pi-plugin-titlebar-height, 0px) 0 0;
+        z-index: 10;
+        display: none;
+        min-height: 0;
+        flex-direction: column;
+        background: var(--bg);
+      }
+      .overlay.is-open { display: flex; }
+      .review-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        min-height: 39px;
+        align-items: center;
+        padding: 5px 8px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .review-title { min-width: 0; }
+      .review-title select {
+        width: 100%;
+        max-width: 410px;
+        height: 27px;
+        border: 1px solid var(--border-strong);
+        border-radius: 6px;
+        padding: 0 6px;
+        background: var(--surface-raised);
+      }
+      .review-tools { display: flex; align-items: center; gap: 2px; }
+      .segmented {
+        display: inline-flex;
+        height: 28px;
+        align-items: stretch;
+        border: 1px solid var(--border-strong);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .segmented button {
+        min-width: 32px;
+        padding: 0 7px;
+        color: var(--muted);
+      }
+      .segmented button[aria-pressed="true"] { background: var(--surface-active); color: var(--fg); }
+      .diff {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 8px 0 20px;
+        font-family: var(--mono);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+      .hunk-header {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        padding: 3px 10px;
+        background: color-mix(in oklab, var(--surface-raised) 94%, transparent);
+        color: var(--muted);
+      }
+      .line {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        min-width: 0;
+      }
+      .line-side {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr) minmax(0, 1fr);
+        min-width: 0;
+      }
+      .line.no, .side.no {
+        color: var(--faint);
+        text-align: right;
+        user-select: none;
+      }
+      .line .text, .side .text {
+        padding-right: 10px;
+        padding-left: 7px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .line[data-type="add"] .text, .side[data-type="add"] .text.right { color: var(--add); }
+      .line[data-type="del"] .text, .side[data-type="del"] .text.left { color: var(--del); }
+      .side .text.empty { background: color-mix(in oklab, var(--fg) 3%, transparent); }
+      .line.current, .side.current { background: var(--surface-active); }
+      .diff-state { margin: 42px 28px; color: var(--muted); text-align: center; }
+      .empty { color: var(--faint); padding: 2px 12px 7px; }
+      .spin { animation: spin 800ms linear infinite; }
+      @keyframes spin { to { transform: rotate(1turn); } }
+      @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+      @media (max-width: 360px) {
+        .toolbar { flex-wrap: wrap; }
+        .branch-wrap { flex-basis: 100%; }
+        .commit { grid-template-columns: 1fr; }
+        .commit .primary { min-height: 32px; }
+        .review-header { grid-template-columns: 1fr; }
+        .review-title select { max-width: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="toolbar" role="toolbar" aria-label="Git">
+        <div class="branch-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a9 9 0 0 1-9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <select id="branch-select" aria-label="Branch"></select>
+        </div>
+        <span class="sync" id="sync"></span>
+        <button class="icon-button" id="create-branch" title="Create branch" aria-label="Create branch"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="icon-button" id="pull" title="Pull" aria-label="Pull"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v12m0 0 4-4m-4 4-4-4M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="icon-button" id="publish" title="Publish branch" aria-label="Publish branch"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17 17 7m0 0H9m8 0v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="icon-button" id="push" title="Push" aria-label="Push"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 20V8m0 0-4 4m4-4 4 4M4 4h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="icon-button" id="refresh" title="Refresh" aria-label="Refresh"><svg id="refresh-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <div class="branch-popover" id="branch-popover" role="dialog" aria-modal="false" aria-labelledby="branch-label">
+          <label id="branch-label" for="branch-name">Branch name</label>
+          <input id="branch-name" maxlength="200" autocomplete="off" spellcheck="false" />
+          <div class="branch-actions">
+            <button class="secondary" id="branch-cancel">Cancel</button>
+            <button class="secondary" id="branch-create">Create</button>
+            <button class="primary" id="branch-create-switch">Create and switch</button>
+          </div>
+        </div>
+      </header>
+      <main class="content" id="content" aria-busy="false">
+        <div class="state" id="state"><strong id="state-title"></strong><span id="state-body"></span></div>
+        <section aria-labelledby="staged-label">
+          <div class="section"><span id="staged-label">Staged Changes</span><span class="section-count" id="staged-count"></span></div>
+          <div id="staged-files"></div>
+        </section>
+        <section aria-labelledby="changes-label">
+          <div class="section"><span id="changes-label">Changes</span><span class="section-count" id="changes-count"></span></div>
+          <div id="unstaged-files"></div>
+        </section>
+        <div class="notice" id="notice" role="status"></div>
+        <div class="commit">
+          <textarea id="message" placeholder="Commit message" aria-label="Commit message"></textarea>
+          <button class="primary" id="commit">Commit</button>
+        </div>
+      </main>
+    </div>
+    <section class="overlay" id="review" role="dialog" aria-modal="false" aria-label="Git review">
+      <header class="review-header">
+        <div class="review-title">
+          <select id="review-file" aria-label="Reviewed file"></select>
+        </div>
+        <div class="review-tools">
+          <button class="icon-button" id="previous-change" title="Previous change" aria-label="Previous change"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 6-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+          <button class="icon-button" id="next-change" title="Next change" aria-label="Next change"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+          <div class="segmented" role="group" aria-label="Diff mode">
+            <button id="unified-mode" title="Unified" aria-pressed="true">U</button>
+            <button id="split-mode" title="Side by side" aria-pressed="false">S</button>
+          </div>
+          <button class="icon-button" id="review-refresh" title="Refresh diff" aria-label="Refresh diff"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+          <button class="icon-button" id="review-close" title="Close review" aria-label="Close review"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        </div>
+      </header>
+      <div class="diff" id="diff"></div>
+    </section>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const bridge = window.pluginBridge;
+      const state = {
+        status: null,
+        branches: [],
+        statusRevision: 0,
+        branchRevision: 0,
+        diffRevision: 0,
+        workspaceGeneration: 0,
+        statusSignature: "",
+        loading: false,
+        busy: "",
+        error: "",
+        errorCode: "",
+        visible: true,
+        timer: 0,
+        review: null,
+        reviewOpener: null,
+        diffMode: "unified",
+        changeIndex: -1,
+      };
+      let localeTag = (navigator.language || "en").toLowerCase();
+      let zh = localeTag === "zh" || localeTag.startsWith("zh-");
+      const text = {
+        branch: zh ? "分支" : "Branch",
+        createBranch: zh ? "创建分支" : "Create branch",
+        createOnly: zh ? "创建" : "Create",
+        createSwitch: zh ? "创建并切换" : "Create and switch",
+        cancel: zh ? "取消" : "Cancel",
+        pull: zh ? "拉取" : "Pull",
+        push: zh ? "推送" : "Push",
+        publish: zh ? "发布分支" : "Publish branch",
+        refresh: zh ? "刷新" : "Refresh",
+        staged: zh ? "已暂存的更改" : "Staged Changes",
+        changes: zh ? "更改" : "Changes",
+        empty: zh ? "没有更改" : "No changes",
+        commit: zh ? "提交" : "Commit",
+        stageAllCommit: zh ? "暂存全部并提交" : "Stage all & commit",
+        message: zh ? "提交信息" : "Commit message",
+        loading: zh ? "正在读取 Git 状态…" : "Loading Git state…",
+        noWorkspace: zh ? "未打开项目" : "No project open",
+        noRepo: zh ? "当前项目不是 Git 仓库" : "This project is not a Git repository",
+        conflict: zh ? "存在未解决的冲突" : "Unresolved conflicts",
+        closeReview: zh ? "关闭 review" : "Close review",
+        previous: zh ? "上一个更改" : "Previous change",
+        next: zh ? "下一个更改" : "Next change",
+        unified: zh ? "并排模式" : "Unified",
+        split: zh ? "分栏模式" : "Side by side",
+        refreshDiff: zh ? "刷新 diff" : "Refresh diff",
+        binary: zh ? "二进制文件不支持文本 diff" : "Binary file",
+        tooLarge: zh ? "文件过大，diff 已截断" : "File too large",
+        noDiff: zh ? "没有可显示的 diff" : "No diff",
+        stage: zh ? "暂存" : "Stage",
+        unstage: zh ? "取消暂存" : "Unstage",
+        discard: zh ? "丢弃" : "Discard",
+        truncated: zh ? "更改列表已截断" : "Change list truncated",
+      };
+      const statusLetter = { added: "A", modified: "M", deleted: "D", renamed: "R", untracked: "U", conflicted: "C" };
+      const statusText = { added: "Added", modified: "Modified", deleted: "Deleted", renamed: "Renamed", untracked: "Untracked", conflicged: "Conflicted" };
+      const icons = {
+        plus: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
+        minus: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
+        undo: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+      };
+
+      function esc(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+      }
+      function applyLanguage(tag) {
+        localeTag = String(tag || "en").toLowerCase();
+        zh = localeTag === "zh" || localeTag.startsWith("zh-");
+        document.documentElement.lang = zh ? "zh-CN" : "en";
+        Object.assign(text, {
+          branch: zh ? "分支" : "Branch",
+          createBranch: zh ? "创建分支" : "Create branch",
+          createOnly: zh ? "创建" : "Create",
+          createSwitch: zh ? "创建并切换" : "Create and switch",
+          cancel: zh ? "取消" : "Cancel",
+          pull: zh ? "拉取" : "Pull",
+          push: zh ? "推送" : "Push",
+          publish: zh ? "发布分支" : "Publish branch",
+          refresh: zh ? "刷新" : "Refresh",
+          staged: zh ? "已暂存的更改" : "Staged Changes",
+          changes: zh ? "更改" : "Changes",
+          empty: zh ? "没有更改" : "No changes",
+          commit: zh ? "提交" : "Commit",
+          stageAllCommit: zh ? "暂存全部并提交" : "Stage all & commit",
+          message: zh ? "提交信息" : "Commit message",
+          loading: zh ? "正在读取 Git 状态…" : "Loading Git state…",
+          noWorkspace: zh ? "未打开项目" : "No project open",
+          noRepo: zh ? "当前项目不是 Git 仓库" : "This project is not a Git repository",
+          conflict: zh ? "存在未解决的冲突" : "Unresolved conflicts",
+          closeReview: zh ? "关闭 review" : "Close review",
+          previous: zh ? "上一个更改" : "Previous change",
+          next: zh ? "下一个更改" : "Next change",
+          unified: zh ? "统一模式" : "Unified",
+          split: zh ? "分栏模式" : "Side by side",
+          refreshDiff: zh ? "刷新 diff" : "Refresh diff",
+          binary: zh ? "二进制文件不支持文本 diff" : "Binary file",
+          tooLarge: zh ? "文件过大，diff 已截断" : "File too large",
+          noDiff: zh ? "没有可显示的 diff" : "No diff",
+          stage: zh ? "暂存" : "Stage",
+          unstage: zh ? "取消暂存" : "Unstage",
+          discard: zh ? "丢弃" : "Discard",
+          truncated: zh ? "更改列表已截断" : "Change list truncated",
+          toolbar: "Git",
+          branchName: zh ? "分支名称" : "Branch name",
+          noUpstream: zh ? "当前分支没有上游分支" : "This branch has no upstream",
+          detached: zh ? "仓库处于 detached HEAD 状态" : "This repository is in detached HEAD state",
+          initialBranch: zh ? "初始提交尚未创建" : "The initial commit has not been created",
+          authFailed: zh ? "Git 远程认证失败" : "Git remote authentication failed",
+          hookFailed: zh ? "Git 钩子执行失败" : "A Git hook failed",
+          gitError: zh ? "Git 操作失败" : "Git operation failed",
+          reviewFile: zh ? "要 review 的文件" : "Reviewed file",
+          diffMode: zh ? "Diff 模式" : "Diff mode",
+        });
+        Object.assign(statusText, {
+          added: zh ? "新增" : "Added",
+          modified: zh ? "修改" : "Modified",
+          deleted: zh ? "删除" : "Deleted",
+          renamed: zh ? "重命名" : "Renamed",
+          untracked: zh ? "未跟踪" : "Untracked",
+          conflicted: zh ? "冲突" : "Conflicted",
+        });
+      }
+      function invoke(api, payload) { return bridge.invoke(api, payload || {}); }
+      function setBusy(name) {
+        state.busy = name;
+        render();
+      }
+      function applyText() {
+        document.title = "Git";
+        document.querySelector(".toolbar").ariaLabel = text.toolbar;
+        document.querySelector(".segmented").ariaLabel = text.diffMode;
+        $("branch-select").ariaLabel = text.branch;
+        $("create-branch").title = text.createBranch;
+        $("create-branch").ariaLabel = text.createBranch;
+        $("pull").title = text.pull;
+        $("pull").ariaLabel = text.pull;
+        $("publish").title = text.publish;
+        $("publish").ariaLabel = text.publish;
+        $("push").title = text.push;
+        $("push").ariaLabel = text.push;
+        $("refresh").title = text.refresh;
+        $("refresh").ariaLabel = text.refresh;
+        $("staged-label").textContent = text.staged;
+        $("changes-label").textContent = text.changes;
+        $("message").placeholder = text.message;
+        $("message").ariaLabel = text.message;
+        $("branch-label").textContent = text.branchName;
+        $("branch-name").placeholder = text.branchName;
+        $("branch-name").ariaLabel = text.branchName;
+        $("branch-cancel").textContent = text.cancel;
+        $("branch-create").textContent = text.createOnly;
+        $("branch-create-switch").textContent = text.createSwitch;
+        $("review-file").ariaLabel = text.reviewFile;
+        $("review").ariaLabel = text.closeReview;
+        $("review-close").title = text.closeReview;
+        $("review-close").ariaLabel = text.closeReview;
+        $("previous-change").title = text.previous;
+        $("previous-change").ariaLabel = text.previous;
+        $("next-change").title = text.next;
+        $("next-change").ariaLabel = text.next;
+        $("unified-mode").title = text.unified;
+        $("split-mode").title = text.split;
+        $("review-refresh").title = text.refreshDiff;
+        $("review-refresh").ariaLabel = text.refreshDiff;
+        renderControls();
+      }
+      function statusItems() {
+        const status = state.status;
+        if (!status?.repo) return [];
+        return [
+          ...status.staged.map((change) => ({ ...change, scope: "staged" })),
+          ...status.conflicts.map((change) => ({ ...change, scope: "unstaged" })),
+          ...status.unstaged.map((change) => ({ ...change, scope: change.status === "untracked" ? "untracked" : "unstaged" })),
+        ];
+      }
+      function signature(status) {
+        return JSON.stringify([
+          status?.branch, status?.upstream, status?.ahead, status?.behind,
+          status?.staged, status?.unstaged, status?.conflicts,
+        ]);
+      }
+      async function loadStatus({ quiet = false } = {}) {
+        const generation = state.workspaceGeneration;
+        const revision = ++state.statusRevision;
+        if (!quiet) {
+          state.loading = true;
+          render();
+        }
+        try {
+          const status = await invoke("git.status");
+          if (generation !== state.workspaceGeneration || revision !== state.statusRevision) return;
+          state.status = status;
+          state.error = "";
+          state.errorCode = "";
+          const changed = signature(status) !== state.statusSignature;
+          state.statusSignature = signature(status);
+          if (changed) {
+            render();
+            await loadBranches(quiet);
+            if (state.review) {
+              const current = statusItems().find(itemKeyEquals);
+              if (!current) closeReview();
+              else if (!quiet || state.visible) await loadDiff();
+            }
+          } else {
+            render();
+          }
+        } catch (error) {
+          if (generation !== state.workspaceGeneration || revision !== state.statusRevision) return;
+          state.status = null;
+          state.error = error.message || String(error);
+          state.errorCode = error?.code;
+          render();
+        } finally {
+          if (generation === state.workspaceGeneration && revision === state.statusRevision) state.loading = false;
+          render();
+        }
+      }
+      async function loadBranches(quiet = true) {
+        const generation = state.workspaceGeneration;
+        const revision = ++state.branchRevision;
+        if (!state.status?.repo) {
+          state.branches = [];
+          return;
+        }
+        try {
+          const result = await invoke("git.branches");
+          if (generation !== state.workspaceGeneration || revision !== state.branchRevision) return;
+          state.branches = result.repo ? result.branches : [];
+        } catch (error) {
+          if (!quiet) throw error;
+        }
+        renderBranches();
+      }
+      function itemKey(change) { return `${change.scope}:${change.path}`; }
+      function itemKeyEquals(change) { return state.review && itemKey(change) === itemKey(state.review); }
+      async function openReview(change, opener = null) {
+        state.reviewOpener = opener;
+        state.review = { ...change, result: null, loading: true, error: "" };
+        state.changeIndex = -1;
+        $("review").classList.add("is-open");
+        renderReviewFileOptions();
+        renderDiff();
+        await loadDiff();
+      }
+      function closeReview({ restoreFocus = false } = {}) {
+        const opener = state.reviewOpener;
+        const key = state.review ? itemKey(state.review) : "";
+        state.review = null;
+        state.reviewOpener = null;
+        $("review").classList.remove("is-open");
+        $("diff").replaceChildren();
+        if (restoreFocus) {
+          const target = opener?.isConnected
+            ? opener
+            : document.querySelector(`.file[data-item-key="${CSS.escape(key)}"]`);
+          (target ?? $("branch-select")).focus();
+        }
+      }
+      async function loadDiff() {
+        if (!state.review) return;
+        const review = state.review;
+        const generation = state.workspaceGeneration;
+        const revision = ++state.diffRevision;
+        review.loading = true;
+        review.error = "";
+        renderDiff();
+        try {
+          const result = await invoke("git.diff", { path: review.path, scope: review.scope });
+          if (generation !== state.workspaceGeneration || !state.review || itemKey(state.review) !== itemKey(review) || revision !== state.diffRevision) return;
+          Object.assign(state.review, { result, loading: false, errorCode: "" });
+        } catch (error) {
+          if (generation !== state.workspaceGeneration || !state.review || itemKey(state.review) !== itemKey(review) || revision !== state.diffRevision) return;
+          Object.assign(state.review, { loading: false, error: error.message || String(error), errorCode: error?.code });
+        }
+        renderDiff();
+      }
+      async function operate(api, payload, name, afterBranch = false) {
+        if (state.busy) return;
+        const generation = state.workspaceGeneration;
+        state.statusRevision++;
+        state.branchRevision++;
+        setBusy(name);
+        try {
+          const result = await invoke(api, payload);
+          if (generation !== state.workspaceGeneration) return;
+          state.status = result.status;
+          state.statusSignature = signature(result.status);
+          state.error = "";
+          state.errorCode = "";
+          render();
+          if (afterBranch || api === "git.createBranch" || api === "git.switchBranch") await loadBranches();
+          if (state.review) {
+            const current = statusItems().find(itemKeyEquals);
+            if (!current) closeReview();
+            else await loadDiff();
+          }
+        } catch (error) {
+          if (generation !== state.workspaceGeneration) return;
+          state.error = error.message || String(error);
+          state.errorCode = error?.code;
+          render();
+        } finally {
+          if (generation === state.workspaceGeneration) {
+            state.busy = "";
+            render();
+          }
+        }
+      }
+      function errorTitle() {
+        if (state.errorCode === "NO_WORKSPACE") return text.noWorkspace;
+        if (state.errorCode === "GIT_AUTH_FAILED") return text.authFailed;
+        if (state.errorCode === "GIT_HOOK_FAILED") return text.hookFailed;
+        if (state.errorCode === "GIT_CONFLICT") return text.conflict;
+        if (state.errorCode === "GIT_NO_UPSTREAM") return text.noUpstream;
+        return text.gitError;
+      }
+      function advisory(status) {
+        if (!status?.repo) return "";
+        if (status.conflicts.length) return text.conflict;
+        if (status.detached) return text.detached;
+        if (status.initialBranch) return text.initialBranch;
+        if (status.branch && !status.upstream) return text.noUpstream;
+        return "";
+      }
+      function localizedError(code, fallback = "") {
+        if (code === "NO_WORKSPACE") return text.noWorkspace;
+        if (code === "GIT_AUTH_FAILED") return text.authFailed;
+        if (code === "GIT_HOOK_FAILED") return text.hookFailed;
+        if (code === "GIT_CONFLICT") return text.conflict;
+        if (code === "GIT_NO_UPSTREAM") return text.noUpstream;
+        return fallback || text.gitError;
+      }
+      function render() {
+        const status = state.status;
+        const stateEl = $("state");
+        $("content").ariaBusy = state.loading || Boolean(state.busy);
+        $("refresh").disabled = Boolean(state.busy);
+        $("refresh-icon").classList.toggle("spin", state.loading || state.busy === "refresh");
+        const notice = state.error ? `${errorTitle()}: ${state.error}` : advisory(status);
+        $("notice").style.display = notice ? "block" : "none";
+        if (notice) $("notice").textContent = notice;
+        if (!status) {
+          stateEl.style.display = "block";
+          $("state-title").textContent = state.error ? errorTitle() : text.loading;
+          $("state-body").textContent = state.error && state.errorCode !== "NO_WORKSPACE" ? state.error : "";
+          $("staged-files").replaceChildren();
+          $("unstaged-files").replaceChildren();
+        } else if (!status.repo) {
+          stateEl.style.display = "block";
+          $("state-title").textContent = text.noRepo;
+          $("state-body").textContent = "";
+          $("staged-files").replaceChildren();
+          $("unstaged-files").replaceChildren();
+        } else {
+          stateEl.style.display = "none";
+          renderFiles("staged", status.staged);
+          renderFiles("unstaged", [...status.conflicts, ...status.unstaged]);
+        }
+        const hasChanges = Boolean(status?.repo && (status.staged.length || status.unstaged.length || status.conflicts.length));
+        if (status?.repo && !hasChanges && !state.error) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = text.empty + (status.truncated ? ` · ${text.truncated}` : "");
+          $("unstaged-files").append(empty);
+        }
+        $("staged-count").textContent = status?.repo ? String(status.staged.length) : "";
+        $("changes-count").textContent = status?.repo ? String(status.unstaged.length + status.conflicts.length) : "";
+        renderBranches();
+        renderControls();
+      }
+      function renderFiles(kind, files) {
+        const container = $(`${kind}-files`);
+        container.replaceChildren();
+        for (const change of files) {
+          const row = document.createElement("button");
+          row.className = "file";
+          row.type = "button";
+          row.dataset.itemKey = itemKey({ ...change, scope: change.scope ?? (kind === "staged" ? "staged" : change.status === "untracked" ? "untracked" : "unstaged") });
+          row.setAttribute("aria-current", state.review && itemKey({ ...change, scope: change.scope ?? (kind === "staged" ? "staged" : change.status === "untracked" ? "untracked" : "unstaged") }) === itemKey(state.review) ? "true" : "false");
+          const letter = document.createElement("span");
+          letter.className = "status-letter";
+          letter.dataset.status = change.status;
+          letter.textContent = statusLetter[change.status] ?? "M";
+          letter.title = statusText[change.status] ?? change.status;
+          const path = document.createElement("span");
+          path.className = "path";
+          path.title = change.oldPath ? `${change.oldPath} → ${change.path}` : change.path;
+          path.innerHTML = `<span>${esc(change.path)}</span>`;
+          const actions = document.createElement("span");
+          actions.className = "row-actions";
+          if (change.additions || change.deletions) {
+            const counts = document.createElement("span");
+            counts.className = "counts";
+            counts.innerHTML = `${change.additions ? `<b>+${change.additions}</b>` : ""}${change.additions && change.deletions ? " " : ""}${change.deletions ? `<i>-${change.deletions}</i>` : ""}`;
+            actions.append(counts);
+          }
+          const scope = kind === "staged" ? "staged" : change.status === "untracked" ? "untracked" : "unstaged";
+          const open = (event) => openReview({ ...change, scope }, event.currentTarget);
+          row.addEventListener("click", open);
+          if (change.status === "conflicted") {
+            // Conflict resolution stays outside v1; review remains available.
+          } else if (kind === "staged") {
+            actions.append(miniButton(text.unstage, icons.minus, () => operate("git.unstage", { paths: [change.path] }, "unstage")));
+          } else {
+            actions.append(miniButton(text.stage, icons.plus, () => operate("git.stage", { paths: [change.path] }, "stage")));
+          }
+          if (change.status !== "conflicted") {
+            actions.append(miniButton(text.discard, icons.undo, () => operate("git.discard", { paths: [change.path] }, "discard"), true));
+          }
+          row.append(letter, path, actions);
+          container.append(row);
+        }
+      }
+      function miniButton(label, icon, run, danger = false) {
+        const button = document.createElement("button");
+        button.className = `mini-button${danger ? " danger" : ""}`;
+        button.type = "button";
+        button.title = label;
+        button.ariaLabel = label;
+        button.innerHTML = icon;
+        button.disabled = Boolean(state.busy);
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          void run();
+        });
+        return button;
+      }
+      function renderBranches() {
+        const select = $("branch-select");
+        const status = state.status;
+        const previous = select.value;
+        select.replaceChildren();
+        if (!status?.repo) {
+          select.disabled = true;
+          return;
+        }
+        select.disabled = Boolean(state.busy);
+        const current = status.branch || status.detached ? status.branch || "HEAD" : "";
+        const branches = state.branches.length ? state.branches : current ? [{ name: current, isCurrent: true }] : [];
+        for (const branch of branches) {
+          const option = document.createElement("option");
+          option.value = branch.name;
+          option.textContent = branch.name;
+          option.selected = branch.isCurrent || branch.name === current;
+          select.append(option);
+        }
+        if (!select.selectedOptions.length && previous) select.value = previous;
+        $("sync").textContent = status.upstream
+          ? `${status.ahead ?? 0}↑ ${status.behind ?? 0}↓`
+          : "";
+      }
+      function renderControls() {
+        const status = state.status;
+        const repo = Boolean(status?.repo);
+        const namedBranch = repo && Boolean(status.branch) && !status.detached;
+        $("create-branch").disabled = !repo || Boolean(state.busy);
+        $("branch-create").disabled = !repo || Boolean(state.busy);
+        $("branch-create-switch").disabled = !repo || Boolean(state.busy);
+        $("pull").disabled = !namedBranch || !status.upstream || Boolean(state.busy);
+        $("push").disabled = !namedBranch || !status.upstream || Boolean(state.busy);
+        $("publish").disabled = !namedBranch || status.upstream || status.initialBranch || Boolean(state.busy);
+        const message = $("message").value.trim();
+        const hasStaged = Boolean(status?.staged.length);
+        $("commit").disabled = !status?.repo || !message || Boolean(state.busy) || Boolean(status?.conflicts.length);
+        $("commit").textContent = hasStaged ? text.commit : text.stageAllCommit;
+        $("commit").title = hasStaged ? text.commit : text.stageAllCommit;
+      }
+      function renderReviewFileOptions() {
+        const select = $("review-file");
+        const previous = state.review ? itemKey(state.review) : "";
+        select.replaceChildren();
+        for (const item of statusItems()) {
+          const option = document.createElement("option");
+          option.value = itemKey(item);
+          option.textContent = `${item.scope === "staged" ? "STAGED " : ""}${item.path}`;
+          option.selected = itemKey(item) === previous;
+          select.append(option);
+        }
+        select.disabled = select.options.length < 2;
+      }
+      function renderDiff() {
+        if (!state.review) return;
+        renderReviewFileOptions();
+        const target = $("diff");
+        target.replaceChildren();
+        const review = state.review;
+        if (review.loading) {
+          target.innerHTML = `<div class="diff-state">${esc(text.loading)}</div>`;
+          return;
+        }
+        if (review.error) {
+          target.innerHTML = `<div class="diff-state">${esc(localizedError(review.errorCode, review.error))}</div>`;
+          return;
+        }
+        const file = review.result?.file;
+        if (!file) {
+          target.innerHTML = `<div class="diff-state">${esc(text.noDiff)}</div>`;
+          return;
+        }
+        if (file.binary || file.tooLarge) {
+          target.innerHTML = `<div class="diff-state">${esc(file.binary ? text.binary : text.tooLarge)}</div>`;
+          return;
+        }
+        for (const hunk of file.hunks) {
+          let oldNo = hunk.oldStart ?? 0;
+          let newNo = hunk.newStart ?? 0;
+          const header = document.createElement("div");
+          header.className = "hunk-header";
+          header.textContent = hunk.header;
+          target.append(header);
+          if (state.diffMode === "unified") {
+            for (const line of hunk.lines) {
+              if (line.type === "context") { oldNo++; newNo++; }
+              else if (line.type === "del") oldNo++;
+              else newNo++;
+              const row = document.createElement("div");
+              row.className = "line";
+              row.dataset.type = line.type;
+              row.dataset.change = line.type === "context" ? "false" : "true";
+              row.innerHTML = `<span class="no">${line.type === "del" ? oldNo : newNo}</span><span class="text">${esc(line.text)}</span>`;
+              target.append(row);
+            }
+          } else {
+            let index = 0;
+            while (index < hunk.lines.length) {
+              const line = hunk.lines[index];
+              if (line.type === "context") {
+                oldNo++; newNo++; index++;
+                appendSide(target, "context", oldNo, line.text, newNo, line.text);
+                continue;
+              }
+              const deletions = [];
+              while (index < hunk.lines.length && hunk.lines[index].type === "del") {
+                deletions.push(hunk.lines[index].text); oldNo++; index++;
+              }
+              const additions = [];
+              while (index < hunk.lines.length && hunk.lines[index].type === "add") {
+                additions.push(hunk.lines[index].text); newNo++; index++;
+              }
+              const rows = Math.max(deletions.length, additions.length);
+              for (let row = 0; row < rows; row++) {
+                appendSide(target, deletions[row] === undefined ? "add" : "del", oldNo - deletions.length + row + 1, deletions[row], newNo - additions.length + row + 1, additions[row]);
+              }
+            }
+          }
+        }
+      }
+      function appendSide(target, type, leftNo, leftText, rightNo, rightText) {
+        const row = document.createElement("div");
+        row.className = "line-side";
+        row.dataset.type = type;
+        row.dataset.change = "true";
+        row.innerHTML = `<span class="side no">${leftNo}</span><span class="side text left ${leftText === undefined ? "empty" : ""}">${esc(leftText ?? "")}</span><span class="side no">${rightNo}</span><span class="side text right ${rightText === undefined ? "empty" : ""}">${esc(rightText ?? "")}</span>`;
+        target.append(row);
+      }
+      function moveChange(direction) {
+        const changes = [...$("diff").querySelectorAll('[data-change="true"]')];
+        if (!changes.length) return;
+        state.changeIndex = (state.changeIndex + direction + changes.length) % changes.length;
+        for (const change of changes) change.classList.remove("current");
+        const current = changes[state.changeIndex];
+        current.classList.add("current");
+        current.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+      function startPolling() {
+        stopPolling();
+        state.timer = setInterval(() => {
+          if (state.visible && !state.busy && document.visibilityState !== "hidden") void loadStatus({ quiet: true });
+        }, 5000);
+      }
+      function stopPolling() {
+        if (state.timer) clearInterval(state.timer);
+        state.timer = 0;
+      }
+      async function refresh() {
+        if (state.busy) return;
+        state.busy = "refresh";
+        render();
+        try {
+          await loadStatus();
+        } finally {
+          state.busy = "";
+          render();
+        }
+      }
+      function closeBranchPopover({ restoreFocus = false } = {}) {
+        $("branch-popover").classList.remove("is-open");
+        $("branch-name").value = "";
+        if (restoreFocus) $("create-branch").focus();
+      }
+      $("refresh").addEventListener("click", () => void refresh());
+      $("create-branch").addEventListener("click", () => { $("branch-popover").classList.add("is-open"); $("branch-name").focus(); });
+      $("branch-cancel").addEventListener("click", () => closeBranchPopover());
+      $("branch-name").addEventListener("keydown", (event) => { if (event.key === "Enter") $("branch-create-switch").click(); });
+      $("branch-create").addEventListener("click", async () => {
+        const name = $("branch-name").value.trim();
+        if (!name) return;
+        closeBranchPopover();
+        await operate("git.createBranch", { name, checkout: false }, "branch");
+      });
+      $("branch-create-switch").addEventListener("click", async () => {
+        const name = $("branch-name").value.trim();
+        if (!name) return;
+        closeBranchPopover();
+        await operate("git.createBranch", { name, checkout: true }, "branch");
+      });
+      $("branch-select").addEventListener("change", async (event) => {
+        const branch = event.target.value;
+        if (!branch || branch === state.status?.branch) return;
+        await operate("git.switchBranch", { branch }, "switch");
+      });
+      $("pull").addEventListener("click", () => operate("git.pull", {}, "pull"));
+      $("push").addEventListener("click", () => operate("git.push", {}, "push"));
+      $("publish").addEventListener("click", () => operate("git.push", { publish: true }, "publish"));
+      $("message").addEventListener("input", renderControls);
+      $("commit").addEventListener("click", async () => {
+        const message = $("message").value.trim();
+        if (!message) return;
+        const stageAll = !state.status?.staged.length;
+        await operate("git.commit", { message, stageAll }, "commit");
+        if (!state.error) $("message").value = "";
+        renderControls();
+      });
+      $("review-close").addEventListener("click", () => closeReview({ restoreFocus: true }));
+      $("review-refresh").addEventListener("click", loadDiff);
+      $("previous-change").addEventListener("click", () => moveChange(-1));
+      $("next-change").addEventListener("click", () => moveChange(1));
+      $("unified-mode").addEventListener("click", () => { state.diffMode = "unified"; updateMode(); renderDiff(); });
+      $("split-mode").addEventListener("click", () => { state.diffMode = "split"; updateMode(); renderDiff(); });
+      $("review-file").addEventListener("change", async (event) => {
+        const item = statusItems().find((candidate) => itemKey(candidate) === event.target.value);
+        if (item) await openReview(item);
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+        if (event.key === "Escape") {
+          if ($("review").classList.contains("is-open")) closeReview({ restoreFocus: true });
+          else if ($("branch-popover").classList.contains("is-open")) closeBranchPopover({ restoreFocus: true });
+          return;
+        }
+        if (!$("review").classList.contains("is-open")) return;
+        if (event.key === "ArrowUp") { event.preventDefault(); moveChange(-1); }
+        if (event.key === "ArrowDown") { event.preventDefault(); moveChange(1); }
+      });
+      document.addEventListener("pointerdown", (event) => {
+        const popover = $("branch-popover");
+        if (!popover.classList.contains("is-open") || popover.contains(event.target) || event.target === $("create-branch")) return;
+        closeBranchPopover();
+      });
+      function updateMode() {
+        $("unified-mode").ariaPressed = state.diffMode === "unified";
+        $("split-mode").ariaPressed = state.diffMode === "split";
+      }
+      bridge.on("workspace:changed", () => {
+        state.workspaceGeneration++;
+        state.statusRevision++;
+        state.branchRevision++;
+        state.diffRevision++;
+        state.status = null;
+        state.statusSignature = "";
+        state.branches = [];
+        state.error = "";
+        state.errorCode = "";
+        closeReview();
+        render();
+        void loadStatus();
+      });
+      function applyAppearance(appearance = null) {
+        const base = appearance?.base === "light" ? "light" : appearance?.base === "dark" ? "dark" : (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+        document.documentElement.dataset.base = base;
+        const nextLocale = String(appearance?.locale || navigator.language || "en");
+        if (nextLocale !== localeTag || !text.branchName) {
+          applyLanguage(nextLocale);
+          applyText();
+          render();
+        }
+      }
+      bridge.on("appearance:changed", applyAppearance);
+      bridge.on("view:visibility", (payload) => {
+        state.visible = payload?.visible === true;
+      });
+      applyLanguage(localeTag);
+      applyAppearance(null);
+      void invoke("app.getAppearance").then(applyAppearance).catch(() => {});
+      applyText();
+      updateMode();
+      render();
+      void loadStatus();
+      startPolling();
+      window.addEventListener("beforeunload", stopPolling);
+    </script>
+  </body>
+ </html>

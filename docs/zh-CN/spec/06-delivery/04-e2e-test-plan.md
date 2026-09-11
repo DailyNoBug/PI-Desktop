@@ -4563,6 +4563,7 @@ IPC 请求无法关闭。
 | 基线后本地自动化 | E2E-220 |
 | MVP 后远程控制 | E2E-221、E2E-222、E2E-223、E2E-224、E2E-225、E2E-226、E2E-227、E2E-228、E2E-229、E2E-230、E2E-231、E2E-232 |
 | 受信任扩展（R7 v1） | E2E-241、E2E-242、E2E-243、E2E-244、E2E-245 |
+| Git 工作面板（M6+） | E2E-246 |
 
 `US-UI-*` 视觉场景（§UI shell 视觉场景）追踪到
 [决策日志 §D](/zh-CN/spec/08-meta/decisions-log) 中的法典平价决策
@@ -6336,6 +6337,41 @@ IPC 请求无法关闭。
 - **里程碑**：MVP 后（R7 v1，作为打包 spike 首先交付）
 - **状态**：由 `packages/agent-runtime/src/extensions/bundle.test.ts` 单元覆盖
   （esbuild 打包产物在临时目录运行）；打包应用旅程为草稿
+
+#### E2E-246：内置 Git 工作面板管理当前仓库
+
+- **前置条件**：本地裸 `origin` 含 `main` 分支；克隆 A 与克隆 B 均配置为使用该
+  远端且不需要终端提示。克隆 A 包含一个已暂存文件、一个已修改文件、一个重命名
+  文件、一个未跟踪文件和一个二进制或过大文件，并领先 `origin/main`。克隆 B 有
+  不同提交，可让两个仓库分叉。另有可拒绝一次提交的 hook 失败夹具、一个非 Git
+  项目目录，并可在英文与简体中文之间切换应用语言。
+- **步骤**：1）打开克隆 A 和工作面板 Git 视图。2）检查分支、上游、
+  ahead/behind、所有变更分组、数量、状态字母，以及仅可见时每五秒刷新的行为。
+  3）打开已修改与未跟踪文件，切换 side-by-side/unified 模式，导航变更、切换
+  文件，并在外部编辑后刷新。4）stage 与 unstage 文件，包括同时出现在两个分组
+  的文件。5）先取消再接受已跟踪文件的 discard；再对未跟踪文件执行 discard。
+  6）依次尝试空消息、空变更集、hook 失败的提交，再完成一次有效的 staged commit。
+  7）发布当前分支，在克隆 B pull，创建新提交并 push，然后在克隆 A pull。
+  8）创建不切换的分支，切换到它，再切回并检查保留状态。9）强制克隆 B 分叉后
+  打开它并 pull。10）打开非 Git 项目。11）禁用 `pi.git`，重新打开工作面板并确认
+  视图在重新启用前不可见。
+- **预期**：Git 视图使用 `branch` 图标并跟随当前语言。它报告仓库、分支、上游、
+  ahead/behind、staged、unstaged、untracked、冲突与截断状态，且日志不暴露 diff
+  输出。Review 覆盖层留在 Git 视图内，支持所有范围和导航，绝不创建或激活消息
+  持有的 Review 与回滚。Stage/unstage 更新正确分组；discard 与切换分支要求
+  宿主拥有的原生确认，已跟踪文件从 `HEAD` 恢复，未跟踪文件移入系统回收站。
+  空消息、空提交、hook、授权与远端失败显示有界的本地化错误。Publish 只推送到
+  `origin/<current-branch>`；push/pull 仅当前分支，pull 只允许 fast-forward。
+  分叉时报告 Git 错误且不创建 merge commit。非 Git 工作区显示非仓库状态。禁用
+  普通内置插件会移除其视图但不卸载，重新启用后权限与审计边界仍被强制执行。
+- **链接规格**：`07-plugins/03-plugin-api.md`（Git API）、
+  `07-plugins/13-plugin-permissions-matrix.md`、
+  `04-ux/08-component-spec.md` §5.2.3、`04-ux/09-interaction-patterns.md` §1.8；
+  ADR 0217、D391
+- **验收**：D（插件）、安全、质量
+- **里程碑**：M6+
+- **状态**：草稿；服务、运行时与源码契约测试覆盖结构化 Git 操作、权限/确认
+  边界和内置插件契约；浏览器 E2E 未运行
 #### E2E-234：工作区安全拒绝名单与忽略层
 
 - **前提条件**：一个项目包含 `.env`、`.env.example`、`server.pem`、`keys/id_rsa`、

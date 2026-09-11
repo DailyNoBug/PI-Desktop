@@ -42,6 +42,10 @@ import {
   type PluginFsMode,
   type PluginFsPolicy,
   type PluginFsRule,
+  type PluginGitBranches,
+  type PluginGitDiff,
+  type PluginGitOperation,
+  type PluginGitStatus,
   type PluginLlmContext,
   type PluginManifest,
   type PluginModelInfo,
@@ -216,6 +220,15 @@ export type PluginDesktopConsentRequest = {
   args: unknown[];
 };
 
+/** One dangerous Git operation a plugin asked the host to run. */
+export type PluginGitConsentRequest = {
+  pluginId: string;
+  pluginName: string;
+  operation: "discard" | "switch" | "create";
+  pathCount?: number;
+  branch?: string;
+};
+
 export type PluginHostServices = {
   getWorkspacePath: () => string | null;
   /** The set of `contributes.agentExtensions` modules changed (load/unload). */
@@ -263,6 +276,8 @@ export type PluginHostServices = {
    * plugin is refused, which is the safe default for a headless host.
    */
   confirmDesktopControl?: (request: PluginDesktopConsentRequest) => Promise<boolean>;
+  /** Native consent for destructive or workspace-switching Git operations. */
+  confirmGitOperation?: (request: PluginGitConsentRequest) => Promise<boolean>;
   audit?: (entry: Record<string, unknown>) => void;
   /**
    * Blocking, native consent for a file access the manifest did not declare.
@@ -330,6 +345,19 @@ export type PluginHostServices = {
     evaluate: (expression: string) => Promise<unknown>;
     console: (limit?: number) => unknown;
     cdp: (method: string, params?: unknown) => Promise<unknown>;
+  };
+  git?: {
+    status: () => Promise<PluginGitStatus>;
+    branches: () => Promise<PluginGitBranches>;
+    diff: (input: { path: string; scope: "staged" | "unstaged" | "untracked" }) => Promise<PluginGitDiff>;
+    stage: (input: { paths?: string[]; all?: boolean }) => Promise<PluginGitOperation>;
+    unstage: (input: { paths?: string[]; all?: boolean }) => Promise<PluginGitOperation>;
+    discard: (input: { paths: string[] }) => Promise<PluginGitOperation>;
+    createBranch: (input: { name: string; checkout?: boolean }) => Promise<PluginGitOperation>;
+    switchBranch: (input: { branch: string }) => Promise<PluginGitOperation>;
+    commit: (input: { message: string; stageAll?: boolean }) => Promise<PluginGitOperation>;
+    push: (input: { publish?: boolean }) => Promise<PluginGitOperation>;
+    pull: () => Promise<PluginGitOperation>;
   };
   onPluginUnload?: (pluginId: string) => void;
   listModels?: () => Promise<PluginModelInfo[]>;
@@ -403,6 +431,17 @@ const HOST_API_ALLOWLIST = new Set([
   "browser.evaluate",
   "browser.console",
   "browser.cdp",
+  "git.status",
+  "git.branches",
+  "git.diff",
+  "git.stage",
+  "git.unstage",
+  "git.discard",
+  "git.createBranch",
+  "git.switchBranch",
+  "git.commit",
+  "git.push",
+  "git.pull",
   "models.list",
   "session.getLlmContext",
   "session.list",
@@ -543,6 +582,14 @@ function apiError(code: string, message: string): PluginApiError {
   const err = new Error(message) as PluginApiError;
   err.code = code;
   return err;
+}
+
+function gitResultBranch(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const branch = (result as { branch?: unknown; currentBranch?: unknown }).branch;
+  if (typeof branch === "string" && branch) return branch;
+  const current = (result as { currentBranch?: unknown }).currentBranch;
+  return typeof current === "string" && current ? current : undefined;
 }
 
 function pluginActionEnum(schema: unknown): readonly string[] | null {
@@ -1542,6 +1589,28 @@ export class PluginRuntime {
         return api.app.getAppearance();
       case "workspace.get":
         return api.workspace.get();
+      case "git.status":
+        return api.git.status();
+      case "git.branches":
+        return api.git.branches();
+      case "git.diff":
+        return api.git.diff(payload as { path: string; scope: "staged" | "unstaged" | "untracked" });
+      case "git.stage":
+        return api.git.stage(payload as { paths?: string[]; all?: boolean });
+      case "git.unstage":
+        return api.git.unstage(payload as { paths?: string[]; all?: boolean });
+      case "git.discard":
+        return api.git.discard(payload as { paths: string[] });
+      case "git.createBranch":
+        return api.git.createBranch(payload as { name: string; checkout?: boolean });
+      case "git.switchBranch":
+        return api.git.switchBranch(payload as { branch: string });
+      case "git.commit":
+        return api.git.commit(payload as { message: string; stageAll?: boolean });
+      case "git.push":
+        return api.git.push(payload as { publish?: boolean });
+      case "git.pull":
+        return api.git.pull();
       case "models.list":
         this.assertPermission(loaded, "models.list");
         return this.dispatchHostCall(loaded, "models.list", []);
@@ -2926,6 +2995,128 @@ export class PluginRuntime {
     return stack?.at(-1)?.sessionId?.trim() || undefined;
   }
 
+  private async invokeGit(
+    loaded: LoadedPlugin,
+    operation:
+      | "status"
+      | "branches"
+      | "diff"
+      | "stage"
+      | "unstage"
+      | "discard"
+      | "createBranch"
+      | "switchBranch"
+      | "commit"
+      | "push"
+      | "pull",
+    input: Record<string, unknown>,
+  ): Promise<unknown> {
+    const permission =
+      operation === "status" || operation === "branches" || operation === "diff"
+        ? "git.read"
+        : "git.write";
+    if (!loaded.permissions.has(permission)) {
+      this.auditGit(
+        loaded,
+        operation,
+        false,
+        "PERMISSION_DENIED",
+        Array.isArray(input.paths) ? input.paths.length : operation === "diff" ? 1 : 0,
+      );
+      throw apiError("PERMISSION_DENIED", `missing permission: ${permission}`);
+    }
+    const branch = typeof input.branch === "string" && input.branch.trim()
+      ? input.branch.trim()
+      : typeof input.name === "string" && input.name.trim()
+        ? input.name.trim()
+        : undefined;
+    const pathCount = Array.isArray(input.paths) ? input.paths.length : 0;
+    const service = this.services.git;
+    if (!service) {
+      this.auditGit(loaded, operation, false, "UNSUPPORTED", pathCount, branch);
+      throw apiError("UNSUPPORTED", `host api not available: git.${operation}`);
+    }
+    const needsConsent =
+      operation === "discard" ||
+      operation === "switchBranch" ||
+      (operation === "createBranch" && input.checkout === true);
+    if (needsConsent) {
+      const consent = this.services.confirmGitOperation;
+      const granted = consent
+        ? await consent({
+            pluginId: loaded.manifest.id,
+            pluginName: resolvePluginLocalizedString(
+              loaded.manifest.name,
+              this.services.getLocale?.(),
+              loaded.manifest.id,
+            ),
+            operation:
+              operation === "discard" ? "discard" : operation === "switchBranch" ? "switch" : "create",
+            pathCount: operation === "discard" ? pathCount : undefined,
+            branch: operation === "discard" ? undefined : branch,
+          })
+        : false;
+      if (!granted) {
+        this.auditGit(loaded, operation, false, "PERMISSION_DENIED", pathCount, branch);
+        throw apiError(
+          "PERMISSION_DENIED",
+          consent
+            ? `user declined git.${operation}`
+            : `git.${operation} needs a user confirmation this host cannot show`,
+        );
+      }
+    }
+
+    try {
+      const result = await (service as any)[operation](input);
+      this.auditGit(
+        loaded,
+        operation,
+        true,
+        undefined,
+        pathCount || (operation === "diff" ? 1 : 0),
+        branch ?? gitResultBranch(result),
+      );
+      return result;
+    } catch (error) {
+      const errorCode =
+        (error as { errorCode?: unknown })?.errorCode ??
+        (error as { code?: unknown })?.code ??
+        "GIT_FAILED";
+      this.auditGit(
+        loaded,
+        operation,
+        false,
+        typeof errorCode === "string" ? errorCode : "GIT_FAILED",
+        pathCount || (operation === "diff" ? 1 : 0),
+        branch,
+      );
+      if (typeof errorCode === "string") {
+        throw apiError(errorCode, error instanceof Error ? error.message : String(error));
+      }
+      throw error;
+    }
+  }
+
+  private auditGit(
+    loaded: LoadedPlugin,
+    operation: string,
+    ok: boolean,
+    errorCode?: string,
+    pathCount = 0,
+    branch?: string,
+  ): void {
+    this.services.audit?.({
+      pluginId: loaded.manifest.id,
+      api: `git.${operation}`,
+      ok,
+      ...(errorCode ? { errorCode } : {}),
+      pathCount,
+      ...(branch ? { branch } : {}),
+      ts: Date.now(),
+    });
+  }
+
   private async invokeBrowser(
     loaded: LoadedPlugin,
     method: string,
@@ -3433,6 +3624,27 @@ export class PluginRuntime {
           if (!path) return null;
           return { path, name: path.split(/[\\/]/).filter(Boolean).at(-1) || path };
         },
+      },
+      git: {
+        status: () => this.invokeGit(loaded, "status", {}),
+        branches: () => this.invokeGit(loaded, "branches", {}),
+        diff: (input: { path: string; scope: "staged" | "unstaged" | "untracked" }) =>
+          this.invokeGit(loaded, "diff", input ?? {}),
+        stage: (input: { paths?: string[]; all?: boolean }) =>
+          this.invokeGit(loaded, "stage", input ?? {}),
+        unstage: (input: { paths?: string[]; all?: boolean }) =>
+          this.invokeGit(loaded, "unstage", input ?? {}),
+        discard: (input: { paths: string[] }) =>
+          this.invokeGit(loaded, "discard", input ?? {}),
+        createBranch: (input: { name: string; checkout?: boolean }) =>
+          this.invokeGit(loaded, "createBranch", input ?? {}),
+        switchBranch: (input: { branch: string }) =>
+          this.invokeGit(loaded, "switchBranch", input ?? {}),
+        commit: (input: { message: string; stageAll?: boolean }) =>
+          this.invokeGit(loaded, "commit", input ?? {}),
+        push: (input: { publish?: boolean }) =>
+          this.invokeGit(loaded, "push", input ?? {}),
+        pull: () => this.invokeGit(loaded, "pull", {}),
       },
       desktop: {
         listOperations: async () => {

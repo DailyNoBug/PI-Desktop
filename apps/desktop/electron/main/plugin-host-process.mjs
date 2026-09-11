@@ -171,6 +171,19 @@ function buildApi() {
     workspace: {
       get: () => call("workspace.get"),
     },
+    git: {
+      status: () => call("git.status"),
+      branches: () => call("git.branches"),
+      diff: (input) => call("git.diff", [input]),
+      stage: (input) => call("git.stage", [input ?? {}]),
+      unstage: (input) => call("git.unstage", [input ?? {}]),
+      discard: (input) => call("git.discard", [input ?? {}]),
+      createBranch: (input) => call("git.createBranch", [input ?? {}]),
+      switchBranch: (input) => call("git.switchBranch", [input ?? {}]),
+      commit: (input) => call("git.commit", [input ?? {}]),
+      push: (input) => call("git.push", [input ?? {}]),
+      pull: () => call("git.pull"),
+    },
     desktop: {
       listOperations: () => call("desktop.listOperations"),
       invoke: (input) => call("desktop.invoke", [input ?? {}]),

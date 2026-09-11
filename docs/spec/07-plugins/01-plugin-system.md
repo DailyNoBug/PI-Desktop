@@ -331,6 +331,23 @@ permission state (`granted`, `denied`, `unknown`, or `unsupported`) after
 performing a short native probe. These notifications are not durable task
 inbox records and do not activate a session when clicked.
 
+### Git (requires permission)
+
+- `pi.git.status()` / `pi.git.branches()` / `pi.git.diff({ path, scope })` //
+  `git.read`
+- `pi.git.stage(...)` / `pi.git.unstage(...)` / `pi.git.discard(...)` //
+  `git.write`; native consent for discard
+- `pi.git.createBranch(...)` / `pi.git.switchBranch(...)` //
+  `git.write`; native consent for switching or create-and-switch
+- `pi.git.commit(...)` / `pi.git.push(...)` / `pi.git.pull()` // `git.write`
+
+Git is reached only through these fixed public methods. Electron Main maps them
+to allowlisted Git argv in the active workspace, validates relative paths,
+bounds output, applies operation timeouts, serializes mutations per workspace,
+and audits metadata only. Credentials remain with the user's Git credential
+helper; PI-Desktop neither stores credentials nor exposes arbitrary remotes or
+commands.
+
 ### Explicitly not provided directly
 - Arbitrary host-internal Electron objects
 - Arbitrary absolute-path access through the brokered `pi.fs` APIs
@@ -364,6 +381,8 @@ therefore applies only to brokered APIs until runtime sandboxing is delivered.
 | `background.service` | medium | Keep a resident service running |
 | `bus.publish` | medium | Publish to declared bus topics |
 | `bus.subscribe` | medium | Subscribe to declared bus patterns |
+| `git.read` | medium | Read current Git status, branches, and scoped diffs |
+| `git.write` | high | Stage, unstage, discard, commit, push, pull, and manage the current branch |
 
 Themes, MCP servers, services, and bus topics are declared in the manifest, so
 their permission is checked at validation time as well as at runtime — see

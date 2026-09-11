@@ -4454,3 +4454,23 @@ D193, and D194.
 - Token Insights remains the heatmap / KPI / filter dashboard and Settings has
   no Usage destination. No protocol, storage schema, or message-usage ownership
   changes.
+
+## 2026-09-11 — Bundled Git work panel (D391)
+
+- The right work panel gains a default bundled `pi.git` plugin with a `changes`
+  view using the host `branch` icon. The plugin is ordinary, enabled by default,
+  disableable, and declares only `ui.view`, `git.read`, and `git.write`.
+- Decision D391 / ADR 0217 adds a structured, allowlisted Git boundary in
+  Electron Main. `git.read` exposes current status, branches, and scoped file
+  diffs; `git.write` exposes fixed stage, unstage, discard, branch, commit,
+  push, and pull operations. Paths are validated, output and file counts are
+  bounded, operations time out and serialize per workspace, and no arbitrary
+  command or remote is exposed.
+- Discard, branch switch, and create-and-switch require host-owned native
+  confirmation. Tracked discard restores from `HEAD`, while untracked discard
+  moves to the OS trash. Push and pull remain current-branch only, publishing
+  uses `origin/<current-branch>`, and pull is fast-forward only. Credentials
+  stay in the user's Git credential helper.
+- Git audits contain operation metadata only. The plugin's review overlay reads
+  current Git state and is independent from the message-owned Review snapshot
+  and its rollback behavior.

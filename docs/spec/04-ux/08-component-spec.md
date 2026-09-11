@@ -715,8 +715,9 @@ reading surface of the workstation.
 
 Docked right work column for inspecting and steering the agent's workspace.
 Launchable surfaces are plugin views (ADR 0104), including bundled `pi.files`
-(project browsing) and bundled `pi.browser` (work-panel browser chrome; the
-guest page stays host-owned, ADR 0170). Review and `file:<path>` are
+(project browsing), bundled `pi.browser` (work-panel browser chrome; the
+guest page stays host-owned, ADR 0170), and bundled `pi.git` (source control).
+Review and `file:<path>` are
 *artifact* surfaces: the host renders them, but the conversation opens them, so
 they are absent from the tool list. There is no interactive terminal surface;
 agent Bash output remains in the transcript.
@@ -828,6 +829,38 @@ workflow while rendering entirely inside the plugin's isolated page:
   at 5,000 lines; images use a bounded data URL from `fs.readPreview`. The
   palette stays monochrome like the main app rather than introducing a
   plugin-specific blue accent.
+
+### 5.2.3 Git plugin surface
+
+The bundled `pi.git` view uses the host `branch` token and is an ordinary,
+default-enabled, disableable plugin. Its compact branch bar identifies the
+current branch and upstream ahead/behind state; its menu creates or switches
+branches (with separate create and create-and-switch actions), and its trailing
+actions publish, push, pull, and refresh. Empty,
+non-repository, detached-HEAD, conflict, hook-failure, authorization, busy, and
+bounded error states are inline and localized. Push uses the current upstream,
+publish explicitly uses `origin/<current-branch>`, and pull is fast-forward
+only. Failed synchronizations preserve repository state and show the bounded
+Git error without creating a merge commit.
+
+Below the branch bar, **Staged Changes** and **Changes** list current Git state
+separately. Rows show the status letter, ellipsized path, rename target, and
+addition/deletion counts; binary and oversized files identify themselves
+without diff content. Per-row actions stage, unstage, or discard. Selecting a
+file opens the view-owned review overlay rather than the message-owned Review
+tab. The overlay supports staged, unstaged, and untracked context, side-by-side
+and unified modes, next/previous change navigation, file switching, refresh,
+binary/too-large states, and returns focus to its opening row when closed. It
+reads current Git state and offers no rollback.
+
+The commit box sits below the change lists. Commit uses the staged index; when
+nothing is staged, the explicit "stage all and commit" action stages all changes
+first. Empty messages and empty commits are rejected. Discard and branch
+switching or create-and-switch use host-owned native confirmation; tracked
+discard restores from `HEAD`, while untracked files move to the OS trash. The
+view refreshes on open, workspace change, after every Git operation, manual
+refresh, and through a five-second status poll only while visible; stale
+responses are discarded by request revision.
 
 ### 5.3 States
 
@@ -950,7 +983,8 @@ workflow while rendering entirely inside the plugin's isolated page:
 ### 5.6 MVP constraints
 
 - Tab content specs: Review has host-guarded rollback but no line comments;
-  Browser is user-driven (no agent control); Files is read-only
+  Browser is user-driven (no agent control); Files is read-only; Git is a
+  disableable bundled plugin with fixed structured Git operations
 - Single panel instance; no per-tab detach or split
 
 ### 5.7 Subagent task conversation

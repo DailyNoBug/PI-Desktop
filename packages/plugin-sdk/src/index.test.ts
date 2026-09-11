@@ -324,6 +324,8 @@ describe("PLUGIN_PERMISSIONS", () => {
       "fs.write",
       "fs.delete",
       "browser.cdp",
+      "git.read",
+      "git.write",
     ]) {
       expect(PLUGIN_PERMISSIONS).toContain(permission);
     }

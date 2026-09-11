@@ -51,6 +51,16 @@ export const es = {
     "allowSession": "Permitir hasta salir",
     "deny": "Denegar"
   },
+  "pluginGitConsent": {
+    "discardMessage": "{name} quiere descartar cambios en {count} archivos",
+    "switchMessage": "{name} quiere cambiar a {branch}",
+    "createMessage": "{name} quiere crear y cambiar a {branch}",
+    "discard": "Los cambios rastreados se restaurarán desde el último commit y los archivos sin rastrear se moverán a la papelera.",
+    "switch": "El trabajo sin confirmar permanece en el árbol de trabajo. Git puede rechazar el cambio si hay conflictos locales.",
+    "create": "La nueva rama parte del HEAD actual. El trabajo sin confirmar permanece en el árbol de trabajo.",
+    "allowOnce": "Permitir una vez",
+    "deny": "Denegar"
+  },
   "pluginLauncher": {
     "title": "Abrir un complemento",
     "placeholder": "Buscar complementos por nombre o pinyin",
@@ -1568,6 +1578,8 @@ export const es = {
       "bus.publish": "Enviar mensajes a otros complementos",
       "bus.subscribe": "Recibir mensajes de otros complementos",
       "browser.cdp": "Controlar el navegador del panel de trabajo"
+      ,"git.read": "Leer estado y diffs de Git"
+      ,"git.write": "Cambiar el estado del repositorio"
     },
     "permissionHelp": {
       "ui.panel": "Permite que el complemento muestre su propio panel dentro de la aplicación.",
@@ -1596,7 +1608,9 @@ export const es = {
       "background.service": "Mantiene a un trabajador en ejecución mientras el complemento está habilitado.",
       "bus.publish": "Puede enviar mensajes sobre los temas que declaró.",
       "bus.subscribe": "Puede recibir mensajes sobre los temas que declaró.",
-      "browser.cdp": "Puede navegar por el navegador del panel de trabajo, leer la página, ejecutar JavaScript y enviar comandos de Chrome DevTools incluidos en la lista permitida. Las cookies y los métodos de almacenamiento están bloqueados."
+      "browser.cdp": "Puede navegar por el navegador del panel de trabajo, leer la página, ejecutar JavaScript y enviar comandos de Chrome DevTools incluidos en la lista permitida. Las cookies y los métodos de almacenamiento están bloqueados.",
+      "git.read": "Puede leer metadatos de rama, estado y diff del espacio actual mediante comandos Git controlados por el host.",
+      "git.write": "Puede preparar, descartar, confirmar, subir, bajar y gestionar la rama actual mediante comandos Git fijos controlados por el host. Las acciones destructivas y de cambio de rama siguen requiriendo confirmación nativa; no se guardan credenciales."
     }
   },
   "extensions": {

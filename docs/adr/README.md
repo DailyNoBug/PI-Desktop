@@ -234,3 +234,4 @@ Each ADR includes:
 | 0214 | Trusted extensions run in the Agent sidecar | Accepted (v1 implemented; amended by D388 / ADR 0215) |
 | 0215 | Agent extensions are a plugin contribution | Accepted (implemented) |
 | 0216 | Sidebar token usage summary | Accepted (amends 0173) |
+| 0217 | Bundled Git work panel | Accepted (D391) |
