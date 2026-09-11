@@ -6194,3 +6194,100 @@ describe("DesktopAgentRuntime subagents", () => {
     await runtime.dispose();
   });
 });
+
+describe("DesktopAgentRuntime deferred tool restore (#225)", () => {
+  const now = () => new Date().toISOString();
+  const searchRow = (overrides: Partial<UiMessage> = {}): UiMessage => ({
+    id: "tool-search-1",
+    role: "tool",
+    content: "",
+    createdAt: now(),
+    status: "complete",
+    toolName: "ToolSearch",
+    toolCallId: "call-search-1",
+    toolStatus: "success",
+    toolArgs: { query: "BrowserPreview" },
+    toolResult: {
+      content: [{ type: "text", text: "Activated on-demand tools: BrowserPreview." }],
+      details: { activated: ["BrowserPreview"] },
+      addedToolNames: ["BrowserPreview"],
+    },
+    ...overrides,
+  });
+  const assistantRow: UiMessage = {
+    id: "assistant-1",
+    role: "assistant",
+    content: "Loading the preview tool.",
+    createdAt: now(),
+    status: "complete",
+  };
+  const hasTool = (runtime: DesktopAgentRuntime, name: string) =>
+    (runtime as any).agent.state.tools.some((tool: any) => tool.name === name);
+
+  it("keeps a tool active across prompts while its ToolSearch activation is in context", async () => {
+    const runtime = createRuntime({ history: [assistantRow, searchRow()] });
+
+    (runtime as any).resetDeferredToolsForPrompt();
+
+    expect(hasTool(runtime, "BrowserPreview")).toBe(true);
+    await runtime.dispose();
+  });
+
+  it("restores a tool from its own successful result, not from failed or empty rows", async () => {
+    const runtime = createRuntime({
+      history: [
+        assistantRow,
+        searchRow({ id: "tool-search-failed", toolCallId: "call-failed", toolStatus: "error" }),
+        {
+          id: "tool-preview-empty",
+          role: "tool",
+          content: "",
+          createdAt: now(),
+          status: "complete",
+          toolName: "BrowserPreview",
+          toolCallId: "call-preview-empty",
+          toolStatus: "success",
+          toolArgs: {},
+        },
+      ],
+    });
+
+    (runtime as any).resetDeferredToolsForPrompt();
+    expect(hasTool(runtime, "BrowserPreview")).toBe(false);
+
+    (runtime as any).fullEntries.push(
+      ...(createRuntime({
+        history: [
+          assistantRow,
+          {
+            id: "tool-preview-ok",
+            role: "tool",
+            content: "",
+            createdAt: now(),
+            status: "complete",
+            toolName: "BrowserPreview",
+            toolCallId: "call-preview-ok",
+            toolStatus: "success",
+            toolArgs: {},
+            toolResult: { content: [{ type: "text", text: "opened" }] },
+          },
+        ],
+      }) as any).fullEntries,
+    );
+    (runtime as any).resetDeferredToolsForPrompt();
+    expect(hasTool(runtime, "BrowserPreview")).toBe(true);
+    await runtime.dispose();
+  });
+
+  it("restores the activation again after a mode round trip", async () => {
+    const runtime = createRuntime({ history: [assistantRow, searchRow()] });
+    (runtime as any).resetDeferredToolsForPrompt();
+    expect(hasTool(runtime, "BrowserPreview")).toBe(true);
+
+    runtime.setMode("plan");
+    runtime.setMode("agent");
+
+    expect(hasTool(runtime, "BrowserPreview")).toBe(true);
+    await runtime.dispose();
+  });
+});
