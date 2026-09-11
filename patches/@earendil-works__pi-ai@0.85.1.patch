@@ -1,0 +1,15 @@
+diff --git a/dist/api/openai-responses-shared.js b/dist/api/openai-responses-shared.js
+index 43e463dbfd1e6cc437ebc680468036f47678de26..364c8c0426d12543c1b64daa8e6eaa22f35f6f60 100644
+--- a/dist/api/openai-responses-shared.js
++++ b/dist/api/openai-responses-shared.js
+@@ -636,6 +636,10 @@ export async function processResponsesStream(openaiStream, output, stream, model
+         }
+         else if (event.type === "response.completed" || event.type === "response.incomplete") {
+             finalizeResponse(event.response);
++            // The response is fully delivered: stop consuming the stream so the
++            // request does not hang when the server (or a reverse proxy) never
++            // closes the connection after the terminal event.
++            break;
+         }
+         else if (event.type === "error") {
+             throw new Error(`Error Code ${event.code}: ${event.message}` || "Unknown error");
