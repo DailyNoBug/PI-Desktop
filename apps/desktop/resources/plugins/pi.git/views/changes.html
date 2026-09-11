@@ -246,23 +246,42 @@
       }
       .mini-button:hover:not(:disabled) { background: var(--surface-active); color: var(--fg); }
       .mini-button.danger:hover:not(:disabled) { color: var(--danger); }
-      .commit {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 28px 98px;
-        gap: 7px;
-        margin: 8px 8px 0;
-      }
-      .commit textarea {
-        min-height: 64px;
-        max-height: 160px;
-        resize: vertical;
+      .commit { margin: 8px 8px 0; }
+      .composer {
+        overflow: hidden;
         border: 1px solid var(--border-strong);
-        border-radius: 6px;
-        padding: 7px 8px;
+        border-radius: 8px;
         background: color-mix(in oklab, var(--fg) 4%, transparent);
       }
-      .commit .primary { height: auto; min-height: 64px; align-self: stretch; }
-      .commit .icon-button { align-self: start; margin-top: 18px; }
+      .composer:focus-within {
+        border-color: color-mix(in oklab, var(--accent) 40%, var(--border-strong));
+      }
+      .composer textarea {
+        display: block;
+        width: 100%;
+        height: 50px;
+        min-height: 50px;
+        max-height: 160px;
+        field-sizing: content;
+        resize: none;
+        border: 0;
+        background: transparent;
+        padding: 8px 9px;
+      }
+      .composer-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 6px;
+      }
+      .composer .icon-button { width: 26px; height: 26px; }
+      .composer .primary {
+        height: 26px;
+        min-width: 68px;
+        border-radius: 6px;
+        white-space: nowrap;
+      }
       .notice {
         display: none;
         margin: 10px 8px 0;
@@ -422,8 +441,6 @@
       @media (max-width: 360px) {
         .toolbar { flex-wrap: wrap; }
         .branch-wrap { flex-basis: 100%; }
-        .commit { grid-template-columns: minmax(0, 1fr) 28px; }
-        .commit .primary { grid-column: 1 / -1; min-height: 32px; }
         .review-header { grid-template-columns: 1fr; }
         .review-title select { max-width: none; }
       }
@@ -464,9 +481,13 @@
         </section>
         <div class="notice" id="notice" role="status"></div>
         <div class="commit">
-          <textarea id="message" placeholder="Commit message" aria-label="Commit message"></textarea>
-          <button class="icon-button" id="generate-message" title="Generate commit message" aria-label="Generate commit message"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.9 4.7L18.6 9.6l-4.7 1.9L12 16.2l-1.9-4.7L5.4 9.6l4.7-1.9L12 3ZM18.5 15l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>
-          <button class="primary" id="commit">Commit</button>
+          <div class="composer">
+            <textarea id="message" placeholder="Commit message" aria-label="Commit message"></textarea>
+            <div class="composer-actions">
+              <button class="icon-button" id="generate-message" title="Generate commit message" aria-label="Generate commit message"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.9 4.7L18.6 9.6l-4.7 1.9L12 16.2l-1.9-4.7L5.4 9.6l4.7-1.9L12 3ZM18.5 15l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>
+              <button class="primary" id="commit">Commit</button>
+            </div>
+          </div>
         </div>
       </main>
     </div>
