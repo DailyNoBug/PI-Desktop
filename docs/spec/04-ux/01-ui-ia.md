@@ -167,7 +167,8 @@ destination, chat as the home surface, tools and permissions inline.
   overflow menu. The directory title is one full-row disclosure target;
   collapse/expand affects only child visibility, and adjacent groups form one
   dense tree rather than detached cards. Hovering or focusing the project title
-  reveals the full project path.
+  reveals the full project path. A 400ms still press on the title reorders the
+  group.
 - **Project actions**: open folder reveals the project directory; rename edits
   the renderer-local display name while the normalized path remains the
   project identity; pin/unpin changes presentation priority; archive/restore
@@ -180,8 +181,9 @@ destination, chat as the home surface, tools and permissions inline.
   never removes the transcript. Open folder is a project action, not a
   conversation action.
 - **Sort**: user-facing modes are Recently updated, Created date, Oldest
-  first, and Name. Pinned rows precede unpinned rows. A legacy persisted
-  `manual` value remains readable but does not imply a drag-reorder gesture.
+  first, and Name. Pinned rows precede unpinned rows. Project groups switch
+  to `manual` by long-pressing a title or using ArrowUp/ArrowDown on that
+  title. Session `manual` remains a compatibility value.
 - **Conversation list**: each group shows the ten most-recent sessions in the
   active sort order by default; the remainder folds behind a **Load N more…**
   row that expands the full time-grouped list on click. Pinned rows precede

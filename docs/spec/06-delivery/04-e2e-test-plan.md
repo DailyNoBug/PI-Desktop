@@ -10081,22 +10081,26 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   including one pinned or archived project, and each project has a stable
   host workspace/path/directory.
 - **Steps**:
-  1. Focus a project's grip and drag it above or below another project group;
-     inspect the drop target and release.
-  2. Focus the same grip and press `ArrowUp` or `ArrowDown`; repeat once in
+  1. Long-press a project title for 400ms, then drag it above or below
+     another project group; inspect the drop target and release.
+  2. Click a project title and confirm it still selects the project and
+     toggles collapse without changing order.
+  3. Focus the same title and press `ArrowUp` or `ArrowDown`; repeat once in
      each direction.
-  3. Restart the app and inspect the project order.
-  4. Open a session from a reordered project and confirm its host workspace,
+  4. Restart the app and inspect the project order.
+  5. Open a session from a reordered project and confirm its host workspace,
      path, and directory are unchanged.
 - **Expected**: The project groups render in the released order and the
-  manual order survives restart. The grip exposes a keyboard-accessible
-  reorder action, `Escape` cancels an active drag, and the existing pinned /
-  archived priority rules remain intact. Reordering never changes a project's
-  host workspace, path, directory, or session sort.
+  manual order survives restart. There is no reorder grip. The title exposes
+  a keyboard-accessible reorder action, a short click does not reorder,
+  `Escape` cancels an active drag, and the existing pinned / archived
+  priority rules remain intact. Reordering never changes a project's host
+  workspace, path, directory, or session sort.
 - **Specs linked**: `04-ux/08-component-spec.md`,
   `04-ux/09-interaction-patterns.md`, `03-runtime/04-data-storage.md`,
-  `08-meta/decisions-log.md` (D399)
+  `08-meta/decisions-log.md` (D399, D402)
 - **Acceptance**: D (workspace), F (persistence), Quality
 - **Milestone**: M5
 - **Status**: Source-contract covered (`app-store-sidebar.test.mjs`,
-  `sidebar-preferences.test.mjs`); rendered desktop journey Draft
+  `sidebar-preferences.test.mjs`, `sidebar-project-reorder.test.mjs`);
+  rendered desktop journey Draft

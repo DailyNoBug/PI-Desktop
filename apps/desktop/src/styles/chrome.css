@@ -255,6 +255,12 @@
   user-select: none !important;
 }
 
+:root[data-project-reordering="true"],
+:root[data-project-reordering="true"] * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
 .sidebar.is-exiting {
   pointer-events: none;
   animation: sidebar-out var(--motion-duration-fast) var(--motion-ease-in) both;

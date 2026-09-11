@@ -220,11 +220,11 @@ may be retained while exactly one workspace supplies the visible shell context.
   never leaves a hidden archived row as the active context.
 - **Sort** offers Recently updated (`recent`), Created date (`created`),
   Oldest first (`oldest`), and Name (`name`). Missing/invalid values fall back
-  to `recent`. Dragging a project's visible grip handle, or focusing that
-  handle and pressing ArrowUp/ArrowDown, switches project ordering to
-  `manual` and persists a contiguous order per normalized path. Archived and
-  pinned priority remains ahead of the manual order; projects without an
-  assigned order fall back to a stable path order until they are moved.
+  to `recent`. A 400ms still press on a project title, or ArrowUp/ArrowDown
+  on that focused title, switches project ordering to `manual` and persists a
+  contiguous order per normalized path. Archived and pinned priority remains
+  ahead of the manual order; projects without an assigned order fall back to
+  a stable path order until they are moved.
 - Each project group shows the ten most-recent rows in the active sort order
   by default; the remaining sessions fold behind a **Load N more…** control
   (the same affordance used for time-grouped overflow). Selecting it expands
@@ -969,8 +969,9 @@ Sidebar width resizing is also implemented in MVP:
 - Collapsing the sidebar hides the handle but does not discard the preferred
   expanded width; re-expanding restores that width.
 
-Project ordering is implemented for retained project groups. Only the visible
-grip handle starts a project drag, so project activation, menus, and nested
+Project ordering is implemented for retained project groups. There is no
+reorder grip. A 400ms still press on the project title starts a project drag,
+so a short click still activates and toggles collapse, and menus and nested
 session rows keep their existing click behavior. A drop inserts before or after
 the target group based on the pointer position and persists the result.
 
@@ -1002,11 +1003,13 @@ into the draft, so an unknown directory tree cannot enter the context.
 
 Project drag/drop follows these patterns:
 
-- The drag handle is visible on hover and keyboard focus (no invisible drag affordance)
+- The project title is the reorder control: a 400ms still press arms a drag
+- Movement beyond 8px before that delay cancels the press so a click still
+  selects and toggles collapse
 - Drop targets highlight with accent border during hover
 - Cancel drag with Escape
 - Drag feedback: opacity 0.5 on source, accent outline on target
-- ArrowUp/ArrowDown on the focused handle moves the project one row and
+- ArrowUp/ArrowDown on the focused title moves the project one row and
   persists the same manual order without requiring a pointer
 
 ## 8a. Composer autocomplete and clipboard files (D123–D125, D197, D209, D262, D362, D397, ADR 0131, ADR 0222)
@@ -1314,8 +1317,8 @@ This does not prevent state changes — it makes them instant.
     controls and transcript/code/tool content remain selectable and copyable
 15. Retained project tabs survive restart; activating one changes the selected
     shell workspace without redirecting background session tool roots
-16. Project groups can be reordered from their visible drag handle or with
-    ArrowUp/ArrowDown on that handle; the normalized-path order survives a
+16. Project groups can be reordered by long-pressing the title or with
+    ArrowUp/ArrowDown on that title; the normalized-path order survives a
     renderer restart and does not change the host workspace identity
 17. Completed and failed turns appear exactly once in the durable inbox;
     aborted turns never appear

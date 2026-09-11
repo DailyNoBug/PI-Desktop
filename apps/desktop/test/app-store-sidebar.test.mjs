@@ -95,13 +95,15 @@ test("global search stays on the conversation topbar, not the sidebar header", (
   assert.match(topbarSource, /ariaLabel=\{t\("nav\.search"\)\}/);
 });
 
-test("project rows expose drag and keyboard reorder behavior", () => {
-  assert.match(sidebarSource, /data-action="reorder-project"/);
-  assert.match(sidebarSource, /onDragStart=\{\(event\) => startProjectDrag/);
-  assert.match(sidebarSource, /handleProjectDragOver\(event, entry\.key\)/);
-  assert.match(sidebarSource, /handleProjectDrop\(event, entry\.key\)/);
+test("project rows expose long-press title drag and keyboard reorder behavior", () => {
+  assert.doesNotMatch(sidebarSource, /sidebar-project-drag-handle/);
+  assert.doesNotMatch(sidebarSource, /IconGripVertical/);
+  assert.doesNotMatch(sidebarSource, /PROJECT_DRAG_MIME/);
+  assert.match(sidebarSource, /PROJECT_REORDER_LONG_PRESS_MS/);
+  assert.match(sidebarSource, /beginProjectReorderPress\(event, entry\.key\)/);
   assert.match(sidebarSource, /onKeyDown=\{\(event\) => moveProjectWithKeyboard/);
-  assert.match(sidebarSource, /PROJECT_DRAG_MIME/);
+  assert.match(sidebarSource, /aria-grabbed=\{draggingProjectKey === entry.key\}/);
+  assert.match(sidebarSource, /className="sidebar-session-group-title project-toggle"/);
   assert.match(storeSource, /reorderProjects: \(paths\) =>/);
   assert.match(storeSource, /projectSort: "manual"/);
   assert.match(storeSource, /persistCurrentSidebar\(get\)/);

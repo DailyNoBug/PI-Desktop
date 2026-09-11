@@ -244,3 +244,5 @@ Each ADR includes:
 | 0224 | Right panel tab strip and data-driven add menu | Accepted (issue #229) |
 | 0225 | Restore deferred tools from effective session context | Accepted (issue #225) |
 | 0226 | Reserve chat width for composer controls | Accepted |
+| 0227 | Project group manual ordering | Accepted (amended by 0228) |
+| 0228 | Long-press the project title to reorder | Accepted (amends 0227) |

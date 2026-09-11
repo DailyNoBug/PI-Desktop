@@ -243,8 +243,8 @@ type SidebarPreferences = {
 - Project keys and retained paths use normalized full paths; session keys use
   durable session ids. Duplicate/slash-variant paths are discarded on load.
 - `projectSort: "manual"` and `projectMeta[*].order` store renderer-local
-  project presentation order. Dragging a project handle or using its keyboard
-  arrows writes contiguous order values for the visible normalized paths.
+  project presentation order. Long-pressing a project title or using ArrowUp
+  and ArrowDown on that title writes contiguous order values for the visible normalized paths.
   Missing or invalid values fall back to stable path order; pinned and archived
   priority remains applied before manual order. Session `manual`/`order` remain
   compatibility fields and are not exposed by the sidebar.

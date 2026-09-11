@@ -1,9 +1,9 @@
 # ADR 0227: Project group manual ordering
 
-- Status: Accepted
+- Status: Accepted (amended by 0228)
 - Date: 2026-09-11
 - Amends: [ADR 0016](0016-sidebar-organization-and-multi-project-tabs.md)
-- Related: [D399](../spec/08-meta/decisions-log.md) · [Component spec](../spec/04-ux/08-component-spec.md) · E2E-253
+- Related: [D399](../spec/08-meta/decisions-log.md) · [D402](../spec/08-meta/decisions-log.md) · [Component spec](../spec/04-ux/08-component-spec.md) · E2E-253
 
 ## Context
 
