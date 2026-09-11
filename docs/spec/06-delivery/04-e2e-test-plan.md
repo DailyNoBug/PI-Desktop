@@ -6147,8 +6147,8 @@ Each scenario is documented in this format:
      work-panel-views capability badge.
   2. Press `Cmd/Ctrl + J` to reveal the work panel and open the header menu.
      Confirm the fixed `+` trigger and the viewport-fixed work-panel toggle
-     have separate, non-overlapping hit regions. Confirm a "Plugin views" group
-     appears between the built-in tools and the
+     have separate, non-overlapping hit regions with at least 24px of visual
+     gap. Confirm a "Plugin views" group appears between the built-in tools and the
      open-resources group, with the view's localized title and its icon (or a
      lettered tile if the manifest names an unknown token).
   3. Activate the row. Confirm the plugin's page renders inside the panel body

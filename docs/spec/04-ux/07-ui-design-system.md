@@ -219,6 +219,7 @@ opacity-only changes, so actions remain legible in dark and light themes.
 Light-surface polish (D148):
 
 - Docked work panel uses quiet inset paper (`#fafafa`) with a white header band and a combined create trigger in the header so the tool column stays on content without any divider (D297 removed the remaining edge rules).
+- The work-panel header keeps its add-tab action in a separated rail: a tokenized 60px safe lane reserves the viewport-fixed panel toggle, with at least 24px of visual separation between the two hit targets on supported window sizes.
 - Shared form fields, browser URL, settings segment tracks, and shortcut keycaps use `--ds-tile` fills with no stroke (D297); focus lifts to white with an accent-tinted ring. An Unbound shortcut uses a localized text state instead of an empty keycap and keeps its recorder and restore controls keyboard-focusable.
 - Settings toggles keep a near-black on-track and force a white knob in light mode.
   Off/on track and knob colours come from the `--ds-switch-*` theme tokens; a

@@ -3919,20 +3919,103 @@ async function createWindow() {
             await openPanelArtifact("file", "apps/desktop/src/App.tsx");
             await new Promise((r) => setTimeout(r, 500));
             await shot("pi-panel-files");
+            await setTheme("dark");
+            await new Promise((r) => setTimeout(r, 300));
+            await shot("pi-panel-files-dark");
+            await setTheme("light");
+            await new Promise((r) => setTimeout(r, 250));
             // The unified header menu (D173): tools first, then the file
             // resource this run opened above.
             await mainWindow!.webContents.executeJavaScript(`
               (() => {
-                const btn = document.querySelector('.work-panel-switcher-trigger');
+                const btn = document.querySelector('.work-panel-new-tab');
                 if (btn) btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
               })()
             `);
             await new Promise((r) => setTimeout(r, 300));
             await shot("pi-panel-menu");
+            const probeWorkPanelHeader = async (scene: string) => {
+              const probe = await mainWindow!.webContents.executeJavaScript(`(() => {
+                const rectFor = (selector) => {
+                  const element = document.querySelector(selector);
+                  if (!element) return null;
+                  const rect = element.getBoundingClientRect();
+                  return {
+                    left: Math.round(rect.left),
+                    top: Math.round(rect.top),
+                    right: Math.round(rect.right),
+                    bottom: Math.round(rect.bottom),
+                  };
+                };
+                const add = rectFor('.work-panel-new-tab');
+                const toggle = rectFor('.app-work-panel-toggle');
+                const header = rectFor('.work-panel-header');
+                return {
+                  scene: ${JSON.stringify(scene)},
+                  viewport: { width: innerWidth, height: innerHeight },
+                  header,
+                  add,
+                  toggle,
+                  gap: add && toggle ? toggle.left - add.right : null,
+                  overlaps: add && toggle
+                    ? add.left < toggle.right && add.right > toggle.left &&
+                      add.top < toggle.bottom && add.bottom > toggle.top
+                    : null,
+                };
+              })()`);
+              console.log("WORK_PANEL_HEADER_PROBE", probe);
+              if (probe?.overlaps) {
+                throw new Error(`work-panel header controls overlap in ${scene}`);
+              }
+              if (probe?.gap != null && probe.gap < 24) {
+                throw new Error(`work-panel header controls are too close in ${scene}`);
+              }
+            };
+            await probeWorkPanelHeader("desktop-menu");
             await mainWindow!.webContents.executeJavaScript(`
               document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
             `);
             await new Promise((r) => setTimeout(r, 200));
+            await setTheme("dark");
+            await new Promise((r) => setTimeout(r, 300));
+            await mainWindow!.webContents.executeJavaScript(`
+              (() => {
+                const btn = document.querySelector('.work-panel-new-tab');
+                if (btn) btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              })()
+            `);
+            await new Promise((r) => setTimeout(r, 300));
+            await shot("pi-panel-menu-dark");
+            await probeWorkPanelHeader("desktop-menu-dark");
+            await mainWindow!.webContents.executeJavaScript(`
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            `);
+            await setTheme("light");
+            await new Promise((r) => setTimeout(r, 250));
+            // Exercise the smallest supported shell with the smallest panel
+            // width. The notification-only 420px scene below intentionally
+            // tests a clipped surface, so it is not suitable for this header
+            // geometry check.
+            await mainWindow!.webContents.executeJavaScript(
+              `window.__PI_DESKTOP__?.setWorkPanelWidth?.(244)`,
+            );
+            await new Promise((r) => setTimeout(r, 250));
+            captureViewportOverride = true;
+            try {
+              mainWindow!.setMinimumSize(1040, 700);
+              mainWindow!.setSize(1040, 700, false);
+              await new Promise((r) => setTimeout(r, 350));
+              await probeWorkPanelHeader("minimum-supported");
+              await shot("pi-panel-minimum-supported");
+            } finally {
+              mainWindow!.setSize(CODEX_BOUNDS.width, CODEX_BOUNDS.height, false);
+              mainWindow!.setMinimumSize(
+                workPanelMinimumWindowWidth(),
+                WINDOW_MIN_HEIGHT,
+              );
+              captureViewportOverride = false;
+            }
+            await new Promise((r) => setTimeout(r, 250));
             await mainWindow!.webContents.executeJavaScript(
               `window.__PI_DESKTOP__?.collapseWorkPanel()`,
             );

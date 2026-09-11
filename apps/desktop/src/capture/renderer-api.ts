@@ -43,6 +43,7 @@ const CAPTURE_RIG_METHODS = [
   "openWorkPanelArtifact",
   "collapseWorkPanel",
   "openWorkPanel",
+  "setWorkPanelWidth",
   "seedTranscript",
   "seedReviewChanges",
   "seedRunRows",

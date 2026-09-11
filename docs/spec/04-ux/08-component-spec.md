@@ -749,9 +749,10 @@ shown on hover, focus, or the active tab. Middle-click closes a tab. The `+`
 button sits outside the scroller and remains visible when tabs overflow. Its
 single **Tools & panels** menu contains host-owned Review followed by every
 in-scope `contributes.views` entry; Files and Browser are not hardcoded in the
-renderer (ADR 0104). The header reserves a 56px right-side clear lane for the
-viewport-fixed work-panel toggle, so the `+` button keeps a separate hit target
-with a visible gap on every supported platform.
+renderer (ADR 0104). The header reserves a tokenized 60px right-side safe lane
+for the viewport-fixed work-panel toggle. The `+` trigger also sits in a
+separated action rail, so it keeps a distinct hit target with at least 24px of
+visual gap on every supported platform.
 
 With no resource the body remains open and becomes a concise **New** launcher.
 It uses the same data-driven tool list as the `+` menu, so selecting a row
