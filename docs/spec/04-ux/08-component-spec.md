@@ -857,12 +857,14 @@ next/previous change navigation, file switching, refresh, binary/too-large
 states, and returns focus to its opening row when closed. It reads current Git
 state and offers no rollback.
 
-The commit box sits below the change lists. Commit uses the staged index; when
-nothing is staged, the explicit "stage all and commit" action stages all changes
-first. Its AI action uses the ready application default model when available
-and fills the editable message from bounded current Git diffs; staged changes
-are preferred, otherwise all unstaged changes supply context. Empty messages
-and empty commits are rejected. Discard and branch
+The commit box sits below the change lists as one bordered composer: the message
+field fills the composer and the AI and Commit actions share its compact bottom
+row. Commit uses the staged index; when nothing is staged, the explicit "stage
+all and commit" action stages all changes first. Its AI action uses the ready
+application default model when available and fills the editable message from
+bounded current Git diffs; staged changes are preferred, otherwise all unstaged
+changes supply context. Empty messages and empty commits are rejected. Discard
+and branch
 switching or create-and-switch use host-owned native confirmation; tracked
 discard restores from `HEAD`, while untracked files move to the OS trash. The
 view refreshes on open, workspace change, after every Git operation, manual

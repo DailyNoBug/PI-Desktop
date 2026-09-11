@@ -228,6 +228,9 @@ test("Git ships as an ordinary plugin over the public Git bridge", () => {
   assert.match(gitView, /diffMode:\s*"split"/);
   assert.match(gitView, /id="review"[^>]*aria-modal="true"/);
   assert.match(gitView, /class="review-dialog"/);
+  assert.match(gitView, /class="composer"/);
+  assert.match(gitView, /class="composer-actions"/);
+  assert.doesNotMatch(gitView, /\.commit \.primary \{ height: auto;/);
   assert.match(gitView, /align-items:\s*center/);
   assert.match(gitView, /justify-content:\s*center/);
   assert.match(gitView, /event\.target === \$\("review"\)/);

@@ -9868,7 +9868,9 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   open the Git-owned modal, never message-owned Review or rollback, and the Git
   tab remains the changed-file tree surface anchored in the right panel. Split
   diff is the default and red/green old/new content is readable in both themes.
-  AI uses the marked ready default model, sends only bounded scoped Git diff
+  The commit composer keeps the message field and the AI/Commit action row in
+  one bordered control with aligned compact controls and no wrapped button
+  label. AI uses the marked ready default model, sends only bounded scoped Git diff
   context through public `models.list` and `agent.complete` channels, and fills
   only the editable commit field. Model, empty-output, and no-model failures
   show localized errors without clearing the user's draft; truncated prompts do
