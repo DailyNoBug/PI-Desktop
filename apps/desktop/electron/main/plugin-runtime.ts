@@ -73,6 +73,10 @@ import { McpServerClient, type McpServerClientOptions } from "./plugin-mcp";
 import { DevPluginWatcher, type DevPluginWatcherDeps } from "./plugin-watcher";
 import { parseAllowedExternalUrl } from "./safe-open-external";
 import type { PluginAppearance } from "../shared/plugin-panel-chrome";
+import type {
+  PluginViewModalGeometry,
+  PluginViewModalRequest,
+} from "../shared/plugin-view-modal";
 import type { McpControlController, McpControlInvokeInput } from "./mcp-control";
 
 export type RegisteredCommand = {
@@ -170,6 +174,8 @@ export type PluginPanelRequest = {
 };
 
 export type PluginPanelBridgeContext = {
+  /** WebContents id of the isolated panel or docked view making the call. */
+  senderId?: number;
   /** Absolute path recorded by the panel preload for a real drop gesture. */
   droppedPath?: string;
 };
@@ -268,6 +274,16 @@ export type PluginHostServices = {
   }) => Promise<{ status: number; headers: Record<string, string>; bodyText: string }>;
   /** The reviewed desktop operation controller shared with MCP. */
   desktopControl?: McpControlController;
+  /**
+   * Host-owned geometry for an active docked view's temporary window modal.
+   * The page never supplies coordinates or window bounds.
+   */
+  viewModal?: {
+    prepare: (request: PluginViewModalRequest) => Promise<PluginViewModalGeometry>;
+    set: (
+      request: PluginViewModalRequest & { modal: boolean },
+    ) => Promise<PluginViewModalGeometry>;
+  };
   /**
    * Blocking, native consent for a plugin-originated dangerous desktop
    * operation (session delete, permission-mode change, tool approval). The
@@ -1505,6 +1521,21 @@ export class PluginRuntime {
     }
     const api = this.hostApi(loaded);
     switch (channel) {
+      case "view.prepareModal":
+        this.assertPermission(loaded, "ui.view");
+        return this.viewModalService(context).prepare(
+          this.viewModalRequest(loaded, context),
+        );
+      case "view.setModal": {
+        if (typeof payload?.modal !== "boolean") {
+          throw apiError("INVALID_ARGUMENT", "modal must be boolean");
+        }
+        this.assertPermission(loaded, "ui.view");
+        return this.viewModalService(context).set({
+          ...this.viewModalRequest(loaded, context),
+          modal: payload.modal,
+        });
+      }
       case "ui.showToast":
         await api.ui.showToast(String(payload?.message ?? ""), payload?.level as any);
         return { ok: true };
@@ -3188,6 +3219,29 @@ export class PluginRuntime {
       });
       throw apiError("PERMISSION_DENIED", `missing permission: ${perm}`);
     }
+  }
+
+  private viewModalRequest(
+    loaded: LoadedPlugin,
+    context?: PluginPanelBridgeContext,
+  ): PluginViewModalRequest {
+    const senderId = Number(context?.senderId);
+    if (!Number.isSafeInteger(senderId) || senderId <= 0) {
+      throw apiError("INVALID_ARGUMENT", "panel sender is required");
+    }
+    return { pluginId: loaded.manifest.id, senderId };
+  }
+
+  private viewModalService(
+    context?: PluginPanelBridgeContext,
+  ): NonNullable<PluginHostServices["viewModal"]> {
+    if (context?.senderId === undefined) {
+      throw apiError("INVALID_ARGUMENT", "panel sender is required");
+    }
+    if (!this.services.viewModal) {
+      throw apiError("UNSUPPORTED", "host api not available: view modal");
+    }
+    return this.services.viewModal;
   }
 
   private sessionSource(

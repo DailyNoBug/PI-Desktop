@@ -12,6 +12,10 @@ import {
   PLUGIN_PANEL_LOCALE_ARGUMENT_PREFIX,
   type PluginPanelTheme,
 } from "../shared/plugin-panel-chrome";
+import type {
+  PluginViewModalGeometry,
+  PluginViewRect,
+} from "../shared/plugin-view-modal";
 
 /**
  * Plugin-contributed work panel views (ADR 0104).
@@ -32,6 +36,9 @@ import {
 /** Live views kept warm; the least recently shown one is evicted past this. */
 const MAX_LIVE_VIEWS = 4;
 
+/** Keeps the expanded surface clear of the window edge and native controls. */
+const VIEW_MODAL_MARGIN = 24;
+
 export type PluginViewOpenRequest = {
   pluginId: string;
   viewId: string;
@@ -43,17 +50,13 @@ export type PluginViewOpenRequest = {
   netDomains?: readonly string[];
 };
 
-export type PluginViewBounds = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
+export type PluginViewBounds = PluginViewRect;
 
 type LiveView = {
   key: string;
   pluginId: string;
   view: WebContentsView;
+  modal: boolean;
   /** Monotonic counter; lowest value is the least recently shown. */
   usedAt: number;
 };
@@ -70,6 +73,7 @@ export class PluginViewHost {
   private bounds: PluginViewBounds = { x: 0, y: 0, width: 0, height: 0 };
   private clock = 0;
   private onBlockedRequest?: PluginPanelBlockedRequest;
+  private readonly onWindowResize = () => this.syncVisibleBounds();
 
   constructor(onBlockedRequest?: PluginPanelBlockedRequest) {
     this.onBlockedRequest = onBlockedRequest;
@@ -104,8 +108,14 @@ export class PluginViewHost {
 
   setWindow(window: BrowserWindow | null): void {
     if (this.window === window) return;
+    if (this.window && !this.window.isDestroyed()) {
+      this.window.off("resize", this.onWindowResize);
+    }
     this.detachVisible();
     this.window = window;
+    if (window && !window.isDestroyed()) {
+      window.on("resize", this.onWindowResize);
+    }
   }
 
   /** Whether a live web contents exists for this view. */
@@ -125,6 +135,22 @@ export class PluginViewHost {
     return null;
   }
 
+  prepareModalForSender(pluginId: string, senderId: number): PluginViewModalGeometry {
+    const entry = this.visibleEntryForSender(pluginId, senderId);
+    return this.modalGeometry();
+  }
+
+  setModalForSender(
+    pluginId: string,
+    senderId: number,
+    modal: boolean,
+  ): PluginViewModalGeometry {
+    const entry = this.liveEntryForSender(pluginId, senderId);
+    entry.modal = modal && this.visibleKey === entry.key;
+    this.syncVisibleBounds();
+    return this.modalGeometry();
+  }
+
   /**
    * Create the view if needed and mark it as the most recently used. Nothing is
    * attached here: the renderer follows with `setBounds` / `setVisible` once it
@@ -142,6 +168,7 @@ export class PluginViewHost {
       key,
       pluginId: request.pluginId,
       view,
+      modal: false,
       usedAt: ++this.clock,
     });
     void view.webContents
@@ -160,9 +187,7 @@ export class PluginViewHost {
       width: Math.max(0, Math.round(Number(bounds.width) || 0)),
       height: Math.max(0, Math.round(Number(bounds.height) || 0)),
     };
-    const visible = this.visibleKey ? this.views.get(this.visibleKey) : null;
-    visible?.view.setBounds(this.bounds);
-    this.emitSurface();
+    this.syncVisibleBounds();
   }
 
   /**
@@ -187,8 +212,8 @@ export class PluginViewHost {
     if (!children.includes(entry.view)) {
       this.window.contentView.addChildView(entry.view);
     }
-    entry.view.setBounds(this.bounds);
     this.visibleKey = key;
+    this.syncVisibleBounds();
     this.sendVisibility(entry, true);
     this.emitSurface();
   }
@@ -219,6 +244,7 @@ export class PluginViewHost {
   private detachVisible(): void {
     const entry = this.visibleKey ? this.views.get(this.visibleKey) : null;
     this.visibleKey = null;
+    if (entry) entry.modal = false;
     if (entry && this.window && !this.window.isDestroyed()) {
       const children = this.window.contentView.children;
       if (children.includes(entry.view)) {
@@ -238,9 +264,69 @@ export class PluginViewHost {
     });
   }
 
+  private liveEntryForSender(pluginId: string, senderId: number): LiveView {
+    for (const entry of this.views.values()) {
+      const wc = entry.view.webContents;
+      if (!wc.isDestroyed() && wc.id === senderId) {
+        if (entry.pluginId !== pluginId) break;
+        return entry;
+      }
+    }
+    throw invalidViewModalRequest();
+  }
+
+  private visibleEntryForSender(pluginId: string, senderId: number): LiveView {
+    const entry = this.liveEntryForSender(pluginId, senderId);
+    if (this.visibleKey !== entry.key) throw invalidViewModalRequest();
+    return entry;
+  }
+
+  private modalGeometry(): PluginViewModalGeometry {
+    return { dock: this.bounds, modal: this.modalBounds() };
+  }
+
+  private modalBounds(): PluginViewRect {
+    if (!this.window || this.window.isDestroyed()) {
+      return { x: 0, y: 0, width: 0, height: 0 };
+    }
+    const [width, height] = this.window.getContentSize();
+    return {
+      x: VIEW_MODAL_MARGIN,
+      y: VIEW_MODAL_MARGIN,
+      width: Math.max(0, width - VIEW_MODAL_MARGIN * 2),
+      height: Math.max(0, height - VIEW_MODAL_MARGIN * 2),
+    };
+  }
+
+  private boundsFor(entry: LiveView): PluginViewRect {
+    return entry.modal ? this.modalBounds() : this.bounds;
+  }
+
+  private syncVisibleBounds(): void {
+    const entry = this.visibleKey ? this.views.get(this.visibleKey) : null;
+    if (!entry || !this.window || this.window.isDestroyed()) return;
+    entry.view.setBounds(this.boundsFor(entry));
+    if (entry.modal) this.sendModalGeometry(entry);
+    this.emitSurface();
+  }
+
+  private sendModalGeometry(entry: LiveView): void {
+    const wc = entry.view.webContents;
+    if (wc.isDestroyed()) return;
+    wc.send(
+      "pi-plugin-panel-event:view:modal-geometry",
+      this.modalGeometry(),
+    );
+  }
+
   private emitSurface(): void {
     if (!this.onSurface) return;
     if (!this.visibleKey) {
+      this.onSurface(null);
+      return;
+    }
+    const entry = this.visibleKey ? this.views.get(this.visibleKey) : null;
+    if (!entry) {
       this.onSurface(null);
       return;
     }
@@ -253,7 +339,7 @@ export class PluginViewHost {
       pluginId: this.visibleKey.slice(0, separator),
       viewId: this.visibleKey.slice(separator + 1),
       visible: true,
-      bounds: this.bounds,
+      bounds: this.boundsFor(entry),
     });
   }
 
@@ -305,4 +391,10 @@ export class PluginViewHost {
     });
     return view;
   }
+}
+
+function invalidViewModalRequest(): Error {
+  return Object.assign(new Error("active docked view required"), {
+    code: "INVALID_STATE",
+  });
 }

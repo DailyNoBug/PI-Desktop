@@ -673,6 +673,7 @@ The host-owned preload forwards only fixed channels to the plugin runtime:
 | Channel | Required permission |
 |---|---|
 | `ui.showToast`, `ui.closePanel` | None beyond the loaded panel |
+| `view.prepareModal`, `view.setModal` | `ui.view`; only the active docked view |
 | `ui.notify` | `notify` |
 | `ui.getNotificationPermission`, `ui.requestNotificationPermission`, `ui.showNativeNotification` | `notify` |
 | `plugin.getSettings`, `workspace.get`, `app.getAppearance` | None |
@@ -686,6 +687,22 @@ The host-owned preload forwards only fixed channels to the plugin runtime:
 | `net.fetch` | `net.fetch` |
 | `git.status`, `git.branches`, `git.diff` | `git.read` |
 | `git.stage`, `git.unstage`, `git.discard`, `git.createBranch`, `git.switchBranch`, `git.commit`, `git.push`, `git.pull` | `git.write` |
+
+```ts
+view.prepareModal(): Promise<{
+  dock: { x: number; y: number; width: number; height: number }
+  modal: { x: number; y: number; width: number; height: number }
+}>
+view.setModal(input: { modal: boolean }): Promise<{
+  dock: { x: number; y: number; width: number; height: number }
+  modal: { x: number; y: number; width: number; height: number }
+}>
+```
+
+Both rectangles are host-owned. `prepareModal` lets the page apply its dock
+placement before the native view expands; `setModal` enters or leaves the
+temporary window-modal placement. Hiding or switching the view restores docked
+placement even if the page fails to ask.
 
 `plugin.setSettings`, `fs.remove`, and arbitrary Electron IPC are not exposed. A
 channel the host does not implement itself is forwarded to the plugin's
@@ -704,6 +721,10 @@ Delivered today:
   the app's palette or language changes, so a panel can restyle and relabel live.
 - `workspace:changed` — payload is `{ path: string; name: string } | null`,
   matching `workspace.get()`, sent when the open project changes.
+- `view:visibility` — payload is `{ pluginId: string; visible: boolean }`,
+  sent when a docked view is attached or detached.
+- `view:modal-geometry` — payload is the host-owned `{ dock, modal }` geometry,
+  sent while that docked view is in modal mode and its window bounds change.
 
 ## 7. Call auditing
 

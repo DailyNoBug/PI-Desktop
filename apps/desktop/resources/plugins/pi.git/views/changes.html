@@ -61,7 +61,13 @@
       }
       button { border: 0; background: transparent; cursor: pointer; }
       button:disabled { cursor: default; opacity: .42; }
-      .app { display: flex; height: 100%; min-height: 0; flex-direction: column; }
+      .app {
+        display: flex;
+        height: 100%;
+        min-height: 0;
+        flex-direction: column;
+        background: var(--bg);
+      }
       .toolbar {
         display: flex;
         min-height: 38px;
@@ -311,6 +317,22 @@
         background: var(--bg);
         box-shadow: 0 24px 70px rgb(0 0 0 / 34%);
       }
+      body.window-modal .app {
+        position: fixed;
+        z-index: 0;
+        top: var(--git-dock-y, 0px);
+        left: var(--git-dock-x, 0px);
+        width: var(--git-dock-width, 100%);
+        height: var(--git-dock-height, 100%);
+      }
+      body.window-modal .overlay {
+        inset: 0;
+        padding: 0;
+      }
+      body.window-modal .review-dialog {
+        width: 100%;
+        height: 100%;
+      }
       .review-header {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -487,6 +509,8 @@
         timer: 0,
         review: null,
         reviewOpener: null,
+        viewModal: false,
+        viewModalRevision: 0,
         diffMode: "split",
         changeIndex: -1,
         collapsedFolders: new Set(),
@@ -718,19 +742,77 @@
       }
       function itemKey(change) { return `${change.scope}:${change.path}`; }
       function itemKeyEquals(change) { return state.review && itemKey(change) === itemKey(state.review); }
+      function applyWindowModalGeometry(geometry) {
+        if (!state.viewModal || !geometry?.dock || !geometry?.modal) return;
+        const dockX = Math.max(0, Number(geometry.dock.x) || 0);
+        const dockY = Math.max(0, Number(geometry.dock.y) || 0);
+        const modalX = Math.max(0, Number(geometry.modal.x) || 0);
+        const modalY = Math.max(0, Number(geometry.modal.y) || 0);
+        const width = Math.max(0, Number(geometry.dock.width) || 0);
+        const height = Math.max(0, Number(geometry.dock.height) || 0);
+        document.body.style.setProperty("--git-dock-x", `${Math.max(0, dockX - modalX)}px`);
+        document.body.style.setProperty("--git-dock-y", `${Math.max(0, dockY - modalY)}px`);
+        document.body.style.setProperty("--git-dock-width", `${width}px`);
+        document.body.style.setProperty("--git-dock-height", `${height}px`);
+      }
+      function resetWindowModal() {
+        state.viewModal = false;
+        state.viewModalRevision++;
+        document.body.classList.remove("window-modal");
+        for (const property of ["--git-dock-x", "--git-dock-y", "--git-dock-width", "--git-dock-height"]) {
+          document.body.style.removeProperty(property);
+        }
+      }
+      async function enterWindowModal() {
+        const revision = ++state.viewModalRevision;
+        try {
+          const geometry = await invoke("view.prepareModal");
+          if (revision !== state.viewModalRevision || !state.review) return;
+          state.viewModal = true;
+          document.body.classList.add("window-modal");
+          applyWindowModalGeometry(geometry);
+          await invoke("view.setModal", { modal: true });
+        } catch {
+          if (revision === state.viewModalRevision) resetWindowModal();
+        }
+      }
       async function openReview(change, opener = null) {
         state.reviewOpener = opener;
         state.review = { ...change, result: null, loading: true, error: "" };
         state.changeIndex = -1;
         $("review").classList.add("is-open");
+        void enterWindowModal();
         renderReviewFileOptions();
         renderDiff();
         $("review-file").focus();
         await loadDiff();
       }
-      function closeReview({ restoreFocus = false } = {}) {
+      async function closeReview({ restoreFocus = false } = {}) {
         const opener = state.reviewOpener;
         const key = state.review ? itemKey(state.review) : "";
+        const wasWindowModal = state.viewModal;
+        state.review = null;
+        state.reviewOpener = null;
+        state.viewModalRevision++;
+        $("review").classList.remove("is-open");
+        $("diff").replaceChildren();
+        if (wasWindowModal) {
+          try {
+            await invoke("view.setModal", { modal: false });
+          } catch {}
+        }
+        resetWindowModal();
+        if (restoreFocus) {
+          const target = opener?.isConnected
+            ? opener
+            : document.querySelector(`.file[data-item-key="${CSS.escape(key)}"]`);
+          (target ?? $("branch-select")).focus();
+        }
+      }
+      function discardReview({ restoreFocus = false } = {}) {
+        const opener = state.reviewOpener;
+        const key = state.review ? itemKey(state.review) : "";
+        resetWindowModal();
         state.review = null;
         state.reviewOpener = null;
         $("review").classList.remove("is-open");
@@ -1387,8 +1469,11 @@
         }
       }
       bridge.on("appearance:changed", applyAppearance);
+      bridge.on("view:modal-geometry", (geometry) => applyWindowModalGeometry(geometry));
       bridge.on("view:visibility", (payload) => {
-        state.visible = payload?.visible === true;
+        const visible = payload?.visible === true;
+        state.visible = visible;
+        if (!visible && state.review) discardReview();
       });
       applyLanguage(localeTag);
       applyAppearance(null);

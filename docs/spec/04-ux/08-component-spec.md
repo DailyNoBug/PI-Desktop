@@ -847,12 +847,12 @@ Below the branch bar, **Staged Changes** and **Changes** render current Git
 state as collapsible directory trees. Folder rows aggregate descendant file and
 addition/deletion counts; file rows show the status letter, basename, rename
 target, and counts. Binary and oversized files identify themselves without diff
-content. Per-row actions stage, unstage, or discard. Selecting a file opens the
-view-owned review modal over the changed-file tree rather than the
-message-owned Review tab; the Git tab itself remains the tree surface. The
-centered dialog opens in side-by-side mode with aligned old/new line-number
-columns, red old-side content, and green new-side content; unified mode remains
-an explicit toggle. It supports staged, unstaged, and untracked context,
+content. Per-row actions stage, unstage, or discard. Selecting a file expands
+the active Git view to a host-owned inset application-window surface while
+keeping the changed-file tree anchored at its right-panel position. The
+window-centered dialog opens in side-by-side mode with aligned old/new
+line-number columns, red old-side content, and green new-side content; unified
+mode remains an explicit toggle. It supports staged, unstaged, and untracked context,
 next/previous change navigation, file switching, refresh, binary/too-large
 states, and returns focus to its opening row when closed. It reads current Git
 state and offers no rollback.

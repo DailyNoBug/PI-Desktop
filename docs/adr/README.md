@@ -236,3 +236,4 @@ Each ADR includes:
 | 0216 | Sidebar token usage summary | Accepted (amends 0173) |
 | 0217 | Bundled Git work panel | Accepted (D391; amended by 0218 / D392) |
 | 0218 | Tree review and AI commit messages in Git | Accepted (D392) |
+| 0219 | Window-sized plugin view modals | Accepted (D393) |

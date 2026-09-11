@@ -193,6 +193,34 @@ test("only one view is attached at a time and the cache is bounded", () => {
   );
 });
 
+test("window modal mode is host-owned and cannot outlive the docked view", () => {
+  assert.match(viewHostSource, /VIEW_MODAL_MARGIN = 24/);
+  assert.match(viewHostSource, /prepareModalForSender\(/);
+  assert.match(viewHostSource, /setModalForSender\(/);
+  // Only the currently visible sender may expand. Closing while hidden can
+  // restore state, but entering modal can never target a cached background view.
+  assert.match(viewHostSource, /visibleEntryForSender\(/);
+  assert.match(viewHostSource, /entry\.modal = modal && this\.visibleKey === entry\.key/);
+  // Tab switches, blocking overlays, and renderer visibility changes detach the
+  // native view; that lifecycle event is the hard reset for modal mode.
+  assert.match(viewHostSource, /if \(entry\) entry\.modal = false;/);
+  assert.match(viewHostSource, /window\.on\("resize", this\.onWindowResize\)/);
+  assert.match(
+    viewHostSource,
+    /pi-plugin-panel-event:view:modal-geometry/,
+  );
+  assert.match(panelHostSource, /senderId: event\.sender\.id/);
+  const runtimeSource = read("electron/main/plugin-runtime.ts");
+  assert.match(runtimeSource, /case "view\.prepareModal":/);
+  assert.match(runtimeSource, /case "view\.setModal":/);
+  assert.match(runtimeSource, /this\.assertPermission\(loaded, "ui\.view"\);/);
+  const gitView = read("resources/plugins/pi.git/views/changes.html");
+  assert.match(gitView, /view\.prepareModal/);
+  assert.match(gitView, /view\.setModal/);
+  assert.match(gitView, /body\.window-modal \.app/);
+  assert.match(gitView, /view:modal-geometry/);
+});
+
 test("views are dropped when the plugin behind them goes away", () => {
   assert.match(viewHostSource, /closePlugin\(pluginId: string\)/);
   for (const reason of ["crash", "reload", "disable", "uninstall"]) {

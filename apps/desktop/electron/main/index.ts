@@ -690,6 +690,12 @@ const plugins: PluginRuntime = new PluginRuntime({
     getWindow: () => mainWindow,
     getLocale: () => updaterLocale,
   }),
+  viewModal: {
+    prepare: ({ pluginId, senderId }) =>
+      Promise.resolve(pluginViews.prepareModalForSender(pluginId, senderId)),
+    set: ({ pluginId, senderId, modal }) =>
+      Promise.resolve(pluginViews.setModalForSender(pluginId, senderId, modal)),
+  },
   confirmGitOperation: createGitConsentService({
     getWindow: () => mainWindow,
     getLocale: () => updaterLocale,
