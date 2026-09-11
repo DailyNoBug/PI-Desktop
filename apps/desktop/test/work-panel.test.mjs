@@ -76,7 +76,7 @@ test("a viewport-fixed toggle is the sole pointer collapse control", () => {
   );
   assert.match(
     globalStyles,
-    /\.work-panel-header \{[^}]*padding:\s*0 46px 0 12px;/s,
+    /\.work-panel-header \{[^}]*padding:\s*0 56px 0 12px;/s,
   );
   assert.match(
     globalStyles,
