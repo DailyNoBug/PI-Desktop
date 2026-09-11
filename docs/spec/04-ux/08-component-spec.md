@@ -767,10 +767,12 @@ creates or activates the singleton tab without duplicating it:
 
 - Panel body uses quiet inset paper (`#fafafa`); the 46px header band and tool
   chrome (review toolbar, browser chrome, file viewer header) stay white
-- The 46px header is a clipped tab strip plus a tight `+` trigger. Only the
-  strip scrolls; the trigger is outside it and never scrolls away. The menu is
-  one **Tools & panels** group, with Review first and plugin-contributed views
-  in declared order. Shortcut labels are rendered only for real bindings.
+- The 46px header is a clipped tab strip plus a tight `+` trigger. Tabs keep a
+  stable `92px–180px` width and a visible gap, so labels do not shrink into
+  each other; only the strip scrolls when there are more tabs than the panel
+  can show. The trigger is outside it and never scrolls away. The menu is one
+  **Tools & panels** group, with Review first and plugin-contributed views in
+  declared order. Shortcut labels are rendered only for real bindings.
 - Tab close uses a hover/focus/active `×` affordance and middle-click. The
   active tab uses the normal active fill, while overflow is handled by the
   strip rather than by a second resource list. The menu fades in over ≤4px

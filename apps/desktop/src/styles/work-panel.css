@@ -163,10 +163,11 @@
   height: 32px;
   flex: 1 1 auto;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-inline: contain;
+  scroll-padding-inline: 2px;
   scrollbar-width: none;
 }
 
@@ -176,10 +177,10 @@
 
 .work-panel-tab {
   display: inline-flex;
-  min-width: 0;
+  min-width: 92px;
   max-width: 180px;
   height: 28px;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   align-items: center;
   border-radius: var(--radius-sm);
   color: var(--ds-text-muted);
@@ -201,7 +202,7 @@
   flex: 1 1 auto;
   align-items: center;
   gap: 6px;
-  padding: 0 2px 0 8px;
+  padding: 0 2px 0 10px;
   color: inherit;
   text-align: left;
 }
