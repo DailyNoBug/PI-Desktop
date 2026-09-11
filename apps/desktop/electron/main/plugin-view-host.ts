@@ -189,6 +189,7 @@ export class PluginViewHost {
     }
     entry.view.setBounds(this.bounds);
     this.visibleKey = key;
+    this.sendVisibility(entry, true);
     this.emitSurface();
   }
 
@@ -223,8 +224,18 @@ export class PluginViewHost {
       if (children.includes(entry.view)) {
         this.window.contentView.removeChildView(entry.view);
       }
+      this.sendVisibility(entry, false);
     }
     this.emitSurface();
+  }
+
+  private sendVisibility(entry: LiveView, visible: boolean): void {
+    const wc = entry.view.webContents;
+    if (wc.isDestroyed()) return;
+    wc.send("pi-plugin-panel-event:view:visibility", {
+      pluginId: entry.pluginId,
+      visible,
+    });
   }
 
   private emitSurface(): void {

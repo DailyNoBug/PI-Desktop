@@ -186,6 +186,41 @@ test("Advisor ships as an ordinary plugin over the public complete APIs", () => 
   assert.doesNotMatch(advisorPanel, /require\(|ipcRenderer/);
 });
 
+test("Git ships as an ordinary plugin over the public Git bridge", () => {
+  const gitManifest = JSON.parse(read("resources/plugins/pi.git/manifest.json"));
+  const gitMain = read("resources/plugins/pi.git/main.js");
+  const gitView = read("resources/plugins/pi.git/views/changes.html");
+  assert.equal(gitManifest.id, "pi.git");
+  assert.notEqual(gitManifest.enabledByDefault, false);
+  assert.deepEqual(gitManifest.contributes.views.map((view) => view.id), ["changes"]);
+  assert.equal(gitManifest.contributes.views[0].icon, "branch");
+  assert.deepEqual(
+    [...gitManifest.permissions].sort(),
+    ["git.read", "git.write", "ui.view"],
+  );
+  assert.equal(typeof gitManifest.contributes.views[0].title.en, "string");
+  assert.equal(typeof gitManifest.contributes.views[0].title["zh-CN"], "string");
+  assert.doesNotMatch(gitMain, /require\(|ipcRenderer|process\./);
+  assert.match(gitView, /pluginBridge/);
+  for (const channel of [
+    "git.status",
+    "git.branches",
+    "git.diff",
+    "git.stage",
+    "git.unstage",
+    "git.discard",
+    "git.createBranch",
+    "git.switchBranch",
+    "git.commit",
+    "git.push",
+    "git.pull",
+  ]) {
+    assert.ok(gitView.includes(`"${channel}"`), `expected Git view channel: ${channel}`);
+  }
+  assert.doesNotMatch(gitView, /require\(|import\s+.*from\s+["']node:|ipcRenderer/);
+  assert.doesNotMatch(gitView, /desktop\.control|fs\.writeText|net\.fetch|shell\.openExternal/);
+});
+
 test("bundled plugins are packaged and located at runtime", () => {
   assert.ok(
     packageJson.build.extraResources.some(
