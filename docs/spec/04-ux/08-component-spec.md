@@ -832,7 +832,7 @@ workflow while rendering entirely inside the plugin's isolated page:
 | No workspace | Each tab renders its own "open a project" empty state |
 | Open with no resource | `Cmd/Ctrl + J` reveals the panel without creating a tab, so the body renders the New launcher. Activating a row creates or selects that singleton view. Closing the final tab leaves the panel open in this state. The body is not a `role="tabpanel"` here because no tab labels it. |
 | Constrained work area | The panel stays at its committed width inside the existing client area; MainChat absorbs internal width only down to its reserved 515px minimum, which side docks cannot paint over |
-| Plugin view active | The body hosts the plugin's own isolated page as a native `WebContentsView`, positioned from the measured surface rect. It remains visible while the divider is being resized or the add menu is open; the placeholder observer follows the frame-coalesced panel width, and an open menu clips the native bounds below its opaque bottom edge, so content never flashes to the panel background. It is hidden whenever the tab is inactive, the panel is animating, or a panel-wide blocking overlay is open — the same rule the Browser preview follows, since both composite above renderer content. A view whose plugin is disabled, uninstalled, reloaded, or crashed is destroyed; the tab stays and re-opens the page on the next lifecycle event (ADR 0104) |
+| Plugin view active | The body hosts the plugin's own isolated page as a native `WebContentsView`, positioned from the measured surface rect. It remains visible at its full rect while the divider is being resized or the add menu is open; the menu positioner moves the menu beside the native surface because renderer content cannot paint above a `WebContentsView`, so opening the menu never pushes the plugin body down or changes its bounds. It is hidden whenever the tab is inactive, the panel is animating, or a panel-wide blocking overlay is open — the same rule the Browser preview follows, since both composite above renderer content. A view whose plugin is disabled, uninstalled, reloaded, or crashed is destroyed; the tab stays and re-opens the page on the next lifecycle event (ADR 0104) |
 | Plugin out of scope | A view contributed by a plugin that is not active in the current project disappears from the menu when the project changes. Unlike contributed themes, which are one global setting and stay unfiltered, a view is scoped work |
 
 ### 5.4 Interactions
@@ -880,8 +880,9 @@ workflow while rendering entirely inside the plugin's isolated page:
   surface that offered it (D224).
 - Resource header: the 46px header shows the scrollable active tab and fixed
   `+` button. A subagent detail uses a back arrow in the header. Arrow keys,
-  Home, End, and Escape operate the add menu; opening it clips native plugin
-  surfaces below its opaque bounds until it closes.
+  Home, End, and Escape operate the add menu; when a native plugin surface is
+  active the menu moves beside that surface, leaving the plugin bounds and
+  body position unchanged.
 - Tab close: closing an active tab selects its right neighbor, then its left;
   closing the last tab leaves the panel open on the New launcher. The
   panel-level collapse control is the viewport-fixed shell toggle (not in the

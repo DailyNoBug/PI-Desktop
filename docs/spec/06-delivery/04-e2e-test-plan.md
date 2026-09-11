@@ -2654,8 +2654,9 @@ Each scenario is documented in this format:
   hover/focus `×` and middle-click. 4) Open the `+` menu and verify its single
   Tools & panels group contains Review plus each in-scope plugin view exactly
   once. Use Arrow/Home/End, Escape, and Tab; confirm shortcut labels appear
-  only for real bindings. Confirm the menu stays anchored during resize/scroll
-  and the native plugin surface is clipped below its opaque bounds. 5) Close
+  only for real bindings. Confirm the menu stays anchored during resize/scroll;
+  with a native plugin view active it opens beside the view while the plugin
+  surface keeps its full measured bounds. 5) Close
   active middle and edge tabs and verify neighbor selection. Close the final
   tab and confirm the panel remains open on the New launcher. 6) Use the
   viewport-fixed work-panel toggle and trigger another artifact. 7) In session A,
@@ -2696,8 +2697,9 @@ Each scenario is documented in this format:
   scroll into view, and close selects the right neighbor then left. The add
   menu has one Tools & panels group with Review and in-scope plugin views,
   fades in over ≤4px, and is static under reduced motion. Its keyboard focus
-  and dismissal return to `+`; opening it clips native plugin surfaces below
-  the opaque menu. Closing the last tab leaves the panel open on New. Collapse
+  and dismissal return to `+`; opening it moves the menu beside a native
+  plugin surface so the surface keeps its full bounds and the plugin body does
+  not shift down. Closing the last tab leaves the panel open on New. Collapse
   retains runtime tabs but hides the panel until another artifact reopens it.
   Width clamps to the fixed `244px–720px` range and
   previews its current/minimum/maximum values through the panel separator. The
@@ -2812,8 +2814,8 @@ Each scenario is documented in this format:
   unmounted, reappearing with correct bounds afterwards. An inline permission
   card does not hide or remount the preview; resize/drag keeps the native view
   visible and aligned with the placeholder rect without a black flash. Opening
-  the work-panel context dropdown keeps the native view visible below the
-  opaque menu bounds and restores the full surface rect when the menu closes.
+  the work-panel context dropdown moves beside the native view; the view keeps
+  its full surface rect and the plugin body does not shift down.
   Open-external launches an http(s) page in the default browser and an in-root
   file preview via `openPath`. The view uses an isolated persist partition
   (no session bleed from the app shell).

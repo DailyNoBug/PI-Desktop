@@ -265,7 +265,8 @@
 }
 
 /* The add menu is portaled so it never participates in the tab strip's
-   layout. Its opaque bounds also tell native plugin surfaces where to stop. */
+   layout. When a native plugin view is active, its positioner opens the menu
+   beside that surface so the view keeps its full measured bounds. */
 .work-panel-new-menu {
   position: fixed;
   top: 0;
