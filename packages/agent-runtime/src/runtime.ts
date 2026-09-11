@@ -268,6 +268,18 @@ function mutationTerminationAdvice(
   return "Re-read the live file, regenerate a narrower Edit, and avoid repeating the same payload.";
 }
 export const TOOL_SEARCH_NAME = "ToolSearch";
+/** Stands in for a persisted tool row that never recorded a result. */
+const MISSING_TOOL_RESULT_PLACEHOLDER = "[no tool result recorded]";
+
+function isMissingToolResultPlaceholder(
+  content: ToolResultMessage["content"],
+): boolean {
+  return (
+    content.length === 1 &&
+    content[0].type === "text" &&
+    content[0].text === MISSING_TOOL_RESULT_PLACEHOLDER
+  );
+}
 export const ASK_TOOL_NAME = "asktool";
 
 /**
@@ -1232,7 +1244,7 @@ function toolResultFromUi(
       type: "text",
       text: interrupted
         ? "[tool call was interrupted before a result was recorded]"
-        : "[no tool result recorded]",
+        : MISSING_TOOL_RESULT_PLACEHOLDER,
     });
   }
   return {
@@ -1693,6 +1705,7 @@ Delegation rules:
     this.mode = mode;
     this.activeDeferredToolNames.clear();
     this.rebuildToolCatalog();
+    this.restoreDeferredToolsFromContext();
     this.agent.state.systemPrompt = this.composeSystemPrompt();
     this.agent.state.tools = this.activeTools();
     this.setPlanningState(planningState, details);
@@ -4062,7 +4075,35 @@ Delegation rules:
 
   private resetDeferredToolsForPrompt(): void {
     this.activeDeferredToolNames.clear();
+    this.restoreDeferredToolsFromContext();
     this.agent.state.tools = this.activeTools();
+  }
+
+  /**
+   * Re-activates the on-demand tools whose successful activation the model
+   * can still see. The context keeps every ToolSearch result that announced
+   * "Activated on-demand tools: X" and every result X itself produced, so
+   * starting a turn with an empty set while those rows remain leaves the
+   * model calling tools that are missing from the schema (#225). Only
+   * successful results count, and only for names still in the deferred
+   * catalog, which `rebuildToolCatalog` already limits to the current mode.
+   */
+  private restoreDeferredToolsFromContext(): void {
+    if (this.deferredToolNames.size === 0) return;
+    const { messages } = buildSessionContext(this.entriesWithCompaction());
+    for (const message of messages) {
+      if (message.role !== "toolResult" || message.isError) continue;
+      if (isMissingToolResultPlaceholder(message.content)) continue;
+      const names =
+        message.toolName === TOOL_SEARCH_NAME
+          ? (message.addedToolNames ?? [])
+          : [message.toolName];
+      for (const name of names) {
+        if (this.deferredToolNames.has(name)) {
+          this.activeDeferredToolNames.add(name);
+        }
+      }
+    }
   }
 
   private buildSubmitTool(kind: ProposalKind): AgentTool {
