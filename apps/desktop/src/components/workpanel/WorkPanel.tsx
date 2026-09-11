@@ -8,7 +8,6 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { PluginViewMeta } from "@pi-desktop/shared";
 import {
@@ -42,9 +41,9 @@ import {
   WORK_PANEL_MIN_WIDTH,
   clampWorkPanelWidth,
 } from "../../lib/work-panel-resize";
-import { placeWorkPanelMenu } from "../../lib/work-panel-menu-position";
 
 const TAB_ICONS = {
+  new: IconPlus,
   review: IconDiff,
   file: IconFileText,
   plugin: IconPlug,
@@ -79,6 +78,7 @@ function tabLabel(
     // back to its id rather than leaving the tab blank until it closes.
     return view?.title ?? tab.resource ?? t("panel.tabs.plugin");
   }
+  if (tab.kind === "new") return t("panel.new.title");
   if (tab.kind !== "file") return t(`panel.tabs.${tab.kind}`);
   const path = tab.resource ?? "";
   return path.split("/").filter(Boolean).pop() || t("panel.tabs.file");
@@ -150,6 +150,8 @@ export function WorkPanel({
   const activateTab = useAppStore((s) => s.activateWorkPanelTab);
   const closeTab = useAppStore((s) => s.closeWorkPanelTab);
   const openWorkPanelTab = useAppStore((s) => s.openWorkPanelTab);
+  const openNewWorkPanelTab = useAppStore((s) => s.openNewWorkPanelTab);
+  const replaceWorkPanelTab = useAppStore((s) => s.replaceWorkPanelTab);
   const setWidth = useAppStore((s) => s.setWorkPanelWidth);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const tools = workPanelTools(t, pluginViews);
@@ -158,13 +160,6 @@ export function WorkPanel({
   const panelResizeState = useRef<WorkPanelResizeState | null>(null);
   const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const newTabButtonRef = useRef<HTMLButtonElement | null>(null);
-  const newTabMenuRef = useRef<HTMLDivElement | null>(null);
-  const menuOpenFocus = useRef<"active" | "last">("active");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
   const [nativeSurfaceReadyForExit, setNativeSurfaceReadyForExit] =
     useState(false);
 
@@ -182,54 +177,6 @@ export function WorkPanel({
     };
   }, [isResizing]);
 
-  const menuItems = useCallback(
-    () =>
-      Array.from(
-        newTabMenuRef.current?.querySelectorAll<HTMLButtonElement>(
-          "[data-work-panel-menu-item]",
-        ) ?? [],
-      ),
-    [],
-  );
-
-  const closeMenu = useCallback((restoreFocus = false) => {
-    setMenuOpen(false);
-    setMenuPosition(null);
-    if (restoreFocus) requestAnimationFrame(() => newTabButtonRef.current?.focus());
-  }, []);
-
-  const updateMenuPosition = useCallback(() => {
-    const trigger = newTabButtonRef.current;
-    const menu = newTabMenuRef.current;
-    if (!trigger || !menu) return;
-
-    const triggerRect = trigger.getBoundingClientRect();
-    if (triggerRect.bottom <= 0 || triggerRect.top >= window.innerHeight) {
-      closeMenu();
-      return;
-    }
-
-    const menuRect = menu.getBoundingClientRect();
-    const panelRect = trigger.closest(".work-panel")?.getBoundingClientRect();
-    const placement = placeWorkPanelMenu({
-      trigger: {
-        left: triggerRect.left,
-        top: triggerRect.top,
-        bottom: triggerRect.bottom,
-      },
-      menu: { width: menuRect.width, height: menuRect.height },
-      viewport: { width: window.innerWidth, height: window.innerHeight },
-      boundary: panelRect
-        ? { left: panelRect.left, right: panelRect.right }
-        : undefined,
-    });
-    setMenuPosition((previous) =>
-      previous?.top === placement.top && previous.left === placement.left
-        ? previous
-        : placement,
-    );
-  }, [closeMenu]);
-
   useEffect(() => {
     if (!exiting) {
       setNativeSurfaceReadyForExit(false);
@@ -240,80 +187,6 @@ export function WorkPanel({
     setNativeSurfaceReadyForExit(true);
   }, [exiting]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointer = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (
-        newTabButtonRef.current?.contains(target) ||
-        newTabMenuRef.current?.contains(target)
-      ) {
-        return;
-      }
-      closeMenu();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeMenu(true);
-    };
-    const onViewportChange = () => updateMenuPosition();
-    const onRendererBlur = () => closeMenu();
-    window.addEventListener("pointerdown", onPointer);
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onViewportChange);
-    window.addEventListener("scroll", onViewportChange, true);
-    window.addEventListener("blur", onRendererBlur);
-    return () => {
-      window.removeEventListener("pointerdown", onPointer);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onViewportChange);
-      window.removeEventListener("scroll", onViewportChange, true);
-      window.removeEventListener("blur", onRendererBlur);
-    };
-  }, [closeMenu, menuOpen, updateMenuPosition]);
-
-  useEffect(() => {
-    if (!menuOpen) setMenuPosition(null);
-  }, [menuOpen]);
-
-  useLayoutEffect(() => {
-    if (!menuOpen) return;
-    const frame = window.requestAnimationFrame(updateMenuPosition);
-    return () => window.cancelAnimationFrame(frame);
-  }, [menuOpen, tabs.length, tools.length, updateMenuPosition]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const menu = newTabMenuRef.current;
-    const trigger = newTabButtonRef.current;
-    if (!menu || !trigger || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateMenuPosition);
-    observer.observe(menu);
-    observer.observe(trigger);
-    return () => observer.disconnect();
-  }, [menuOpen, updateMenuPosition]);
-
-  useEffect(() => {
-    if (!menuOpen || !menuPosition) return;
-    const target = menuOpenFocus.current;
-    menuOpenFocus.current = "active";
-    requestAnimationFrame(() => {
-      const items = menuItems();
-      if (!items.length) return;
-      if (target === "last") {
-        items[items.length - 1]?.focus();
-        return;
-      }
-      const selected = items.find(
-        (item) => item.getAttribute("aria-checked") === "true",
-      );
-      (selected ?? items[0])?.focus();
-    });
-  }, [menuItems, menuOpen, menuPosition]);
-
-  useEffect(() => {
-    closeMenu();
-  }, [activeSessionId, closeMenu]);
-
   useLayoutEffect(() => {
     if (!activeTabId) return;
     tabButtonRefs.current[activeTabId]?.scrollIntoView({
@@ -323,42 +196,17 @@ export function WorkPanel({
   }, [activeTabId, tabs.length]);
 
   const selectTool = useCallback(
-    (item: WorkPanelTool, restoreFocus = true) => {
+    (item: WorkPanelTool, sourceTabId?: string) => {
+      if (sourceTabId) {
+        replaceWorkPanelTab(sourceTabId, item.tab);
+        return;
+      }
       const existing = tabs.find((tab) => tab.id === item.tab.id);
       if (existing) activateTab(existing.id);
       else openWorkPanelTab(item.tab);
-      if (restoreFocus) closeMenu(true);
     },
-    [activateTab, closeMenu, openWorkPanelTab, tabs],
+    [activateTab, openWorkPanelTab, replaceWorkPanelTab, tabs],
   );
-
-  const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    event.preventDefault();
-    menuOpenFocus.current = event.key === "ArrowUp" ? "last" : "active";
-    setMenuOpen(true);
-  };
-
-  const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape" || event.key === "Tab") {
-      event.preventDefault();
-      closeMenu(true);
-      return;
-    }
-    const items = menuItems();
-    if (!items.length) return;
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    let next = current;
-    if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = items.length - 1;
-    else if (event.key === "ArrowDown") next = current < 0 ? 0 : (current + 1) % items.length;
-    else if (event.key === "ArrowUp") {
-      next = current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length;
-    }
-    items[next]?.focus();
-  };
 
   const closeTabAndFocus = useCallback(
     (tabId: string) => {
@@ -632,63 +480,13 @@ export function WorkPanel({
                 className="work-panel-new-tab"
                 tooltip={t("panel.new.open")}
                 ariaLabel={t("panel.new.open")}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                aria-controls="work-panel-new-menu"
-                onClick={() => setMenuOpen((open) => !open)}
-                onKeyDown={onTriggerKeyDown}
+                onClick={openNewWorkPanelTab}
               >
                 <IconPlus size={16} />
               </TooltipButton>
             )}
           </div>
         </header>
-        {!subagentPanel && menuOpen && typeof document !== "undefined"
-          ? createPortal(
-              <div
-                ref={newTabMenuRef}
-                id="work-panel-new-menu"
-                className={cx("work-panel-new-menu", menuPosition && "is-open")}
-                role="menu"
-                aria-label={t("panel.toolsAndPanels")}
-                onKeyDown={onMenuKeyDown}
-                style={
-                  menuPosition
-                    ? { top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }
-                    : undefined
-                }
-              >
-                <div className="work-panel-menu-group" role="group" aria-labelledby="work-panel-menu-tools">
-                  <div className="work-panel-menu-title" id="work-panel-menu-tools">
-                    {t("panel.toolsAndPanels")}
-                  </div>
-                  {tools.map((item) => {
-                    const open = tabs.some((tab) => tab.id === item.tab.id);
-                    const selected = activeTabId === item.tab.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={selected}
-                        tabIndex={-1}
-                        data-work-panel-menu-item=""
-                        className={cx("work-panel-menu-item", selected && "active")}
-                        title={item.description ? `${item.label} — ${item.description}` : item.label}
-                        onClick={() => selectTool(item)}
-                      >
-                        <ToolIcon item={item} />
-                        <span className="work-panel-menu-label">{item.label}</span>
-                        {item.shortcut ? <kbd className="work-panel-menu-shortcut">{item.shortcut}</kbd> : null}
-                        {open && !selected ? <span className="work-panel-open-dot" aria-hidden /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>,
-              document.body,
-            )
-          : null}
         <div className="work-panel-body">
           {subagentPanel ? <SubagentPanel selection={subagentPanel} /> : null}
           {!subagentPanel && activeTab?.kind === "review" && (
@@ -733,16 +531,21 @@ export function WorkPanel({
                     sessionId={activeSessionId ?? undefined}
                     location={activeTab.location}
                     // Native WebContentsViews composite above renderer content.
-                    // Temporarily detach the active plugin surface so the
-                    // portaled menu can stay inside the dock instead of being
-                    // pushed into the conversation column.
-                    blocked={exiting || panelBlocked || menuOpen}
+                    blocked={exiting || panelBlocked}
                   />
                 </div>
               );
             })()}
-          {!subagentPanel && !activeTab && (
-            <div className="work-panel-tabpane" data-testid="work-panel-empty">
+          {!subagentPanel && (!activeTab || activeTab.kind === "new") && (
+            <div
+              className="work-panel-tabpane"
+              data-testid="work-panel-empty"
+              id={activeTab ? `work-panel-surface-${activeTab.id}` : undefined}
+              role={activeTab ? "tabpanel" : undefined}
+              aria-labelledby={
+                activeTab ? `work-panel-tab-${activeTab.id}` : undefined
+              }
+            >
               <div className="work-panel-launcher">
                 <div className="work-panel-launcher-title">{t("panel.new.title")}</div>
                 <div
@@ -755,7 +558,13 @@ export function WorkPanel({
                       key={item.id}
                       type="button"
                       className="work-panel-launcher-row"
-                      onClick={() => selectTool(item, false)}
+                      data-work-panel-launcher-item={item.id}
+                      onClick={() =>
+                        selectTool(
+                          item,
+                          activeTab?.kind === "new" ? activeTab.id : undefined,
+                        )
+                      }
                     >
                       <span className="work-panel-launcher-icon" aria-hidden>
                         <ToolIcon item={item} />

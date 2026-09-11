@@ -3916,63 +3916,43 @@ async function createWindow() {
             await openPanelArtifact("browser");
             await new Promise((r) => setTimeout(r, 400));
             await shot("pi-panel-browser");
-            const probeWorkPanelMenu = async (scene: string) => {
+            const probeWorkPanelNewPage = async (scene: string) => {
               const probe = await mainWindow!.webContents.executeJavaScript(`(() => {
-                const rectFor = (selector) => {
-                  const element = document.querySelector(selector);
-                  if (!element) return null;
-                  const rect = element.getBoundingClientRect();
-                  return {
-                    left: Math.round(rect.left),
-                    top: Math.round(rect.top),
-                    right: Math.round(rect.right),
-                    bottom: Math.round(rect.bottom),
-                  };
-                };
-                const menu = rectFor('.work-panel-new-menu');
-                const panel = rectFor('.work-panel');
+                const blank = document.querySelector('[data-testid="work-panel-empty"]');
+                const add = document.querySelector('.work-panel-new-tab');
                 return {
                   scene: ${JSON.stringify(scene)},
                   viewport: { width: innerWidth, height: innerHeight },
-                  menu,
-                  panel,
-                  insidePanel: menu && panel
-                    ? menu.left >= panel.left && menu.right <= panel.right
-                    : false,
+                  blankPage: Boolean(blank),
+                  launcherRows: blank?.querySelectorAll('.work-panel-launcher-row').length ?? 0,
+                  popupCount: blank?.querySelectorAll('[role="menu"]').length ?? 0,
+                  addHasPopup: add?.hasAttribute('aria-haspopup') ?? false,
                 };
               })()`);
-              console.log("WORK_PANEL_MENU_PROBE", probe);
-              if (!probe?.menu || !probe.panel || !probe.insidePanel) {
-                throw new Error(`work-panel menu escaped its dock in ${scene}`);
+              console.log("WORK_PANEL_NEW_PAGE_PROBE", probe);
+              if (!probe?.blankPage || probe.launcherRows < 1 || probe.popupCount || probe.addHasPopup) {
+                throw new Error(`work-panel blank page contract failed in ${scene}`);
               }
             };
-            await mainWindow!.webContents.executeJavaScript(`
-              document.querySelector('.work-panel-new-tab')?.dispatchEvent(
-                new MouseEvent('click', { bubbles: true }),
-              )
-            `);
+            await mainWindow!.webContents.executeJavaScript(
+              `window.__PI_DESKTOP__?.openNewWorkPanelTab?.()`,
+            );
             await new Promise((r) => setTimeout(r, 350));
-            await shot("pi-panel-browser-menu");
-            await probeWorkPanelMenu("browser-menu");
-            await mainWindow!.webContents.executeJavaScript(`
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            `);
-            await new Promise((r) => setTimeout(r, 200));
+            await shot("pi-panel-new");
+            await probeWorkPanelNewPage("new-page");
             await setTheme("dark");
             await new Promise((r) => setTimeout(r, 300));
+            await shot("pi-panel-new-dark");
+            await probeWorkPanelNewPage("new-page-dark");
+            await setTheme("light");
+            await new Promise((r) => setTimeout(r, 250));
             await mainWindow!.webContents.executeJavaScript(`
-              document.querySelector('.work-panel-new-tab')?.dispatchEvent(
+              document.querySelector('[data-work-panel-launcher-item="pi.browser/browser"]')?.dispatchEvent(
                 new MouseEvent('click', { bubbles: true }),
               )
             `);
-            await new Promise((r) => setTimeout(r, 350));
-            await shot("pi-panel-browser-menu-dark");
-            await probeWorkPanelMenu("browser-menu-dark");
-            await mainWindow!.webContents.executeJavaScript(`
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            `);
-            await setTheme("light");
-            await new Promise((r) => setTimeout(r, 250));
+            await new Promise((r) => setTimeout(r, 500));
+            await shot("pi-panel-browser-from-new");
             await openPanelArtifact("file", "apps/desktop/src/App.tsx");
             await new Promise((r) => setTimeout(r, 500));
             await shot("pi-panel-files");
@@ -3981,16 +3961,6 @@ async function createWindow() {
             await shot("pi-panel-files-dark");
             await setTheme("light");
             await new Promise((r) => setTimeout(r, 250));
-            // The unified header menu (D173): tools first, then the file
-            // resource this run opened above.
-            await mainWindow!.webContents.executeJavaScript(`
-              (() => {
-                const btn = document.querySelector('.work-panel-new-tab');
-                if (btn) btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-              })()
-            `);
-            await new Promise((r) => setTimeout(r, 300));
-            await shot("pi-panel-menu");
             const probeWorkPanelHeader = async (scene: string) => {
               const probe = await mainWindow!.webContents.executeJavaScript(`(() => {
                 const rectFor = (selector) => {
@@ -4028,27 +3998,7 @@ async function createWindow() {
                 throw new Error(`work-panel header controls are too close in ${scene}`);
               }
             };
-            await probeWorkPanelHeader("desktop-menu");
-            await mainWindow!.webContents.executeJavaScript(`
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            `);
-            await new Promise((r) => setTimeout(r, 200));
-            await setTheme("dark");
-            await new Promise((r) => setTimeout(r, 300));
-            await mainWindow!.webContents.executeJavaScript(`
-              (() => {
-                const btn = document.querySelector('.work-panel-new-tab');
-                if (btn) btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-              })()
-            `);
-            await new Promise((r) => setTimeout(r, 300));
-            await shot("pi-panel-menu-dark");
-            await probeWorkPanelHeader("desktop-menu-dark");
-            await mainWindow!.webContents.executeJavaScript(`
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            `);
-            await setTheme("light");
-            await new Promise((r) => setTimeout(r, 250));
+            await probeWorkPanelHeader("browser-from-new");
             // Exercise the smallest supported shell with the smallest panel
             // width. The notification-only 420px scene below intentionally
             // tests a clipped surface, so it is not suitable for this header

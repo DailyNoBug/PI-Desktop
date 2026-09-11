@@ -8,12 +8,6 @@ import {
   WORK_PANEL_MAX_WIDTH,
   WORK_PANEL_MIN_WIDTH,
 } from "../src/lib/work-panel-resize.ts";
-import {
-  placeWorkPanelMenu,
-  WORK_PANEL_MENU_GAP,
-  WORK_PANEL_MENU_MARGIN,
-} from "../src/lib/work-panel-menu-position.ts";
-
 const appSource = await readFile(
   new URL("../src/App.tsx", import.meta.url),
   "utf8",
@@ -102,10 +96,11 @@ test("a viewport-fixed toggle is the sole pointer collapse control", () => {
   assert.match(mainSource, /querySelector\('\.work-panel-new-tab'\)/);
   assert.doesNotMatch(mainSource, /work-panel-switcher-trigger/);
   assert.match(mainSource, /probe\.gap < 24/);
-  assert.match(mainSource, /pi-panel-browser-menu/);
-  assert.match(mainSource, /pi-panel-browser-menu-dark/);
-  assert.match(mainSource, /WORK_PANEL_MENU_PROBE/);
-  assert.match(mainSource, /insidePanel/);
+  assert.match(mainSource, /pi-panel-new/);
+  assert.match(mainSource, /pi-panel-new-dark/);
+  assert.match(mainSource, /WORK_PANEL_NEW_PAGE_PROBE/);
+  assert.match(mainSource, /data-work-panel-launcher-item/);
+  assert.doesNotMatch(mainSource, /WORK_PANEL_MENU_PROBE|pi-panel-browser-menu|pi-panel-menu/);
   assert.match(
     globalStyles,
     /:root\[data-platform="win32"\] \.work-panel-header,[\s\S]*:root\[data-platform="linux"\] \.work-panel-header\s*\{[^}]*margin-right:\s*var\(--ds-window-controls-width\);/,
@@ -160,11 +155,9 @@ test("work panel uses the fixed-window internal dock", () => {
   assert.match(appSource, /finishWorkPanelExit\(workPanelExitGeneration\.current\)/);
   // Native surfaces hide via `blocked` before work-panel-out starts, so the
   // guest clamped to the plugin view is gone before the dock CSS animation.
-  // The add menu also blocks the active surface while open, keeping the menu
-  // inside the dock without exposing a second layout or moving the body.
   assert.match(
     panelSource,
-    /blocked=\{\s*exiting \|\| panelBlocked \|\| menuOpen\s*\}/,
+    /blocked=\{\s*exiting \|\| panelBlocked\s*\}/,
   );
   assert.match(panelSource, /nativeSurfaceReadyForExit/);
   assert.match(panelSource, /is-exit-pending/);
@@ -193,7 +186,7 @@ test("work panel uses the fixed-window internal dock", () => {
   );
 });
 
-test("work panel header exposes a scrollable tab strip and fixed add menu", () => {
+test("work panel header exposes a scrollable tab strip and direct new-page action", () => {
   const headerIndex = panelSource.indexOf('className="work-panel-header"');
   const stripIndex = panelSource.indexOf('className="work-panel-tab-strip"');
   const actionsIndex = panelSource.indexOf('className="work-panel-actions no-drag"');
@@ -214,11 +207,9 @@ test("work panel header exposes a scrollable tab strip and fixed add menu", () =
   // Launchable tools are plugin views (`pi.files`, `pi.browser`, …). The
   // `file` *kind* remains: a `file:<path>` tab is a transcript artifact.
   assert.doesNotMatch(panelSource, /\{ kind: "file", Icon/);
-  assert.match(panelSource, /aria-controls="work-panel-new-menu"/);
-  assert.match(panelSource, /className=\{cx\("work-panel-new-menu"/);
-  assert.match(panelSource, /role="menuitemradio"/);
-  assert.match(panelSource, /aria-checked=\{selected\}/);
-  assert.match(panelSource, /data-work-panel-menu-item/);
+  assert.match(panelSource, /onClick=\{openNewWorkPanelTab\}/);
+  assert.match(panelSource, /data-work-panel-launcher-item=\{item\.id\}/);
+  assert.doesNotMatch(panelSource, /aria-haspopup|work-panel-new-menu|role="menuitemradio"/);
   assert.match(panelSource, /role="tabpanel"/);
   assert.match(panelSource, /className="work-panel-subagent-back"/);
   assert.match(panelSource, /IconChevronLeft/);
@@ -236,30 +227,18 @@ test("work panel header exposes a scrollable tab strip and fixed add menu", () =
   assert.match(panelSource, /panel\.tabs\.file/);
   // Every native surface in the panel — the preview browser and each plugin
   // view — composites above the renderer. Exit and panel-wide overlays hide
-  // it; the floating add menu temporarily detaches the active surface so the
-  // menu can remain inside the dock without shifting the plugin body.
+  // it; the launcher is rendered in the panel body and needs no floating layer.
   const pluginSurfaceStart = panelSource.indexOf("<PluginViewTab");
   const pluginSurfaceEnd = panelSource.indexOf("/>", pluginSurfaceStart);
   const pluginSurface = panelSource.slice(pluginSurfaceStart, pluginSurfaceEnd);
   assert.match(
     pluginSurface,
-    /blocked=\{\s*exiting \|\| panelBlocked \|\| menuOpen\s*\}/s,
+    /blocked=\{\s*exiting \|\| panelBlocked\s*\}/s,
   );
   assert.doesNotMatch(pluginSurface, /isResizing/);
-  assert.match(panelSource, /import \{ createPortal \} from "react-dom"/);
-  assert.match(panelSource, /ref=\{newTabMenuRef\}/);
-  assert.match(panelSource, /createPortal\([\s\S]*document\.body/);
+  assert.doesNotMatch(panelSource, /createPortal|newTabMenuRef|menuOpen/);
   assert.doesNotMatch(panelSource, /onContextMenu|work-panel-context-menu/);
-  assert.match(panelSource, /boundary: panelRect/);
-  assert.match(
-    globalStyles,
-    /\.work-panel-new-menu \{[^}]*position:\s*fixed;[^}]*z-index:\s*60;[^}]*min-width:/s,
-  );
-  assert.match(
-    globalStyles,
-    /\.work-panel-new-menu \{[^}]*position:\s*fixed;[^}]*max-height:/s,
-  );
-  assert.match(globalStyles, /\.work-panel-new-menu\.is-open \{[^}]*visibility:\s*visible;/s);
+  assert.doesNotMatch(globalStyles, /work-panel-new-menu|work-panel-menu-item|work-panel-open-dot/);
   assert.match(globalStyles, /\.work-panel-tab-strip \{[^}]*overflow-x:\s*auto;/s);
   assert.match(globalStyles, /\.work-panel-tab-strip \{[^}]*gap:\s*6px;/s);
   assert.match(
@@ -273,61 +252,14 @@ test("work panel header exposes a scrollable tab strip and fixed add menu", () =
   );
 });
 
-test("work panel add menu keeps focus and motion stable while it is open", () => {
-  assert.match(panelSource, /"\[data-work-panel-menu-item\]"/);
-  assert.match(panelSource, /const menuOpenFocus = useRef<"active" \| "last">/);
-  assert.match(panelSource, /event\.key === "ArrowUp" \? "last" : "active"/);
-  assert.match(panelSource, /window\.addEventListener\("blur", onRendererBlur\)/);
-  assert.match(
-    panelSource,
-    /item\.getAttribute\("aria-checked"\) === "true"/,
-  );
-  assert.match(panelSource, /\(selected \?\? items\[0\]\)\?\.focus\(\)/);
-  assert.match(panelSource, /closeMenu\(true\)/);
-  assert.match(panelSource, /newTabButtonRef\.current\?\.focus\(\)/);
-  assert.match(globalStyles, /\.work-panel-menu-item:focus-visible \{[^}]*outline:/s);
-  // Only the label absorbs slack; an element selector here stretched the open
-  // dot into a bar, so the label must be targeted by class.
-  assert.match(panelSource, /className="work-panel-menu-label"/);
-  assert.match(globalStyles, /\.work-panel-menu-label \{[^}]*flex:\s*1 1 auto;/s);
-  assert.doesNotMatch(globalStyles, /\.work-panel-menu-item span\s*\{/);
-  assert.match(globalStyles, /\.work-panel-open-dot \{[^}]*width:\s*4px;[^}]*flex:\s*0 0 auto;/s);
-  assert.match(globalStyles, /@keyframes work-panel-menu-in/);
-  assert.match(
-    globalStyles,
-    /@media \(prefers-reduced-motion: reduce\) \{\s*\.work-panel-new-menu\.is-open \{\s*animation:\s*none;/,
-  );
-});
-
-test("work panel add menu placement stays within the dock and viewport", () => {
-  assert.equal(WORK_PANEL_MENU_MARGIN, 8);
-  assert.equal(WORK_PANEL_MENU_GAP, 4);
-
-  assert.deepEqual(
-    placeWorkPanelMenu({
-      trigger: { left: 800, top: 8, bottom: 40 },
-      menu: { width: 220, height: 240 },
-      viewport: { width: 1200, height: 800 },
-    }),
-    { left: 800, top: 44 },
-  );
-  assert.deepEqual(
-    placeWorkPanelMenu({
-      trigger: { left: 1100, top: 540, bottom: 572 },
-      menu: { width: 220, height: 240 },
-      viewport: { width: 1200, height: 800 },
-    }),
-    { left: 972, top: 296 },
-  );
-  assert.deepEqual(
-    placeWorkPanelMenu({
-      trigger: { left: 1100, top: 8, bottom: 40 },
-      menu: { width: 220, height: 240 },
-      viewport: { width: 1200, height: 800 },
-      boundary: { left: 840, right: 1080 },
-    }),
-    { left: 852, top: 44 },
-  );
+test("plus creates a blank page and launcher rows open tools in that page", () => {
+  assert.match(panelSource, /openNewWorkPanelTab/);
+  assert.match(panelSource, /activeTab\?\.kind === "new"/);
+  assert.match(panelSource, /replaceWorkPanelTab/);
+  assert.match(storeSource, /openNewWorkPanelTab: \(\) =>/);
+  assert.match(storeSource, /replaceWorkPanelTab: \(sourceTabId, tab\) =>/);
+  assert.match(storeSource, /replaceWorkPanelTabState/);
+  assert.doesNotMatch(panelSource, /setMenuOpen|menuOpen|newTabMenuRef|createPortal/);
 });
 
 test("work panel starts closed with no tabs and persists width only", () => {
@@ -547,14 +479,14 @@ test("deleting a session also removes its retained work panel context", () => {
   );
 });
 
-test("revealing the panel with no tab shows the New launcher and tool list", async () => {
+test("the panel and a new tab share the same launcher rows", async () => {
   const emptySource = await readFile(
     new URL("../src/components/workpanel/WorkTabEmpty.tsx", import.meta.url),
     "utf8",
   );
-  // `Cmd/Ctrl+J` reveals the panel without creating a tab, so the body offers
-  // the same tools as the add menu.
-  assert.match(panelSource, /\{!subagentPanel && !activeTab && \(/);
+  // `Cmd/Ctrl+J` reveals the panel without creating a tab, while `+` creates
+  // an explicit launcher tab. Both states offer the same tool rows.
+  assert.match(panelSource, /!subagentPanel && \(!activeTab \|\| activeTab\.kind === "new"\)/);
   assert.match(panelSource, /data-testid="work-panel-empty"/);
   assert.match(panelSource, /panel\.new\.title/);
   assert.match(panelSource, /panel\.toolsAndPanels/);
@@ -563,11 +495,10 @@ test("revealing the panel with no tab shows the New launcher and tool list", asy
   assert.match(panelSource, /tools\.map\(\(item\) =>/);
   assert.doesNotMatch(panelSource, /panel\.empty\.title|panel\.empty\.body/);
   assert.doesNotMatch(panelSource, /work-panel-empty-tools|openPluginView\(view\)/);
-  // No tab exists to label a tabpanel, so the empty body is a plain group.
-  const emptyBlock = panelSource.match(/\{!subagentPanel && !activeTab && \([\s\S]*?\n {10}\)\}/)?.[0] ?? "";
-  assert.ok(emptyBlock, "the empty body branch is a single JSX block");
-  assert.doesNotMatch(emptyBlock, /role="tabpanel"/);
-  assert.match(emptyBlock, /role="group"/);
+  // The explicit New tab gets a labelled tabpanel; the legacy no-tab reveal
+  // remains a plain body with a labelled launcher group.
+  assert.match(panelSource, /role=\{activeTab \? "tabpanel" : undefined\}/);
+  assert.match(panelSource, /role="group"/);
   // Tab empty states share one component so they keep one visual treatment.
   assert.match(emptySource, /work-tab-empty-icon/);
   assert.match(emptySource, /work-tab-empty-title/);

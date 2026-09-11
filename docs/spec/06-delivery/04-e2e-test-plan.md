@@ -2644,19 +2644,19 @@ Each scenario is documented in this format:
 - **Steps**: 1) Relaunch and inspect the titlebar and application menu; confirm
   the panel starts closed and a viewport-fixed work-panel toggle is present
   (disabled with no session). Press Cmd/Ctrl+J or click the toggle and inspect
-  the New launcher, then press/click again to confirm it
+  the no-resource New launcher, then press/click again to confirm it
   collapses the
   panel and no tab is created or deleted; a third press must restore the same
   context. 2) Open two distinct file artifacts, the same first file again,
   a URL preview, and a completed Bash row. 3) Verify the header is a tablist:
   open enough tabs to overflow it, confirm only the strip scrolls and the `+`
   trigger stays visible, activate the scrolled-away tab, and close tabs with
-  hover/focus `×` and middle-click. 4) Open the `+` menu and verify its single
-  Tools & panels group contains Review plus each in-scope plugin view exactly
-  once. Use Arrow/Home/End, Escape, and Tab; confirm shortcut labels appear
-  only for real bindings. Confirm the menu stays anchored during resize/scroll;
-  with a native plugin view active it opens beside the view while the plugin
-  surface keeps its full measured bounds. 5) Close
+  hover/focus `×` and middle-click. 4) Click `+` twice and verify each click
+  creates and activates a separate New launcher tab. Confirm the launcher body
+  contains Review plus each in-scope plugin view exactly once as clickable rows;
+  there is no work-panel dropdown or popup. Click Browser from one New tab and
+  confirm that tab opens the native plugin surface without changing its bounds.
+  5) Close
   active middle and edge tabs and verify neighbor selection. Close the final
   tab and confirm the panel remains open on the New launcher. 6) Use the
   viewport-fixed work-panel toggle and trigger another artifact. 7) In session A,
@@ -2696,12 +2696,10 @@ Each scenario is documented in this format:
   scrollable tablist with stable `92px–180px` tabs, visible spacing, and a
   fixed `+`; labels stay readable instead of shrinking into one cluster, the
   strip alone scrolls, active tabs scroll into view, and close selects the
-  right neighbor then left. The add menu has one Tools & panels group with
-  Review and in-scope plugin views,
-  fades in over ≤4px, and is static under reduced motion. Its keyboard focus
-  and dismissal return to `+`; opening it moves the menu beside a native
-  plugin surface so the surface keeps its full bounds and the plugin body does
-  not shift down. Closing the last tab leaves the panel open on New. Collapse
+  right neighbor then left. New launcher tabs expose Review and in-scope plugin
+  views as body buttons, with no popup to overlap or shift the panel. Clicking a
+  launcher row replaces that New tab with the destination or activates its
+  existing singleton. Closing the last tab leaves the panel open on New. Collapse
   retains runtime tabs but hides the panel until another artifact reopens it.
   Width clamps to the fixed `244px–720px` range and
   previews its current/minimum/maximum values through the panel separator. The
@@ -3270,7 +3268,7 @@ Each scenario is documented in this format:
   remain operational, and a viewport-fixed work-panel toggle is present on
   non-Settings routes (not an application-menu command). While the panel is
   open the native control band and that toggle overlay the panel header; the
-  header ends its box before the band, so the resource menu stays clear of the
+  header ends its box before the band, so the resource tabs and close controls stay clear of the
   toggle and neither the window controls nor resource close sit under a drag
   rectangle. Check for Updates
   invokes the allowlisted update command from the macOS system menu and the
@@ -6145,15 +6143,13 @@ Each scenario is documented in this format:
 - **Steps**:
   1. Load the plugin as a development plugin. Confirm the Plugins page shows a
      work-panel-views capability badge.
-  2. Press `Cmd/Ctrl + J` to reveal the work panel, activate Browser, and open
-     the header menu. Confirm the menu stays inside the work-panel bounds while
-     Browser's native surface is temporarily detached, without changing the
-     panel body layout. Confirm the fixed `+` trigger and the viewport-fixed
+  2. Press `Cmd/Ctrl + J` to reveal the work panel, then click `+` to create a
+     New launcher tab. Confirm the fixed `+` trigger and the viewport-fixed
      work-panel toggle have separate, non-overlapping hit regions with at least
-     24px of visual gap. Confirm a "Plugin views" group appears between the built-in tools and the
-     open-resources group, with the view's localized title and its icon (or a
-     lettered tile if the manifest names an unknown token).
-  3. Activate the row. Confirm the plugin's page renders inside the panel body
+     24px of visual gap. Confirm the launcher lists the built-in Review row and
+     the plugin view's localized title and icon (or a lettered tile if the
+     manifest names an unknown token).
+  3. Activate the plugin row. Confirm the plugin's page renders inside the panel body
      with no window-control capsule and no reserved 46px band, and that its
      button reaches the host toast.
   4. Drag the inner panel divider and resize the conversation area. Confirm
@@ -6162,10 +6158,11 @@ Each scenario is documented in this format:
      width stays fixed.
   5. Open global search, then Settings. Confirm the page is hidden while each
      overlay is up and returns when it closes.
-  6. Re-pick the same view from the menu. Confirm it returns to the live page —
-     same scroll position, no reload — rather than stacking a second tab.
-  7. Switch to the second project. Confirm the view disappears from the menu and
-     from the empty-panel entry list.
+  6. Click `+` again, then choose the same view from the new launcher. Confirm
+     it returns to the live page — same scroll position, no reload — rather than
+     stacking a second tab.
+  7. Switch to the second project. Confirm the view disappears from the New
+     launcher and from the no-tab entry list.
   8. Switch back, reopen the view, then disable the plugin. Confirm the tab
      closes and the view's renderer process exits (Activity Monitor / Task
      Manager).
@@ -6182,7 +6179,7 @@ Each scenario is documented in this format:
 - **Acceptance**: G (plugins), Security, Quality
 - **Milestone**: M6+
 - **Status**: Unit coverage in
-  `apps/desktop/test/plugin-work-panel-views.test.mjs` (addressing, menu
+  `apps/desktop/test/plugin-work-panel-views.test.mjs` (addressing, launcher
   grouping, isolation parity, scope filtering, lifecycle teardown),
   `packages/plugin-sdk` and host-core manifest validation; the desktop journey
   is Draft (do not run E2E locally unless explicitly requested)
@@ -6196,10 +6193,10 @@ Each scenario is documented in this format:
   1. Open the Plugins page. Confirm **Files** is listed with source "builtin",
      enabled, showing a work-panel-views capability, and that it offers no
      Uninstall action.
-  2. Reveal the work panel and open the header menu. Confirm the Tools group
-     lists only Terminal and Browser, and that Files appears under
-     Plugin views. Trigger an agent edit and confirm Review opens itself under
-     Open resources — it is an artifact surface, not a launcher entry.
+  2. Reveal the work panel and click `+` to create a New launcher tab. Confirm
+     its rows include Review and the plugin-contributed Files and Browser views.
+     Trigger an agent edit and confirm Review opens itself under Open resources
+     — it is an artifact surface, not a launcher entry.
   3. Open the Files view. Confirm the tree lists the project, expands
      directories lazily, and omits `node_modules`, `.git`, and `.env`.
   4. Confirm the toolbar shows the project name, a search field, and Refresh.
@@ -7355,18 +7352,20 @@ This test plan spec is accepted when:
      and that hovering a row shows only a background fill.
   3) Activate Browser or a plugin view and confirm its singleton tab is created
      and selected; the empty body and its view list disappear.
-  4) Open the `+` Tools & panels menu, activate the same view again, and confirm it
-     selects the existing tab rather than creating a second one.
+  4) Click `+` to create a New launcher tab, activate the same view from its
+     body, and confirm it selects the existing tab rather than creating a
+     second one.
   5) Close the view tab and confirm the panel remains open on the New launcher
      when it was the last tab; press `Cmd/Ctrl + J` again and confirm it hides.
   6) Repeat step 1 in Chinese and in both light and dark themes, and at the
      244px panel minimum, confirming the copy wraps rather than clipping.
 - **Expected**: `Cmd/Ctrl + J` reveals the panel without creating a tab, and the
-  New launcher lists the same Review/plugin-view entries as the `+` menu; a row
-  creates or selects that singleton view exactly as the menu does. Closing the
-  final tab leaves the panel open on New.
-  The empty body is not exposed as a `tabpanel`; its rows are buttons in a
-  `role="group"` labelled Tools. Panel empty states share the app's empty-state
+  New launcher lists the same Review/plugin-view entries as its `+`-created
+  page; a row creates or selects that singleton view. Each `+` click creates a
+  separate closable New tab. Closing the final tab leaves the panel open on New.
+  The no-tab empty body is not exposed as a `tabpanel`; explicit New tabs are
+  labelled tabpanels. Their rows are buttons in a `role="group"` labelled
+  Tools. Panel empty states share the app's empty-state
   proportions with no action button in the "open a project" states.
 - **Specs linked**: `04-ux/08-component-spec.md` §5.2, §5.2.1, §5.3, §5.4, §5.5,
   `04-ux/07-ui-design-system.md`, ADR 0108
@@ -10038,8 +10037,8 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   project/session, and the default dark theme. The Settings, Plugins, Projects,
   chat composer, work panel, and sidebar surfaces are reachable.
 - **Steps**: 1) Open each available custom dropdown/menu from Settings,
-  Projects, Plugins, the sidebar, the composer, Plan approval, Scope, and the
-  work-panel `+` control. 2) Repeat with the trigger near the bottom and right
+  Projects, Plugins, the sidebar, the composer, Plan approval, and Scope. 2) Repeat
+  with the trigger near the bottom and right
   edges of the window, and while the surrounding page/card has scrollable
   content. 3) Scroll the owning pane and resize the window while a menu remains
   open. 4) Close each menu with Escape and by pressing outside it.

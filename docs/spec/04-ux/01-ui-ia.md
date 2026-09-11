@@ -78,18 +78,17 @@ destination, chat as the home surface, tools and permissions inline.
   notification action; the durable local inbox opens from the sidebar footer
   bell instead (D130/D117).
 - **Work panel**: docked right column (not an overlay) opened by an artifact,
-  the viewport-fixed toggle, or `Cmd/Ctrl + J`. File, URL, browser-preview, and successful workspace-edit
-  artifacts create their resources atomically. The 46px content header exposes
-  a tablist and a fixed `+` trigger. Its tokenized 60px right-side safe lane
-  plus separated action rail keep the trigger distinct from the viewport-fixed
-  work-panel toggle. Its single Tools & panels menu contains
-  host-owned Review followed by every in-scope plugin view, without hardcoding
-  or duplicating plugin tabs. File paths stay distinct while plugin views
-  deduplicate by view reference. The menu stays inside the work-panel bounds;
-  when Browser is active, its native surface is temporarily detached for the
-  menu lifetime so the menu never leaks into the conversation column. The
-  viewport-fixed toggle and
-  `Cmd/Ctrl + J` both toggle the active session's retained panel context —
+  the viewport-fixed toggle, or `Cmd/Ctrl + J`. File, URL, browser-preview, and
+  successful workspace-edit artifacts create their resources atomically. The
+  46px content header exposes a tablist and a fixed `+` trigger. Its tokenized
+  60px right-side safe lane plus separated action rail keep the trigger distinct
+  from the viewport-fixed work-panel toggle. Clicking `+` creates and activates
+  a unique New launcher tab; its body presents the same data-driven Review and
+  plugin-view rows as buttons, so the user chooses a destination in the page
+  instead of opening a dropdown. Selecting a row replaces that launcher tab with
+  the destination or activates an existing singleton. File paths stay distinct
+  while plugin views deduplicate by view reference. The viewport-fixed toggle
+  and `Cmd/Ctrl + J` both toggle the active session's retained panel context —
   revealing it without creating a resource tab and collapsing it without
   discarding one; the create trigger remains unavailable while the panel is
   closed. Closing the final tab keeps the panel open and shows the New launcher.

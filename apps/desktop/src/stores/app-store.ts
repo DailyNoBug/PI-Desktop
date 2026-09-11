@@ -108,6 +108,8 @@ import {
   emptyWorkPanelContext,
   fileWorkPanelTab,
   openWorkPanelTabState,
+  newWorkPanelTab,
+  replaceWorkPanelTabState,
   sanitizeWorkPanelTabsState,
   shouldOpenReviewArtifact,
   switchWorkPanelContextState,
@@ -1032,6 +1034,10 @@ export type AppState = {
   /** Flip the work panel between revealed and collapsed for the active session. */
   toggleWorkPanel: () => void;
   openWorkPanelTab: (tab: WorkPanelTab) => void;
+  /** Create and activate a new blank tool launcher page. */
+  openNewWorkPanelTab: () => void;
+  /** Open a tool from a blank launcher page, reusing an existing tool tab. */
+  replaceWorkPanelTab: (sourceTabId: string, tab: WorkPanelTab) => void;
   openWorkPanelTabForSession: (sessionId: string, tab: WorkPanelTab) => void;
   activateWorkPanelTab: (tabId: string) => void;
   closeWorkPanelTab: (tabId: string) => void;
@@ -4382,6 +4388,50 @@ export const useAppStore = create<AppState>((set, get) => ({
     const sessionId = get().activeSessionId;
     if (!sessionId) return;
     get().openWorkPanelTabForSession(sessionId, tab);
+  },
+  openNewWorkPanelTab: () => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    get().openWorkPanelTabForSession(sessionId, newWorkPanelTab());
+  },
+  replaceWorkPanelTab: (sourceTabId, tab) => {
+    set((state) => {
+      const sessionId = state.activeSessionId;
+      if (!sessionId) return {};
+      const next = replaceWorkPanelTabState(
+        {
+          tabs: state.workPanelTabs,
+          activeTabId: state.activeWorkPanelTabId,
+        },
+        sourceTabId,
+        tab,
+      );
+      const activeTab = next.tabs.find((item) => item.id === next.activeTabId);
+      const fileRequest =
+        activeTab?.kind === "file" && activeTab.resource
+          ? {
+              path: activeTab.resource,
+              seq: ++workPanelFileRequestSeq,
+              ...(activeTab.mimeType ? { mimeType: activeTab.mimeType } : {}),
+            }
+          : state.workPanelFileRequest;
+      const nextContext: WorkPanelContext = {
+        open: true,
+        tabs: next.tabs,
+        activeTabId: next.activeTabId,
+        fileRequest,
+      };
+      return {
+        workPanelOpen: true,
+        workPanelTabs: next.tabs,
+        activeWorkPanelTabId: next.activeTabId,
+        workPanelFileRequest: fileRequest,
+        workPanelContexts: {
+          ...state.workPanelContexts,
+          [sessionId]: nextContext,
+        },
+      };
+    });
   },
   activateWorkPanelTab: (tabId) => {
     set((state) => {
