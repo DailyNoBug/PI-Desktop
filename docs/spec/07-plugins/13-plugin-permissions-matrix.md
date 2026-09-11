@@ -31,6 +31,8 @@ Provide a permission–capability–risk–default-policy reference table for re
 | `bus.publish` | medium | `bus.publish` to declared topics | Confirm at install | Other plugins can act on the message |
 | `bus.subscribe` | medium | `bus.subscribe` to declared patterns | Confirm at install | Can observe another plugin's messages |
 | `browser.cdp` | high | `pi.browser.*` against the host work-panel guest | Confirm at install | Guest bounds are clamped to the calling plugin view; CDP is allowlisted |
+| `git.read` | medium | `pi.git.status`, `pi.git.branches`, `pi.git.diff` | Granted at install | Current workspace only through fixed host-owned Git argv; bounded status, branch, and diff output |
+| `git.write` | high | `pi.git.stage`, `pi.git.unstage`, `pi.git.discard`, `pi.git.createBranch`, `pi.git.switchBranch`, `pi.git.commit`, `pi.git.push`, `pi.git.pull` | Confirm at install | Current workspace only; fixed operations, validated paths, bounded output, per-workspace serialization. Discard and branch switching need native consent |
 | `desktop.control` | high | `pi.desktop.listOperations`, `pi.desktop.invoke` | Confirm at install | Shared with the local MCP control plane's reviewed operation catalog; a `dangerous` operation needs `confirm: true` from the plugin **and** the user's answer to a host-owned native dialog that names the catalog operation; the MCP bearer token and Electron channel names are never exposed |
 | `ui.microphone` | medium | `navigator.mediaDevices.getUserMedia({ audio: true })` inside the plugin's isolated panel | Confirm at install | Audio only; camera and every other device permission stay denied; no native handle or host secret reaches the plugin |
 | `models.list` | medium | `pi.models.list` | Confirm at install | Ready provider/model rows only; no secrets |
@@ -129,6 +131,8 @@ so "Modify the files it lists" is followed by the list.
 | `bus.publish` | Send messages to other plugins | 向其他插件发送消息 |
 | `bus.subscribe` | Receive messages from other plugins | 接收其他插件的消息 |
 | `browser.cdp` | Control the work-panel browser | 控制工作面板浏览器 |
+| `git.read` | Read Git status and diffs | 读取 Git 状态和 diff |
+| `git.write` | Change repository state | 变更仓库状态 |
 | `models.list` | List authenticated models | 列出已登录的模型 |
 | `session.read` | Read the current conversation sent to the model | 读取当前发给模型的对话 |
 | `session.import` | Import bounded session history into your declared sources | 导入受限的会话历史到已声明的数据源 |

@@ -34,6 +34,8 @@
 | `bus.publish` | 中等 | `bus.publish` 声明的主题 | 安装时确认 | 其他插件可以对消息进行操作 |
 | `bus.subscribe` | 中等 | `bus.subscribe` 到声明的模式 | 安装时确认 | 可以观察另一个插件的消息 |
 | `browser.cdp` | 高 | 对宿主工作面板访客页调用 `pi.browser.*` | 安装时确认 | 访客页边界夹紧到调用插件视图；CDP 走白名单 |
+| `git.read` | 中等 | `pi.git.status`、`pi.git.branches`、`pi.git.diff` | 安装时授予 | 仅通过宿主拥有的固定 Git argv 访问当前工作区；状态、分支和 diff 输出有界 |
+| `git.write` | 高 | `pi.git.stage`、`pi.git.unstage`、`pi.git.discard`、`pi.git.createBranch`、`pi.git.switchBranch`、`pi.git.commit`、`pi.git.push`、`pi.git.pull` | 安装时确认 | 仅当前工作区；固定操作、校验路径、有界输出并按工作区串行。Discard 与分支切换需要原生确认 |
 | `desktop.control` | 高 | `pi.desktop.listOperations`、`pi.desktop.invoke` | 安装时确认 | 与本地 MCP 控制平面共用同一份已审查的操作目录；`dangerous` 操作需要插件传 `confirm: true` **并且**用户在宿主拥有的原生对话框中作答，对话框点名目录中的操作；MCP bearer token 和 Electron 通道名永不暴露 |
 | `ui.microphone` | 中等 | 在插件的隔离面板内调用 `navigator.mediaDevices.getUserMedia({ audio: true })` | 安装时确认 | 仅音频；摄像头和其他所有设备权限仍被拒绝；插件拿不到原生句柄或宿主密钥 |
 | `models.list` | 中等 | `pi.models.list` | 安装时确认 | 仅已就绪的 provider/model 行；不含密钥 |
@@ -127,6 +129,8 @@ Agent，在 Plan 中不可见。主机返回 `PLUGIN_DISABLED_IN_PLAN`
 | `bus.publish` | 向其他插件发送消息 | 向其他插件发送消息 |
 | `bus.subscribe` | 接收来自其他插件的消息 | 接收其他插件的消息 |
 | `browser.cdp` | Control the work-panel browser | 控制工作面板浏览器 |
+| `git.read` | Read Git status and diffs | 读取 Git 状态和 diff |
+| `git.write` | Change repository state | 变更仓库状态 |
 | `models.list` | List authenticated models | 列出已登录的模型 |
 | `session.read` | Read the current conversation sent to the model | 读取当前发给模型的对话 |
 | `session.import` | Import bounded session history into your declared sources | 导入受限的会话历史到已声明的数据源 |

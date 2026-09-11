@@ -6179,6 +6179,7 @@ Each scenario is documented in this format:
 | Post-baseline local automation | E2E-220 |
 | Post-MVP remote control | E2E-221, E2E-222, E2E-223, E2E-224, E2E-225, E2E-226, E2E-227, E2E-228, E2E-229, E2E-230, E2E-231, E2E-232 |
 | Trusted extensions (R7 v1) | E2E-241, E2E-242, E2E-243, E2E-244, E2E-245 |
+| Git work panel (M6+) | E2E-246 |
 
 The `US-UI-*` visual scenarios (§UI shell visual scenarios) trace to the
 Codex parity decisions in [decisions-log §D](../08-meta/decisions-log.md)
@@ -9793,6 +9794,52 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Milestone**: Post-MVP (R7 v1, delivered first as the bundling spike)
 - **Status**: Unit-covered by `packages/agent-runtime/src/extensions/bundle.test.ts`
   (esbuild bundle run from a temp directory); packaged-app journey Draft
+
+#### E2E-246: The bundled Git work panel manages the current repository
+
+- **Preconditions**: A local bare `origin` with a main branch; clone A and
+  clone B configured to use it without terminal prompts. Clone A contains one
+  staged file, one modified file, one renamed file, one untracked file, and one
+  binary or oversized file, and is ahead of `origin/main`. Clone B has a
+  different commit that makes the repositories diverge. A hook-failure fixture
+  can reject one commit, a non-Git project directory is available, and the app
+  language can be switched between English and Simplified Chinese.
+- **Steps**: 1) Open clone A and the work-panel Git view. 2) Inspect branch,
+  upstream, ahead/behind, all change sections, counts, status letters, and
+  five-second visible-only refresh behavior. 3) Open the modified and untracked
+  files, switch side-by-side/unified modes, navigate changes, switch files, and
+  refresh after an external edit. 4) Stage and unstage files, including a file
+  that appears in both sections. 5) Cancel then accept tracked discard; repeat
+  discard for an untracked file. 6) Commit an empty message, an empty changeset,
+  a hook-failing commit, then a valid staged commit. 7) Publish the current
+  branch, pull in clone B, make a further commit and push, then pull in clone A.
+  8) Create a branch without switching, switch to it, switch back, and verify
+  retained status. 9) Open clone B after forcing divergence and pull. 10) Open
+  the non-Git project. 11) Disable `pi.git`, reopen the work panel, and verify
+  the view is absent until re-enabled.
+- **Expected**: The Git view uses the `branch` icon and current locale. It
+  reports repository, branch, upstream, ahead/behind, staged, unstaged,
+  untracked, conflicts, and truncation state without exposing diff output in
+  logs. The review overlay stays inside Git, supports all scopes and navigation,
+  and never creates or activates message-owned Review or rollback. Stage and
+  unstage update the correct sections; discard and branch switching require the
+  host-owned native confirmation, with tracked restore from `HEAD` and untracked
+  removal to the OS trash. Empty-message, empty-commit, hook, authorization, and
+  remote failures show bounded localized errors. Publish pushes only to
+  `origin/<current-branch>`; push and pull are current-branch only, and pull is
+  fast-forward only. Divergence reports the Git error without a merge commit.
+  A non-Git workspace shows its non-repository state. Disabling the ordinary
+  bundled plugin removes its view without uninstalling it, and its permission
+  and audit gates remain enforced when re-enabled.
+- **Specs linked**: `07-plugins/03-plugin-api.md` (Git API),
+  `07-plugins/13-plugin-permissions-matrix.md`,
+  `04-ux/08-component-spec.md` §5.2.3, `04-ux/09-interaction-patterns.md` §1.8;
+  ADR 0217, D391
+- **Acceptance**: D (plugins), Security, Quality
+- **Milestone**: M6+
+- **Status**: Draft; service, runtime, and source-contract tests cover the
+  structured Git operations, permission/consent gates, and bundled-plugin
+  contract; browser E2E not run
 ---
 
 #### E2E-233: Icon-only actions explain their purpose in the active language

@@ -186,6 +186,8 @@ type PluginPermission =
  | "bus.publish"
  | "bus.subscribe"
  | "browser.cdp"
+ | "git.read"
+ | "git.write"
  | "desktop.control"
  | "ui.microphone"
  | "project.create"

@@ -194,6 +194,57 @@ directories (`node_modules` and friends) are skipped. Directories are always
 returned so a narrow scope still yields a navigable tree, and at most 1000
 entries come back per call.
 
+### git (requires `git.read` / `git.write`)
+
+```ts
+pi.git.status(): Promise<PluginGitStatus>
+pi.git.branches(): Promise<PluginGitBranches>
+pi.git.diff(input: {
+  path: string
+  scope: "staged" | "unstaged" | "untracked"
+}): Promise<PluginGitDiff>
+
+pi.git.stage(input: { paths?: string[]; all?: boolean }): Promise<PluginGitOperation>
+pi.git.unstage(input: { paths?: string[]; all?: boolean }): Promise<PluginGitOperation>
+pi.git.discard(input: { paths: string[] }): Promise<PluginGitOperation>
+pi.git.createBranch(input: {
+  name: string
+  checkout?: boolean
+}): Promise<PluginGitOperation>
+pi.git.switchBranch(input: { branch: string }): Promise<PluginGitOperation>
+pi.git.commit(input: {
+  message: string
+  stageAll?: boolean
+}): Promise<PluginGitOperation>
+pi.git.push(input?: { publish?: boolean }): Promise<PluginGitOperation>
+pi.git.pull(): Promise<PluginGitOperation>
+```
+
+Git execution is host-owned and allowlisted: every public method maps to fixed
+Git argv in the active workspace, never to a plugin-supplied shell command.
+`git.read` covers status, branch, and diff calls; every mutation requires
+`git.write`. Paths are root-relative and validated, output and result counts are
+bounded, operations use timeouts, and mutations for one workspace serialize.
+Stage and unstage require either a bounded nonempty path list or an explicit
+`all: true`; discard always requires explicit paths.
+
+`status` reports repository availability, the current branch and upstream,
+ahead/behind counts, staged changes, unstaged changes, untracked files,
+conflicts, and whether the file list was truncated. A path can appear in both
+staged and unstaged sections. `diff` returns bounded hunks for one selected
+scope, with binary and oversized-file states. Commit uses the staged index by
+default; `stageAll` is the explicit "stage all and commit" action. Empty
+messages and empty commits are rejected, while repository hooks run normally.
+
+Push uses the configured current-branch upstream; `publish: true` explicitly
+publishes to `origin/<current-branch>`. Pull is always fast-forward only.
+Discard, branch switch, and create-and-switch require a host-owned native
+confirmation. Tracked discard restores from `HEAD`; untracked discard moves to
+the OS trash. Credentials remain with the user's Git credential helper, terminal
+prompts are disabled, and PI-Desktop stores no Git credentials. Force push,
+arbitrary remotes, stash, merge resolution, tags, and history browsing are not
+part of this API.
+
 ### agent
 ```ts
 pi.agent.registerTool(tool: {
@@ -624,6 +675,8 @@ The host-owned preload forwards only fixed channels to the plugin runtime:
 | `clipboard.writeText` | `clipboard.write` |
 | `shell.openExternal` | `shell.openExternal` |
 | `net.fetch` | `net.fetch` |
+| `git.status`, `git.branches`, `git.diff` | `git.read` |
+| `git.stage`, `git.unstage`, `git.discard`, `git.createBranch`, `git.switchBranch`, `git.commit`, `git.push`, `git.pull` | `git.write` |
 
 `plugin.setSettings`, `fs.remove`, and arbitrary Electron IPC are not exposed. A
 channel the host does not implement itself is forwarded to the plugin's
@@ -665,6 +718,9 @@ Any of the following calls must be logged for audit:
 - models.list (returned row count)
 - session.getLlmContext (session id, message count, truncated flag — never transcript text)
 - agent.complete (model key, sizes, usage — never prompt or completion text)
+- Every Git call, including permission and consent denials: plugin id,
+  operation, result/error code, path count, and branch — never paths, diff
+  content, commit messages, credentials, or raw remote output
 
 Log fields:
 - pluginId
@@ -692,6 +748,7 @@ The desktop plugin runtime now implements the MVP host API surface used by local
 - `models.list`, `session.getLlmContext`
 - `clipboard.*`, `shell.openExternal`, `net.fetch`
 - `browser.*` (guest CDP; `browser.cdp`)
+- `git.*` (structured, allowlisted Git operations in the active workspace)
 - `services.register` / `unregister`, `bus.publish` / `subscribe`, `events.on` / `off`
 
 Native plugin notifications use the Electron main-process notification surface;
