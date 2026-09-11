@@ -1212,10 +1212,19 @@ export type AppSettings = {
    * `external`: Open directly in the system's default web browser.
    */
   linkOpenTarget?: LinkOpenTarget;
+  /**
+   * Which context figure the composer ring and its summary lead with (D398).
+   * `remaining` (default, absent) counts down from 100%; `used` counts up.
+   * Color thresholds always follow remaining capacity, so the warning state
+   * does not change meaning with this preference.
+   */
+  contextUsageDisplay?: ContextUsageDisplay;
   onboardingDismissed: boolean;
 };
 
 export type LinkOpenTarget = "workpanel" | "external";
+
+export type ContextUsageDisplay = "remaining" | "used";
 
 export type PluginMarketSource = "official" | "mirror" | "custom";
 

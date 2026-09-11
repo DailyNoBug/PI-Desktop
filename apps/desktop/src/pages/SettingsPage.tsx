@@ -30,6 +30,7 @@ import {
   SETTINGS_NAV_GROUP_LABELS,
   type SettingsNavGroupId,
 } from "../lib/settings-search";
+import { resolveContextUsageDisplay } from "../lib/context-usage";
 import {
   IconArchive,
   IconBookOpen,
@@ -274,6 +275,53 @@ function LinkOpenTargetRow({
             )}
             aria-pressed={current === value}
             onClick={() => void saveSettings({ linkOpenTarget: value })}
+          >
+            {t(labelKey)}
+          </button>
+        ))}
+      </div>
+    </SettingsRow>
+  );
+}
+
+/**
+ * Which figure the composer context ring leads with (D398). Color thresholds
+ * stay on remaining capacity in both modes, so "used" never repaints the
+ * warning state.
+ */
+function ContextUsageDisplayRow({
+  settings,
+  saveSettings,
+}: {
+  settings: AppSettings;
+  saveSettings: (patch: Partial<AppSettings>) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const current = resolveContextUsageDisplay(settings.contextUsageDisplay);
+  return (
+    <SettingsRow
+      title={t("settings.contextUsageDisplay")}
+      description={t("settings.contextUsageDisplayDesc")}
+    >
+      <div
+        className="settings-segment"
+        role="radiogroup"
+        aria-label={t("settings.contextUsageDisplay")}
+      >
+        {([
+          ["remaining", "settings.contextUsageDisplayRemaining"],
+          ["used", "settings.contextUsageDisplayUsed"],
+        ] as const).map(([value, labelKey]) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={current === value}
+            className={cx(
+              "settings-segment-item",
+              current === value && "active",
+            )}
+            onClick={() => void saveSettings({ contextUsageDisplay: value })}
           >
             {t(labelKey)}
           </button>
@@ -1425,6 +1473,10 @@ export function SettingsPage() {
                 </SettingsRow>
                 <CommandShellRow settings={settings} saveSettings={saveSettings} />
                 <LinkOpenTargetRow settings={settings} saveSettings={saveSettings} />
+                <ContextUsageDisplayRow
+                  settings={settings}
+                  saveSettings={saveSettings}
+                />
                 <SettingsRow
                   title={t("settings.enterToSend")}
                   description={t("settings.enterToSendDesc")}
