@@ -1162,6 +1162,7 @@ export const ko = {
     expandDetails: "{{name}} 펼치기",
     collapseDetails: "{{name}} 접기",
     openActions: "{{name}} 작업 열기",
+    reorder: "{{name}} 순서 변경",
     rename: "프로젝트 이름 바꾸기",
     renameTitle: "프로젝트 이름 바꾸기",
     renameDescription: "나중에 알아볼 수 있는 프로젝트 이름을 지정하세요.",

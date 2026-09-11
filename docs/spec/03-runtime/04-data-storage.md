@@ -223,13 +223,13 @@ type SidebarPreferences = {
   sessionMeta: Record<string, {
     pinned?: boolean;
     archived?: boolean;
-    order?: number; // compatibility/future manual order
+    order?: number; // renderer-local manual order
   }>;
   projectMeta: Record<string, {
     pinned?: boolean;
     archived?: boolean;
     collapsed?: boolean;
-    order?: number; // compatibility/future manual order
+    order?: number; // renderer-local manual order
   }>;
   projectSort: "recent" | "created" | "oldest" | "name" | "manual";
   sessionView: {
@@ -242,9 +242,12 @@ type SidebarPreferences = {
 
 - Project keys and retained paths use normalized full paths; session keys use
   durable session ids. Duplicate/slash-variant paths are discarded on load.
-- `manual`/`order` are compatibility fields. This baseline exposes no
-  drag/manual-reorder interaction; values without a usable order fall back to
-  a stable recent ordering.
+- `projectSort: "manual"` and `projectMeta[*].order` store renderer-local
+  project presentation order. Dragging a project handle or using its keyboard
+  arrows writes contiguous order values for the visible normalized paths.
+  Missing or invalid values fall back to stable path order; pinned and archived
+  priority remains applied before manual order. Session `manual`/`order` remain
+  compatibility fields and are not exposed by the sidebar.
 - Missing, malformed, or unwritable preferences fall back to empty metadata,
   `recent`, archived hidden, and the host-selected project. Preference failure
   never blocks a host operation.

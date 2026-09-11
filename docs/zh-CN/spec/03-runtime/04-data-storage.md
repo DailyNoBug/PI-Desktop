@@ -215,13 +215,13 @@ type SidebarPreferences = {
   sessionMeta: Record<string, {
     pinned?: boolean;
     archived?: boolean;
-    order?: number; // compatibility/future manual order
+    order?: number; // renderer-local manual order
   }>;
   projectMeta: Record<string, {
     pinned?: boolean;
     archived?: boolean;
     collapsed?: boolean;
-    order?: number; // compatibility/future manual order
+    order?: number; // renderer-local manual order
   }>;
   projectSort: "recent" | "created" | "oldest" | "name" | "manual";
   sessionView: {
@@ -234,9 +234,10 @@ type SidebarPreferences = {
 
 - 项目密钥和保留路径使用规范化的完整路径；会话密钥使用
   持久会话 ID。 Duplicate/slash-variant 路径在加载时被丢弃。
-- `sessions.mode = 'agent'`/`PRAGMA incremental_vacuum` 是兼容性字段。该基线没有暴露
-  drag/manual-reorder交互；没有可用顺序的值回落为
-  近期订单稳定。
+- `projectSort: "manual"` 和 `projectMeta[*].order` 保存渲染器本地的项目显示顺序。
+  拖动项目手柄或使用键盘箭头会为可见的规范化路径写入连续顺序值。
+  缺失或无效值回落到稳定路径顺序；置顶和归档优先级仍在手动顺序之前应用。
+  会话 `manual`/`order` 仍是兼容性字段，侧边栏不会公开会话手动重排。
 - 缺失、格式错误或不可写的首选项回退到空元数据，
   `recent`，存档隐藏，以及主机选择的项目。偏好失败
   永远不会阻止主机操作。

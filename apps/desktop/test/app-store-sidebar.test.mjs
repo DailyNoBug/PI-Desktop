@@ -95,9 +95,14 @@ test("global search stays on the conversation topbar, not the sidebar header", (
   assert.match(topbarSource, /ariaLabel=\{t\("nav\.search"\)\}/);
 });
 
-test("manual ordering stays a persistence-only compatibility value", () => {
-  assert.doesNotMatch(sidebarSource, /data-sort=["']manual["']/);
-  for (const value of ["recent", "created", "oldest", "name"]) {
-    assert.match(sidebarSource, new RegExp(`"${value}"`));
-  }
+test("project rows expose drag and keyboard reorder behavior", () => {
+  assert.match(sidebarSource, /data-action="reorder-project"/);
+  assert.match(sidebarSource, /onDragStart=\{\(event\) => startProjectDrag/);
+  assert.match(sidebarSource, /onDragOver=\{\(event\) => handleProjectDragOver/);
+  assert.match(sidebarSource, /onDrop=\{\(event\) => handleProjectDrop/);
+  assert.match(sidebarSource, /onKeyDown=\{\(event\) => moveProjectWithKeyboard/);
+  assert.match(sidebarSource, /PROJECT_DRAG_MIME/);
+  assert.match(storeSource, /reorderProjects: \(paths\) =>/);
+  assert.match(storeSource, /projectSort: "manual"/);
+  assert.match(storeSource, /persistCurrentSidebar\(get\)/);
 });

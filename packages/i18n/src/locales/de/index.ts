@@ -1143,6 +1143,7 @@ export const de = {
     "expandDetails": "{{name}} erweitern",
     "collapseDetails": "{{name}} ausblenden",
     "openActions": "Aktionen für {{name}} öffnen",
+    "reorder": "Reihenfolge von {{name}} ändern",
     "rename": "Projekt umbenennen",
     "renameTitle": "Projekt umbenennen",
     "renameDescription": "Geben Sie diesem Projekt einen Namen, den Sie später wiedererkennen können.",

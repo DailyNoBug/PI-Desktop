@@ -55,6 +55,7 @@ import type {
 } from "@pi-desktop/shared";
 import type {
   ProjectMeta,
+  ProjectSort,
   SessionMeta,
   SessionSort,
 } from "../lib/sidebar-preferences";
@@ -80,6 +81,7 @@ import {
   IconCircleAlert,
   IconNewSession,
   IconFolder,
+  IconGripVertical,
   IconMore,
   IconNewProject,
   IconPin,
@@ -119,6 +121,7 @@ const VIEWPORT_PADDING = 8;
 const SIDEBAR_RESIZE_STEP = 16;
 /** Private MIME so a sidebar session drag is never mistaken for an OS file drop. */
 const SESSION_DRAG_MIME = "application/x-pi-desktop-session";
+const PROJECT_DRAG_MIME = "application/x-pi-desktop-project";
 
 type SidebarResizeState = {
   pointerId: number;
@@ -270,6 +273,7 @@ export function Sidebar({
   const restoreProject = useAppStore((s) => s.restoreProject);
   const setProjectCollapsed = useAppStore((s) => s.setProjectCollapsed);
   const setProjectSort = useAppStore((s) => s.setProjectSort);
+  const reorderProjects = useAppStore((s) => s.reorderProjects);
   const showToast = useAppStore((s) => s.showToast);
   const version = useAppStore((s) => s.version);
   const setSettingsTab = useAppStore((s) => s.setSettingsTab);
@@ -292,6 +296,8 @@ export function Sidebar({
   const [dropProjectKey, setDropProjectKey] = useState<string | null>(null);
   const [projectsDropActive, setProjectsDropActive] = useState(false);
   const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [draggingProjectKey, setDraggingProjectKey] = useState<string | null>(null);
+  const [dropTargetProjectKey, setDropTargetProjectKey] = useState<string | null>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const menuFirstItemRef = useRef<HTMLButtonElement | null>(null);
   const sessionPrefetchTimerRef = useRef<number | undefined>(undefined);
@@ -401,8 +407,7 @@ export function Sidebar({
   const sessionSort = sessionView.sort;
   const displaySessionSort: Exclude<SessionSort, "manual"> =
     sessionSort === "manual" ? "recent" : sessionSort;
-  const displayProjectSort: Exclude<SessionSort, "manual"> =
-    projectSort === "manual" ? "recent" : projectSort;
+  const displayProjectSort: ProjectSort = projectSort;
   const activeProjectPath = normalizeProjectPath(activeProjectPathState ?? workspace?.path);
   const selectedSessionId = selectingSessionId ?? activeSessionId;
   const openProjectPaths = useMemo(
@@ -692,7 +697,12 @@ export function Sidebar({
       if (archiveOrder !== 0) return archiveOrder;
       const pinOrder = Number(!!b.meta.pinned) - Number(!!a.meta.pinned);
       if (pinOrder !== 0) return pinOrder;
-      if (displayProjectSort === "name") {
+      if (displayProjectSort === "manual") {
+        const byOrder =
+          (a.meta.order ?? Number.MAX_SAFE_INTEGER) -
+          (b.meta.order ?? Number.MAX_SAFE_INTEGER);
+        if (byOrder !== 0) return byOrder;
+      } else if (displayProjectSort === "name") {
         const byName = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
         if (byName !== 0) return byName;
       } else if (
@@ -738,6 +748,100 @@ export function Sidebar({
     for (const entry of projectEntries) map.set(entry.key, entry);
     return map;
   }, [projectEntries]);
+
+  const clearProjectDrag = useCallback(() => {
+    setDraggingProjectKey(null);
+    setDropTargetProjectKey(null);
+  }, []);
+
+  useEffect(() => {
+    if (!draggingProjectKey) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      clearProjectDrag();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [clearProjectDrag, draggingProjectKey]);
+
+  const reorderProjectEntries = useCallback(
+    (sourceKey: string, targetKey: string, insertAfter: boolean) => {
+      if (!sourceKey || !targetKey || sourceKey === targetKey) return;
+      const keys = projectEntries.map((entry) => entry.key);
+      const sourceIndex = keys.indexOf(sourceKey);
+      const targetIndex = keys.indexOf(targetKey);
+      if (sourceIndex < 0 || targetIndex < 0) return;
+      keys.splice(sourceIndex, 1);
+      const nextTargetIndex = keys.indexOf(targetKey) + (insertAfter ? 1 : 0);
+      keys.splice(nextTargetIndex, 0, sourceKey);
+      reorderProjects(keys);
+    },
+    [projectEntries, reorderProjects],
+  );
+
+  const startProjectDrag = useCallback(
+    (event: ReactDragEvent<HTMLButtonElement>, projectKey: string) => {
+      if (!event.dataTransfer) return;
+      event.stopPropagation();
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(PROJECT_DRAG_MIME, projectKey);
+      event.dataTransfer.setData("text/plain", projectKey);
+      setDraggingProjectKey(projectKey);
+      setDropTargetProjectKey(null);
+    },
+    [],
+  );
+
+  const handleProjectDragOver = useCallback(
+    (event: ReactDragEvent<HTMLElement>, projectKey: string) => {
+      const types = Array.from(event.dataTransfer.types);
+      if (
+        !types.includes(PROJECT_DRAG_MIME) ||
+        !draggingProjectKey ||
+        draggingProjectKey === projectKey
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setDropTargetProjectKey(projectKey);
+    },
+    [draggingProjectKey],
+  );
+
+  const handleProjectDrop = useCallback(
+    (event: ReactDragEvent<HTMLElement>, projectKey: string) => {
+      if (!Array.from(event.dataTransfer.types).includes(PROJECT_DRAG_MIME)) {
+        return;
+      }
+      const sourceKey =
+        draggingProjectKey || event.dataTransfer.getData(PROJECT_DRAG_MIME);
+      if (!sourceKey || sourceKey === projectKey) {
+        clearProjectDrag();
+        return;
+      }
+      const rect = event.currentTarget.getBoundingClientRect();
+      event.preventDefault();
+      event.stopPropagation();
+      reorderProjectEntries(sourceKey, projectKey, event.clientY > rect.top + rect.height / 2);
+      clearProjectDrag();
+    },
+    [clearProjectDrag, draggingProjectKey, reorderProjectEntries],
+  );
+
+  const moveProjectWithKeyboard = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>, projectKey: string) => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      const index = projectEntries.findIndex((entry) => entry.key === projectKey);
+      const target = projectEntries[index + (event.key === "ArrowUp" ? -1 : 1)];
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      reorderProjectEntries(projectKey, target.key, event.key === "ArrowDown");
+    },
+    [projectEntries, reorderProjectEntries],
+  );
 
   // Locale-aware absolute timestamp matching the WorkBuddy card shape:
   // "2026-09-04 14:11:53" in zh-CN, "Sep 4, 2026, 2:11 PM" in en-US.
@@ -1447,18 +1551,25 @@ export function Sidebar({
     return (
       <section
         key={entry.key}
-        className={`sidebar-session-group project-group ${entry.active ? "active" : ""} ${entry.meta.archived ? "archived" : ""} ${dropProjectKey === entry.key ? "is-drop-target" : ""}`}
+        className={`sidebar-session-group project-group ${entry.active ? "active" : ""} ${entry.meta.archived ? "archived" : ""} ${dropProjectKey === entry.key ? "is-drop-target" : ""} ${draggingProjectKey === entry.key ? "is-dragging" : ""} ${dropTargetProjectKey === entry.key ? "is-drop-target" : ""}`}
         aria-labelledby={projectId}
         data-sidebar-project-group={entry.key}
-        onDragOver={(event) => onProjectDropTargetOver(event, entry)}
+        onDragOver={(event) => {
+          onProjectDropTargetOver(event, entry);
+          handleProjectDragOver(event, entry.key);
+        }}
         onDragLeave={(event) => {
-          const related = event.relatedTarget;
-          if (related instanceof Node && event.currentTarget.contains(related)) {
+          const relatedTarget = event.relatedTarget;
+          if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
             return;
           }
           onProjectDropTargetLeave(entry);
+          setDropTargetProjectKey(null);
         }}
-        onDrop={(event) => onProjectDropTargetDrop(event, entry)}
+        onDrop={(event) => {
+          onProjectDropTargetDrop(event, entry);
+          handleProjectDrop(event, entry.key);
+        }}
       >
         <div
           className="sidebar-session-group-header"
@@ -1474,6 +1585,22 @@ export function Sidebar({
             );
           }}
         >
+          <TooltipButton
+            type="button"
+            className="sidebar-project-drag-handle"
+            tooltip={t("project.reorder", { name: entry.name, defaultValue: "Reorder {{name}}" })}
+            ariaLabel={t("project.reorder", { name: entry.name, defaultValue: "Reorder {{name}}" })}
+            aria-keyshortcuts="ArrowUp ArrowDown"
+            aria-grabbed={draggingProjectKey === entry.key}
+            draggable
+            data-action="reorder-project"
+            onClick={(event) => event.stopPropagation()}
+            onDragStart={(event) => startProjectDrag(event, entry.key)}
+            onDragEnd={clearProjectDrag}
+            onKeyDown={(event) => moveProjectWithKeyboard(event, entry.key)}
+          >
+            <IconGripVertical size={13} aria-hidden />
+          </TooltipButton>
           <TooltipButton
             type="button"
             id={projectId}
