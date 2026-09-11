@@ -928,6 +928,7 @@ Codex parity decisions (D034/D070) supersede any older value here.
 | Work panel width (closed) | 0px | Hidden by default |
 | Work panel width (open) | `244px–720px` (new-profile default 360px), fixed at the committed width | the panel is an in-flow column whose width is taken from the existing client area; the renderer owns its divider (ADR 0151); saved widths remain unchanged |
 | Composer shell minimum | ~80px | One-line draft + toolbar padding |
+| Narrow composer toolbar | `≤360px` container | Left/right control groups wrap to separate rows; mode/permission labels stay single-line and ellipsize |
 | Composer draft height | 1–7 text lines | Auto-grow; internal scroll beyond line 7 |
 | Chat message max width | 720px assistant / 560px user plate | Prevent eye-span over-stretch; user turns stay compact |
 | Window min width | 1040px | Enforced by Electron for the whole app; opening the panel never changes native bounds |

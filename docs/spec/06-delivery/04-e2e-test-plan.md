@@ -8219,11 +8219,14 @@ This test plan spec is accepted when:
      directions, including a slow drag with a brief pause, then release.
   2. Confirm the main pane reflows continuously and the sidebar does not jump
      when the pointer is pressed.
-  3. Repeat with a target below the minimum and above the maximum; release and
+  3. With the work panel open or on a small supported window, continue the
+     resize until the composer container is at most 360px wide; inspect the
+     composer toolbar while the main pane reflows.
+  4. Repeat with a target below the minimum and above the maximum; release and
      confirm the width stops at 240px and 520px respectively.
-  4. Focus the edge handle and press ArrowLeft/ArrowRight, Home, and End;
+  5. Focus the edge handle and press ArrowLeft/ArrowRight, Home, and End;
      inspect the separator's current ARIA value.
-  5. Start a resize, press Escape or cancel the pointer, then restart the app.
+  6. Start a resize, press Escape or cancel the pointer, then restart the app.
      Collapse and re-expand the sidebar as a separate check.
 - **Expected**: The handle is discoverable on direct hover/focus without a
   full-height white/accent rail when the sidebar body is hovered, has no native
@@ -8233,7 +8236,9 @@ This test plan spec is accepted when:
   saving it. Keyboard changes commit immediately and expose localized width
   semantics. The saved width survives relaunch and is restored after sidebar
   collapse; collapse does not convert the preferred width into the icon-rail
-  width.
+  width. At a composer width of 360px or less, the left and right toolbar
+  groups occupy separate rows and mode/permission labels remain single-line
+  and ellipsized; no toolbar text is vertically split or overlapped.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`,
   ADR 0141, D280

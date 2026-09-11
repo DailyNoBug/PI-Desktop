@@ -51,3 +51,22 @@ test("sidebar hover does not paint a full-height resize rail", () => {
     /\.sidebar-resize-handle:focus-visible\s*\{[^}]*outline:\s*none/s,
   );
 });
+
+test("a narrow composer wraps toolbar groups before localized labels can overlap", () => {
+  assert.match(
+    globalStyles,
+    /@container composer-stack \(max-width: 360px\)[\s\S]*?\.composer-toolbar\s*\{[\s\S]*?flex-wrap:\s*wrap;/,
+  );
+  assert.match(
+    globalStyles,
+    /@container composer-stack \(max-width: 360px\)[\s\S]*?\.composer-left,\s*\.composer-right\s*\{[\s\S]*?flex:\s*1 1 100%;/,
+  );
+  assert.match(
+    globalStyles,
+    /\.mode-chip\s*\{[\s\S]*?white-space:\s*nowrap;/,
+  );
+  assert.match(
+    globalStyles,
+    /\.mode-chip > span\s*\{[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/,
+  );
+});

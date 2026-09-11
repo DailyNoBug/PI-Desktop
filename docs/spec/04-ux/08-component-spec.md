@@ -2136,6 +2136,10 @@ reasoning-level control.
   `.tool-spinner` and localized `Enhancing…` label while running, and remains
   a one-shot draft rewrite action. Inline file-reference chips, including
   pasted image chips, do not disable this action and remain in the draft.
+- When the composer container is `≤360px` wide, its toolbar wraps the left and
+  right control groups onto separate rows. Mode and permission labels stay on
+  one line and ellipsize within their chips, so a sidebar or work-panel resize
+  cannot vertically split or overlap toolbar content.
 - The combined chip opens one anchored menu above itself. The menu starts with
   only Model and Reasoning level entries, each showing its current value and a
   chevron. Selecting an entry replaces the menu contents in place with a back
