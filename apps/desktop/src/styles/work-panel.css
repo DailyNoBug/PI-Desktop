@@ -138,7 +138,12 @@
 
 :root[data-platform="win32"] .work-panel-header,
 :root[data-platform="linux"] .work-panel-header {
-  padding-right: calc(var(--ds-window-controls-width) + 46px);
+  /* End this header's box — and therefore its native drag rectangle — before
+     the viewport-fixed control band. The drag rectangle is the border box, so
+     padding the content clear of the band still leaves that rectangle across
+     the controls, and Electron swallows their hover and click. The base 46px
+     right padding keeps the same content inset once the box stops early. */
+  margin-right: var(--ds-window-controls-width);
 }
 
 /* The header follows a "context on the left, shell actions on the right"

@@ -69,7 +69,11 @@ test("work panel collapse control is the viewport-fixed shell toggle", () => {
     globalStyles,
     /:root\[data-platform="win32"\] \.main-titlebar\.work-panel-open,[\s\S]*:root\[data-platform="linux"\] \.main-titlebar\.work-panel-open\s*\{[^}]*right:\s*0;/,
   );
-  assert.doesNotMatch(globalStyles, /\.work-panel-header\s*\{[^}]*margin-right:/s);
+  // The reservation is platform-scoped; the base header rule stays neutral.
+  assert.doesNotMatch(
+    globalStyles,
+    /^\.work-panel-header\s*\{[^}]*margin-right:/ms,
+  );
 });
 
 test("macOS hides sidebar branding and keeps header actions beside traffic lights", () => {
