@@ -507,17 +507,18 @@ on the left for native chrome in windowed mode, and reclaims that padding in
 fullscreen. Windows/Linux keep the identity and sidebar actions in their first
 row and reserve the rightmost 120px for three frameless-window controls. The
 controls retain 112px of full-height hit targets, while the outer band adds an
-8px visual buffer and a divider before adjacent work-panel actions. The band
-paints an opaque `bg-primary` surface so page content never shows through the
-controls, and its leading and bottom edges use the same `border-subtle` rule as
-the adjacent titlebar so the 46px chrome reads as one continuous surface. Main,
-Settings, and work-panel drag regions must terminate before
-this reservation rather than overlap it and rely only on descendant `no-drag`,
-so every visible control pixel remains clickable. The band floats over the
-destination pages, so on Windows/Linux a page frame and any right-edge detail
-sheet start below it instead of placing their own header actions or close
-control under the window controls. No application menu is rendered inside the
-window.
+8px visual buffer before adjacent work-panel actions. The band paints an opaque
+`bg-primary` surface so page content never shows through the controls, and its
+leading and bottom edges use the same `border-subtle` rule as the adjacent
+titlebar so the 46px chrome reads as one continuous surface. Main, Settings,
+and work-panel drag regions must terminate before this reservation rather than
+overlap it and rely only on descendant `no-drag`, so every visible control
+pixel remains clickable. The open work-panel header uses one compact resource
+switcher with menu-owned close actions; it does not add a second `×` beside the
+native Windows close control. The band floats over the destination pages, so on
+Windows/Linux a page frame and any right-edge detail sheet start below it
+instead of placing their own header actions or close control under the window
+controls. No application menu is rendered inside the window.
 Other menu popovers use the standard opaque elevated-menu surface, `radius-sm`,
 subtle border, and dialog shadow; they are never translucent over readable
 content.

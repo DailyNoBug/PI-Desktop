@@ -559,7 +559,10 @@
 .conversation-topbar .ct-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile);
 }
 
 /* Keep the sole work-panel toggle anchored to the viewport while the in-flow
@@ -576,8 +579,9 @@
 }
 
 .app-work-panel-toggle[aria-pressed="true"] {
-  background: var(--ds-bg-active);
+  background: var(--ds-tile-deep);
   color: var(--ds-text-primary);
+  box-shadow: var(--ds-raised-shadow);
 }
 
 :root[data-platform="win32"] .app-work-panel-toggle,

@@ -130,7 +130,8 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  /* 12px toggle inset + 28px button + 6px gap so close-tab clears the overlay. */
+  /* 12px toggle inset + 28px button + 6px gap keeps the resource switcher
+     clear of the viewport-fixed panel toggle. */
   padding: 0 46px 0 12px;
   -webkit-app-region: drag;
 }
@@ -140,18 +141,17 @@
   padding-right: calc(var(--ds-window-controls-width) + 46px);
 }
 
-/* The header follows a "context on the left, actions on the right" model:
-   the current-resource switcher anchors the left, and the close control is
-   pinned to the right of that cluster so it never shifts with the label
-   length. Collapse lives in the viewport-fixed shell toggle. The gap between
-   context and actions stays a window-drag region. */
+/* The header follows a "context on the left, shell actions on the right"
+   model. Resource close actions live in the context menu, so this row does not
+   put a second X beside Windows' native close control. The gap between context
+   and the optional subagent back action stays a window-drag region. */
 .work-panel-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   margin-left: auto;
-  padding-left: 6px;
+  padding-left: 8px;
 }
 
 :root[data-theme="light"] .work-panel-header {
@@ -313,7 +313,6 @@
   margin-right: 3px;
 }
 
-.work-panel-current-close,
 .work-panel-menu-close {
   display: inline-flex;
   width: 32px;
@@ -326,36 +325,57 @@
   transition: background var(--motion-duration-fast) var(--motion-ease-out), color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
-/* The menu row is denser than the current-panel header, so its close button
-   narrows the shared 32px target above. */
+/* Menu rows are denser than the current-panel header, so their close buttons
+   narrow the shared 32px target above. */
 .work-panel-menu-close {
   width: 26px;
   height: 26px;
 }
 
-.work-panel-current-close:hover,
 .work-panel-menu-close:hover {
   color: var(--ds-text-primary);
   background: var(--ds-bg-active);
 }
 
+.work-panel-subagent-back {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--ds-text-secondary);
+  transition:
+    background var(--motion-duration-fast) var(--motion-ease-out),
+    color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.work-panel-subagent-back:hover {
+  background: var(--ds-bg-hover);
+  color: var(--ds-text-primary);
+}
+
 .work-panel-switcher-trigger {
   display: flex;
-  width: 100%;
+  width: min(100%, 280px);
   min-width: 0;
   height: 32px;
   align-items: center;
   gap: 7px;
   padding: 0 7px;
   border-radius: var(--radius-sm);
+  background: var(--ds-tile);
   color: var(--ds-text-primary);
   text-align: left;
-  transition: background var(--motion-duration-fast) var(--motion-ease-out);
+  transition:
+    background var(--motion-duration-fast) var(--motion-ease-out),
+    color var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .work-panel-switcher-trigger:hover,
 .work-panel-switcher-trigger[aria-expanded="true"] {
-  background: var(--ds-bg-hover);
+  background: var(--ds-tile-hover);
 }
 
 .work-panel-current-icon {

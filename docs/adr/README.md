@@ -237,3 +237,4 @@ Each ADR includes:
 | 0217 | Host stdout sender must not outlive serve | Accepted (amends 0216; issue #211) |
 | 0218 | Effective image-input overrides across Composer and transport | Accepted (amends 0101 / D243) |
 | 0219 | User-invoked Skills in the composer slash menu | Accepted (amends D123 / D174 / ADR 0024 / ADR 0039) |
+| 0220 | Keep Windows work-panel chrome single-purpose | Accepted (amends D154 / D357 / ADR 0195) |

@@ -21,6 +21,7 @@ import { cx } from "../ui";
 import { TooltipButton } from "../ui";
 import {
   IconChevronDown,
+  IconChevronLeft,
   IconClose,
   IconBot,
   IconDiff,
@@ -615,26 +616,15 @@ export function WorkPanel({
             )}
           </div>
           <div className="work-panel-actions no-drag">
-            {activeTab && !subagentPanel ? (
-              <TooltipButton
-                type="button"
-                className="work-panel-current-close"
-                tooltip={t("panel.closeTab", { name: activeLabel })}
-                ariaLabel={t("panel.closeTab", { name: activeLabel })}
-                onClick={() => closeTab(activeTab.id)}
-              >
-                <IconClose size={14} />
-              </TooltipButton>
-            ) : null}
             {subagentPanel && onCloseSubagentPanel ? (
               <TooltipButton
                 type="button"
-                className="work-panel-current-close"
+                className="work-panel-subagent-back"
                 tooltip={t("panel.subagentClose")}
                 ariaLabel={t("panel.subagentClose")}
                 onClick={onCloseSubagentPanel}
               >
-                <IconClose size={14} />
+                <IconChevronLeft size={15} />
               </TooltipButton>
             ) : null}
           </div>

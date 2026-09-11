@@ -239,7 +239,9 @@ combined model × reasoning selection (§11).
   buffer). The conversation titlebar also reserves the 28px work-panel toggle
   while the panel is closed. While the panel is open, that 120px band plus the
   toggle overlay the panel header instead, and the header pads to keep
-  resource close reachable (D357).
+  resource switcher clear of the native control band. Resource close actions
+  stay in its menu rows so a second header `×` does not echo the native
+  Windows close control (D357).
 - Title cluster (task title) flexes and shows at most the first 10 Unicode
   characters plus an ellipsis; the full title remains in the native tooltip.
   The right cluster (action icons) is `flex: 0 0 auto`
@@ -428,8 +430,8 @@ visually distinct from list content.
   width is saved on release. Focus the edge handle and use ArrowLeft/Right,
   Home, or End for keyboard resizing; Escape cancels an active pointer resize.
 - Click the viewport-fixed work-panel toggle to reveal or hide the panel
-  without deleting tabs; the work-panel header keeps only dynamic tabs and
-  the active-resource close control
+  without deleting tabs; the work-panel header keeps the resource switcher and
+  its menu owns resource closing
 - Click the `Projects` heading folder-plus action: open the project picker and
   retain the selected project
 - Right-click the `Projects` heading or empty project-list chrome: open a
@@ -893,9 +895,9 @@ workflow while rendering entirely inside the plugin's isolated page:
   surface that offered it (D224).
 - Resource header: the 46px header shows the active resource icon and
   ellipsized label. Its context chevron opens the bounded unified menu described
-  above; the header's trailing close button closes the current resource
-  directly. Arrow keys, Home, End, and Escape operate the menu; opening the menu
-  hides the native Browser preview until it closes.
+  above; the menu row's close button closes that resource. A subagent detail
+  uses a back arrow in the header. Arrow keys, Home, End, and Escape operate the
+  menu; opening the menu hides the native Browser preview until it closes.
 - Tab close: closing an active tab selects its right neighbor, then its left;
   closing the last tab hides the panel. The panel-level collapse control is the
   viewport-fixed shell toggle (not in the work-panel content header) and hides

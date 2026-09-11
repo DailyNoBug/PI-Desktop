@@ -68,6 +68,7 @@ This log freezes previously open questions into concrete decisions.
 | D391 | Host stdout sender must not outlive serve | **Amend D390 / ADR 0216: the Windows Alt+Space hook retains only a weak clone of the stdout sender. After stdin EOF, dropping serve's sender closes the writer channel and host-core exits. Electron rejects an NDJSON request over 64 MiB before writing, with `LIMIT_EXCEEDED`. A host-side oversize reply peeks the JSON-RPC id from the truncated prefix so the client does not wait 130 s. Serve waits at most 5 s for the stdout writer after stdin ends. Protocol version stays at 11. See ADR 0217 and E2E-247.** | On Windows v0.14.6 a 64 MiB stdin cap ended the reader, but a strong keyboard sender kept the writer thread alive, so host-core became a zombie and Electron reported `host RPC timeout: session.replaceMessages` (issue #211). |
 | D392 | Effective image-input overrides across Composer and transport | **Amend D243 / ADR 0101: image capability starts with the published model record, then an exact binding's `supportsImages` value wins when it is `true` or `false`; absent or `null` follows the published value. Composer badges, attachment status, and main-process image transport use the same effective result. Unknown/custom models remain conservative without an explicit override. See ADR 0218 and E2E-163.** | A configured endpoint could already transport an image through its binding override while the Composer row still hid the vision badge, or could show a published badge after image input was disabled for that endpoint. |
 | D393 | User-invoked Skills in the composer | **Amend D123 / D174 / ADR 0024 / ADR 0039: active built-in, plugin, and user Skills appear in a separate `Skills` group at the end of the composer slash menu. Selecting one inserts its exact id; Electron main revalidates the active project scope at send time and asks the model to call the local `Skill` tool, preserving on-demand body loading and existing permissions. Existing command names win collisions; inactive Skills remain literal slash text. See ADR 0219 and E2E-088b.** | D174's model-invoked catalog remains the body-loading and security contract, while a final explicit entry makes known workflows discoverable without moving Skill bodies into the renderer, prompt, or host protocol. |
+| D394 | Windows work-panel chrome keeps one resource action cluster | **Amend D154 / D357 / ADR 0195: the open work-panel header keeps one compact resource switcher; resource close is owned by the existing keyboard-operable context-menu rows, the viewport-fixed toggle remains the only panel collapse control, and subagent detail returns with a back chevron. Windows/Linux native controls remain fixed at the window edge. Renderer-only; no panel state, window geometry, IPC, protocol, or storage change. See ADR 0220 and E2E-067.** | The header resource `X`, viewport-fixed toggle, and Windows native close cluster read as duplicate close actions and became cramped at narrow panel widths. |
 
 
 | D244 | Compact context usage summary | **Amend D103 / D184 / ADR 0047: keep the context inspector's remaining-capacity trigger, used/window counts, turn total, completed-turn speed, exact provider values, aggregate tool types/calls/tokens, and checkpoint summary, but render them as a short summary. Remove the per-tool rows, share bars, source badges, explanatory estimate paragraph, and used-capacity meter from the default panel. No protocol, storage, runtime accounting, or model metadata changes.** *(Amended by D347: the trigger moves to the composer toolbar.)* | The prior diagnostic layout made a routine capacity check tall and visually dense. Keeping the aggregate signal while removing drill-down chrome makes the default status surface scannable without changing the underlying usage data. See ADR 0103 and E2E-060d / US-UI-61. |
@@ -899,6 +900,18 @@ section mirrors only marketplace/catalog items still blocking nothing.
   main revalidates the current project scope and asks the model to call the
   local `Skill` tool. The typed command remains the transcript chip, and no
   host protocol or durable schema changes.
+
+## 2026-09-11 — Windows work-panel chrome keeps one resource action cluster (D394)
+
+- The open work-panel header now keeps one compact resource switcher. Resource
+  close is available from the existing unified context-menu rows, so a second
+  `X` does not sit beside the Windows native close control.
+- The viewport-fixed work-panel toggle remains the sole panel-level collapse
+  control. Subagent detail uses a back chevron, and Windows/Linux native
+  controls remain fixed at the window edge.
+- Decision D394 amends D154 / D357 / ADR 0195. This is renderer-only and does
+  not change panel state, window geometry, IPC, protocol, or storage. See ADR
+  0220 and E2E-067.
 
 ## 2026-07-31 — Plugin themes ship CSS files
 

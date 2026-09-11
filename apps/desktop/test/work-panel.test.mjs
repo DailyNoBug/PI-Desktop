@@ -175,7 +175,11 @@ test("work panel header exposes one unified menu with no duplicated entries", ()
   assert.match(panelSource, /data-work-panel-switch-item/);
   assert.match(panelSource, /data-work-panel-menu-item/);
   assert.match(panelSource, /role="tabpanel"/);
-  assert.match(panelSource, /className="work-panel-current-close"/);
+  assert.match(panelSource, /className="work-panel-subagent-back"/);
+  assert.match(panelSource, /IconChevronLeft/);
+  // The active resource is closed from its menu row. Keeping a second X in
+  // the 46px header makes it look like a duplicate of Windows' close button.
+  assert.doesNotMatch(panelSource, /className="work-panel-current-close"/);
   assert.match(panelSource, /className="work-panel-menu-close"/);
   // The tools section lists each singleton once with its own close control, so
   // the second section may only carry transcript-opened resources. Plugin views

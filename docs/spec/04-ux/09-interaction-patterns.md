@@ -422,10 +422,9 @@ may be retained while exactly one workspace supplies the visible shell context.
   (D173).
 - Activating a tool that is already open activates its existing resource instead
   of replacing it, so Browser keeps its URL and Files its selection (D173).
-- Every resource can be closed from the menu, and the active resource has
-  a direct header close control. Closing the active resource selects the right
-  neighbor, then the left; closing the final tab hides the panel. The
-  viewport-fixed panel toggle hides the panel without deleting tabs.
+- Every resource can be closed from its menu row. Closing the active resource
+  selects the right neighbor, then the left; closing the final tab hides the
+  panel. The viewport-fixed panel toggle hides the panel without deleting tabs.
 - On every platform, opening and collapsing the visible panel change only the
   internal flex allocation; native window bounds remain unchanged. The inner
   divider updates the renderer-owned panel target between 244px and 720px,

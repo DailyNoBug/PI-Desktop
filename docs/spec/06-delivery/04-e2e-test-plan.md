@@ -3244,8 +3244,8 @@ Each scenario is documented in this format:
   Verify one window and one delivery per command. 4) On Windows/Linux, repeat
   from the main chat, Settings, and an open work panel. With the work panel
   open, confirm the viewport-fixed toggle and native window controls stay at
-  the window's right edge over the panel header, and that resource close
-  remains clickable to their left. In the
+  the window's right edge over the panel header, and that resource switching
+  plus close actions remain available from the panel menu to their left. In the
   main chat, send a first user message and confirm its full bubble starts below
   the 46px titlebar control band. Open the Extensions page and confirm its header
   actions, then the detail sheet's close button, also start below that band and
@@ -3266,7 +3266,7 @@ Each scenario is documented in this format:
   remain operational, and a viewport-fixed work-panel toggle is present on
   non-Settings routes (not an application-menu command). While the panel is
   open the native control band and that toggle overlay the panel header; the
-  header pads so resource close stays clickable. Check for Updates
+  header keeps the resource menu clear of the toggle. Check for Updates
   invokes the allowlisted update command from the macOS system menu and the
   Settings surface and shows the resulting up-to-date state. Replacement-window
   commands wait for renderer readiness without

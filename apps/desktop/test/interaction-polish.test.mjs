@@ -13,7 +13,7 @@ test("high-traffic chrome uses shared motion tokens on hover fills", () => {
     ".search-item",
     ".footer-action",
     ".notification-item",
-    ".work-panel-current-close",
+    ".work-panel-subagent-back",
   ]) {
     // Match the selector anywhere in a rule's selector list, and require the
     // transition inside that rule's own body — a shared list is as valid as a
