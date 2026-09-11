@@ -971,6 +971,7 @@ export type AppState = {
   toggleProjectCollapsed: (path: string) => void;
   closeProject: (path: string) => Promise<void>;
   setProjectSort: (sort: ProjectSort) => void;
+  reorderProjects: (paths: string[]) => void;
   getVisibleSessions: (options?: {
     projectPath?: string | null;
     includeArchived?: boolean;
@@ -3363,6 +3364,26 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setProjectSort: (sort) => {
     set({ projectSort: sort });
+    persistCurrentSidebar(get);
+  },
+
+  reorderProjects: (paths) => {
+    const orderedKeys: string[] = [];
+    const seen = new Set<string>();
+    for (const path of paths) {
+      const key = normalizeProjectPath(path);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      orderedKeys.push(key);
+    }
+    if (orderedKeys.length < 2) return;
+    set((state) => {
+      const projectMeta = { ...state.projectMeta };
+      orderedKeys.forEach((key, index) => {
+        projectMeta[key] = { ...(projectMeta[key] || {}), order: index };
+      });
+      return { projectMeta, projectSort: "manual" };
+    });
     persistCurrentSidebar(get);
   },
 

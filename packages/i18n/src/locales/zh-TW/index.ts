@@ -1152,6 +1152,7 @@ export const zhTW = {
     expandDetails: "展開“{{name}}”",
     collapseDetails: "收起“{{name}}”",
     openActions: "開啟“{{name}}”的操作選單",
+    reorder: "調整「{{name}}」順序",
     rename: "重新命名專案",
     renameTitle: "重新命名專案",
     renameDescription: "為這個專案設定一個便於之後識別的名稱。",
