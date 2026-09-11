@@ -686,8 +686,11 @@ export function WorkPanel({
                     icon={activePluginView?.icon}
                     sessionId={activeSessionId ?? undefined}
                     location={activeTab.location}
+                    // Keep the native surface mounted while the divider moves.
+                    // PluginViewTab's ResizeObserver tracks the placeholder,
+                    // so hiding it here would expose the panel background.
                     blocked={
-                      exiting || panelBlocked || contextOpen || isResizing
+                      exiting || panelBlocked || contextOpen
                     }
                   />
                 </div>

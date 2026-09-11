@@ -2818,10 +2818,11 @@ Each scenario is documented in this format:
   requests are denied; non-http(s) navigation is blocked except in-root
   `file:` siblings. The preview hides under every blocking overlay and while
   unmounted, reappearing with correct bounds afterwards. An inline permission
-  card does not hide or remount the preview; resize/drag keeps the view
-  aligned with the placeholder rect. Open-external launches an http(s) page
-  in the default browser and an in-root file preview via `openPath`. The view
-  uses an isolated persist partition (no session bleed from the app shell).
+  card does not hide or remount the preview; resize/drag keeps the native view
+  visible and aligned with the placeholder rect without a black flash.
+  Open-external launches an http(s) page in the default browser and an in-root
+  file preview via `openPath`. The view uses an isolated persist partition
+  (no session bleed from the app shell).
 - **Specs linked**: `03-runtime/01-ipc-protocol.md` §13a, ADR 0019, ADR 0168
 - **Acceptance**: Quality, Security
 - **Milestone**: M5

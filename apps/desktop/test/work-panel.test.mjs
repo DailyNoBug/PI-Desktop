@@ -122,7 +122,7 @@ test("work panel uses the fixed-window internal dock", () => {
   // guest clamped to the plugin view is gone before the dock CSS animation.
   assert.match(
     panelSource,
-    /blocked=\{\s*exiting \|\| panelBlocked \|\| contextOpen \|\| isResizing/,
+    /blocked=\{\s*exiting \|\| panelBlocked \|\| contextOpen/,
   );
   assert.match(panelSource, /nativeSurfaceReadyForExit/);
   assert.match(panelSource, /is-exit-pending/);
@@ -206,11 +206,17 @@ test("work panel header exposes one unified menu with no duplicated entries", ()
   assert.doesNotMatch(panelSource, /panel\.openTool/);
   // Every native surface in the panel — the preview browser and each plugin
   // view — composites above the renderer, so one blocking condition governs
-  // them all.
+  // them all. A divider resize is intentionally absent: the placeholder
+  // observer keeps the native surface aligned without flashing the panel
+  // background.
+  const pluginSurfaceStart = panelSource.indexOf("<PluginViewTab");
+  const pluginSurfaceEnd = panelSource.indexOf("/>", pluginSurfaceStart);
+  const pluginSurface = panelSource.slice(pluginSurfaceStart, pluginSurfaceEnd);
   assert.match(
-    panelSource,
-    /blocked=\{[\s\S]*exiting \|\| panelBlocked \|\| contextOpen \|\| isResizing[\s\S]*\}/,
+    pluginSurface,
+    /blocked=\{\s*exiting \|\| panelBlocked \|\| contextOpen\s*\}/s,
   );
+  assert.doesNotMatch(pluginSurface, /isResizing/);
   assert.doesNotMatch(panelSource, /onContextMenu|createPortal|work-panel-tools-menu/);
   assert.match(
     globalStyles,

@@ -1986,10 +1986,10 @@ MainChat 弥补了缺口。 Maximized/fullscreen 调用保留最新的
   `file:`、`javascript:` 和自定义 scheme 被拒绝。许可请求被拒绝；
   非 http(s) 导航被阻止，根内 `file:` 同级文件除外。预览隐藏在每个遮挡下
   覆盖并卸载时，随后以正确的边界重新出现。
-  内嵌权限卡不会隐藏或重新挂载预览； resize/drag
-  保持视图与占位符矩形对齐。
-  Open-external 对 http(s) 页走系统浏览器，对根内文件预览走 `openPath`。景色
-  使用隔离的持久分区（应用程序外壳中没有会话流失）。
+  内嵌权限卡不会隐藏或重新挂载预览；resize/drag 期间原生视图保持可见，
+  并与占位符矩形对齐，不再闪出黑色面板底色。
+  Open-external 对 http(s) 页走系统浏览器，对根内文件预览走 `openPath`。
+  视图使用隔离的持久分区（应用程序外壳中没有会话流失）。
 - **链接规格**：`03-runtime/01-ipc-protocol.md` §13a、ADR 0019、ADR 0168
 - **验收**：质量、安全
 - **里程碑**：M5
