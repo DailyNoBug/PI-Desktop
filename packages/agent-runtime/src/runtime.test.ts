@@ -5921,6 +5921,157 @@ describe("DesktopAgentRuntime subagents", () => {
     await runtime.dispose();
   });
 
+  it("feeds a report that settled before the parent idled (#226)", async () => {
+    const runtime = createRuntime({ subagents: [explorer] });
+    subagentRuns.calls.length = 0;
+    subagentRuns.instances.length = 0;
+    subagentRuns.deferred = true;
+    subagentRuns.resolveRun = undefined;
+    const tool = taskTool(runtime);
+    const prompt = vi.fn(async () => undefined);
+    (runtime as any).agent.prompt = prompt;
+    (runtime as any).agent.waitForIdle = vi.fn(async () => undefined);
+
+    const started = await tool.execute("task-1", {
+      agent: "explorer",
+      task: "Find it.",
+    });
+    const delegationId = (started.details as any).delegationId as string;
+
+    // The explorer finishes while the parent is still on its own line of work…
+    subagentRuns.resolveRun!({
+      agentName: "explorer",
+      status: "completed",
+      report: "src/app.ts:12 misses the null check.",
+      turns: 1,
+      toolCalls: 1,
+    });
+    await vi.waitFor(() => {
+      expect((runtime as any).delegations.get(delegationId).status).toBe(
+        "completed",
+      );
+    });
+    expect((runtime as any).keepTurnOpenForDelegates()).toBe(true);
+
+    // …and the parent then idles without a TaskWait. The settled report is
+    // "done and unpublished", not "unfinished": it must still reach the parent.
+    await (runtime as any).resumeAfterDelegations();
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    const delivered = String(
+      (prompt.mock.calls as unknown as unknown[][])[0]?.[0] ?? "",
+    );
+    expect(delivered).toContain("src/app.ts:12 misses the null check.");
+    expect((runtime as any).keepTurnOpenForDelegates()).toBe(false);
+
+    // Single shot: a later idle does not replay it.
+    await (runtime as any).resumeAfterDelegations();
+    expect(prompt).toHaveBeenCalledTimes(1);
+
+    subagentRuns.deferred = false;
+    await runtime.dispose();
+  });
+
+  it("does not replay a report that TaskWait already returned", async () => {
+    const runtime = createRuntime({ subagents: [explorer] });
+    subagentRuns.calls.length = 0;
+    subagentRuns.instances.length = 0;
+    subagentRuns.deferred = true;
+    subagentRuns.resolveRun = undefined;
+    const tool = taskTool(runtime);
+    const wait = (runtime as any).agent.state.tools.find(
+      (entry: any) => entry.name === "TaskWait",
+    );
+    const prompt = vi.fn(async () => undefined);
+    (runtime as any).agent.prompt = prompt;
+    (runtime as any).agent.waitForIdle = vi.fn(async () => undefined);
+
+    const started = await tool.execute("task-1", {
+      agent: "explorer",
+      task: "Find it.",
+    });
+    const delegationId = (started.details as any).delegationId as string;
+    subagentRuns.resolveRun!({
+      agentName: "explorer",
+      status: "completed",
+      report: "src/app.ts:12 misses the null check.",
+      turns: 1,
+      toolCalls: 1,
+    });
+    await vi.waitFor(() => {
+      expect((runtime as any).delegations.get(delegationId).status).toBe(
+        "completed",
+      );
+    });
+
+    const result = await wait.execute("wait-1", { delegationIds: [delegationId] });
+    expect(result.content[0].text).toContain("src/app.ts:12 misses the null check.");
+    expect((runtime as any).keepTurnOpenForDelegates()).toBe(false);
+
+    await (runtime as any).resumeAfterDelegations();
+    expect(prompt).not.toHaveBeenCalled();
+
+    subagentRuns.deferred = false;
+    await runtime.dispose();
+  });
+
+  it("auto-delivers TaskWait reports omitted by the bounded result", async () => {
+    const runtime = createRuntime({ subagents: [explorer] });
+    subagentRuns.calls.length = 0;
+    subagentRuns.instances.length = 0;
+    subagentRuns.deferred = true;
+    subagentRuns.resolveRun = undefined;
+    const task = taskTool(runtime);
+    const wait = (runtime as any).agent.state.tools.find(
+      (entry: any) => entry.name === "TaskWait",
+    );
+    const prompt = vi.fn(async () => undefined);
+    (runtime as any).agent.prompt = prompt;
+    (runtime as any).agent.waitForIdle = vi.fn(async () => undefined);
+
+    const ids: string[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      const started = await task.execute(`task-${index}`, {
+        agent: "explorer",
+        task: "Find it.",
+      });
+      ids.push((started.details as any).delegationId as string);
+    }
+    for (let index = 0; index < 5; index += 1) {
+      subagentRuns.resolveRun!({
+        agentName: "explorer",
+        status: "completed",
+        report: `report-${index}-${"x".repeat(12_000)}`,
+        turns: 1,
+        toolCalls: 1,
+      });
+      await vi.waitFor(() => {
+        expect((runtime as any).delegations.get(ids[index]).status).toBe(
+          "completed",
+        );
+      });
+    }
+
+    const result = await wait.execute("wait-1", { delegationIds: ids });
+    expect(result.content[0].text).toContain("more result");
+    expect((runtime as any).delegations.get(ids[0]).reportDelivered).toBe(true);
+    expect((runtime as any).delegations.get(ids[4]).reportDelivered).toBe(false);
+    expect((runtime as any).keepTurnOpenForDelegates()).toBe(true);
+
+    await (runtime as any).resumeAfterDelegations();
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    const delivered = String(
+      (prompt.mock.calls as unknown as unknown[][])[0]?.[0] ?? "",
+    );
+    expect(delivered).toContain("report-4-");
+    expect((runtime as any).delegations.get(ids[4]).reportDelivered).toBe(true);
+    expect((runtime as any).keepTurnOpenForDelegates()).toBe(false);
+
+    subagentRuns.deferred = false;
+    await runtime.dispose();
+  });
+
   it("lists a heartbeat for a running delegate", async () => {
     const runtime = createRuntime({ subagents: [explorer] });
     subagentRuns.calls.length = 0;
@@ -6040,6 +6191,103 @@ describe("DesktopAgentRuntime subagents", () => {
     expect(ids).toContain("assistant-parent");
     expect(ids).not.toContain("assistant-child");
 
+    await runtime.dispose();
+  });
+});
+
+describe("DesktopAgentRuntime deferred tool restore (#225)", () => {
+  const now = () => new Date().toISOString();
+  const searchRow = (overrides: Partial<UiMessage> = {}): UiMessage => ({
+    id: "tool-search-1",
+    role: "tool",
+    content: "",
+    createdAt: now(),
+    status: "complete",
+    toolName: "ToolSearch",
+    toolCallId: "call-search-1",
+    toolStatus: "success",
+    toolArgs: { query: "BrowserPreview" },
+    toolResult: {
+      content: [{ type: "text", text: "Activated on-demand tools: BrowserPreview." }],
+      details: { activated: ["BrowserPreview"] },
+      addedToolNames: ["BrowserPreview"],
+    },
+    ...overrides,
+  });
+  const assistantRow: UiMessage = {
+    id: "assistant-1",
+    role: "assistant",
+    content: "Loading the preview tool.",
+    createdAt: now(),
+    status: "complete",
+  };
+  const hasTool = (runtime: DesktopAgentRuntime, name: string) =>
+    (runtime as any).agent.state.tools.some((tool: any) => tool.name === name);
+
+  it("keeps a tool active across prompts while its ToolSearch activation is in context", async () => {
+    const runtime = createRuntime({ history: [assistantRow, searchRow()] });
+
+    (runtime as any).resetDeferredToolsForPrompt();
+
+    expect(hasTool(runtime, "BrowserPreview")).toBe(true);
+    await runtime.dispose();
+  });
+
+  it("restores a tool from its own successful result, not from failed or empty rows", async () => {
+    const runtime = createRuntime({
+      history: [
+        assistantRow,
+        searchRow({ id: "tool-search-failed", toolCallId: "call-failed", toolStatus: "error" }),
+        {
+          id: "tool-preview-empty",
+          role: "tool",
+          content: "",
+          createdAt: now(),
+          status: "complete",
+          toolName: "BrowserPreview",
+          toolCallId: "call-preview-empty",
+          toolStatus: "success",
+          toolArgs: {},
+        },
+      ],
+    });
+
+    (runtime as any).resetDeferredToolsForPrompt();
+    expect(hasTool(runtime, "BrowserPreview")).toBe(false);
+
+    (runtime as any).fullEntries.push(
+      ...(createRuntime({
+        history: [
+          assistantRow,
+          {
+            id: "tool-preview-ok",
+            role: "tool",
+            content: "",
+            createdAt: now(),
+            status: "complete",
+            toolName: "BrowserPreview",
+            toolCallId: "call-preview-ok",
+            toolStatus: "success",
+            toolArgs: {},
+            toolResult: { content: [{ type: "text", text: "opened" }] },
+          },
+        ],
+      }) as any).fullEntries,
+    );
+    (runtime as any).resetDeferredToolsForPrompt();
+    expect(hasTool(runtime, "BrowserPreview")).toBe(true);
+    await runtime.dispose();
+  });
+
+  it("restores the activation again after a mode round trip", async () => {
+    const runtime = createRuntime({ history: [assistantRow, searchRow()] });
+    (runtime as any).resetDeferredToolsForPrompt();
+    expect(hasTool(runtime, "BrowserPreview")).toBe(true);
+
+    runtime.setMode("plan");
+    runtime.setMode("agent");
+
+    expect(hasTool(runtime, "BrowserPreview")).toBe(true);
     await runtime.dispose();
   });
 });

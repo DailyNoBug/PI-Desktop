@@ -660,6 +660,29 @@ Each scenario is documented in this format:
 - **Status**: Unit-covered (preset matching, catalog aliases, Completions
   compat); rendered UI scenario Draft
 
+#### E2E-248: Responses turn completes without waiting for the server to close the connection
+
+- **Preconditions**: A provider whose model pins `api: "openai-responses"` (or
+  a provider with `apiStyle: "responses"`) is configured; the endpoint is
+  fronted by a proxy that holds the HTTP connection open after the final
+  SSE event (a local reverse proxy or a stub server that never sends FIN).
+- **Steps**: 1) Start a session with that model and send a short prompt. 2)
+  Capture the SSE frames and confirm the server emitted
+  `response.completed` with `status: "completed"` and usage. 3) Keep the
+  stub/proxy connection open without sending a TCP FIN. 4) Observe the
+  assistant turn state and send a follow-up prompt.
+- **Expected**: The turn completes as soon as `response.completed` is
+  finalized: usage is recorded, `stopReason` is `stop`, and the client stops
+  consuming the stream (the underlying request is aborted) instead of
+  blocking on the idle connection. The composer becomes idle immediately and
+  the follow-up turn starts normally. The stream must not hang when the
+  server never closes the connection.
+- **Specs linked**: `03-runtime/11-provider-model-system.md` (§16.1)
+- **Acceptance**: B (provider Responses compatibility)
+- **Milestone**: M2
+- **Status**: Unit-covered (stream processor terminates on the terminal
+  event via the pi-ai patch); live-proxy scenario Draft
+
 #### E2E-005E: DeepSeek thinking replay includes reasoning_content on aggregator endpoints
 
 - **Preconditions**: An OpenAI-compatible provider whose base URL is not
@@ -718,6 +741,23 @@ Each scenario is documented in this format:
 - **Milestone**: M2
 - **Status**: Automated (protocol smoke, live-model lane; requires PI_DESKTOP_TEST_API_KEY)
 
+#### E2E-008d: Composer Enter-to-send and modifier send
+
+- **Preconditions**: Provider configured; a session is open.
+- **Steps**: 1) Leave Enter-to-send enabled. Type a draft and press Enter.
+  2) Disable Enter-to-send in Settings. 3) Type a second draft and press
+  Cmd/Ctrl+Enter. 4) Press Enter and Shift+Enter in a third draft.
+- **Expected**: Step 1 sends. After the setting is off, Cmd/Ctrl+Enter sends;
+  plain Enter and Shift+Enter insert newlines and do not send. IME composition
+  and an open autocomplete menu still take precedence over send.
+- **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/08-component-spec.md` §11.5,
+  `04-ux/09-interaction-patterns.md` §1.2
+- **Acceptance**: C (composer send)
+- **Milestone**: M2
+- **Status**: Source-level regression (`composer-ime.test.mjs`); full UI
+  keyboard journey remains Draft. Protocol smoke does not dispatch key events.
+
+
 #### E2E-008a: First-turn tools load on demand
 
 - **Preconditions**: Agent mode; provider configured; `BrowserPreview` or an
@@ -736,12 +776,14 @@ Each scenario is documented in this format:
   next model turn. For a user-visible HTML deliverable, `BrowserPreview` is
   called once after creation or the first meaningful visual edit, then reused
   through live reload while the page is refined. Generated, test-only, and
-  non-visual HTML files do not trigger a preview call. The loaded set does not
-  leak into the next prompt's first request. Tool activation markers survive
-  transcript reload without granting a host permission or workspace escape.
+  non-visual HTML files do not trigger a preview call. At the second prompt,
+  successful activation markers still in the effective context may restore the
+  matching deferred schemas in the first request; failed, interrupted, and
+  missing-result rows do not. Catalog and mode changes also prevent restoration.
+  No host permission or workspace escape is granted by restoration.
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §7.1,
-  `03-runtime/03-tools-and-permissions.md` §2.1, ADR 0048,
-  `08-meta/decisions-log.md` (D185)
+  `03-runtime/03-tools-and-permissions.md` §2.1, ADR 0048, ADR 0225,
+  `08-meta/decisions-log.md` (D185, D400)
 - **Acceptance**: C (first turn and stream) + E (tool execution)
 - **Milestone**: M5
 - **Status**: Unit-covered (`agent-runtime` deferred-tool tests); live-model
@@ -1195,7 +1237,8 @@ Each scenario is documented in this format:
 #### E2E-088b: Composer placeholder guidance follows page and session context
 
 - **Preconditions**: English and zh-CN locales are available; a provider is
-  configured; both an empty home and two conversations can be opened.
+  configured; at least one Skill is active; both an empty home and two
+  conversations can be opened.
 - **Steps**: 1) On empty home, record the welcome placeholder and wait longer
   than 4 seconds to confirm it is unchanged. 2) Open conversation A, record
   its guidance, type and clear text, focus and blur the textarea, and wait;
@@ -1208,10 +1251,13 @@ Each scenario is documented in this format:
   localized command/file or keyboard hint with an opacity fade; no timer-driven
   changes occur. The keyboard hint includes Shift+Enter and a submit hint, while the
   command/file hint includes `/` and `@`. The slash menu still contains `/new`,
-  `/compact`, `/agent-mode`, `/plan-mode`, and `/goal-mode`. zh-CN shows the
-  matching localized copy, including `Shift+Enter for newline · Use Send to submit`.
+  `/compact`, `/agent-mode`, `/plan-mode`, and `/goal-mode`, followed by a
+  Skills group at the bottom. Selecting the Skill inserts its slash id; sending
+  it keeps the typed command chip visible and the model calls `Skill` with that
+  id before answering. zh-CN shows the matching localized copy, including
+  `Shift+Enter for newline · Use Send to submit`.
 - **Specs linked**: `04-ux/08-component-spec.md` (§11),
-  `04-ux/04-builtin-commands.md` (§7)
+  `04-ux/04-builtin-commands.md` (§7–8)
 - **Acceptance**: C (send/UI), Localization, Quality
 - **Milestone**: M2
 - **Status**: Source-covered (`composer-placeholder-context.test.mjs`);
@@ -1727,6 +1773,33 @@ Each scenario is documented in this format:
   `sessions::tests::transcript_survives_reopen_from_file`,
   `sessions::tests::delete_session_removes_transcript_files`); full fixture
   scenario Draft
+
+#### E2E-252: Session and folder drag/drop across projects
+
+- **Preconditions**: Two projects are open in the sidebar; one holds an idle
+  session, and one session somewhere is running a turn.
+- **Steps**: 1) Drag the idle session row onto the other project group and drop
+  it. 2) Reopen that session and read its transcript. 3) Attempt to drag the
+  running session and, separately, open its session menu. 4) Drop a folder onto
+  the projects list. 5) Drop a folder on the composer.
+- **Expected**: The dragged idle session lists under the target project with its
+  transcript, attachments, and tasks unchanged, and the move survives a restart
+  because the session's project membership is persisted. The running session is
+  not draggable, its "Move to project" entries are disabled, and a move issued
+  after a turn starts is rejected as busy rather than rebinding the agent.
+  Dropping a folder on the projects list adds or switches to that project
+  without creating a duplicate row, and a non-folder drop explains that a folder
+  is required. Dropping a folder on the composer offers an explicit choice and
+  never attaches directory contents: "Open as project" opens the project, and
+  "Reference folder" inserts the literal path. The dragged row paints at reduced
+  opacity and the eligible group shows an accent outline.
+- **Specs linked**: `04-ux/09-interaction-patterns.md` §8,
+  `03-runtime/06-host-rpc-protocol.md` (session.moveProject)
+- **Acceptance**: D (project membership and workspace switching), Quality
+  (drag/drop feedback and keyboard fallback)
+- **Milestone**: M5
+- **Status**: Documented; source-contract covered
+  (`session-project-move.test.mjs`); automation pending
 
 ### Plugin Load / Command / Disable
 
@@ -2330,7 +2403,8 @@ Each scenario is documented in this format:
   compact continuous list with one keyboard stop per directory disclosure;
   every non-action point in A's row toggles only A, project actions appear on
   hover/focus without shifting labels, the project title hover/focus path shows
-  A's full absolute path, Open folder is a project-menu action only and opens A
+  A's full absolute path in a content-sized tooltip (long paths wrap within a
+  420px maximum), Open folder is a project-menu action only and opens A
   in the system file manager, and collapse survives restart;
   activating a group or its conversation
   clears the previous visible transcript, updates the selected workspace and
@@ -2614,23 +2688,23 @@ Each scenario is documented in this format:
 - **Steps**: 1) Relaunch and inspect the titlebar and application menu; confirm
   the panel starts closed and a viewport-fixed work-panel toggle is present
   (disabled with no session). Press Cmd/Ctrl+J or click the toggle and inspect
-  the empty panel title and context menu, then press/click again to confirm it
+  the no-resource New launcher, then press/click again to confirm it
   collapses the
   panel and no tab is created or deleted; a third press must restore the same
   context. 2) Open two distinct file artifacts, the same first file again,
-  a URL preview, and a completed Bash row. 3) Open the header's unified
-  context menu: verify Browser and in-scope plugin views appear once, with active,
-  open-inactive, and closed states, and that transcript-opened resources appear
-  only in the second section. Open/select each available view with pointer
-  and keyboard,
-  reopen a Browser that already has a URL and confirm the URL survives, walk the
-  rows with ArrowDown/ArrowUp/Home/End (focus must skip the close buttons), close
-  an inactive row with Delete and confirm the menu stays open with focus on the
-  neighbor, press Escape and confirm focus returns to the trigger, then close the
-  active item from the header. Confirm the right action cluster stays at the
-  header's right edge for both the shortest and longest labels. 4) Close active middle and edge items
-  and verify neighbor selection. 5) Use the viewport-fixed work-panel toggle and
-  trigger another artifact. 6) In session A, leave the panel open with multiple
+  a URL preview, and a completed Bash row. 3) Verify the header is a tablist:
+  open enough tabs to overflow it, confirm only the strip scrolls and the `+`
+  trigger stays visible, activate the scrolled-away tab, and close tabs with
+  hover/focus `×` and middle-click. 4) Click `+` twice and verify each click
+  creates and activates a separate New launcher tab. Confirm the launcher body
+  contains Review plus each in-scope plugin view exactly once as clickable rows;
+  there is no work-panel dropdown or popup. Click Browser from one New tab and
+  confirm that tab opens the native plugin surface without changing its bounds.
+  5) Close
+  active middle and edge tabs and verify neighbor selection. Close the final
+  tab and confirm the panel remains open on the New launcher. 6) Use the
+  viewport-fixed work-panel toggle and trigger another artifact. 7) In session A,
+  leave the panel open with multiple
   tabs and a Browser resource; switch to session B, create a different tab set,
   then switch repeatedly between A and B and select a project without an active
   conversation. Generate a background artifact in the non-visible session.
@@ -2662,24 +2736,16 @@ Each scenario is documented in this format:
   closing animate the panel's width/flex allocation with its bounded
   opacity/slide, so MainChat reflows continuously without a pre-animation jump.
   Opening the panel, collapsing it, or committing a divider resize updates the
-  presentation jump. Once the panel is open, a single unified context trigger
-  opens one dropdown that lists Browser and in-scope plugin views, with a fill
-  plus 2px edge marker for the active row and a dot for open inactive ones, each
-  open row carrying its own close control in an always-reserved trailing slot;
-  a second section appears after a divider only for transcript-opened resources
-  (full-path tooltips, per-item close), so no entry is listed twice. The menu
-  fades in over ≤4px and is static under reduced motion. Arrow/Home/End move
-  focus across rows only and skip the close buttons, ArrowDown/ArrowUp on the
-  trigger open on the active/last row, Delete/Backspace closes the focused row
-  while the menu stays open with focus on its neighbor, and Escape/Tab/selection
-  restore focus to the trigger. Reopening an already-open tool activates it and
-  preserves its Browser URL. The right action cluster stays pinned to the
-  header's right edge regardless of label length. Opening the menu temporarily
-  hides the native Browser preview so it is never occluded. The sole collapse
-  control is the viewport-fixed toggle rather than a content-header chevron.
-  Active close selects the right neighbor then left; closing the last tab hides
-  the panel. Collapse retains runtime tabs but hides the panel until another
-  artifact reopens it. Width clamps to the fixed `244px–720px` range and
+  presentation without a native-window jump. The header is a horizontally
+  scrollable tablist with stable `92px–180px` tabs, visible spacing, and a
+  fixed `+`; labels stay readable instead of shrinking into one cluster, the
+  strip alone scrolls, active tabs scroll into view, and close selects the
+  right neighbor then left. New launcher tabs expose Review and in-scope plugin
+  views as body buttons, with no popup to overlap or shift the panel. Clicking a
+  launcher row replaces that New tab with the destination or activates its
+  existing singleton. Closing the last tab leaves the panel open on New. Collapse
+  retains runtime tabs but hides the panel until another artifact reopens it.
+  Width clamps to the fixed `244px–720px` range and
   previews its current/minimum/maximum values through the panel separator. The
   inner divider exposes the panel width to assistive technology and supports
   the documented keyboard steps. Pointer-down preserves the starting width,
@@ -2790,10 +2856,13 @@ Each scenario is documented in this format:
   requests are denied; non-http(s) navigation is blocked except in-root
   `file:` siblings. The preview hides under every blocking overlay and while
   unmounted, reappearing with correct bounds afterwards. An inline permission
-  card does not hide or remount the preview; resize/drag keeps the view
-  aligned with the placeholder rect. Open-external launches an http(s) page
-  in the default browser and an in-root file preview via `openPath`. The view
-  uses an isolated persist partition (no session bleed from the app shell).
+  card does not hide or remount the preview; resize/drag keeps the native view
+  visible and aligned with the placeholder rect without a black flash. Opening
+  the work-panel context dropdown moves beside the native view; the view keeps
+  its full surface rect and the plugin body does not shift down.
+  Open-external launches an http(s) page in the default browser and an in-root
+  file preview via `openPath`. The view uses an isolated persist partition
+  (no session bleed from the app shell).
 - **Specs linked**: `03-runtime/01-ipc-protocol.md` §13a, ADR 0019, ADR 0168
 - **Acceptance**: Quality, Security
 - **Milestone**: M5
@@ -2923,7 +2992,10 @@ Each scenario is documented in this format:
   section hairlines. 5) Scroll the transcript and resize the window while the
   panel is open. 6) Move the pointer away from the panel, then dismiss it by
   clicking the trigger again, clicking outside it, and pressing Escape from
-  the keyboard. 7) Click Retry on that turn while idle. 8) Confirm a session
+  the keyboard. 7) Open the work panel on a browser-preview artifact, open the
+  context inspector, and confirm the summary stays inside the conversation pane:
+  fully visible, clear of the panel column, and narrowed rather than clipped on
+  a narrow pane. 8) Click Retry on that turn while idle. 9) Confirm a session
   without usage still offers Retry on completed turns and omits the composer
   inspector.
 - **Expected**: Model badge appears under completed assistant answers when a
@@ -2947,8 +3019,9 @@ Each scenario is documented in this format:
   Advanced override remains honored. Generation rate remains a completed-turn
   value and does not update during streaming; Retry
   re-sends the nearest preceding user prompt and is disabled while a turn is
-  running; the portaled panel remains fully visible within the viewport, never
-  clipped by the composer or transcript, and follows the trigger after
+  running; the portaled panel stays inside the conversation pane so the work
+  panel's native browser or plugin surface can never cover it, narrows with a
+  narrow pane instead of crossing that edge, and follows the trigger after
   scrolling or resize; Copy still excludes thinking text.
 - **Specs linked**: `04-ux/08-component-spec.md`,
   `04-ux/10-workbuddy-benchmark-ux.md`, `03-runtime/01-ipc-protocol.md`
@@ -3215,8 +3288,10 @@ Each scenario is documented in this format:
   Verify one window and one delivery per command. 4) On Windows/Linux, repeat
   from the main chat, Settings, and an open work panel. With the work panel
   open, confirm the viewport-fixed toggle and native window controls stay at
-  the window's right edge over the panel header, and that resource close
-  remains clickable to their left. In the
+  the window's right edge over the panel header, that resource switching plus
+  close actions remain available from the panel menu to their left, and that
+  the native window controls themselves still take hover and click — clicking a
+  control must not move the window. In the
   main chat, send a first user message and confirm its full bubble starts below
   the 46px titlebar control band. Open the Extensions page and confirm its header
   actions, then the detail sheet's close button, also start below that band and
@@ -3237,7 +3312,9 @@ Each scenario is documented in this format:
   remain operational, and a viewport-fixed work-panel toggle is present on
   non-Settings routes (not an application-menu command). While the panel is
   open the native control band and that toggle overlay the panel header; the
-  header pads so resource close stays clickable. Check for Updates
+  header ends its box before the band, so the resource tabs and close controls stay clear of the
+  toggle and neither the window controls nor resource close sit under a drag
+  rectangle. Check for Updates
   invokes the allowlisted update command from the macOS system menu and the
   Settings surface and shows the resulting up-to-date state. Replacement-window
   commands wait for renderer readiness without
@@ -3651,7 +3728,9 @@ Each scenario is documented in this format:
   appearing as a fully visible tooltip 8px above the chip on hover and on
   keyboard focus (#74); the tooltip remains fully painted when it overlaps the
   sidebar edge and is never occluded by the sidebar background; no chip renders
-  caption text. While an assistant response is streaming, its toolbar omits
+  caption text. Clicking an action dismisses its tooltip immediately; it does not
+  remain visible while the action retains focus. While an assistant response is
+  streaming, its toolbar omits
   Copy; after the response settles, the assistant toolbar offers Copy, Fork,
   Regenerate. The user toolbar offers the pager (when variants exist), Copy,
   Edit, Delete. Edit replaces the prompt bubble with a wider inline
@@ -5003,6 +5082,60 @@ Each scenario is documented in this format:
   `replace_messages_preserves_owning_turn_ids` covers the remaining rewrite
   callers. UI paging remains manual.
 
+#### E2E-246: Retrying a large session truncates without a whole-transcript RPC
+
+
+- **Preconditions**: An Agent session whose live transcript is thousands of
+  messages (large enough that a `session.replaceMessages` JSON-RPC line would
+  exceed tens of megabytes), with a completed or failed last user turn.
+- **Steps**: 1) Retry or regenerate the last user prompt. 2) Inspect host RPC
+  traffic, `turns.status`, the live jsonl, and `message_revisions`. 3) Retry
+  again immediately if the first attempt is still on screen as running.
+- **Expected**: Electron main calls `session.truncateFrom` with
+  `fromMessageId` only — no `session.replaceMessages` and no
+  `session.saveRevision` of the discarded array. The kept prefix never appears
+  in an NDJSON request. The leftover running turn is `aborted` before
+  `beginTurn`. The discarded tail is archived (refresh of the stamped variant,
+  or a new inactive variant). A second retry while a cut is in flight does not
+  ship another full transcript. The UI error is not
+  `host RPC timeout: session.replaceMessages`.
+- **Specs linked**: `03-runtime/01-ipc-protocol.md`,
+  `03-runtime/04-data-storage.md` §4.9/§7,
+  `03-runtime/06-host-rpc-protocol.md` §4, ADR 0216, D390
+- **Acceptance**: C (conversation), F (persistence), Quality
+- **Milestone**: M6
+- **Status**: Covered by host-core unit tests (2026-09-10):
+  `truncate_from_drops_the_tail_and_archives_the_discarded_branch`,
+  `truncate_from_rejects_an_unknown_message`,
+  `truncate_from_refreshes_the_stamped_revision`,
+  `truncate_from_rpc_cuts_without_shipping_the_kept_prefix`. Desktop journey
+  remains Draft.
+
+#### E2E-247: Windows host-core exits after stdin EOF and oversize RPCs fail immediately
+
+- **Preconditions**: Windows host-core with the Alt+Space keyboard hook
+  installed; a JSON-RPC request whose NDJSON line exceeds 64 MiB.
+- **Steps**: 1) Send stdin EOF to a running host-core. 2) From Electron, call
+  a host method whose stringified payload exceeds 64 MiB. 3) If a line still
+  reaches host-core, inspect the `LIMIT_EXCEEDED` reply id.
+- **Expected**: After stdin EOF, host-core exits without waiting 130 s. The
+  Windows keyboard hook does not keep the stdout writer alive. Electron
+  rejects the oversize call with `LIMIT_EXCEEDED` before `stdin.write`. A
+  host-side oversize reply uses the request id peeked from the prefix, not
+  `null`. The UI error is not `host RPC timeout`.
+- **Specs linked**: `03-runtime/07-process-model.md`,
+  `03-runtime/06-host-rpc-protocol.md` §7, ADR 0217, D391
+- **Acceptance**: Quality
+- **Milestone**: M6
+- **Status**: Covered by unit and source-contract tests (2026-09-11):
+  `start_does_not_keep_the_stdout_channel_open`,
+  `peek_jsonrpc_id_reads_a_string_id_from_a_truncated_prefix`,
+  `apps/desktop/test/windows-host-runtime.test.mjs` (weak sender),
+  `apps/desktop/test/rpc-lifecycle-contract.test.mjs` (client precheck),
+  `packages/shared/src/rpc-limits.test.ts`. Desktop journey remains Draft.
+
+
+
 #### E2E-119: Parallel subagents report back without entering the parent's context
 
 - **Preconditions**: A project-bound Agent session with the user home containing
@@ -5382,7 +5515,7 @@ Each scenario is documented in this format:
   `03-runtime/01-ipc-protocol.md` §13c,
   `03-runtime/03-tools-and-permissions.md` §4b,
   `03-runtime/04-data-storage.md`, `08-meta/decisions-log.md` (D197, D209,
-  D243), ADR 0059, ADR 0070, ADR 0101
+  D243, D392), ADR 0059, ADR 0070, ADR 0101, ADR 0218
 - **Acceptance**: C (conversation & stream), E (tools & permissions),
   F (persistence), Quality
 - **Milestone**: M5
@@ -5413,12 +5546,40 @@ Each scenario is documented in this format:
   write nothing.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md` §13c,
   `03-runtime/04-data-storage.md`, `04-ux/08-component-spec.md` §11.7–11.8,
-  ADR 0059, ADR 0101
+  ADR 0059, ADR 0101, ADR 0218
 - **Acceptance**: B (model config), C (conversation & stream), E (tools &
   permissions), F (persistence), Security, Quality
 - **Milestone**: M5
 - **Status**: Unit-covered (`apps/desktop/test/composer-paste-files.test.mjs`);
   provider/UI journey Draft (do not run E2E locally unless explicitly
+  requested)
+
+#### E2E-102i: Composer accepts native file and folder drops
+
+- **Preconditions**: The app is running with an Agent session and a visible
+  Composer. The OS file manager exposes one regular file, one folder, and a
+  mixed multi-selection; place the caret in the middle of a non-empty draft.
+- **Steps**: 1) Drag the regular file over the Composer and observe the target
+  outline, then drop it. 2) Drag the folder into the same draft. 3) Repeat with
+  a mixed file/folder selection while the caret is between existing text. 4)
+  Inspect the draft, remove the file chip, and send the prompt. 5) Inspect the
+  saved scratch file and the persisted user message.
+- **Expected**: File-system drag-over prevents the browser default and marks
+  the whole Composer shell without layout movement. Regular files are saved
+  through the existing bounded session-scratch bridge and appear as removable
+  leaf-name chips; folders are not read, copied, or traversed, and their full
+  native paths appear at the caret as `@<path>/` literal directory references.
+  Mixed drops preserve OS order, retain surrounding text, and restore the
+  caret after asynchronous file saving. Sending keeps the file's existing
+  attachment metadata/path behavior and the folder path as prompt text; no
+  workspace files are created.
+- **Specs linked**: `04-ux/08-component-spec.md` §11.5–11.8,
+  `04-ux/09-interaction-patterns.md` §8.2/§8a.2,
+  `03-runtime/01-ipc-protocol.md` §13c, ADR 0059, ADR 0070, ADR 0222
+- **Acceptance**: C (conversation & stream), F (persistence), Quality
+- **Milestone**: M5
+- **Status**: Unit-covered (`apps/desktop/test/composer-drag-drop.test.mjs`);
+  full desktop gesture journey Draft (do not run E2E locally unless explicitly
   requested)
 
 #### E2E-102a: Composer file reference results use compact leaf names
@@ -5554,7 +5715,8 @@ Each scenario is documented in this format:
 #### E2E-102e: Unknown model ids fail closed for vision transport
 
 - **Preconditions**: A custom provider/model id absent from the pi-ai catalog,
-  discovery data that incorrectly labels it `vision`, and a pasted PNG.
+  discovery data that incorrectly labels it `vision`, no explicit
+  `supportsImages` binding override, and a pasted PNG.
 - **Steps**:
   1. Refresh the provider model list and select the discovered custom id.
   2. Paste the PNG and inspect the model picker and Composer image chip.
@@ -5569,7 +5731,7 @@ Each scenario is documented in this format:
     can replay the image correctly.
 - **Specs linked**: `03-runtime/11-provider-model-system.md` §6.2/§11,
   `03-runtime/13-model-catalog-and-selection.md` §11.2,
-  `04-ux/08-component-spec.md` §11.8, ADR 0101
+  `04-ux/08-component-spec.md` §11.8, ADR 0101, ADR 0218
 - **Acceptance**: B (model config), C (conversation & stream), E (tools &
   permissions), Security
 - **Milestone**: M5
@@ -5949,7 +6111,9 @@ Each scenario is documented in this format:
   fixed list is portaled above the dialog without changing dialog height or
   being clipped by the dialog's overflow. Confirm a custom model ID can still
   be entered. Press Test connection and confirm the result resolves the edited
-  account. 5) Resolve
+  account. Open the Composer model menu and confirm the edited account label is
+  used as the OAuth provider group heading, while the configured model alias is
+  shown on its model row. 5) Resolve
   and use each account separately, including model discovery and one streamed
   turn per account. 6) Start the device-code login on a second vendor, then
   press Cancel while the dialog is polling; confirm no row or credential is
@@ -6023,11 +6187,13 @@ Each scenario is documented in this format:
 - **Steps**:
   1. Load the plugin as a development plugin. Confirm the Plugins page shows a
      work-panel-views capability badge.
-  2. Press `Cmd/Ctrl + J` to reveal the work panel and open the header menu.
-     Confirm a "Plugin views" group appears between the built-in tools and the
-     open-resources group, with the view's localized title and its icon (or a
-     lettered tile if the manifest names an unknown token).
-  3. Activate the row. Confirm the plugin's page renders inside the panel body
+  2. Press `Cmd/Ctrl + J` to reveal the work panel, then click `+` to create a
+     New launcher tab. Confirm the fixed `+` trigger and the viewport-fixed
+     work-panel toggle have separate, non-overlapping hit regions with at least
+     24px of visual gap. Confirm the launcher lists the built-in Review row and
+     the plugin view's localized title and icon (or a lettered tile if the
+     manifest names an unknown token).
+  3. Activate the plugin row. Confirm the plugin's page renders inside the panel body
      with no window-control capsule and no reserved 46px band, and that its
      button reaches the host toast.
   4. Drag the inner panel divider and resize the conversation area. Confirm
@@ -6036,10 +6202,11 @@ Each scenario is documented in this format:
      width stays fixed.
   5. Open global search, then Settings. Confirm the page is hidden while each
      overlay is up and returns when it closes.
-  6. Re-pick the same view from the menu. Confirm it returns to the live page —
-     same scroll position, no reload — rather than stacking a second tab.
-  7. Switch to the second project. Confirm the view disappears from the menu and
-     from the empty-panel entry list.
+  6. Click `+` again, then choose the same view from the new launcher. Confirm
+     it returns to the live page — same scroll position, no reload — rather than
+     stacking a second tab.
+  7. Switch to the second project. Confirm the view disappears from the New
+     launcher and from the no-tab entry list.
   8. Switch back, reopen the view, then disable the plugin. Confirm the tab
      closes and the view's renderer process exits (Activity Monitor / Task
      Manager).
@@ -6056,7 +6223,7 @@ Each scenario is documented in this format:
 - **Acceptance**: G (plugins), Security, Quality
 - **Milestone**: M6+
 - **Status**: Unit coverage in
-  `apps/desktop/test/plugin-work-panel-views.test.mjs` (addressing, menu
+  `apps/desktop/test/plugin-work-panel-views.test.mjs` (addressing, launcher
   grouping, isolation parity, scope filtering, lifecycle teardown),
   `packages/plugin-sdk` and host-core manifest validation; the desktop journey
   is Draft (do not run E2E locally unless explicitly requested)
@@ -6070,10 +6237,10 @@ Each scenario is documented in this format:
   1. Open the Plugins page. Confirm **Files** is listed with source "builtin",
      enabled, showing a work-panel-views capability, and that it offers no
      Uninstall action.
-  2. Reveal the work panel and open the header menu. Confirm the Tools group
-     lists only Terminal and Browser, and that Files appears under
-     Plugin views. Trigger an agent edit and confirm Review opens itself under
-     Open resources — it is an artifact surface, not a launcher entry.
+  2. Reveal the work panel and click `+` to create a New launcher tab. Confirm
+     its rows include Review and the plugin-contributed Files and Browser views.
+     Trigger an agent edit and confirm Review opens itself under Open resources
+     — it is an artifact surface, not a launcher entry.
   3. Open the Files view. Confirm the tree lists the project, expands
      directories lazily, and omits `node_modules`, `.git`, and `.env`.
   4. Confirm the toolbar shows the project name, a search field, and Refresh.
@@ -6157,29 +6324,33 @@ Each scenario is documented in this format:
 |---|---|
 | A — App startup | E2E-001, E2E-002, E2E-003, E2E-004, E2E-067, E2E-076, E2E-079, E2E-092, E2E-097, E2E-143, E2E-150, E2E-168, E2E-204 |
 | B — Model config | E2E-005, E2E-006, E2E-007, E2E-038, E2E-050, E2E-052, E2E-055, E2E-066, E2E-080, E2E-082, E2E-102c, E2E-102d, E2E-102e, E2E-151, E2E-154, E2E-163, E2E-166, E2E-172, E2E-174, E2E-197, E2E-005G, E2E-005J, E2E-199, E2E-201, E2E-202, E2E-203, E2E-205, E2E-206, E2E-209 |
-| C — Conversation & stream | E2E-008, E2E-008a, E2E-009, E2E-010, E2E-011, E2E-011a, E2E-011b, E2E-011d, E2E-011e, E2E-011g, E2E-031, E2E-040, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-052, E2E-053, E2E-054, E2E-055, E2E-059, E2E-059a, E2E-060c, E2E-060d, E2E-061, E2E-061a, E2E-062, E2E-064, E2E-065, E2E-068, E2E-071, E2E-073, E2E-074, E2E-075, E2E-081, E2E-083, E2E-084, E2E-086, E2E-087, E2E-088, E2E-088b, E2E-089, E2E-090, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-106, E2E-109, E2E-111, E2E-114, E2E-116, E2E-117, E2E-118, E2E-119, E2E-120, E2E-121, E2E-218, E2E-219, E2E-AGENTS-001, E2E-142, E2E-144, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-151, E2E-154, E2E-155, E2E-158, E2E-159, E2E-161, E2E-162, E2E-166, E2E-172, E2E-173, E2E-174, E2E-177, E2E-178, E2E-179, E2E-180, E2E-182, E2E-183, E2E-187, E2E-198, E2E-199, E2E-202, E2E-203, E2E-207, E2E-208 |
-| D — Workspace | E2E-012, E2E-013, E2E-022B, E2E-024I, E2E-047, E2E-049, E2E-057, E2E-058, E2E-060, E2E-068, E2E-075, E2E-078, E2E-153, E2E-158, E2E-182, E2E-187 |
+| C — Conversation & stream | E2E-008, E2E-008d, E2E-008a, E2E-009, E2E-010, E2E-011, E2E-011a, E2E-011b, E2E-011d, E2E-011e, E2E-011g, E2E-031, E2E-040, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-052, E2E-053, E2E-054, E2E-055, E2E-059, E2E-059a, E2E-060c, E2E-060d, E2E-061, E2E-061a, E2E-062, E2E-064, E2E-065, E2E-068, E2E-071, E2E-073, E2E-074, E2E-075, E2E-081, E2E-083, E2E-084, E2E-086, E2E-087, E2E-088, E2E-088b, E2E-089, E2E-090, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-106, E2E-109, E2E-111, E2E-114, E2E-116, E2E-117, E2E-118, E2E-119, E2E-120, E2E-121, E2E-218, E2E-219, E2E-AGENTS-001, E2E-142, E2E-144, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-151, E2E-154, E2E-155, E2E-158, E2E-159, E2E-161, E2E-162, E2E-166, E2E-172, E2E-173, E2E-174, E2E-177, E2E-178, E2E-179, E2E-180, E2E-182, E2E-183, E2E-187, E2E-198, E2E-199, E2E-202, E2E-203, E2E-207, E2E-208, E2E-250, E2E-102i |
+| D — Workspace | E2E-012, E2E-013, E2E-022B, E2E-024I, E2E-047, E2E-049, E2E-057, E2E-058, E2E-060, E2E-068, E2E-075, E2E-078, E2E-153, E2E-158, E2E-182, E2E-187, E2E-252 |
+| D — Workspace (project ordering) | E2E-253 |
 | E — Tools & permissions | E2E-008a, E2E-014, E2E-015, E2E-016, E2E-017, E2E-018, E2E-019, E2E-024I, E2E-024K, E2E-040, E2E-049, E2E-074, E2E-093, E2E-097, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102d, E2E-102e, E2E-102g, E2E-103, E2E-105, E2E-106, E2E-107, E2E-111, E2E-112, E2E-113, E2E-114, E2E-115, E2E-116, E2E-119, E2E-121, E2E-122, E2E-142, E2E-145, E2E-147, E2E-155, E2E-158, E2E-166, E2E-181 |
-| F — Persistence | E2E-020, E2E-021, E2E-021a, E2E-036, E2E-037, E2E-038, E2E-040, E2E-042, E2E-047, E2E-048, E2E-051, E2E-054, E2E-056, E2E-061, E2E-062, E2E-064, E2E-066, E2E-068, E2E-071, E2E-072, E2E-073, E2E-082, E2E-084, E2E-096, E2E-098, E2E-102, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-103, E2E-AGENTS-001, E2E-061a, E2E-073a, E2E-104, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-118, E2E-119, E2E-120, E2E-121, E2E-123, E2E-142, E2E-146, E2E-146a, E2E-148, E2E-151, E2E-158, E2E-160, E2E-168, E2E-171, E2E-177, E2E-178, E2E-183, E2E-186, E2E-005J |
+| F — Persistence | E2E-020, E2E-021, E2E-021a, E2E-036, E2E-037, E2E-038, E2E-040, E2E-042, E2E-047, E2E-048, E2E-051, E2E-054, E2E-056, E2E-061, E2E-062, E2E-064, E2E-066, E2E-068, E2E-071, E2E-072, E2E-073, E2E-082, E2E-084, E2E-096, E2E-098, E2E-102, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-102i, E2E-103, E2E-AGENTS-001, E2E-061a, E2E-073a, E2E-104, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-118, E2E-119, E2E-120, E2E-121, E2E-123, E2E-142, E2E-146, E2E-146a, E2E-148, E2E-151, E2E-158, E2E-160, E2E-168, E2E-171, E2E-177, E2E-178, E2E-183, E2E-186, E2E-005J |
+| F — Persistence (project ordering) | E2E-251 |
 | G — Plugins | E2E-022, E2E-022A, E2E-022B, E2E-022C, E2E-023, E2E-024, E2E-024B, E2E-024C, E2E-024D, E2E-024E, E2E-024W, E2E-024F, E2E-024G, E2E-024H, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M, E2E-024N, E2E-024O, E2E-024P, E2E-025, E2E-026, E2E-105, E2E-117, E2E-120, E2E-122, E2E-123, E2E-024Q, E2E-148, E2E-152, E2E-153 |
 | H — Diagnostics | E2E-027, E2E-031, E2E-034, E2E-042, E2E-096, E2E-098, E2E-104, E2E-107, E2E-108, E2E-109, E2E-110, E2E-113, E2E-115, E2E-116, E2E-118, E2E-121, E2E-146, E2E-146a, E2E-155, E2E-159, E2E-176, E2E-194, E2E-195 |
 | Security | E2E-028, E2E-029, E2E-030, E2E-024J, E2E-024K, E2E-024M, E2E-049, E2E-068, E2E-086, E2E-102c, E2E-102d, E2E-102e, E2E-105, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-113, E2E-115, E2E-116, E2E-117, E2E-119, E2E-121, E2E-122, E2E-123, E2E-142, E2E-148, E2E-151, E2E-153, E2E-158, E2E-187, E2E-196c, E2E-196b, E2E-196 |
-| Quality | E2E-032, E2E-033, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-053, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-103, E2E-AGENTS-001, E2E-021a, E2E-024N, E2E-059a, E2E-060b, E2E-060c, E2E-060d, E2E-061a, E2E-073a, E2E-111, E2E-114, E2E-117, E2E-118, E2E-119, E2E-120, E2E-122, E2E-123, E2E-142, E2E-143, E2E-144, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-148, E2E-150, E2E-151, E2E-153, E2E-155, E2E-158, E2E-159, E2E-160, E2E-161, E2E-162, E2E-163, E2E-168, E2E-172, E2E-173, E2E-174, E2E-011g, E2E-176, E2E-177, E2E-178, E2E-179, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-196a, E2E-196b, E2E-196c, E2E-198, E2E-199, E2E-200, E2E-196, E2E-201, E2E-204, E2E-202, E2E-203, E2E-205, E2E-206, E2E-207, E2E-208, E2E-209, E2E-210, E2E-218, E2E-219 |
+| Quality | E2E-032, E2E-033, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-053, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-103, E2E-AGENTS-001, E2E-021a, E2E-024N, E2E-059a, E2E-060b, E2E-060c, E2E-061a, E2E-073a, E2E-111, E2E-114, E2E-117, E2E-118, E2E-119, E2E-120, E2E-122, E2E-123, E2E-142, E2E-143, E2E-144, E2E-145, E2E-146, E2E-147, E2E-148, E2E-150, E2E-151, E2E-153, E2E-155, E2E-158, E2E-159, E2E-160, E2E-161, E2E-162, E2E-163, E2E-168, E2E-172, E2E-173, E2E-174, E2E-011g, E2E-176, E2E-177, E2E-178, E2E-179, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-196a, E2E-196b, E2E-196c, E2E-198, E2E-199, E2E-200, E2E-196, E2E-201, E2E-204, E2E-202, E2E-203, E2E-205, E2E-206, E2E-207, E2E-208, E2E-209, E2E-210, E2E-218, E2E-219, E2E-250, E2E-252, E2E-102i |
+| Quality (project ordering) | E2E-253 |
 
 | Milestone | Scenarios |
 |---|---|
 | M1 | E2E-001, E2E-002, E2E-003, E2E-028, E2E-029 |
-| M2 | E2E-004, E2E-005, E2E-006, E2E-007, E2E-008, E2E-009, E2E-010, E2E-011, E2E-011a, E2E-011b, E2E-011d, E2E-011e, E2E-011g, E2E-020, E2E-021, E2E-021a, E2E-027, E2E-031, E2E-036, E2E-037, E2E-042, E2E-087, E2E-088, E2E-088b, E2E-089, E2E-090, E2E-144, E2E-005J, E2E-201, E2E-202, E2E-207, E2E-206 |
+| M2 | E2E-004, E2E-005, E2E-006, E2E-007, E2E-008, E2E-008d, E2E-009, E2E-010, E2E-011, E2E-011a, E2E-011b, E2E-011d, E2E-011e, E2E-011g, E2E-020, E2E-021, E2E-021a, E2E-027, E2E-031, E2E-036, E2E-037, E2E-042, E2E-087, E2E-088, E2E-088b, E2E-089, E2E-090, E2E-144, E2E-005J, E2E-201, E2E-202, E2E-207, E2E-206 |
 | M3 | E2E-012, E2E-013, E2E-014, E2E-015, E2E-016, E2E-017, E2E-018, E2E-019, E2E-040 |
 | M4 | E2E-022, E2E-023, E2E-024, E2E-025, E2E-026, E2E-030, E2E-038 |
-| M5 | E2E-008a, E2E-032, E2E-033, E2E-034, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-051, E2E-052, E2E-053, E2E-054, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-AGENTS-001, E2E-059a, E2E-060b, E2E-060c, E2E-061a, E2E-073a, E2E-094, E2E-095, E2E-143, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-177, E2E-178, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-204, E2E-208 |
+| M5 | E2E-008a, E2E-032, E2E-033, E2E-034, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-051, E2E-052, E2E-053, E2E-054, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-AGENTS-001, E2E-059a, E2E-060b, E2E-060c, E2E-061a, E2E-073a, E2E-094, E2E-095, E2E-143, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-177, E2E-178, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-204, E2E-208, E2E-250, E2E-252, E2E-102i |
+| M5 (project ordering) | E2E-253 |
 | M6 | E2E-104, E2E-105, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-111, E2E-112, E2E-113, E2E-114, E2E-115, E2E-116, E2E-117, E2E-118, E2E-119, E2E-120, E2E-103, E2E-172 |
 | M6+ | E2E-121, E2E-122, E2E-148, E2E-150, E2E-151, E2E-154, E2E-155, E2E-158, E2E-159, E2E-160, E2E-161, E2E-162, E2E-163, E2E-166, E2E-168, E2E-173, E2E-174, E2E-176, E2E-179, E2E-196a, E2E-196b, E2E-196c, E2E-198, E2E-199, E2E-200, E2E-202, E2E-203, E2E-205, E2E-209, E2E-210, E2E-212, E2E-213, E2E-214, E2E-215, E2E-216, E2E-217, E2E-218, E2E-219 |
 | Post-MVP | E2E-022A, E2E-022B, E2E-022C, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M (plugin roadmap R2/R3/R6) |
 | Post-baseline local automation | E2E-220 |
 | Post-MVP remote control | E2E-221, E2E-222, E2E-223, E2E-224, E2E-225, E2E-226, E2E-227, E2E-228, E2E-229, E2E-230, E2E-231, E2E-232 |
 | Trusted extensions (R7 v1) | E2E-241, E2E-242, E2E-243, E2E-244, E2E-245 |
-| Git work panel (M6+) | E2E-246, E2E-247 |
+| Git work panel (M6+) | E2E-254, E2E-255 |
 
 The `US-UI-*` visual scenarios (§UI shell visual scenarios) trace to the
 Codex parity decisions in [decisions-log §D](../08-meta/decisions-log.md)
@@ -7224,24 +7395,26 @@ This test plan spec is accepted when:
   panel context holds no tabs.
 - **Steps**:
   1) Press `Cmd/Ctrl + J` and confirm the panel appears with an empty body that
-     shows a tiled icon, the title "No resource open", one line of supporting
-     copy, and Browser/in-scope plugin-view rows — not a blank area below the
-     title bar.
+     shows the title "New" and Review plus Browser/in-scope plugin-view rows —
+     not a blank area below the title bar.
   2) Tab into the available rows and confirm each takes a visible focus ring
      and that hovering a row shows only a background fill.
   3) Activate Browser or a plugin view and confirm its singleton tab is created
      and selected; the empty body and its view list disappear.
-  4) Open the header context menu, activate the same view again, and confirm it
-     selects the existing tab rather than creating a second one.
-  5) Close the view tab and confirm the panel hides when it was the last tab,
-     then press `Cmd/Ctrl + J` again and confirm the empty body returns.
+  4) Click `+` to create a New launcher tab, activate the same view from its
+     body, and confirm it selects the existing tab rather than creating a
+     second one.
+  5) Close the view tab and confirm the panel remains open on the New launcher
+     when it was the last tab; press `Cmd/Ctrl + J` again and confirm it hides.
   6) Repeat step 1 in Chinese and in both light and dark themes, and at the
      244px panel minimum, confirming the copy wraps rather than clipping.
 - **Expected**: `Cmd/Ctrl + J` reveals the panel without creating a tab, and the
-  no-resource body lists the same Browser/plugin-view entries as the header
-  menu; a row creates or selects that singleton view exactly as the menu does.
-  The empty body is not exposed as a `tabpanel`; its rows are buttons in a
-  `role="group"` labelled Tools. Panel empty states share the app's empty-state
+  New launcher lists the same Review/plugin-view entries as its `+`-created
+  page; a row creates or selects that singleton view. Each `+` click creates a
+  separate closable New tab. Closing the final tab leaves the panel open on New.
+  The no-tab empty body is not exposed as a `tabpanel`; explicit New tabs are
+  labelled tabpanels. Their rows are buttons in a `role="group"` labelled
+  Tools. Panel empty states share the app's empty-state
   proportions with no action button in the "open a project" states.
 - **Specs linked**: `04-ux/08-component-spec.md` §5.2, §5.2.1, §5.3, §5.4, §5.5,
   `04-ux/07-ui-design-system.md`, ADR 0108
@@ -7735,7 +7908,11 @@ This test plan spec is accepted when:
      appears once under the row. Confirm there is no long subtitle, no
      per-chip Apply label, and that Advanced starts collapsed. Confirm
      hyphenated ids (`code-reviewer`, `test-runner`) render catalog names,
-     not raw keys such as `presetCode-reviewerName`.
+     not raw keys such as `presetCode-reviewerName`. At normal desktop width,
+     confirm the name/description/select controls read as compact filled wells,
+     the prompt editor is the only tall field, and the Save/Cancel actions stay
+     visually subordinate to the form. Focus a field and confirm its accent
+     ring remains visible without a permanent divider.
   2. Click the **Explorer** chip without touching any field. Confirm the
      form is pre-filled: name `Explorer`, the description from the
      builtin, the `Read / Glob / Grep / Bash` tool grant, and the full
@@ -7886,7 +8063,9 @@ This test plan spec is accepted when:
   Continue; confirm leftover delegates abort, the session is idle, Continue
   is accepted, and the failed assistant error surface stays visible. 8) Define
   a delegate with an explicit `maxTokens` and one without, run both, and read
-  the two outgoing provider requests.
+  the two outgoing provider requests. 9) Start enough delegates for their
+  combined reports to exceed the bounded `TaskWait` result, then let the parent
+  idle.
 - **Expected**: Idle and duration watchdogs never fire. Parent idle does not
   abort delegates. Completion reports are delivered into the same durable
   turn. `TaskWait` expiry reports “Still running after Ns”, includes a
@@ -7898,7 +8077,9 @@ This test plan spec is accepted when:
   capped delegate's request carries the declared output limit and the uncapped
   one carries the model's published limit, so the cap overrides the derived
   `max_tokens` / `max_completion_tokens` / `max_output_tokens` without
-  disturbing the session's own requests (D383).
+  disturbing the session's own requests (D383). In step 9, the reports omitted
+  from the bounded `TaskWait` content are delivered once by the idle resume and
+  are not replayed after they reach the parent.
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §5f,
   `03-runtime/08-error-codes.md`, `03-runtime/09-logging-and-observability.md`,
   ADR 0166, ADR 0189, decisions-log D328 / D352 / D383
@@ -7909,7 +8090,7 @@ This test plan spec is accepted when:
   `subagent-definition.test.ts`, and its document round-trip in host-core
   `user_subagents` tests; the request-level assertion in step 8 stays manual.
 
-#### E2E-157: Sidebar scrollbars stay quiet while remaining discoverable
+#### E2E-157: Global scrollbars stay quiet while remaining discoverable
 
 - **Preconditions**: PI-Desktop is open with the expanded sidebar, more
   temporary sessions than the five-row cap, and enough retained project
@@ -7920,13 +8101,17 @@ This test plan spec is accepted when:
   back into each list, drag its thumb through the region, and keyboard-focus a
   row to confirm the focused list keeps its thumb available. 4) Scroll the
   list with the wheel or trackpad after moving the pointer away from the thumb.
+  5) Open a long conversation and a long right-side work-panel view, including
+  the Files view when the bundled plugin is enabled, and compare their idle,
+  hovered, focused, and scrolling states on Windows.
 - **Expected**: Both regions remain independently scrollable and the footer
-  stays fixed. At rest each scrollbar is trackless, 6px wide, and transparent;
-  hovering or focusing the owning list reveals only its thumb, and dragging
-  keeps it visible so navigation remains visually quiet without changing the
-  scroll region's width. Chat, code, and Settings scrollbars follow the same
-  rest/reveal rule at 8px: transparent until their scroller is hovered or
-  scrolling (D300).
+  stays fixed. Every in-app scrollbar is trackless, 6px wide, and transparent
+  at rest; hovering or focusing the owning scroller reveals only its thumb,
+  while scrolling reveals it for 300ms after the last scroll event. Dragging
+  keeps it visible without changing the scroll region's width. Chat, code,
+  Settings, and the right-side work-panel scrollbars all match this rule. A
+  docked or detached plugin panel receives the same host-injected rule; an
+  external page inside Browser keeps its own page-owned scrollbar.
 - **Specs linked**: `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`
 - **Acceptance**: Quality (sidebar polish and independent navigation)
@@ -8092,24 +8277,31 @@ This test plan spec is accepted when:
      directions, including a slow drag with a brief pause, then release.
   2. Confirm the main pane reflows continuously and the sidebar does not jump
      when the pointer is pressed.
-  3. Repeat with a target below the minimum and above the maximum; release and
-     confirm the width stops at 240px and 520px respectively.
-  4. Focus the edge handle and press ArrowLeft/ArrowRight, Home, and End;
+  3. With the work panel open or on a small supported window, continue the
+     resize toward the maximum; inspect the composer toolbar while the main
+     pane reflows.
+  4. Repeat with a target below the minimum and above the maximum; release and
+     confirm the sidebar width stops at 240px and 520px respectively while the
+     MainChat reservation remains intact.
+  5. Focus the edge handle and press ArrowLeft/ArrowRight, Home, and End;
      inspect the separator's current ARIA value.
-  5. Start a resize, press Escape or cancel the pointer, then restart the app.
+  6. Start a resize, press Escape or cancel the pointer, then restart the app.
      Collapse and re-expand the sidebar as a separate check.
 - **Expected**: The handle is discoverable on direct hover/focus without a
   full-height white/accent rail when the sidebar body is hovered, has no native
   window drag or text-selection side effect, and remains anchored to the press
-  point. MainChat follows the live width. Pointer release saves one clamped
+  point. MainChat follows the live width until its 515px floor. Pointer release saves one clamped
   preferred width; Escape/cancellation restores the starting width without
   saving it. Keyboard changes commit immediately and expose localized width
   semantics. The saved width survives relaunch and is restored after sidebar
   collapse; collapse does not convert the preferred width into the icon-rail
-  width.
+  width. MainChat never falls below its reserved 515px width, and the composer
+  toolbar keeps its left and right groups on one row without squeezed buttons.
+  Mode/permission labels remain single-line and ellipsized; no toolbar text is
+  vertically split or overlapped.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`,
-  ADR 0141, D280
+  ADR 0141, ADR 0226, D280, D401
 - **Acceptance**: A (app shell), F (persistence), Quality
 - **Milestone**: M6+
 - **Status**: Unit/source-contract covered (`sidebar-preferences.test.mjs`,
@@ -8152,7 +8344,8 @@ This test plan spec is accepted when:
 
 - **Preconditions**: One AI service with discoverable models, including a
   reasoning-capable model that publishes at least three thinking levels, a
-  vision-capable model, and a model models.dev describes as text-only.
+  vision-capable model, and a model models.dev describes as text-only. The
+  service must persist model-local `supportsImages` overrides.
 - **Steps**: 1) Open Settings → Model configuration, edit the service and expand
   a reasoning-capable model's Advanced disclosure. 2) Enable at least three
   thinking levels and pick a default that is not the lowest enabled level, then
@@ -8160,10 +8353,13 @@ This test plan spec is accepted when:
   currently chosen as default and read the selector again. 5) Start a new session
   on that model and open the composer reasoning menu. 6) Back in Advanced, on
   the text-only model, turn Image input on, save, reopen and confirm the switch
-  reports itself as overridden. 7) Attach an image in a session on that model.
-  8) Tick the same box back to the value models.dev publishes, save, and reopen.
-  9) Turn PDF input on for a model whose catalog entry omits it, save, and
-  attach a PDF. 10) Configure a model, then point the service at an endpoint that
+  reports itself as overridden. 7) Open the Composer model menu and confirm
+  that this model shows the vision badge. 8) On the published vision model,
+  turn Image input off and confirm its Composer row no longer shows the vision
+  badge. 9) Attach an image in a session on the text-only model. 10) Tick the
+  same box back to the value models.dev publishes, save, and reopen.
+  11) Turn PDF input on for a model whose catalog entry omits it, save, and
+  attach a PDF. 12) Configure a model, then point the service at an endpoint that
   no longer lists it, reopen the editor and read that model's capability boxes.
 - **Expected**: The default thinking level is selectable among the levels the
   binding enables and nothing else; it persists across reopen and is the level
@@ -8172,8 +8368,12 @@ This test plan spec is accepted when:
   level rather than leaving a level the runtime would clamp away, and the
   selector is absent when a binding enables one level or none. An answered
   Image input switch overrides the published capability in both directions and
-  survives reopen, so a model the catalog calls text-only transports the attached
-  image as an image content block. Ticking a box back to the published value
+  survives reopen. The Composer model menu shows the vision badge for the
+  effective `true` override on the published text-only model, hides it for an
+  explicit `false` override on the published vision model, and follows the
+  published value when the override is reset to `null`. The text-only model
+  transports the attached image as an image content block. Ticking a box back
+  to the published value
   stores "follow the catalog" rather than an equal-valued override, so a later
   catalog correction still reaches the binding without any separate reset
   control. All seven canonical thinking chips remain available even when the
@@ -8188,7 +8388,10 @@ This test plan spec is accepted when:
   from live discovery still shows its published capabilities rather than reading
   as undescribed.
 - **Specs linked**: `03-runtime/11-provider-model-system.md` §6.2,
-  `03-runtime/12-provider-config-schema.md`, `04-ux/08-component-spec.md` §19
+  `03-runtime/12-provider-config-schema.md`,
+  `03-runtime/13-model-catalog-and-selection.md` §11.2,
+  `04-ux/08-component-spec.md` §11.7–11.8,
+  `04-ux/06-settings-ia.md`, ADR 0218
 - **Acceptance**: B (model config), Quality
 
 #### E2E-164: Context compaction preserves the active task boundary
@@ -8661,8 +8864,8 @@ are withdrawn with ADR 0165.
     without rewriting `message.usage`.
 - **Specs linked**: `04-ux/06-settings-ia.md`,
   `03-runtime/01-ipc-protocol.md`, `03-runtime/06-host-rpc-protocol.md`,
-  ADR 0171, ADR 0173, ADR 0216, `08-meta/decisions-log.md`
-  (D331, D335, D390)
+  ADR 0171, ADR 0173, ADR 0230, `08-meta/decisions-log.md`
+  (D331, D335, D404)
 - **Acceptance**: F (persistence), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered (agent-runtime usage split, host-core history
@@ -8727,32 +8930,21 @@ are withdrawn with ADR 0165.
   `plugin-session-context.test.ts`, `subagent-wiring.test.mjs`); full UI
   journey Draft (do not run E2E locally unless explicitly requested)
 
-#### E2E-189: Bundled Advisor plugin picks a reviewer and returns a second opinion
+#### E2E-189: Bundled Advisor plugin is temporarily unavailable
 
-- **Preconditions**: `pi.advisor` is installed as bundled (not uninstallable)
-  and starts disabled. At least one authenticated provider. An Agent session.
+- **Preconditions**: A packaged or development build of PI-Desktop.
 - **Steps**:
-  1. Confirm `/advisor` is absent and the `advisor` tool is not registered
-     while the plugin is disabled.
-  2. Enable `pi.advisor`. Confirm `/advisor` appears and the `advisor` tool is
-     still absent until a reviewer is selected.
-  3. Run `/advisor` (or the plugin command) and pick a model plus effort.
-     Confirm the toast `Advisor: <label>[, <effort>]` and that settings persist.
-  4. Ask the Agent to proceed with a non-trivial task. Confirm it can call
-     `plugin_pi_advisor_advisor` with no parameters and restates the guidance
-     in the visible reply.
-  5. Disable the plugin. Confirm `/advisor` is gone and the tool is
-     unregistered. Confirm Uninstall is refused.
-- **Expected**: First registration is disabled (`enabledByDefault: false`). Off
-  costs no completion and no tool schema. The plugin uses only public host APIs.
-  D015 prefix is `plugin_pi_advisor_advisor`. An explicit enable survives the
-  next launch.
+  1. Inspect the bundled plugin resources and confirm `pi.advisor` is absent.
+  2. Open the command palette and plugin settings. Confirm `/advisor`, the
+     Advisor plugin, and its `advisor` tool are absent.
+- **Expected**: The temporary removal does not expose an Advisor command,
+  plugin, panel, skill, or agent tool. The general host-owned plugin completion
+  APIs remain available to explicitly installed plugins.
 - **Specs linked**: `07-plugins/03-plugin-api.md`, ADR 0174, D336
 - **Acceptance**: G (plugin agent tool), C (conversation)
 - **Milestone**: M5
-- **Status**: Unit-covered (`bundled-plugins.test.mjs`,
-  `plugin-complete.test.mjs`); full UI journey Draft (do not run E2E locally
-  unless explicitly requested)
+- **Status**: Unit-covered (`bundled-plugins.test.mjs`); full UI journey Draft
+  (do not run E2E locally unless explicitly requested)
 
 #### E2E-190: Settings Network proxy applies to app-owned HTTP
 
@@ -9170,14 +9362,14 @@ are withdrawn with ADR 0165.
   session, and inspect the same card and side-dock details again.
 - **Expected**: Each node and its side-dock header use the delegation result's
   effective `modelId` and `thinkingLevel`, independently of sibling delegates.
-  The reasoning-capable node shows its localized `Max`/equivalent level label
-  after the model name; the unsupported node shows only its model name. No
+  The reasoning-capable node shows the raw canonical `max` value after the
+  model name; the unsupported node shows only its model name. No
   `Off` or `omit` suffix appears. Inheritance and model capability clamping are
   reflected without UI re-derivation, the full label remains available through
   the accessible name and hover title, and narrow layouts ellipsize without
   overflow. Reloaded history matches the live presentation.
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §5f,
-  `04-ux/08-component-spec.md` §5.7, ADR 0202
+  `04-ux/08-component-spec.md` §5.7, ADR 0202, ADR 0221
 - **Acceptance**: C (chat/stream) + Quality
 - **Milestone**: M6+
 - **Status**: Unit/source-contract covered; full multi-provider rendered journey
@@ -9795,7 +9987,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Status**: Unit-covered by `packages/agent-runtime/src/extensions/bundle.test.ts`
   (esbuild bundle run from a temp directory); packaged-app journey Draft
 
-#### E2E-246: The bundled Git work panel manages the current repository
+#### E2E-254: The bundled Git work panel manages the current repository
 
 - **Preconditions**: A local bare `origin` with a main branch; clone A and
   clone B configured to use it without terminal prompts. Clone A contains one
@@ -9835,14 +10027,14 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Specs linked**: `07-plugins/03-plugin-api.md` (Git API),
   `07-plugins/13-plugin-permissions-matrix.md`,
   `04-ux/08-component-spec.md` §5.2.3, `04-ux/09-interaction-patterns.md` §1.8;
-  ADR 0217, D391
+  ADR 0231, D405
 - **Acceptance**: D (plugins), Security, Quality
 - **Milestone**: M6+
 - **Status**: Draft; service, runtime, and source-contract tests cover the
   structured Git operations, permission/consent gates, and bundled-plugin
   contract; browser E2E not run
 
-#### E2E-247: Git tree review and AI commit message generation
+#### E2E-255: Git tree review and AI commit message generation
 
 - **Preconditions**: A Git repository contains nested changed directories with
   staged and unstaged text files, at least one multi-line modification, and a
@@ -9878,7 +10070,7 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   explicit action.
 - **Specs linked**: `07-plugins/03-plugin-api.md` (models and agent.complete),
   `04-ux/08-component-spec.md` §5.2.3,
-  `04-ux/09-interaction-patterns.md` §1.8; ADR 0218, ADR 0219, D392, D393
+  `04-ux/09-interaction-patterns.md` §1.8; ADR 0232, ADR 0233, D406, D407
 - **Acceptance**: D (plugins), Security, Quality
 - **Milestone**: M6+
 - **Status**: Draft; runtime permission and bundled-plugin source-contract tests
@@ -9944,3 +10136,86 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   declaration, `mode-prompts.test.ts` updated wording); desktop
   journey is Draft (do not run E2E locally unless explicitly
   requested)
+
+#### E2E-250: Context usage display preference switches the inspector's leading figure
+
+- **Preconditions**: An Agent session has completed at least one turn that
+  reported token usage. Settings → AI → Defaults is reachable.
+- **Steps**:
+  1. Confirm the composer toolbar context ring shows remaining capacity
+     (ring nearly full, percentage ≈ remaining %, tooltip and aria-label
+     use remaining vocabulary).
+  2. Open Settings → AI → Defaults and switch the Context usage display
+     segmented control from Remaining to Used.
+  3. Return to the chat and inspect the context ring: the ring arc now
+     fills by `usedRatio` (nearly empty at low occupancy), the percentage
+     shows ≈ used %, the popover heading shows used tokens + percentage,
+     and the tooltip/aria-label use used-capacity vocabulary.
+  4. Confirm warning/critical ring colors still follow remaining capacity:
+     at remaining > 25 % the ring stays neutral even when used % is high.
+  5. Switch back to Remaining and confirm the original display returns.
+- **Expected**: The display mode flips the ring arc, percentage, token
+  count, heading, tooltip, and aria-label consistently. Color thresholds
+  remain based on remaining capacity in both modes. The default for a
+  fresh profile is Remaining.
+- **Specs linked**: `04-ux/06-settings-ia.md`, `04-ux/08-component-spec.md`,
+  ADR 0223, `08-meta/decisions-log.md` (D398)
+- **Acceptance**: C (conversation & stream), Quality (preference)
+- **Milestone**: M5
+- **Status**: Unit-covered (`context-usage.test.mjs`,
+  `settings-general.test.mjs`); full scenario Draft
+
+#### E2E-251: Custom dropdowns float without changing page layout
+
+- **Preconditions**: A desktop build with a configured provider, at least one
+  project/session, and the default dark theme. The Settings, Plugins, Projects,
+  chat composer, work panel, and sidebar surfaces are reachable.
+- **Steps**: 1) Open each available custom dropdown/menu from Settings,
+  Projects, Plugins, the sidebar, the composer, Plan approval, and Scope. 2) Repeat
+  with the trigger near the bottom and right
+  edges of the window, and while the surrounding page/card has scrollable
+  content. 3) Scroll the owning pane and resize the window while a menu remains
+  open. 4) Close each menu with Escape and by pressing outside it.
+- **Expected**: Every custom dropdown is a body-level fixed layer that overlays
+  content without increasing row/card height or changing page/sidebar/work-panel
+  allocation. It stays within the viewport, flips or clamps when space is tight,
+  follows its trigger after scroll/resize, is not clipped by settings cards or page
+  overflow, and restores focus to its trigger on close. Native `<select>`
+  popups are excluded because they are rendered by the operating system.
+- **Specs linked**: `04-ux/07-ui-design-system.md`,
+  `04-ux/09-interaction-patterns.md`
+- **Acceptance**: Quality, responsive layout, Accessibility
+- **Milestone**: M5+
+- **Status**: Source-contract covered (`fixed-dropdown-surfaces.test.mjs`);
+  desktop journey Draft (do not run E2E locally unless explicitly requested)
+
+#### E2E-253: Project groups support manual drag and keyboard reordering
+
+- **Preconditions**: The sidebar contains at least three project groups,
+  including one pinned or archived project, and each project has a stable
+  host workspace/path/directory.
+- **Steps**:
+  1. Press a project title, move it above or below another project group,
+     inspect the insertion line, and release.
+  2. Click a project title and confirm it still selects the project and
+     toggles collapse without changing order.
+  3. Focus the same title and press `ArrowUp` or `ArrowDown`; repeat once in
+     each direction.
+  4. Restart the app and inspect the project order.
+  5. Open a session from a reordered project and confirm its host workspace,
+     path, and directory are unchanged.
+- **Expected**: The project groups render in the released order and the
+  manual order survives restart. There is no reorder grip and no 400ms
+  delay. An insertion line shows drop placement. The title exposes a
+  keyboard-accessible reorder action, a short click does not reorder,
+  `Escape` cancels an active drag, and the existing pinned / archived
+  priority rules remain intact. Reordering never changes a project's host
+  workspace, path, directory, or session sort.
+- **Specs linked**: `04-ux/08-component-spec.md`,
+  `04-ux/09-interaction-patterns.md`, `03-runtime/04-data-storage.md`,
+  `08-meta/decisions-log.md` (D399, D402, D403)
+- **Acceptance**: D (workspace), F (persistence), Quality
+- **Milestone**: M5
+- **Status**: Source-contract covered (`app-store-sidebar.test.mjs`,
+  `sidebar-preferences.test.mjs`, `sidebar-project-reorder.test.mjs`);
+  rendered desktop journey Draft

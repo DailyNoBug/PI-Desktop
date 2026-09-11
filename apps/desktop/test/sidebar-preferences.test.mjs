@@ -147,6 +147,50 @@ test("projects sort by name while retaining pinned priority", () => {
   );
 });
 
+test("manual project order follows persisted metadata while retaining pinned priority", () => {
+  const projects = sortProjects(
+    [
+      { path: "/work/third", name: "Third" },
+      { path: "/work/first", name: "First" },
+      { path: "/work/pinned", name: "Pinned" },
+      { path: "/work/unordered", name: "Unordered" },
+    ],
+    {
+      "/work/third": { order: 2 },
+      "/work/first": { order: 0 },
+      "/work/pinned": { pinned: true, order: 1 },
+    },
+    "manual",
+  );
+
+  assert.deepEqual(
+    projects.map((project) => project.name),
+    ["Pinned", "First", "Third", "Unordered"],
+  );
+});
+
+test("manual project order ignores negative and fractional persisted ranks", () => {
+  const projects = [
+    { path: "/work/invalid", name: "Invalid" },
+    { path: "/work/fractional", name: "Fractional" },
+    { path: "/work/valid", name: "Valid" },
+  ];
+  const sorted = sortProjects(
+    projects,
+    {
+      "/work/invalid": { order: -1 },
+      "/work/fractional": { order: 1.5 },
+      "/work/valid": { order: 0 },
+    },
+    "manual",
+  );
+  assert.deepEqual(sorted.map((project) => project.path), [
+    "/work/valid",
+    "/work/fractional",
+    "/work/invalid",
+  ]);
+});
+
 test("all user-facing session sort modes produce stable secondary order", () => {
   const sessions = [
     session({
@@ -322,6 +366,8 @@ test("persists retained project paths and per-project collapse state", () => {
     const loaded = loadSidebarPreferences();
     assert.deepEqual(loaded.openProjectPaths, ["/work/a/", "/work/b"]);
     assert.equal(projectIsCollapsed("/work/a", loaded.projectMeta), true);
+    assert.equal(loaded.projectMeta["/work/a"].order, 2);
+    assert.equal(loaded.projectMeta["/work/b"].order, 1);
     assert.equal(loaded.projectSort, "name");
     assert.equal(loaded.sessionView.sort, "created");
     assert.equal(loaded.sessionView.archived, true);

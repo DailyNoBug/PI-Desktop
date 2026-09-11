@@ -88,6 +88,11 @@ function bool(value: unknown): boolean | undefined {
 function number(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
+function manualOrder(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
 export function normalizeProjectName(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const name = value.trim();
@@ -102,7 +107,7 @@ function cleanSessionMeta(value: unknown): Record<string, SessionMeta> {
     const item: SessionMeta = {};
     const pinned = bool(raw.pinned);
     const archived = bool(raw.archived);
-    const order = number(raw.order);
+    const order = manualOrder(raw.order);
     const manualTitle = bool(raw.manualTitle);
     if (pinned !== undefined) item.pinned = pinned;
     if (archived !== undefined) item.archived = archived;
@@ -123,7 +128,7 @@ function cleanProjectMeta(value: unknown): Record<string, ProjectMeta> {
     const pinned = bool(raw.pinned);
     const archived = bool(raw.archived);
     const collapsed = bool(raw.collapsed);
-    const order = number(raw.order);
+    const order = manualOrder(raw.order);
     if (name !== undefined) item.name = name;
     if (pinned !== undefined) item.pinned = pinned;
     if (archived !== undefined) item.archived = archived;
@@ -276,8 +281,8 @@ export function sortSessions(
       );
       if (byCreated) return byCreated;
     } else if (sort === "manual") {
-      const byOrder = (meta[a.id]?.order ?? Number.MAX_SAFE_INTEGER) -
-        (meta[b.id]?.order ?? Number.MAX_SAFE_INTEGER);
+      const byOrder = (manualOrder(meta[a.id]?.order) ?? Number.MAX_SAFE_INTEGER) -
+        (manualOrder(meta[b.id]?.order) ?? Number.MAX_SAFE_INTEGER);
       if (byOrder) return byOrder;
     } else {
       const byUpdated = compareOptionalNumber(
@@ -333,8 +338,8 @@ export function sortProjects<T extends SidebarProject>(
       const byCreated = compareOptionalNumber(a.createdAt, b.createdAt, false);
       if (byCreated) return byCreated;
     } else if (sort === "manual") {
-      const byOrder = (meta[ak]?.order ?? Number.MAX_SAFE_INTEGER) -
-        (meta[bk]?.order ?? Number.MAX_SAFE_INTEGER);
+      const byOrder = (manualOrder(meta[ak]?.order) ?? Number.MAX_SAFE_INTEGER) -
+        (manualOrder(meta[bk]?.order) ?? Number.MAX_SAFE_INTEGER);
       if (byOrder) return byOrder;
     } else {
       const byOpened = compareOptionalNumber(a.openedAt, b.openedAt, true);

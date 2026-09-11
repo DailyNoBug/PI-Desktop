@@ -76,7 +76,6 @@ export const frEntries: ChangelogEntry[] = [
     "version": "0.13.11",
     "date": "2026-09-07",
     "highlights": [
-      "Activez le plug-in Advisor fourni pour qu'un deuxième modèle examine la conversation en cours.",
       "Laissez les plugins répertorier les modèles, lire le contexte de la session en cours et demander des achèvements appartenant à l'hôte sans recevoir d'informations d'identification."
     ]
   },

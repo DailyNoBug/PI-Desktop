@@ -233,7 +233,21 @@ Each ADR includes:
 | 0213 | Persist the Host-owned turn queue in host-core | Accepted |
 | 0214 | Trusted extensions run in the Agent sidecar | Accepted (v1 implemented; amended by D388 / ADR 0215) |
 | 0215 | Agent extensions are a plugin contribution | Accepted (implemented) |
-| 0216 | Sidebar token usage summary | Accepted (amends 0173) |
-| 0217 | Bundled Git work panel | Accepted (D391; amended by 0218 / D392) |
-| 0218 | Tree review and AI commit messages in Git | Accepted (D392) |
-| 0219 | Window-sized plugin view modals | Accepted (D393) |
+| 0216 | Truncate regenerates under the RPC lock | Accepted (amends 0060 / 0127; issue #211) |
+| 0217 | Host stdout sender must not outlive serve | Accepted (amends 0216; issue #211) |
+| 0218 | Effective image-input overrides across Composer and transport | Accepted (amends 0101 / D243) |
+| 0219 | User-invoked Skills in the composer slash menu | Accepted (amends D123 / D174 / ADR 0024 / ADR 0039) |
+| 0220 | Keep Windows work-panel chrome single-purpose | Accepted (amends D154 / D357 / ADR 0195) |
+| 0221 | Render canonical thinking-level values without translation | Accepted (amends D369 / ADR 0202) |
+| 0222 | Native file and folder drops in the Composer | Accepted (amends ADR 0101 / D397) |
+| 0223 | Context Usage Display Preference | Accepted (amends 0184) |
+| 0224 | Right panel tab strip and data-driven add menu | Accepted (issue #229) |
+| 0225 | Restore deferred tools from effective session context | Accepted (issue #225) |
+| 0226 | Reserve chat width for composer controls | Accepted |
+| 0227 | Project group manual ordering | Accepted (amended by 0228) |
+| 0228 | Long-press the project title to reorder | Accepted (amended by 0229) |
+| 0229 | Press-and-move project title reorder | Accepted (amends 0228) |
+| 0230 | Sidebar token usage summary | Accepted (amends 0173) |
+| 0231 | Bundled Git work panel | Accepted (D405; amended by 0232 / D406) |
+| 0232 | Tree review and AI commit messages in Git | Accepted (D406) |
+| 0233 | Window-sized plugin view modals | Accepted (D407) |

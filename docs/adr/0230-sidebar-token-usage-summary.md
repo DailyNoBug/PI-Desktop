@@ -1,4 +1,4 @@
-# ADR 0216: Sidebar token usage summary
+# ADR 0230: Sidebar token usage summary
 
 - Status: Accepted
 - Date: 2026-09-11

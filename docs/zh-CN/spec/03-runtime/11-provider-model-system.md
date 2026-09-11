@@ -542,6 +542,17 @@ UI 可能会显示层级提示，但默认情况下不得硬阻止未知模型�
 
 目录条目还可以额外固定模型级 wire API（例如 `api: "openai-responses"`）。存在时它优先于 provider 级 `apiStyle`，因此 `opencode_go` 下的 responses-only 模型会走 Responses adapter 而非 Chat Completions；没有模型级固定时保持 provider 级风格不变。
 
+### 16.1 Responses 流终止（pi-ai 补丁）
+
+OpenAI Responses 适配器必须把 `response.completed`（以及
+`response.incomplete`）视为流的终点：完成响应收尾后即停止消费流，
+而不是继续等待服务端的 TCP FIN。上游 pi-ai 会一直迭代直到服务端关闭
+连接，在保持空闲连接不关的反向代理后面会导致整个回合挂起。在该修复
+随上游发布之前，`patches/` 通过 pnpm patch 修改
+`@earendil-works/pi-ai@0.85.1`，在终态事件处跳出事件循环（消费方停止
+迭代时 OpenAI SDK 会中止底层请求）。待 pi-ai 发布包含该修复的版本后
+移除补丁。
+
 ## 17. 多提供商产品规则
 
 1. 允许多个提供商具有相同的供应商密钥（例如两个 OpenRouter 帐户）。

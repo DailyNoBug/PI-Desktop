@@ -190,7 +190,8 @@ test("a Task node and detail header show the effective thinking level", () => {
   );
   assert.match(transcriptSource, /function delegateThinkingLevel\(message: UiMessage\)/);
   assert.match(transcriptSource, /value === "off"/);
-  assert.match(transcriptSource, /t\(`thinkingLevel\.\$\{thinkingLevel\}`\)/);
+  assert.match(transcriptSource, /const thinkingLabel = thinkingLevel \?\? "";/);
+  assert.doesNotMatch(transcriptSource, /thinkingLevel\./);
   assert.match(
     transcriptSource,
     /const modelLabel = \[modelId, thinkingLabel\]\.filter\(Boolean\)\.join\(" "\);/,

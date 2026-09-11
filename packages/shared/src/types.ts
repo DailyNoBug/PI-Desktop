@@ -1212,10 +1212,19 @@ export type AppSettings = {
    * `external`: Open directly in the system's default web browser.
    */
   linkOpenTarget?: LinkOpenTarget;
+  /**
+   * Which context figure the composer ring and its summary lead with (D398).
+   * `remaining` (default, absent) counts down from 100%; `used` counts up.
+   * Color thresholds always follow remaining capacity, so the warning state
+   * does not change meaning with this preference.
+   */
+  contextUsageDisplay?: ContextUsageDisplay;
   onboardingDismissed: boolean;
 };
 
 export type LinkOpenTarget = "workpanel" | "external";
+
+export type ContextUsageDisplay = "remaining" | "used";
 
 export type PluginMarketSource = "official" | "mirror" | "custom";
 
@@ -1685,11 +1694,11 @@ export type CommandItem = {
   extensionId?: string;
 };
 
-/** One entry of the composer "/" menu, merged from three sources (D123). */
+/** One entry of the composer "/" menu, merged from command and skill sources (D123). */
 export type ComposerCommand = {
   /** Slash name typed after "/"; unique across the merged list. */
   name: string;
-  kind: "template" | "builtin" | "plugin" | "extension";
+  kind: "template" | "builtin" | "plugin" | "extension" | "skill";
   /** Display title (templates use their name). */
   title: string;
   description?: string;
@@ -1699,6 +1708,8 @@ export type ComposerCommand = {
   source?: "project" | "user";
   /** Palette command id for builtin/plugin execution. */
   id?: string;
+  /** Skill id passed to the model's Skill tool. */
+  skillId?: string;
 };
 
 /** One clipboard file transferred from the renderer to the composer bridge. */

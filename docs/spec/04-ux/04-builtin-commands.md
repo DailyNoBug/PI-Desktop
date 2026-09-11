@@ -97,3 +97,18 @@ The prompt body remains the visible user turn; a failed dispatch does not clear
 the composer draft. Former builtin aliases are no longer resolved and are
 handled as ordinary unknown slash text unless supplied by another command
 source.
+
+## 8. Composer skill entries
+
+Active built-in, plugin, and user-owned Skills also surface in the composer `/`
+menu. They use the exact Skill id as the slash name, show the Skill's display
+name and description, and form a separate **Skills** group after extension
+commands. This group is always last; a Skill never shadows a command or
+template with the same name.
+
+Selecting a Skill inserts `/<skill-id> `. Sending `/<skill-id>` with optional
+prompt text keeps that typed form as the visible transcript chip and asks the
+model to call the existing `Skill` tool with the validated id before answering.
+Only Skills active for the current project are listed or accepted, so project
+scope and plugin activation remain enforced at send time. If the Skill is no
+longer active, the text follows the normal unknown-slash prompt path.

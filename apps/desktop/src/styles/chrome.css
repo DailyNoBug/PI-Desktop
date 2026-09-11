@@ -255,6 +255,12 @@
   user-select: none !important;
 }
 
+:root[data-project-reordering="true"],
+:root[data-project-reordering="true"] * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
 .sidebar.is-exiting {
   pointer-events: none;
   animation: sidebar-out var(--motion-duration-fast) var(--motion-ease-in) both;
@@ -523,8 +529,8 @@
 .conversation-topbar .ct-icon-btn,
 .app-work-panel-toggle {
   display: inline-flex;
-  height: 28px;
-  width: 28px;
+  height: var(--ds-work-panel-toggle-size);
+  width: var(--ds-work-panel-toggle-size);
   align-items: center;
   justify-content: center;
   border: none;
@@ -559,7 +565,10 @@
 .conversation-topbar .ct-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile);
 }
 
 /* Keep the sole work-panel toggle anchored to the viewport while the in-flow
@@ -568,7 +577,7 @@
 .app-work-panel-toggle {
   position: fixed;
   top: 9px;
-  right: 12px;
+  right: var(--ds-work-panel-toggle-inset);
   z-index: 30;
   pointer-events: auto;
   -webkit-app-region: no-drag;
@@ -576,13 +585,34 @@
 }
 
 .app-work-panel-toggle[aria-pressed="true"] {
-  background: var(--ds-bg-active);
+  background: var(--ds-tile-deep);
   color: var(--ds-text-primary);
+  box-shadow: var(--ds-raised-shadow);
+}
+
+.app-work-panel-toggle-icon {
+  position: relative;
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+}
+
+.app-work-panel-toggle-icon > svg {
+  position: absolute;
+  inset: 0;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.app-work-panel-toggle[aria-pressed="false"] .app-work-panel-toggle-icon > svg:last-child,
+.app-work-panel-toggle[aria-pressed="true"] .app-work-panel-toggle-icon > svg:first-child {
+  opacity: 0;
 }
 
 :root[data-platform="win32"] .app-work-panel-toggle,
 :root[data-platform="linux"] .app-work-panel-toggle {
-  right: calc(var(--ds-window-controls-width) + 12px);
+  right: calc(
+    var(--ds-window-controls-width) + var(--ds-work-panel-toggle-inset)
+  );
 }
 
 /* macOS traffic lights occupy the top-left ~76px; only reserve that space
@@ -696,9 +726,11 @@
 }
 
 .notification-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
+  position: fixed;
+  top: auto;
   left: 0;
+  right: auto;
+  bottom: auto;
   z-index: 60;
   display: flex;
   width: min(360px, calc(100vw - 24px));
@@ -713,8 +745,6 @@
 
 /* Portaled to document.body so the main pane cannot paint over the dialog. */
 .notification-popover-portaled {
-  position: fixed;
-  right: auto;
   z-index: 60;
 }
 
@@ -1085,6 +1115,7 @@
 @media (max-width: 480px) {
   .notification-popover {
     position: fixed;
+    top: auto;
     bottom: 8px;
     right: 8px;
     left: 8px;

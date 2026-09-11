@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const source = (relativePath) =>
   readFileSync(join(here, "../src", relativePath), "utf8");
+const uiSource = source("components/ui.tsx");
 
 function assertLocalizedIconTooltip(relativePath, key) {
   const contents = source(relativePath);
@@ -44,4 +45,12 @@ test("icon-only actions expose localized hover tooltips", () => {
   ]) {
     assertLocalizedIconTooltip(relativePath, key);
   }
+  assert.match(uiSource, /const showTimerRef = useRef<number \| null>\(null\)/);
+  assert.match(uiSource, /const hideTimerRef = useRef<number \| null>\(null\)/);
+  assert.match(uiSource, /\}, \[active, delayMs, hideDelayMs\]\);/);
+  assert.doesNotMatch(uiSource, /\}, \[active, delayMs, hideDelayMs, visible\]\);/);
+  assert.match(uiSource, /if \(!disabled\) return;[\s\S]*?setHovered\(false\);[\s\S]*?setFocused\(false\)/);
+  assert.match(uiSource, /const \[dismissed, setDismissed\] = useState\(false\)/);
+  assert.match(uiSource, /const dismiss = \(\) => \{[\s\S]*?setDismissed\(true\)/);
+  assert.match(uiSource, /onClick=\{\(event\) => \{[\s\S]*?tooltip\.dismiss\(\)/);
 });

@@ -76,7 +76,6 @@ export const esEntries: ChangelogEntry[] = [
     "version": "0.13.11",
     "date": "2026-09-07",
     "highlights": [
-      "Habilite el complemento Advisor incluido para que un segundo modelo revise la conversación actual.",
       "Permita que los complementos enumeren modelos, lean el contexto de la sesión en curso y soliciten finalizaciones propiedad del host sin recibir credenciales."
     ]
   },

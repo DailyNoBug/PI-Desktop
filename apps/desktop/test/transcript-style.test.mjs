@@ -412,12 +412,15 @@ test("regenerate rewrites the current turn instead of appending", async () => {
   assert.match(mainSource, /agent\.disposeSession/);
   assert.match(mainSource, /truncateFromMessageId/);
   // The host resolves the boundary against its own transcript, and an
-  // unresolvable boundary fails instead of truncating at a guessed position.
+  // unresolvable identity is rejected instead of truncating at a guessed position.
   assert.match(
     mainSource,
-    /resolveTranscriptTruncation\(allMessages,\s*req\)/,
+    /"session\.truncateFrom",\s*\{\s*sessionId:\s*req\.sessionId/,
   );
-  assert.match(mainSource, /truncation\.kind === "unknown-message"/);
+  assert.doesNotMatch(
+    mainSource,
+    /resolveTranscriptTruncation|truncation\.kind === "unknown-message"/,
+  );
   assert.match(protocolSource, /sessionReplaceMessages/);
 });
 
@@ -505,10 +508,10 @@ test("regenerate history pager and stable revision family are wired", async () =
   assert.match(storeSource, /activateSessionRevision/);
   assert.match(mainSource, /session\.saveRevision/);
   assert.match(mainSource, /revisionRootId/);
-  assert.match(mainSource, /revisionCount: count \+ 1/);
+  assert.match(mainSource, /revisionCount: revision\.revisionCount/);
   assert.match(
     mainSource,
-    /save regenerate revision failed[\s\S]*?throw error;[\s\S]*?session\.replaceMessages/,
+    /truncate regenerate transcript failed[\s\S]*?throw error;/,
   );
   assert.match(sharedSource, /revisionRootId\?: string/);
   assert.match(sharedSource, /MessageRevisionSummary/);

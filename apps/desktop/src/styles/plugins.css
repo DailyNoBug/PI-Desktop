@@ -697,22 +697,27 @@
 }
 
 .plugins-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 5px);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  bottom: auto;
   z-index: 20;
   min-width: 208px;
   border-radius: var(--radius-md-plus);
   background: var(--ds-bg-elevated-opaque, var(--ds-bg-primary));
   box-shadow: 0 0 0 0.5px var(--ds-border-default), 0 12px 32px rgba(0, 0, 0, 0.2);
   padding: 5px;
-  animation: plugins-menu-in var(--motion-duration-fast) var(--motion-ease-out) both;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
 }
 
-/* Rows near the viewport bottom open upwards so the menu stays in view. */
-.plugins-menu.is-up {
-  top: auto;
-  bottom: calc(100% + 5px);
+.plugins-menu.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  animation: plugins-menu-in var(--motion-duration-fast) var(--motion-ease-out) both;
+  visibility: visible;
 }
 
 @keyframes plugins-menu-in {

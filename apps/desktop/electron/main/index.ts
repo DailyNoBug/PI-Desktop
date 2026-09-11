@@ -77,6 +77,7 @@ import {
   type CloseBehavior,
   type CommandShellCatalog,
   type CommandShellId,
+  type ComposerCommand,
   type GlobalPermissionMode,
   type KeybindingOverrides,
   type McpServerInput,
@@ -84,7 +85,6 @@ import {
   type McpServerStatus,
   type ModelBinding,
   type Mode,
-  resolveTranscriptTruncation,
   type NativeMenuAction,
   type OAuthRespondInput,
   type PlanExecution,
@@ -2386,6 +2386,28 @@ async function importLegacyScheduled() {
 
 /** sessionId → open host turn id, for turn bookkeeping across agent events. */
 const activeTurns = new Map<string, string>();
+const sessionOperationTails = new Map<string, Promise<void>>();
+
+async function acquireSessionOperation(sessionId: string): Promise<() => void> {
+  const id = sessionId.trim();
+  const previous = sessionOperationTails.get(id) ?? Promise.resolve();
+  let resolveCurrent!: () => void;
+  const current = new Promise<void>((resolve) => {
+    resolveCurrent = resolve;
+  });
+  const tail = previous.then(() => current);
+  sessionOperationTails.set(id, tail);
+  await previous;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    resolveCurrent();
+    if (sessionOperationTails.get(id) === tail) {
+      sessionOperationTails.delete(id);
+    }
+  };
+}
 /** Plan submission turns end without a task-complete notification. */
 const planSubmissionTurnIds = new Set<string>();
 /** sessionId → host execution id for an approved plan currently dispatched. */
@@ -3943,23 +3965,113 @@ async function createWindow() {
             await openPanelArtifact("browser");
             await new Promise((r) => setTimeout(r, 400));
             await shot("pi-panel-browser");
+            const probeWorkPanelNewPage = async (scene: string) => {
+              const probe = await mainWindow!.webContents.executeJavaScript(`(() => {
+                const blank = document.querySelector('[data-testid="work-panel-empty"]');
+                const add = document.querySelector('.work-panel-new-tab');
+                return {
+                  scene: ${JSON.stringify(scene)},
+                  viewport: { width: innerWidth, height: innerHeight },
+                  blankPage: Boolean(blank),
+                  launcherRows: blank?.querySelectorAll('.work-panel-launcher-row').length ?? 0,
+                  popupCount: blank?.querySelectorAll('[role="menu"]').length ?? 0,
+                  addHasPopup: add?.hasAttribute('aria-haspopup') ?? false,
+                };
+              })()`);
+              console.log("WORK_PANEL_NEW_PAGE_PROBE", probe);
+              if (!probe?.blankPage || probe.launcherRows < 1 || probe.popupCount || probe.addHasPopup) {
+                throw new Error(`work-panel blank page contract failed in ${scene}`);
+              }
+            };
+            await mainWindow!.webContents.executeJavaScript(
+              `window.__PI_DESKTOP__?.openNewWorkPanelTab?.()`,
+            );
+            await new Promise((r) => setTimeout(r, 350));
+            await shot("pi-panel-new");
+            await probeWorkPanelNewPage("new-page");
+            await setTheme("dark");
+            await new Promise((r) => setTimeout(r, 300));
+            await shot("pi-panel-new-dark");
+            await probeWorkPanelNewPage("new-page-dark");
+            await setTheme("light");
+            await new Promise((r) => setTimeout(r, 250));
+            await mainWindow!.webContents.executeJavaScript(`
+              document.querySelector('[data-work-panel-launcher-item="pi.browser/browser"]')?.dispatchEvent(
+                new MouseEvent('click', { bubbles: true }),
+              )
+            `);
+            await new Promise((r) => setTimeout(r, 500));
+            await shot("pi-panel-browser-from-new");
             await openPanelArtifact("file", "apps/desktop/src/App.tsx");
             await new Promise((r) => setTimeout(r, 500));
             await shot("pi-panel-files");
-            // The unified header menu (D173): tools first, then the file
-            // resource this run opened above.
-            await mainWindow!.webContents.executeJavaScript(`
-              (() => {
-                const btn = document.querySelector('.work-panel-switcher-trigger');
-                if (btn) btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-              })()
-            `);
+            await setTheme("dark");
             await new Promise((r) => setTimeout(r, 300));
-            await shot("pi-panel-menu");
-            await mainWindow!.webContents.executeJavaScript(`
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            `);
-            await new Promise((r) => setTimeout(r, 200));
+            await shot("pi-panel-files-dark");
+            await setTheme("light");
+            await new Promise((r) => setTimeout(r, 250));
+            const probeWorkPanelHeader = async (scene: string) => {
+              const probe = await mainWindow!.webContents.executeJavaScript(`(() => {
+                const rectFor = (selector) => {
+                  const element = document.querySelector(selector);
+                  if (!element) return null;
+                  const rect = element.getBoundingClientRect();
+                  return {
+                    left: Math.round(rect.left),
+                    top: Math.round(rect.top),
+                    right: Math.round(rect.right),
+                    bottom: Math.round(rect.bottom),
+                  };
+                };
+                const add = rectFor('.work-panel-new-tab');
+                const toggle = rectFor('.app-work-panel-toggle');
+                const header = rectFor('.work-panel-header');
+                return {
+                  scene: ${JSON.stringify(scene)},
+                  viewport: { width: innerWidth, height: innerHeight },
+                  header,
+                  add,
+                  toggle,
+                  gap: add && toggle ? toggle.left - add.right : null,
+                  overlaps: add && toggle
+                    ? add.left < toggle.right && add.right > toggle.left &&
+                      add.top < toggle.bottom && add.bottom > toggle.top
+                    : null,
+                };
+              })()`);
+              console.log("WORK_PANEL_HEADER_PROBE", probe);
+              if (probe?.overlaps) {
+                throw new Error(`work-panel header controls overlap in ${scene}`);
+              }
+              if (probe?.gap != null && probe.gap < 24) {
+                throw new Error(`work-panel header controls are too close in ${scene}`);
+              }
+            };
+            await probeWorkPanelHeader("browser-from-new");
+            // Exercise the smallest supported shell with the smallest panel
+            // width. The notification-only 420px scene below intentionally
+            // tests a clipped surface, so it is not suitable for this header
+            // geometry check.
+            await mainWindow!.webContents.executeJavaScript(
+              `window.__PI_DESKTOP__?.setWorkPanelWidth?.(244)`,
+            );
+            await new Promise((r) => setTimeout(r, 250));
+            captureViewportOverride = true;
+            try {
+              mainWindow!.setMinimumSize(1040, 700);
+              mainWindow!.setSize(1040, 700, false);
+              await new Promise((r) => setTimeout(r, 350));
+              await probeWorkPanelHeader("minimum-supported");
+              await shot("pi-panel-minimum-supported");
+            } finally {
+              mainWindow!.setSize(CODEX_BOUNDS.width, CODEX_BOUNDS.height, false);
+              mainWindow!.setMinimumSize(
+                workPanelMinimumWindowWidth(),
+                WINDOW_MIN_HEIGHT,
+              );
+              captureViewportOverride = false;
+            }
+            await new Promise((r) => setTimeout(r, 250));
             await mainWindow!.webContents.executeJavaScript(
               `window.__PI_DESKTOP__?.collapseWorkPanel()`,
             );
@@ -5291,6 +5403,8 @@ async function dispatchApprovedPlan(rawExecution: unknown): Promise<void> {
     logger.app("runtime", "warn", "approved plan execution descriptor was invalid");
     return;
   }
+  const releaseSessionOperation = await acquireSessionOperation(initial.sessionId);
+  try {
   if (
     initial.state === "running" ||
     initial.state === "interrupted" ||
@@ -5402,8 +5516,11 @@ async function dispatchApprovedPlan(rawExecution: unknown): Promise<void> {
       data: { executionId: initial.id, error: String(error) },
     });
   } finally {
-    dispatchingApprovedExecutions.delete(initial.id);
+      dispatchingApprovedExecutions.delete(initial.id);
+    }  } finally {
+    releaseSessionOperation();
   }
+
 }
 
 async function drainApprovedPlanExecutions(): Promise<void> {
@@ -6310,6 +6427,72 @@ function registerIpc() {
     if (!host) throw new Error("host unavailable");
     return host.call("session.rename", { id, title });
   });
+  handle(
+    IPC.invoke.sessionMoveProject,
+    async (input: { sessionId?: string; projectPath?: string } = {}) => {
+      if (!host) throw new Error("host unavailable");
+      const sessionId = String(input.sessionId ?? "").trim();
+      const projectPath = String(input.projectPath ?? "").trim();
+      if (!sessionId) {
+        throw Object.assign(new Error("sessionId required"), {
+          errorCode: ErrorCodes.INVALID_ARGUMENT,
+        });
+      }
+      if (!projectPath) {
+        throw Object.assign(new Error("projectPath required"), {
+          errorCode: ErrorCodes.INVALID_ARGUMENT,
+        });
+      }
+      const releaseSessionOperation = await acquireSessionOperation(sessionId);
+      try {
+      if (activeTurns.has(sessionId)) {
+        throw Object.assign(new Error("Cannot move a running session"), {
+          errorCode: ErrorCodes.AGENT_BUSY,
+        });
+      }
+      let result: { session?: (RuntimeSession & { projectPath?: string | null }) | null };
+      try {
+        result = await host.call("session.moveProject", { sessionId, projectPath });
+      } catch (error: any) {
+        // The durable running-turn guard can still reject a session whose turn
+        // began between the check above and the host call.
+        if (error?.data?.errorCode === ErrorCodes.CONFLICT) {
+          throw Object.assign(new Error("Cannot move a running session"), {
+            errorCode: ErrorCodes.AGENT_BUSY,
+          });
+        }
+        throw error;
+      }
+      if (!result.session) return result;
+      const movedProjectPath = result.session.projectPath?.trim() || null;
+      sessionProjects.set(sessionId, movedProjectPath);
+      // The live pi-agent caches the project instruction root and vendor auth
+      // bindings. Drop it after a successful move so the next turn is rebuilt
+      // from the moved session's own project instead of the previous one.
+      if (sidecar) {
+        sidecar.clearProjectInstructionRoot(sessionId);
+        sidecar.clearVendorAuthBindings(sessionId);
+        await sidecar
+          .call("agent.disposeSession", { sessionId })
+          .catch(() => undefined);
+        if (movedProjectPath) {
+          sidecar.setProjectInstructionRoot(sessionId, movedProjectPath);
+        }
+      }
+      const { providers, defaults } = await sessionCapabilityContext();
+      logger.app("session", "info", "session project moved", {
+        sessionId,
+        data: { projectPath: movedProjectPath },
+      });
+      return {
+        ...result,
+        session: enrichSession(result.session, providers, defaults),
+      };
+      } finally {
+        releaseSessionOperation();
+      }
+    },
+  );
   handle(
     IPC.invoke.sessionReplaceMessages,
     async (input: { sessionId: string; messages: unknown[] }) => {
@@ -7528,8 +7711,43 @@ function registerIpc() {
     },
   });
 
-  handle(IPC.invoke.composerCommands, async () => {
-    const root = await optionalWorkspaceRoot();
+  const loadComposerSkillCommands = async (
+    root: string | null,
+  ): Promise<ComposerCommand[]> => {
+    const builtins = builtinSkills({
+      workspacePath: root,
+      pluginPaths: plugins.listLoaded().map((loaded) => loaded.path),
+    });
+    const pluginSkills = plugins
+      .getSkills()
+      .filter((skill) => pluginActiveInProject(skill.pluginId, root))
+      .map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+      }));
+    const userSkills = (await activeUserSkills(root ?? undefined)).map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+    }));
+    const seen = new Set<string>();
+    return [...builtins, ...pluginSkills, ...userSkills].flatMap((skill) => {
+      if (!skill.id || seen.has(skill.id)) return [];
+      seen.add(skill.id);
+      return [
+        {
+          name: skill.id,
+          kind: "skill" as const,
+          title: skill.name,
+          ...(skill.description ? { description: skill.description } : {}),
+          skillId: skill.id,
+        },
+      ];
+    });
+  };
+
+  const buildComposerCommands = async (root: string | null): Promise<ComposerCommand[]> => {
     const templates = await loadComposerTemplatesCached(root).catch(() => []);
     const templateCommands = templates.map((template) => ({
       name: template.name,
@@ -7552,7 +7770,8 @@ function registerIpc() {
         id: command.id,
       }));
     // Trusted extension commands take arguments and run in the active
-    // session's sidecar (spec 16 §8); they come last in the namespace.
+    // session's sidecar (spec 16 §8); they come after plugin commands and
+    // before the final Skills group.
     const extensionCommands = agentExtensions.allCommands().map((command) => ({
       name: command.name,
       kind: "extension" as const,
@@ -7560,21 +7779,27 @@ function registerIpc() {
       description: command.description ?? command.extensionLabel,
       id: trustedExtensionCommandId(command.name),
     }));
+    const skillCommands = await loadComposerSkillCommands(root).catch(() => []);
     // One namespace: builtin aliases win, then project templates, then user
-    // templates, then plugin commands, then extension commands (spec 04 §7).
-    const merged = new Map<
-      string,
-      ReturnType<typeof builtinComposerCommands>[number]
-    >();
+    // templates, then plugin commands, extension commands, and finally skills.
+    // Skills are deliberately appended last so the slash menu keeps them at
+    // the bottom without allowing a skill to shadow an existing command.
+    const merged = new Map<string, ComposerCommand>();
     for (const command of [
       ...builtinComposerCommands(),
       ...templateCommands,
       ...pluginCommands,
       ...extensionCommands,
+      ...skillCommands,
     ]) {
       if (!merged.has(command.name)) merged.set(command.name, command);
     }
-    return { commands: [...merged.values()] };
+    return [...merged.values()];
+  };
+
+  handle(IPC.invoke.composerCommands, async () => {
+    const root = await optionalWorkspaceRoot();
+    return { commands: await buildComposerCommands(root) };
   });
 
   handle(
@@ -7914,6 +8139,8 @@ function registerIpc() {
 
   handle(IPC.invoke.agentPrompt, async (req: AgentPromptRequest) => {
     if (!host || !sidecar) throw new Error("backend unavailable");
+    const releaseSessionOperation = await acquireSessionOperation(req.sessionId);
+    try {
     // Install the renderer's prompt-time snapshot before any asynchronous
     // setup. This closes the gap where a fast completion could beat the
     // effect that reports the active chat session. Missing or mismatched
@@ -7927,6 +8154,7 @@ function registerIpc() {
     const settings = await host.call<any>("settings.get");
     const sessionResult = await host.call<{ session?: any }>("session.get", {
       id: req.sessionId,
+      messageLimit: 1,
     });
     let session = sessionResult.session;
     if (!session) {
@@ -7934,97 +8162,59 @@ function registerIpc() {
         errorCode: ErrorCodes.NOT_FOUND,
       });
     }
-    // The host's own transcript decides where the cut lands, so a renderer
-    // holding a bounded window cannot shift it.
-    const allMessages = Array.isArray(session.messages) ? session.messages : [];
-    const truncation = resolveTranscriptTruncation(allMessages, req);
-    if (truncation.kind === "unknown-message") {
-      throw Object.assign(
-        new Error("truncateFromMessageId is not in this session"),
-        { errorCode: ErrorCodes.NOT_FOUND },
-      );
-    }
-    if (truncation.kind === "cut") {
-      const all = allMessages;
-      const cut = truncation.index;
-      const kept = all.slice(0, cut);
-      const discarded = all.slice(cut);
-      // ChatGPT-style regenerate history: archive the discarded branch under
-      // its root user turn before truncating the live transcript.
-      const rootUser = discarded.find(
-        (message: any) => message?.role === "user" && message?.id,
-      );
-      if (rootUser && discarded.length > 0) {
-        try {
-          // Prefer an existing revision-family key so regenerates keep one
-          // linear variant set instead of forking a new root on every redo.
-          const stableRootUserId =
-            typeof rootUser.revisionRootId === "string" && rootUser.revisionRootId
-              ? rootUser.revisionRootId
-              : rootUser.id;
-          const listed = await host.call<{
-            revisions?: Array<{ revisionIndex: number; isActive?: boolean }>;
-          }>("session.listRevisions", { sessionId: req.sessionId, rootUserId: stableRootUserId });
-          const existing = listed.revisions ?? [];
-          // The stamp on the discarded root names the variant this tail is.
-          // It beats the DB active flag, which only moves on agent_end: after
-          // a regenerate whose turn failed, the DB still points at the
-          // previous variant and refreshing that would bury it.
-          const stamped =
-            typeof rootUser.activeRevision === "number" ? rootUser.activeRevision : 0;
-          const target =
-            stamped > 0
-              ? existing.find((revision) => revision.revisionIndex === stamped)
-              : existing.find((revision) => revision.isActive);
-          if (target) {
-            // The branch was archived on its agent_end, but every prompt since
-            // then appended to it (and an error-ended turn never re-archived
-            // it). Write the live tail back over that revision so the pager
-            // restores all of it, not a stale copy.
-            await host.call("session.saveRevision", {
-              sessionId: req.sessionId,
-              rootUserId: stableRootUserId,
-              messages: discarded,
-              revisionIndex: target.revisionIndex,
-            });
-          } else {
-            // First regenerate (the original tail is not stored yet), or a
-            // tail stamped by an earlier regenerate whose turn failed before
-            // agent_end archived it: a variant of its own.
-            await host.call("session.saveRevision", {
-              sessionId: req.sessionId,
-              rootUserId: stableRootUserId,
-              messages: discarded,
-              makeActive: false,
-            });
-          }
-          const revisions = await host.call<{ revisions?: Array<{ revisionIndex: number }> }>(
-            "session.listRevisions",
-            { sessionId: req.sessionId, rootUserId: stableRootUserId },
-          );
-          const count = revisions.revisions?.length ?? 0;
-          // Stamp the upcoming user prompt with pager metadata after append.
-          (req as any).__revisionMeta = {
-            rootUserId: stableRootUserId,
-            revisionCount: count + 1, // +1 for the branch about to be generated
-            activeRevision: count + 1,
-          };
-        } catch (error) {
-          logger.app("persistence", "warn", "save regenerate revision failed", {
-            sessionId: req.sessionId,
-            data: String(error),
-          });
-          // Regenerate is destructive after this point. If the running host is
-          // stale or revision persistence is unavailable, abort before
-          // truncating the live transcript so the renderer can reload the
-          // untouched branch.
-          throw error;
-        }
+    const truncateFromMessageId =
+      typeof req.truncateFromMessageId === "string"
+        ? req.truncateFromMessageId.trim()
+        : "";
+    const truncateBefore =
+      typeof req.truncateBefore === "number" &&
+      Number.isFinite(req.truncateBefore) &&
+      req.truncateBefore >= 0
+        ? Math.floor(req.truncateBefore)
+        : undefined;
+    if (truncateFromMessageId || truncateBefore !== undefined) {
+      // Host-owned cut: the kept prefix never crosses the JSON-RPC pipe
+      // (issue #211). Abort any leftover running turn first so beginTurn
+      // cannot see AGENT_BUSY after a timed-out retry.
+      if (sidecar) {
+        await sidecar
+          .call("agent.abort", { sessionId: req.sessionId })
+          .catch(() => undefined);
       }
-      await host.call("session.replaceMessages", {
-        sessionId: req.sessionId,
-        messages: kept,
-      });
+      await finishTurn(req.sessionId, "aborted", "TURN_ABORTED");
+
+      try {
+        await persistenceOutbox.flush(() => host);
+        const truncated = await host.call<{
+          revision?: {
+            rootUserId?: string;
+            revisionCount?: number;
+            activeRevision?: number;
+          } | null;
+        }>("session.truncateFrom", {
+          sessionId: req.sessionId,
+          ...(truncateFromMessageId ? { fromMessageId: truncateFromMessageId } : {}),
+          ...(truncateBefore !== undefined ? { truncateBefore } : {}),
+        });
+        const revision = truncated.revision;
+        if (
+          revision?.rootUserId &&
+          typeof revision.revisionCount === "number" &&
+          typeof revision.activeRevision === "number"
+        ) {
+          (req as any).__revisionMeta = {
+            rootUserId: revision.rootUserId,
+            revisionCount: revision.revisionCount,
+            activeRevision: revision.activeRevision,
+          };
+        }
+      } catch (error) {
+        logger.app("persistence", "warn", "truncate regenerate transcript failed", {
+          sessionId: req.sessionId,
+          data: String(error),
+        });
+        throw error;
+      }
       if (sidecar) {
         sidecar.clearProjectInstructionRoot(req.sessionId);
         sidecar.clearVendorAuthBindings(req.sessionId);
@@ -8034,9 +8224,11 @@ function registerIpc() {
       }
       const refreshed = await host.call<{ session?: any }>("session.get", {
         id: req.sessionId,
+        messageLimit: 1,
       });
-      session = refreshed.session ?? { ...session, messages: kept };
+      session = refreshed.session ?? session;
     }
+
     const launch = await resolveAgentRuntimeLaunch(
       req.sessionId,
       session,
@@ -8057,21 +8249,41 @@ function registerIpc() {
     activeTurns.set(req.sessionId, durableTurnId);
     activeTurnUsages.delete(req.sessionId);
 
-    // Slash template expansion (D123, ADR 0024): templates expand before
-    // persistence so reseed replays exactly what the model saw; the typed
-    // form rides along as `command` for transcript display. Builtin/plugin
-    // slash aliases never reach this channel, and unknown /names stay
-    // literal text.
+    // Slash expansion (D123, ADR 0024): templates expand before persistence
+    // so reseed replays exactly what the model saw; the typed form rides along
+    // as `command` for transcript display. Skill aliases are converted into a
+    // short model instruction that makes the existing Skill tool call
+    // explicit, while the typed form remains the visible transcript chip.
+    // Builtin/plugin slash aliases never reach this channel, and unknown
+    // /names stay literal text.
     let promptContent = req.content;
     let slashCommand: string | undefined;
     if (req.content.startsWith("/")) {
       try {
         const root = await optionalWorkspaceRoot();
-        const templates = await loadComposerTemplatesCached(root);
-        const expansion = expandSlashInvocation(req.content, templates);
-        if (expansion) {
-          promptContent = expansion.expanded;
-          slashCommand = expansion.command;
+        const commandEnd = req.content.search(/\s/);
+        const commandName = req.content.slice(
+          1,
+          commandEnd === -1 ? undefined : commandEnd,
+        );
+        const commands = await buildComposerCommands(launch.projectPath ?? root);
+        const command = commands.find((item) => item.name === commandName);
+        if (command?.kind === "skill" && command.skillId) {
+          const body = commandEnd === -1 ? "" : req.content.slice(commandEnd).trim();
+          promptContent = [
+            `Call the \`Skill\` tool with id ${JSON.stringify(command.skillId)} before answering this request. Follow the loaded skill instructions.`,
+            body,
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+          slashCommand = req.content;
+        } else {
+          const templates = await loadComposerTemplatesCached(root);
+          const expansion = expandSlashInvocation(req.content, templates);
+          if (expansion) {
+            promptContent = expansion.expanded;
+            slashCommand = expansion.command;
+          }
         }
       } catch (error) {
         logger.app("session", "warn", "slash expansion failed; sending literal text", {
@@ -8117,7 +8329,11 @@ function registerIpc() {
     // The renderer already shows this row under its own id (D288); persisting
     // and echoing under the same id lets the echo replace it in place.
     const userMessage = {
-      id: durableUserMessageId(req.messageId, allMessages),
+      id: durableUserMessageId(
+        req.messageId,
+        Array.isArray(session.messages) ? session.messages : [],
+      ),
+
       role: "user" as const,
       content: promptContent,
       createdAt: new Date().toISOString(),
@@ -8194,6 +8410,9 @@ function registerIpc() {
       data: { providerId: launch.providerId, modelId: launch.modelId },
     });
     return result;
+    } finally {
+      releaseSessionOperation();
+    }
   });
 
   handle(IPC.invoke.agentCompact, async (req: { sessionId: string }) => {

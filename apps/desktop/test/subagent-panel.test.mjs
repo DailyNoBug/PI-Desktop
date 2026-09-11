@@ -94,14 +94,14 @@ test("the work-panel dock hosts subagent details without creating a resource tab
   assert.match(workPanelSource, /onCloseSubagentPanel\?: \(\) => void/);
   assert.match(workPanelSource, /\{subagentPanel \? \(/);
   assert.match(workPanelSource, /<SubagentPanel selection=\{subagentPanel\} \/>/);
-  assert.match(workPanelSource, /activeTab && !subagentPanel/);
+  assert.match(workPanelSource, /!subagentPanel && activeTab\?\.kind === "review"/);
   assert.match(workPanelSource, /subagentPanel && onCloseSubagentPanel/);
   assert.match(appSource, /const subagentPanelOpen = Boolean\(/);
   assert.match(appSource, /page === "chat"/);
   assert.match(appSource, /page !== "chat" \|\| subagentPanel\.sessionId !== activeSessionId/);
   assert.match(appSource, /workPanelOpen \|\| subagentPanelOpen/);
   assert.match(appSource, /subagentPanel=\{subagentPanelOpen \? subagentPanel : null\}/);
-  assert.match(workPanelSource, /if \(subagentPanel\) setContextOpen\(false\)/);
+  assert.doesNotMatch(workPanelSource, /setContextOpen/);
 });
 
 test("the task dock keeps one body scroll owner while the process streams", () => {

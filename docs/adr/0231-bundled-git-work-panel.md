@@ -1,10 +1,10 @@
-# ADR 0217: Bundled Git work panel
+# ADR 0231: Bundled Git work panel
 
-- Status: Accepted (amended by ADR 0218 / D392)
+- Status: Accepted (amended by ADR 0232 / D406)
 - Date: 2026-09-11
 - Deciders: PI-Desktop core
-- Related: D246, D247, D248, D391, ADR 0104, ADR 0105, ADR 0170,
-  `07-plugins/03-plugin-api.md`, `04-ux/08-component-spec.md`, E2E-246
+- Related: D246, D247, D248, D405, ADR 0104, ADR 0105, ADR 0170,
+  `07-plugins/03-plugin-api.md`, `04-ux/08-component-spec.md`, E2E-254
 
 ## Context
 
@@ -24,7 +24,7 @@ output to plugin code.
    work-panel view with the host `branch` icon. It is disableable and uses an
    ordinary manifest; it has `ui.view`, `git.read`, and `git.write` and no
    private host capability.
-   *Amended by ADR 0218:* the plugin also declares `models.list` and
+   *Amended by ADR 0232:* the plugin also declares `models.list` and
    `agent.complete` for AI-generated commit messages.
 2. **Electron Main owns a structured Git service.** Public plugin calls map to
    fixed Git argv in the active workspace. Inputs use safe relative paths;

@@ -518,16 +518,18 @@ criterion-by-criterion report of what was met and the evidence observed.
   reasoning support, thinking-level mapping, limits, input/output modalities,
   pricing, and other model metadata. pi-ai remains responsible for request
   serialization and adapter compatibility.
-- Provider configuration cannot override known-model semantics. Unknown
-  free-form ids remain runnable through a generic text-only, non-reasoning
-  model and therefore expose only `off`.
+- Provider configuration cannot override published reasoning, thinking,
+  limits, or other model metadata. The explicit attachment capability fields
+  are the exception: `supportsImages` and `supportsDocuments` are effective
+  binding overrides for the endpoint.
 - Unsupported requested levels use the selected models.dev model's
   nearest-supported-level rule: scan upward first, then downward. A
   non-reasoning provider always resolves to `off`.
-- Vision support is resolved from the same models.dev record: only
-  `input.includes("image")` enables image transport. Unknown/custom model ids
-  remain conservative text/path models even when discovery metadata claims
-  `vision`.
+- Vision support starts from the same published model record. An absent or
+  `null` `supportsImages` follows its image input; `true` or `false` explicitly
+  enables or disables image transport for the configured binding. Unknown or
+  custom ids remain conservative text/path models unless their binding
+  explicitly enables image input.
 - The effective level is passed to the pi `Agent`; provider-specific request
   serialization remains pi-ai's responsibility.
 - Pi `thinking` blocks become `UiMessage.thinking` and
@@ -627,7 +629,9 @@ core set rather than the on-demand catalog of §7.1:
   on running delegations (defaults to all of them) and returns their reports;
   `mode: "any"` with `minCompleted` converges as soon as the first N settle.
   Settled delegations return immediately, so re-reading a report by id is
-  cheap. The joined result is bounded to `MAX_TASKWAIT_RESULT_CHARS` (50k).
+  cheap. The joined result is bounded to `MAX_TASKWAIT_RESULT_CHARS` (50k); if
+  the bound omits finished reports, those reports remain undelivered and the
+  runtime sends them on the idle resume (or they can be re-read by id).
   `timeoutSeconds` defaults to 600 and is clamped to 900: the wait blocks the
   turn, so the ceiling is what bounds how long a session can look hung. Expiry
   is not a failure and does not stop the delegates (D328) — the wait returns a
@@ -882,7 +886,8 @@ grammar and validated against another fails every call.
 
 The sidecar builds one complete tool registry, but it does not serialize every
 registered schema into every provider request. Each new user prompt starts with
-the mode's core set:
+the mode's core set plus any deferred tools that can be restored from successful
+activation evidence still present in the effective session context:
 
 - Agent: `Read`, `Bash`, `Edit`, and `Write` (matching pi's coding-agent core)
 - Agent: `Task`, `TaskWait`, `TaskList`, and `TaskStop` as well, whenever the
@@ -907,13 +912,18 @@ pi-agent-core's `addedToolNames`, and rebuilds the next-turn context with those
 schemas. Providers with native deferred-tool search receive the definitions at
 that load point; other providers receive the active definitions normally.
 
-Deferred activation is reset before each new user prompt, so a previous task
-cannot make an unrelated first request carry a growing tool set. The tool
-registry, host permission path, tool timeout, and workspace containment rules
-remain unchanged. `ToolSearch` is local to the sidecar and does not cross the
-host RPC boundary. Its activation marker is retained in the persisted tool
-result so a restored transcript remains provider-valid, although a restarted
-runtime still requires a fresh search before reusing a deferred capability.
+At the start of each new user prompt, the sidecar clears the in-memory deferred
+activation set and rebuilds it from the effective context. Successful
+`ToolSearch` results contribute their `addedToolNames`; successful results from
+deferred tools contribute that tool's name. Only names still present in the
+current mode's deferred catalog are restored. Failed rows, interrupted or
+missing-result placeholders, and assistant/user prose never activate a tool.
+The tool registry, host permission path, tool timeout, and workspace containment
+rules remain unchanged. `ToolSearch` is local to the sidecar and does not cross
+the host RPC boundary. Its activation marker is retained in the persisted tool
+result, so a runtime restart or a new prompt can reuse an eligible capability
+while that evidence remains in the effective context; a fresh search is still
+required after the evidence is compacted away or otherwise absent.
 
 For user-visible HTML deliverables, the default system prompt asks the agent to
 activate `BrowserPreview` once after creating the page or making its first

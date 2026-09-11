@@ -271,6 +271,14 @@ to later refresh and inference; the vendor picker does not collect them.
   `INVALID_PARAMS`; mode is `plan | goal | agent` and changing any session
   configuration is allowed only while idle and without a pending/queued/running
   Plan or Goal record
+- `session.moveProject({ sessionId, projectPath })` moves an idle session to a
+  project and returns `{ session }` carrying the canonical project path. It
+  upserts the project row and updates only `sessions.project_id` and
+  `updated_at`; transcript, revisions, artifacts, notifications, and scratch
+  data stay with the session. Blank ids or paths are `INVALID_PARAMS`, an
+  unknown session is `NOT_FOUND`, and a session with a running turn is
+  `CONFLICT` so a live agent never switches instruction roots mid-turn.
+  Additive RPC; no protocol version bump.
 - `session.appendMessage`
 - `session.saveInflightMessage` — Electron-main-only checkpoint of the
   assistant reply currently streaming, including the finished `message_end`
@@ -290,13 +298,26 @@ to later refresh and inference; the vendor picker does not collect them.
   ids and non-negative `tokensBefore`; it does not insert a message/search row
   or change the visible transcript projection
 - `session.replaceMessages` — atomic transcript rewrite (temp-file rename +
-  one index transaction, D119) used by regenerate/edit flows and unanswered
+  one index transaction, D119) used by message delete and unanswered
   renderer smart-stop undo; it preserves the
   newest checkpoint only while both its boundary and optional first-kept id
   remain valid in the rewritten prefix, and it carries each surviving message's
   owning `turn_id` across the rewrite. It is only safe from a caller that owns
   the whole transcript for the duration of the call: any rewrite from a snapshot
-  taken outside the RPC lock can delete a message appended in between
+  taken outside the RPC lock can delete a message appended in between.
+  Regenerating and retrying use `session.truncateFrom` instead so the kept
+  prefix never crosses the JSON-RPC pipe (ADR 0216)
+- `session.truncateFrom` — host-owned suffix cut for regenerate / retry /
+  edit-resend: `{ sessionId, fromMessageId?, truncateBefore? }`. Identity
+  wins; an unknown `fromMessageId` is `NOT_FOUND`. Under the state lock it
+  aborts a leftover running turn, archives the discarded regenerate tail
+  (refreshing the stamped variant, or minting an inactive one), rewrites the
+  kept prefix, and drops the in-flight checkpoint. Returns
+  `{ ok, keptCount, discardedCount, abortedTurnId, revision }` where `revision`
+  is the pager stamp for the upcoming user prompt, or null when the discarded
+  tail has no user root. No transcript snapshot is in the request or the
+  result. Additive on protocol v11 (ADR 0216)
+
 - `session.saveRevision` — archive a regenerate branch under
   `(sessionId, rootUserId)`. With `revisionIndex`, refresh that existing
   variant's payload in place (the branch grew since it was archived) instead
@@ -934,7 +955,9 @@ numeric slot; the string is the contract, the number is transport detail.
 | 1018 | CAPABILITY_INVALID | agent capability root/scope setting failed validation |
 | -32029 | HOST_OVERLOADED | RPC dispatcher capacity exhausted |
 | -32601 | — | unknown method |
-| -32700 | — | unparseable request line; a line over 64 MiB ends the stdin reader |
+| -32700 | — | unparseable request line |
+| 1002 | LIMIT_EXCEEDED | an NDJSON request line over 64 MiB; Electron rejects the write before it reaches the pipe; if the host still sees it, the remainder of the line is drained, the reply keeps the request id when it can be peeked from the prefix, and the stdin reader keeps running |
+
 
 Tool outcomes (`TOOL_DENIED`, `TOOL_TIMEOUT`, `PATH_OUTSIDE_WORKSPACE`,
 `WORKSPACE_PATH_DENIED`, `WRITE_DISABLED_IN_PLAN`, `SHELL_NOT_FOUND`,

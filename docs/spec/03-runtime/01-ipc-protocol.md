@@ -148,10 +148,14 @@ that shell change, while an omitted or idempotent shell field does not.
 `attachments` is an additive prompt field. The renderer sends metadata and a
 source path only; it never sends binary data. Electron main validates the path
 against the session scratch/project roots, persists image bytes in the
-content-addressed attachment store, and derives the exact model transport from
-the models.dev record. A known model whose models.dev input includes `image`
-receives eligible images as transient pi-ai image blocks. Unknown/non-vision
-models and images above the 10 MB inline bound receive a safe `@path` fallback.
+content-addressed attachment store, and derives the effective model transport
+from the published model record plus the exact binding's `supportsImages`
+override. An absent or `null` override follows the published image capability;
+`true` enables and `false` disables image input for that configured model.
+Eligible images become transient pi-ai image blocks when the effective
+capability is enabled. Unknown/custom models without an explicit override,
+non-vision models, and images above the 10 MB inline bound receive a safe
+`@path` fallback.
 Main uses streamed hashing and file copying for images above that bound, and the
 sidecar uses the same bounded-read rule when rebuilding history. The durable
 user message stores `content` plus attachment metadata/ref, never base64.
@@ -796,11 +800,16 @@ tools are never copied. No host protocol or storage schema version bump.
 
 A regenerate or edit-resend truncates the durable transcript before appending
 its new user turn. `agent/prompt` accepts `truncateFromMessageId` — the identity
-of the first message to drop — which the host resolves against its own
+of the first message to drop — and forwards it to host-owned
+`session.truncateFrom`, which resolves that identity against its own
 transcript; an unresolvable id is rejected with `NOT_FOUND` rather than cutting
-at a guessed position. The older `truncateBefore` count remains accepted, but it
+at a guessed position. The kept prefix never crosses the JSON-RPC pipe
+(ADR 0216 / issue #211). The older `truncateBefore` count remains accepted, but it
 is only correct when the caller holds the entire history: a renderer showing a
 bounded window addresses different messages than the transcript does.
+`agent/prompt` itself loads only a bounded `session.get` for launch
+configuration.
+
 
 `session/fork` is a protocol-v5 channel that creates an independent
 session from the source session's current active transcript. When optional

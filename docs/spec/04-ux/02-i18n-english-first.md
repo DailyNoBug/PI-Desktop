@@ -24,6 +24,12 @@ Rules:
 7. Electron application-menu custom labels and renderer window controls
    consume catalog keys; native role labels may use Electron/OS localization
 
+Canonical thinking-level values are an intentional exception to the visible
+string rule: Composer, model-configuration, and delegation surfaces render
+the protocol values `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and
+`max` directly. These stable technical values must not be added to locale
+catalogs or translated.
+
 ## 3. Catalog structure
 
 ```text

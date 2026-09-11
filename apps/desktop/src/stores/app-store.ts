@@ -108,6 +108,8 @@ import {
   emptyWorkPanelContext,
   fileWorkPanelTab,
   openWorkPanelTabState,
+  newWorkPanelTab,
+  replaceWorkPanelTabState,
   sanitizeWorkPanelTabsState,
   shouldOpenReviewArtifact,
   switchWorkPanelContextState,
@@ -953,6 +955,8 @@ export type AppState = {
   archiveSession: (id: string) => void;
   restoreSession: (id: string) => void;
   renameSession: (id: string, title: string) => Promise<void>;
+  /** Move an idle session into an already-known project, preserving history. */
+  moveSessionProject: (id: string, projectPath: string) => Promise<boolean>;
   deleteSession: (id: string) => Promise<void>;
   setSessionSort: (sort: SessionSort) => void;
   setSessionArchiveVisibility: (show: boolean) => void;
@@ -967,6 +971,7 @@ export type AppState = {
   toggleProjectCollapsed: (path: string) => void;
   closeProject: (path: string) => Promise<void>;
   setProjectSort: (sort: ProjectSort) => void;
+  reorderProjects: (paths: string[]) => void;
   getVisibleSessions: (options?: {
     projectPath?: string | null;
     includeArchived?: boolean;
@@ -1032,6 +1037,10 @@ export type AppState = {
   /** Flip the work panel between revealed and collapsed for the active session. */
   toggleWorkPanel: () => void;
   openWorkPanelTab: (tab: WorkPanelTab) => void;
+  /** Create and activate a new blank tool launcher page. */
+  openNewWorkPanelTab: () => void;
+  /** Open a tool from a blank launcher page, reusing an existing tool tab. */
+  replaceWorkPanelTab: (sourceTabId: string, tab: WorkPanelTab) => void;
   openWorkPanelTabForSession: (sessionId: string, tab: WorkPanelTab) => void;
   activateWorkPanelTab: (tabId: string) => void;
   closeWorkPanelTab: (tabId: string) => void;
@@ -3120,6 +3129,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistCurrentSidebar(get);
   },
 
+  moveSessionProject: async (id, projectPath) => {
+    const destinationKey = normalizeProjectPath(projectPath);
+    const state = get();
+    const session = state.sessions.find((item) => item.id === id);
+    if (!id || !session || !destinationKey) return false;
+    // A running turn owns the current project's instructions and working
+    // directory; the host rejects the move as well.
+    if (state.runningSessions[id]) return false;
+    if (normalizeProjectPath(session.projectPath) === destinationKey) return true;
+    if (
+      !state.openProjectPaths.some(
+        (path) => normalizeProjectPath(path) === destinationKey,
+      )
+    ) {
+      return false;
+    }
+    const result = await api.moveSessionProject(id, projectPath);
+    set((current) => ({
+      sessions: current.sessions.map((item) =>
+        item.id === id ? { ...item, ...result.session } : item,
+      ),
+    }));
+    return true;
+  },
+
   deleteSession: async (id) => {
     if (!id) return;
     await api.deleteSession(id);
@@ -3330,6 +3364,26 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setProjectSort: (sort) => {
     set({ projectSort: sort });
+    persistCurrentSidebar(get);
+  },
+
+  reorderProjects: (paths) => {
+    const orderedKeys: string[] = [];
+    const seen = new Set<string>();
+    for (const path of paths) {
+      const key = normalizeProjectPath(path);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      orderedKeys.push(key);
+    }
+    if (orderedKeys.length < 2) return;
+    set((state) => {
+      const projectMeta = { ...state.projectMeta };
+      orderedKeys.forEach((key, index) => {
+        projectMeta[key] = { ...(projectMeta[key] || {}), order: index };
+      });
+      return { projectMeta, projectSort: "manual" };
+    });
     persistCurrentSidebar(get);
   },
 
@@ -4383,6 +4437,50 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!sessionId) return;
     get().openWorkPanelTabForSession(sessionId, tab);
   },
+  openNewWorkPanelTab: () => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    get().openWorkPanelTabForSession(sessionId, newWorkPanelTab());
+  },
+  replaceWorkPanelTab: (sourceTabId, tab) => {
+    set((state) => {
+      const sessionId = state.activeSessionId;
+      if (!sessionId) return {};
+      const next = replaceWorkPanelTabState(
+        {
+          tabs: state.workPanelTabs,
+          activeTabId: state.activeWorkPanelTabId,
+        },
+        sourceTabId,
+        tab,
+      );
+      const activeTab = next.tabs.find((item) => item.id === next.activeTabId);
+      const fileRequest =
+        activeTab?.kind === "file" && activeTab.resource
+          ? {
+              path: activeTab.resource,
+              seq: ++workPanelFileRequestSeq,
+              ...(activeTab.mimeType ? { mimeType: activeTab.mimeType } : {}),
+            }
+          : state.workPanelFileRequest;
+      const nextContext: WorkPanelContext = {
+        open: true,
+        tabs: next.tabs,
+        activeTabId: next.activeTabId,
+        fileRequest,
+      };
+      return {
+        workPanelOpen: true,
+        workPanelTabs: next.tabs,
+        activeWorkPanelTabId: next.activeTabId,
+        workPanelFileRequest: fileRequest,
+        workPanelContexts: {
+          ...state.workPanelContexts,
+          [sessionId]: nextContext,
+        },
+      };
+    });
+  },
   activateWorkPanelTab: (tabId) => {
     set((state) => {
       const sessionId = state.activeSessionId;
@@ -4420,7 +4518,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
   closeWorkPanelTab: (tabId) => {
-    let closePanel = false;
     set((state) => {
       const sessionId = state.activeSessionId;
       if (!sessionId) return {};
@@ -4432,7 +4529,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         tabId,
       );
       const activeTab = next.tabs.find((tab) => tab.id === next.activeTabId);
-      closePanel = next.activeTabId === null;
       const fileRequest =
         activeTab?.kind === "file" && activeTab.resource
           ? {
@@ -4442,7 +4538,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             }
           : state.workPanelFileRequest;
       const nextContext: WorkPanelContext = {
-        open: closePanel ? false : state.workPanelOpen,
+        // Closing the final tab leaves the panel open so the user can choose
+        // another tool from the new-tab launcher instead of losing the dock.
+        open: state.workPanelOpen,
         tabs: next.tabs,
         activeTabId: next.activeTabId,
         fileRequest,
@@ -4450,7 +4548,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workPanelTabs: next.tabs,
         activeWorkPanelTabId: next.activeTabId,
-        workPanelOpen: closePanel ? false : state.workPanelOpen,
+        workPanelOpen: state.workPanelOpen,
         workPanelFileRequest: fileRequest,
         workPanelContexts: {
           ...state.workPanelContexts,

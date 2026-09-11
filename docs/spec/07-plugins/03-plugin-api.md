@@ -430,7 +430,7 @@ The host resolves credentials and runs a one-shot completion with `tools: []`
 through the same path as Composer prompt enhancement. The plugin never receives
 a secret. `includeSessionContext: true` also requires `session.read` and an
 in-flight tool session; the host serializes that context and, if `messages` is
-empty, appends `Please advise on the executor's situation above.` System prompt
+empty, appends `Please respond to the request.` System prompt
 ≤ 32 KiB; combined messages ≤ 200k characters; eight calls per plugin per
 rolling 60s (`RATE_LIMITED`); 90s budget (`TIMEOUT`). Empty model output is
 `INVALID_ARGUMENT`.

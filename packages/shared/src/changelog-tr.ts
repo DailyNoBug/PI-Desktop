@@ -76,7 +76,6 @@ export const trEntries: ChangelogEntry[] = [
     "version": "0.13.11",
     "date": "2026-09-07",
     "highlights": [
-      "İkinci bir modelin mevcut konuşmayı incelemesini sağlamak için birlikte verilen Danışman eklentisini etkinleştirin.",
       "Eklentilerin modelleri listelemesine, oturum içi oturum bağlamını okumasına ve kimlik bilgileri almadan ana bilgisayarın sahip olduğu tamamlamaları talep etmesine izin verin."
     ]
   },

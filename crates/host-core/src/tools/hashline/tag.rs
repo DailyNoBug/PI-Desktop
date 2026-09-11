@@ -122,11 +122,6 @@ pub fn tag_of_lf_text(lf_text: &str) -> String {
     tag_of_hash_input(&hash_input(lf_text))
 }
 
-pub fn tag_of_bytes(bytes: &[u8]) -> String {
-    let file = normalize_file(bytes);
-    tag_of_lf_text(&file.text)
-}
-
 pub fn encode_bytes(lf_text: &str, ending: LineEnding, bom: bool) -> Vec<u8> {
     let body = match ending {
         LineEnding::Lf => lf_text.to_string(),
@@ -223,7 +218,7 @@ mod tests {
     #[test]
     fn hash_ignores_trailing_line_whitespace_and_crlf() {
         let lf = tag_of_lf_text("a  \nb\t\n");
-        let crlf = tag_of_bytes(b"a  \r\nb\t\r\n");
+        let crlf = tag_of_lf_text(&normalize_file(b"a  \r\nb\t\r\n").text);
         assert_eq!(lf, crlf);
         assert_eq!(lf, tag_of_lf_text("a\nb\n"));
     }
@@ -235,7 +230,7 @@ mod tests {
         let file = normalize_file(&raw);
         assert!(file.bom);
         assert_eq!(file.text, "hi\n");
-        assert_eq!(tag_of_bytes(&raw), tag_of_lf_text("hi\n"));
+        assert_eq!(tag_of_lf_text(&file.text), tag_of_lf_text("hi\n"));
         assert_eq!(encode_bytes("hi\n", LineEnding::Lf, true), raw);
     }
 

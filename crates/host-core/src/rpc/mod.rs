@@ -69,8 +69,82 @@ struct CacheModelsParams {
 #[derive(Debug)]
 enum StdinEvent {
     Line(String),
+    Oversize { id: Value },
     Error(String),
 }
+
+/// Best-effort JSON-RPC id from a possibly truncated NDJSON prefix.
+///
+/// Electron matches host replies by id. A `LIMIT_EXCEEDED` reply with a null
+/// id is treated as a notification and the caller waits out the 130 s deadline.
+fn peek_jsonrpc_id(prefix: &str) -> Value {
+    let window = prefix.get(..prefix.len().min(2048)).unwrap_or(prefix);
+    if let Ok(value) = serde_json::from_str::<Value>(window) {
+        return value.get("id").cloned().unwrap_or(Value::Null);
+    }
+    let bytes = window.as_bytes();
+    let mut i = 0;
+    while i + 4 < bytes.len() {
+        if &bytes[i..i + 4] != b"\"id\"" {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 4;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j >= bytes.len() || bytes[j] != b':' {
+            i += 1;
+            continue;
+        }
+        j += 1;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j >= bytes.len() {
+            return Value::Null;
+        }
+        if bytes[j] == b'"' {
+            j += 1;
+            let start = j;
+            while j < bytes.len() {
+                if bytes[j] == b'\\' {
+                    j = (j + 2).min(bytes.len());
+                    continue;
+                }
+                if bytes[j] == b'"' {
+                    return std::str::from_utf8(&bytes[start..j])
+                        .map(|text| Value::String(text.to_string()))
+                        .unwrap_or(Value::Null);
+                }
+                j += 1;
+            }
+            return Value::Null;
+        }
+        if bytes.get(j..j + 4) == Some(&b"null"[..]) {
+            return Value::Null;
+        }
+        let start = j;
+        if bytes[j] == b'-' {
+            j += 1;
+        }
+        while j < bytes.len() && bytes[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j > start {
+            if let Ok(text) = std::str::from_utf8(&bytes[start..j]) {
+                if let Ok(n) = text.parse::<i64>() {
+                    return json!(n);
+                }
+            }
+        }
+        return Value::Null;
+    }
+    Value::Null
+}
+
+const STDOUT_WRITER_SHUTDOWN: Duration = Duration::from_secs(5);
+
 
 /// Tokio's stdio adapter delegates every read/write to the blocking pool. If
 /// the OS temporarily refuses another worker thread, Tokio panics instead of
@@ -103,11 +177,38 @@ fn spawn_stdin_reader(tx: mpsc::UnboundedSender<StdinEvent>) -> io::Result<threa
                 match read {
                     Ok(0) => break,
                     Ok(_) if line.len() as u64 > MAX_STDIN_LINE_BYTES => {
-                        let _ = tx.send(StdinEvent::Error(format!(
-                            "request line exceeds {MAX_STDIN_LINE_BYTES} bytes"
-                        )));
-                        break;
+                        // Drain the rest of this NDJSON record so a too-large
+                        // replaceMessages cannot kill the control pipe. The
+                        // serve loop answers LIMIT_EXCEEDED and keeps running.
+                        if !line.ends_with('\n') {
+                            let mut discard = [0u8; 8192];
+                            loop {
+                                match reader.read(&mut discard) {
+                                    Ok(0) => break,
+                                    Ok(n) if discard[..n].contains(&b'\n') => break,
+                                    Ok(_) => {}
+                                    Err(error)
+                                        if error.kind() == io::ErrorKind::Interrupted =>
+                                    {
+                                        continue;
+                                    }
+                                    Err(error) if is_transient_io_error(&error) => {
+                                        thread::sleep(Duration::from_millis(10));
+                                    }
+                                    Err(error) => {
+                                        let _ = tx.send(StdinEvent::Error(error.to_string()));
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                        let id = peek_jsonrpc_id(&line);
+                        line.clear();
+                        if tx.send(StdinEvent::Oversize { id }).is_err() {
+                            break;
+                        }
                     }
+
                     Ok(_) => {
                         if tx
                             .send(StdinEvent::Line(std::mem::take(&mut line)))
@@ -222,11 +323,28 @@ pub async fn serve(state: Arc<Mutex<AppState>>) -> Result<()> {
                 };
                 let line = match event {
                     StdinEvent::Line(line) => line,
+                    StdinEvent::Oversize { id } => {
+                        let response = JsonRpcResponse {
+                            jsonrpc: "2.0",
+                            id,
+                            result: None,
+                            error: Some(rpc_err(
+                                1002,
+                                "request line exceeds 64 MiB",
+                                "LIMIT_EXCEEDED",
+                            )),
+                        };
+                        if let Ok(raw) = serde_json::to_string(&response) {
+                            let _ = tx.send(format!("{raw}\n"));
+                        }
+                        continue 'serve;
+                    }
                     StdinEvent::Error(error) => {
                         input_error = Some(format!("host stdin read failed: {error}"));
                         break 'serve;
                     }
                 };
+
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
                     continue 'serve;
@@ -328,10 +446,16 @@ pub async fn serve(state: Arc<Mutex<AppState>>) -> Result<()> {
     }
     drop(tx);
     if !writer_done {
-        input_error = match writer_done_rx.await {
-            Ok(Some(error)) => Some(format!("host stdout write failed: {error}")),
-            Ok(None) => input_error,
-            Err(_) => Some("host stdout writer status unavailable".to_string()),
+        input_error = match tokio::time::timeout(STDOUT_WRITER_SHUTDOWN, writer_done_rx).await {
+            Ok(Ok(Some(error))) => Some(format!("host stdout write failed: {error}")),
+            Ok(Ok(None)) => input_error,
+            Ok(Err(_)) => Some("host stdout writer status unavailable".to_string()),
+            Err(_) => {
+                tracing::warn!("host stdout writer did not stop after stdin closed");
+                input_error.or_else(|| {
+                    Some("host stdout writer did not stop after stdin closed".to_string())
+                })
+            }
         };
     }
     input_error
@@ -1391,6 +1515,33 @@ async fn handle_request(
                 };
             Ok(json!({ "session": session }))
         }
+        "session.moveProject" => {
+            let session_id = params
+                .get("sessionId")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| rpc_err(1002, "sessionId required", "INVALID_PARAMS"))?;
+            let project_path = params
+                .get("projectPath")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| rpc_err(1002, "projectPath required", "INVALID_PARAMS"))?;
+            let st = state.lock().await;
+            let session = match sessions::move_session_project(&st.db, session_id, project_path)
+                .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?
+            {
+                sessions::MoveSessionProjectResult::Moved(session) => session,
+                sessions::MoveSessionProjectResult::NotFound => {
+                    return Err(rpc_err(1007, "session not found", "NOT_FOUND"))
+                }
+                sessions::MoveSessionProjectResult::Busy => {
+                    return Err(rpc_err(1008, "session is running", "CONFLICT"))
+                }
+            };
+            Ok(json!({ "session": session }))
+        }
         "session.get" => {
             let id = params
                 .get("id")
@@ -1580,6 +1731,38 @@ async fn handle_request(
                 .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?;
             Ok(json!({ "ok": true }))
         }
+        "session.truncateFrom" => {
+            let session_id = params
+                .get("sessionId")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| rpc_err(1002, "sessionId required", "INVALID_PARAMS"))?;
+            let from_message_id = params
+                .get("fromMessageId")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|id| !id.is_empty());
+            let truncate_before = params.get("truncateBefore").and_then(|v| v.as_i64());
+            let st = state.lock().await;
+            let truncated = sessions::truncate_from(
+                &st.db,
+                session_id,
+                from_message_id,
+                truncate_before,
+            )
+            .map_err(|e| {
+                let message = e.to_string();
+                if message.starts_with("NOT_FOUND") {
+                    rpc_err(1007, message, "NOT_FOUND")
+                } else if message.starts_with("INVALID_PARAMS") {
+                    rpc_err(1002, message, "INVALID_PARAMS")
+                } else {
+                    rpc_err(1000, message, "INTERNAL")
+                }
+            })?;
+            serde_json::to_value(truncated)
+                .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))
+        }
+
         "session.saveRevision" => {
             let session_id = params
                 .get("sessionId")
@@ -3705,7 +3888,7 @@ mod tests {
     use tokio::sync::{mpsc, Mutex};
 
     use super::{
-        capability_err, handle_request, parse_capability_query, provider_rpc_err,
+        capability_err, handle_request, parse_capability_query, peek_jsonrpc_id, provider_rpc_err,
         resolve_plan_workspace, resolve_tool_workspace, scope_err, skill_err,
     };
     use crate::plans::{PlanResolveParams, PlanSubmitParams};
@@ -3744,6 +3927,27 @@ mod tests {
             capability_err("missing project").data.unwrap()["errorCode"],
             "CAPABILITY_INVALID"
         );
+    }
+
+    #[test]
+    fn peek_jsonrpc_id_reads_a_string_id_from_a_truncated_prefix() {
+        let prefix =
+            r#"{"jsonrpc":"2.0","id":"abc-123","method":"session.replaceMessages","params":{"#;
+        assert_eq!(peek_jsonrpc_id(prefix), json!("abc-123"));
+    }
+
+    #[test]
+    fn peek_jsonrpc_id_reads_a_numeric_id() {
+        assert_eq!(
+            peek_jsonrpc_id(r#"{"jsonrpc":"2.0","id":7,"method":"x"}"#),
+            json!(7)
+        );
+    }
+
+    #[test]
+    fn peek_jsonrpc_id_is_null_when_the_prefix_has_no_id() {
+        assert_eq!(peek_jsonrpc_id("not json"), Value::Null);
+        assert_eq!(peek_jsonrpc_id(""), Value::Null);
     }
 
     #[test]
@@ -5628,6 +5832,77 @@ mod tests {
         let st = state.lock().await;
         sessions::end_turn(&st.db, &first, "aborted", None, None, false).unwrap();
     }
+
+    #[tokio::test]
+    async fn truncate_from_rpc_cuts_without_shipping_the_kept_prefix() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let mut app_state = AppState::open(data_dir.path()).unwrap();
+        app_state.handshook = true;
+        let session = sessions::create_session(
+            &app_state.db,
+            Some("Large".into()),
+            Some("agent".into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let turn = sessions::begin_turn(&app_state.db, &session.id, None, None).unwrap();
+        let prefix: sessions::UiMessage = serde_json::from_value(json!({
+            "id": "u0",
+            "role": "user",
+            "content": "earlier",
+            "createdAt": "2025-05-01T00:00:00Z"
+        }))
+        .unwrap();
+        let root: sessions::UiMessage = serde_json::from_value(json!({
+            "id": "u1",
+            "role": "user",
+            "content": "retry me",
+            "createdAt": "2025-05-01T00:00:01Z"
+        }))
+        .unwrap();
+        sessions::append_message(&app_state.db, &session.id, &prefix, Some(&turn)).unwrap();
+        sessions::append_message(&app_state.db, &session.id, &root, Some(&turn)).unwrap();
+        let state = Arc::new(Mutex::new(app_state));
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        let result = handle_request(
+            state.clone(),
+            "session.truncateFrom",
+            json!({ "sessionId": session.id, "fromMessageId": "u1" }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result["ok"], json!(true));
+        assert_eq!(result["keptCount"], json!(1));
+        assert_eq!(result["discardedCount"], json!(1));
+        assert_eq!(result["abortedTurnId"], json!(turn));
+
+        let detail = handle_request(
+            state.clone(),
+            "session.get",
+            json!({ "id": session.id, "messageLimit": 10 }),
+            tx,
+        )
+        .await
+        .unwrap();
+        let messages = detail["session"]["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["id"], json!("u0"));
+
+        let missing = handle_request(
+            state,
+            "session.truncateFrom",
+            json!({ "sessionId": session.id, "fromMessageId": "gone" }),
+            mpsc::unbounded_channel().0,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing.data.unwrap()["errorCode"], "NOT_FOUND");
+    }
+
 
     /// D137: the audit row for a tool call must carry the three segments
     /// separately, so "the tool was slow" can be told apart from "the user
