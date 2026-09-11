@@ -222,7 +222,7 @@ const CONTROL_OPERATION_SPECS: OperationSpec[] = [
   spec("fsRead", "fs/read", "Read an allowed workspace or session file.", "read", ["input"]),
   spec("fsReadImageDataUrl", "fs/readImageDataUrl", "Read an allowed image as a data URL.", "read", ["input"]),
   spec("fsIndex", "fs/index", "Index files in the active workspace.", "read", ["input"]),
-  spec("composerCommands", "composer/commands", "List composer command templates.", "read", []),
+  spec("composerCommands", "composer/commands", "List composer commands and skills.", "read", []),
   spec("closeBehaviorGet", "window/closeBehavior/get", "Read close behavior.", "read", []),
   spec("pullsList", "pulls/list", "List pull requests for the active workspace.", "read", []),
   spec("scheduledList", "scheduled/list", "List scheduled tasks.", "read", []),

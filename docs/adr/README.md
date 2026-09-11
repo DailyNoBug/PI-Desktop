@@ -236,3 +236,4 @@ Each ADR includes:
 | 0216 | Truncate regenerates under the RPC lock | Accepted (amends 0060 / 0127; issue #211) |
 | 0217 | Host stdout sender must not outlive serve | Accepted (amends 0216; issue #211) |
 | 0218 | Effective image-input overrides across Composer and transport | Accepted (amends 0101 / D243) |
+| 0219 | User-invoked Skills in the composer slash menu | Accepted (amends D123 / D174 / ADR 0024 / ADR 0039) |

@@ -1195,7 +1195,8 @@ Each scenario is documented in this format:
 #### E2E-088b: Composer placeholder guidance follows page and session context
 
 - **Preconditions**: English and zh-CN locales are available; a provider is
-  configured; both an empty home and two conversations can be opened.
+  configured; at least one Skill is active; both an empty home and two
+  conversations can be opened.
 - **Steps**: 1) On empty home, record the welcome placeholder and wait longer
   than 4 seconds to confirm it is unchanged. 2) Open conversation A, record
   its guidance, type and clear text, focus and blur the textarea, and wait;
@@ -1208,10 +1209,13 @@ Each scenario is documented in this format:
   localized command/file or keyboard hint with an opacity fade; no timer-driven
   changes occur. The keyboard hint includes Shift+Enter and a submit hint, while the
   command/file hint includes `/` and `@`. The slash menu still contains `/new`,
-  `/compact`, `/agent-mode`, `/plan-mode`, and `/goal-mode`. zh-CN shows the
-  matching localized copy, including `Shift+Enter for newline · Use Send to submit`.
+  `/compact`, `/agent-mode`, `/plan-mode`, and `/goal-mode`, followed by a
+  Skills group at the bottom. Selecting the Skill inserts its slash id; sending
+  it keeps the typed command chip visible and the model calls `Skill` with that
+  id before answering. zh-CN shows the matching localized copy, including
+  `Shift+Enter for newline · Use Send to submit`.
 - **Specs linked**: `04-ux/08-component-spec.md` (§11),
-  `04-ux/04-builtin-commands.md` (§7)
+  `04-ux/04-builtin-commands.md` (§7–8)
 - **Acceptance**: C (send/UI), Localization, Quality
 - **Milestone**: M2
 - **Status**: Source-covered (`composer-placeholder-context.test.mjs`);

@@ -77,6 +77,7 @@ import {
   type CloseBehavior,
   type CommandShellCatalog,
   type CommandShellId,
+  type ComposerCommand,
   type GlobalPermissionMode,
   type KeybindingOverrides,
   type McpServerInput,
@@ -7500,8 +7501,43 @@ function registerIpc() {
     },
   });
 
-  handle(IPC.invoke.composerCommands, async () => {
-    const root = await optionalWorkspaceRoot();
+  const loadComposerSkillCommands = async (
+    root: string | null,
+  ): Promise<ComposerCommand[]> => {
+    const builtins = builtinSkills({
+      workspacePath: root,
+      pluginPaths: plugins.listLoaded().map((loaded) => loaded.path),
+    });
+    const pluginSkills = plugins
+      .getSkills()
+      .filter((skill) => pluginActiveInProject(skill.pluginId, root))
+      .map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+      }));
+    const userSkills = (await activeUserSkills(root ?? undefined)).map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+    }));
+    const seen = new Set<string>();
+    return [...builtins, ...pluginSkills, ...userSkills].flatMap((skill) => {
+      if (!skill.id || seen.has(skill.id)) return [];
+      seen.add(skill.id);
+      return [
+        {
+          name: skill.id,
+          kind: "skill" as const,
+          title: skill.name,
+          ...(skill.description ? { description: skill.description } : {}),
+          skillId: skill.id,
+        },
+      ];
+    });
+  };
+
+  const buildComposerCommands = async (root: string | null): Promise<ComposerCommand[]> => {
     const templates = await loadComposerTemplatesCached(root).catch(() => []);
     const templateCommands = templates.map((template) => ({
       name: template.name,
@@ -7524,7 +7560,8 @@ function registerIpc() {
         id: command.id,
       }));
     // Trusted extension commands take arguments and run in the active
-    // session's sidecar (spec 16 §8); they come last in the namespace.
+    // session's sidecar (spec 16 §8); they come after plugin commands and
+    // before the final Skills group.
     const extensionCommands = agentExtensions.allCommands().map((command) => ({
       name: command.name,
       kind: "extension" as const,
@@ -7532,21 +7569,27 @@ function registerIpc() {
       description: command.description ?? command.extensionLabel,
       id: trustedExtensionCommandId(command.name),
     }));
+    const skillCommands = await loadComposerSkillCommands(root).catch(() => []);
     // One namespace: builtin aliases win, then project templates, then user
-    // templates, then plugin commands, then extension commands (spec 04 §7).
-    const merged = new Map<
-      string,
-      ReturnType<typeof builtinComposerCommands>[number]
-    >();
+    // templates, then plugin commands, extension commands, and finally skills.
+    // Skills are deliberately appended last so the slash menu keeps them at
+    // the bottom without allowing a skill to shadow an existing command.
+    const merged = new Map<string, ComposerCommand>();
     for (const command of [
       ...builtinComposerCommands(),
       ...templateCommands,
       ...pluginCommands,
       ...extensionCommands,
+      ...skillCommands,
     ]) {
       if (!merged.has(command.name)) merged.set(command.name, command);
     }
-    return { commands: [...merged.values()] };
+    return [...merged.values()];
+  };
+
+  handle(IPC.invoke.composerCommands, async () => {
+    const root = await optionalWorkspaceRoot();
+    return { commands: await buildComposerCommands(root) };
   });
 
   handle(
@@ -7994,21 +8037,41 @@ function registerIpc() {
     activeTurns.set(req.sessionId, durableTurnId);
     activeTurnUsages.delete(req.sessionId);
 
-    // Slash template expansion (D123, ADR 0024): templates expand before
-    // persistence so reseed replays exactly what the model saw; the typed
-    // form rides along as `command` for transcript display. Builtin/plugin
-    // slash aliases never reach this channel, and unknown /names stay
-    // literal text.
+    // Slash expansion (D123, ADR 0024): templates expand before persistence
+    // so reseed replays exactly what the model saw; the typed form rides along
+    // as `command` for transcript display. Skill aliases are converted into a
+    // short model instruction that makes the existing Skill tool call
+    // explicit, while the typed form remains the visible transcript chip.
+    // Builtin/plugin slash aliases never reach this channel, and unknown
+    // /names stay literal text.
     let promptContent = req.content;
     let slashCommand: string | undefined;
     if (req.content.startsWith("/")) {
       try {
         const root = await optionalWorkspaceRoot();
-        const templates = await loadComposerTemplatesCached(root);
-        const expansion = expandSlashInvocation(req.content, templates);
-        if (expansion) {
-          promptContent = expansion.expanded;
-          slashCommand = expansion.command;
+        const commandEnd = req.content.search(/\s/);
+        const commandName = req.content.slice(
+          1,
+          commandEnd === -1 ? undefined : commandEnd,
+        );
+        const commands = await buildComposerCommands(launch.projectPath ?? root);
+        const command = commands.find((item) => item.name === commandName);
+        if (command?.kind === "skill" && command.skillId) {
+          const body = commandEnd === -1 ? "" : req.content.slice(commandEnd).trim();
+          promptContent = [
+            `Call the \`Skill\` tool with id ${JSON.stringify(command.skillId)} before answering this request. Follow the loaded skill instructions.`,
+            body,
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+          slashCommand = req.content;
+        } else {
+          const templates = await loadComposerTemplatesCached(root);
+          const expansion = expandSlashInvocation(req.content, templates);
+          if (expansion) {
+            promptContent = expansion.expanded;
+            slashCommand = expansion.command;
+          }
         }
       } catch (error) {
         logger.app("session", "warn", "slash expansion failed; sending literal text", {
