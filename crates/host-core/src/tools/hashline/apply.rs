@@ -51,7 +51,6 @@ impl From<ParseError> for ToolError {
 
 #[derive(Debug, Clone)]
 pub struct EditSuccess {
-    pub lf_text: String,
     pub tag: String,
     pub warnings: Vec<String>,
     pub ops_echo: Vec<String>,
@@ -580,7 +579,6 @@ pub fn apply_edit(
         return Ok((
             live,
             EditSuccess {
-                lf_text: String::new(),
                 tag: expected,
                 warnings,
                 ops_echo: echo_ops(&parsed),
@@ -611,7 +609,6 @@ pub fn apply_edit(
     Ok((
         next_file,
         EditSuccess {
-            lf_text: next_text,
             tag: next_tag,
             warnings,
             ops_echo: echo_ops(&parsed),
@@ -650,19 +647,22 @@ pub fn canonical_key(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::hashline::tag::tag_of_bytes;
+
+    fn tag_of_bytes(bytes: &[u8]) -> String {
+        tag_of_lf_text(&normalize_file(bytes).text)
+    }
 
     fn edit(bytes: &[u8], ops: &str) -> Result<String, ToolError> {
         let tag = tag_of_bytes(bytes);
         apply_edit("f.txt", "/ws/f.txt", &tag, ops, bytes, None, None)
-            .map(|(_, success)| success.lf_text)
+            .map(|(file, _success)| file.text)
     }
 
     #[test]
     fn replaces_a_range_and_appends() {
         let bytes = b"one\ntwo\nthree\n";
         let tag = tag_of_bytes(bytes);
-        let out = apply_edit(
+        let (out, success) = apply_edit(
             "f.txt",
             "/ws/f.txt",
             &tag,
@@ -671,10 +671,9 @@ mod tests {
             None,
             None,
         )
-        .unwrap()
-        .1;
-        assert_eq!(out.lf_text, "one\nTWO\nthree\nfour\n");
-        assert_eq!(out.tag, tag_of_lf_text(&out.lf_text));
+        .unwrap();
+        assert_eq!(out.text, "one\nTWO\nthree\nfour\n");
+        assert_eq!(success.tag, tag_of_lf_text(&out.text));
     }
 
     #[test]
@@ -705,7 +704,7 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.code, "EDIT_TAG_MISMATCH");
-        let ok = apply_edit(
+        let (ok, success) = apply_edit(
             "f.txt",
             "/ws/f.txt",
             "0000",
@@ -714,10 +713,9 @@ mod tests {
             None,
             None,
         )
-        .unwrap()
-        .1;
-        assert_eq!(ok.lf_text, "a\nb\nc\n");
-        assert!(!ok.warnings.is_empty());
+        .unwrap();
+        assert_eq!(ok.text, "a\nb\nc\n");
+        assert!(!success.warnings.is_empty());
     }
 
     #[test]
@@ -753,7 +751,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.code, "EDIT_LINES_UNSEEN");
         assert_eq!(err.extra["merged"], json!(true));
-        let ok = apply_edit(
+        let (ok, _success) = apply_edit(
             "f.txt",
             "/ws/f.txt",
             &tag,
@@ -762,8 +760,7 @@ mod tests {
             Some("s"),
             Some(&store),
         )
-        .unwrap()
-        .1;
-        assert_eq!(ok.lf_text, "a\nb\nC\nd\n");
+        .unwrap();
+        assert_eq!(ok.text, "a\nb\nC\nd\n");
     }
 }
