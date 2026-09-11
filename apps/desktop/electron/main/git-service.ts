@@ -26,6 +26,7 @@ type RawStatusEntry = {
   index: string;
   worktree: string;
   untracked: boolean;
+  directory?: boolean;
   unmerged: boolean;
 };
 
@@ -118,12 +119,15 @@ export function parseGitStatusV2(raw: string): RawGitStatus {
     const fields = record.split(" ");
     const kind = fields[0];
     if (kind === "?") {
-      const path = unquoteGitPath(record.slice(2));
+      const rawPath = record.slice(2);
+      const directory = /\/"?$/.test(rawPath);
+      const path = unquoteGitPath(rawPath).replace(/\/+$/, "");
       result.entries.push({
         path,
         index: "?",
         worktree: "?",
         untracked: true,
+        directory,
         unmerged: false,
       });
       continue;
@@ -545,7 +549,7 @@ export class GitService {
       "status",
       "--porcelain=v2",
       "--branch",
-      "--untracked-files=all",
+      "--untracked-files=normal",
       "-z",
     ]);
     const parsed = parseGitStatusV2(status.stdout);
@@ -574,6 +578,7 @@ export class GitService {
               scope === "staged" ? entry.index : entry.worktree,
               entry.oldPath,
             ),
+        ...(entry.untracked && entry.directory ? { directory: true as const } : {}),
         additions: 0,
         deletions: 0,
       });

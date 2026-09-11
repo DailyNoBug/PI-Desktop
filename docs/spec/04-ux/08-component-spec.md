@@ -850,8 +850,10 @@ Git error without creating a merge commit.
 Below the branch bar, **Staged Changes** and **Changes** render current Git
 state as collapsible directory trees. Folder rows aggregate descendant file and
 addition/deletion counts; file rows show the status letter, basename, rename
-target, and counts. Binary and oversized files identify themselves without diff
-content. Per-row actions stage, unstage, or discard. Selecting a file expands
+target, and counts. An entirely untracked directory is one aggregate row; it can
+be staged or discarded as a unit but is not expandable into Git-internal file
+content and does not open review. Binary and oversized files identify themselves
+without diff content. Per-row actions stage, unstage, or discard. Selecting a file expands
 the active Git view to a host-owned inset application-window surface while
 keeping the changed-file tree anchored at its right-panel position. The
 window-centered dialog opens in side-by-side mode with aligned old/new

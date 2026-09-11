@@ -29,8 +29,10 @@ output to plugin code.
 2. **Electron Main owns a structured Git service.** Public plugin calls map to
    fixed Git argv in the active workspace. Inputs use safe relative paths;
    output and file counts are bounded; operations use timeouts; and mutations
-   for one workspace are serialized. The legacy `workspaceDiff` IPC remains
-   unchanged.
+   for one workspace are serialized. Untracked directories aggregate at the
+   highest path Git reports so internal backup or metadata trees cannot exhaust
+   the file limit and hide unrelated changes. The legacy `workspaceDiff` IPC
+   remains unchanged.
 3. **The public API is fixed and permission-gated.** `git.read` unlocks
    `status`, `branches`, and `diff`; `git.write` unlocks stage, unstage,
    discard, branch create/switch, commit, push, and pull. There is no arbitrary

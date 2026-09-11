@@ -570,6 +570,7 @@
         refreshDiff: zh ? "刷新 diff" : "Refresh diff",
         binary: zh ? "二进制文件不支持文本 diff" : "Binary file",
         tooLarge: zh ? "文件过大，diff 已截断" : "File too large",
+        untrackedDirectory: zh ? "未跟踪目录" : "Untracked directory",
         noDiff: zh ? "没有可显示的 diff" : "No diff",
         stage: zh ? "暂存" : "Stage",
         unstage: zh ? "取消暂存" : "Unstage",
@@ -622,6 +623,7 @@
           refreshDiff: zh ? "刷新 diff" : "Refresh diff",
           binary: zh ? "二进制文件不支持文本 diff" : "Binary file",
           tooLarge: zh ? "文件过大，diff 已截断" : "File too large",
+          untrackedDirectory: zh ? "未跟踪目录" : "Untracked directory",
           noDiff: zh ? "没有可显示的 diff" : "No diff",
           stage: zh ? "暂存" : "Stage",
           unstage: zh ? "取消暂存" : "Unstage",
@@ -899,14 +901,17 @@
         const status = state.status;
         if (!status?.repo) return [];
         if (status.staged.length) {
-          return status.staged.map((change) => ({ ...change, scope: "staged" }));
+          return status.staged.filter((change) => !change.directory).map((change) => ({ ...change, scope: "staged" }));
         }
-        return status.unstaged.map((change) => ({
+        return status.unstaged.filter((change) => !change.directory).map((change) => ({
           ...change,
           scope: change.status === "untracked" ? "untracked" : "unstaged",
         }));
       }
       function formatPatch(item) {
+        if (item.directory) {
+          return `${item.path}: untracked directory`;
+        }
         const file = item.result?.file;
         if (!file) {
           const reason = item.diffError
@@ -936,7 +941,7 @@
         const boundPrompt = () => patches.join("\n\n").slice(0, 80_000);
         for (const item of items.slice(0, 50)) {
           let patchItem = item;
-          if (!item.binary && !item.tooLarge) {
+          if (!item.directory && !item.binary && !item.tooLarge) {
             try {
               const result = await invoke("git.diff", { path: item.path, scope: item.scope });
               patchItem = { ...item, result };
@@ -1161,6 +1166,7 @@
       function appendFileRow(container, change, kind) {
         const scope = change.scope ?? (kind === "staged" ? "staged" : change.status === "untracked" ? "untracked" : "unstaged");
         const key = itemKey({ ...change, scope });
+        const isDirectory = change.directory === true;
         const row = document.createElement("button");
         row.className = "file";
         row.type = "button";
@@ -1173,7 +1179,7 @@
         letter.title = statusText[change.status] ?? change.status;
         const path = document.createElement("span");
         path.className = "path";
-        path.title = change.oldPath ? `${change.oldPath} → ${change.path}` : change.path;
+        path.title = `${change.oldPath ? `${change.oldPath} → ${change.path}` : change.path}${isDirectory ? ` · ${text.untrackedDirectory}` : ""}`;
         const basename = change.path.split("/").filter(Boolean).at(-1) || change.path;
         path.innerHTML = `<span>${esc(basename)}</span>`;
         const actions = document.createElement("span");
@@ -1184,7 +1190,10 @@
           counts.innerHTML = `${change.additions ? `<b>+${change.additions}</b>` : ""}${change.additions && change.deletions ? " " : ""}${change.deletions ? `<i>-${change.deletions}</i>` : ""}`;
           actions.append(counts);
         }
-        row.addEventListener("click", (event) => openReview({ ...change, scope }, event.currentTarget));
+        row.addEventListener("click", (event) => {
+          if (isDirectory) return;
+          openReview({ ...change, scope }, event.currentTarget);
+        });
         if (change.status === "conflicted") {
           // Conflict resolution stays outside v1; review remains available.
         } else if (kind === "staged") {
@@ -1263,6 +1272,7 @@
         const previous = state.review ? itemKey(state.review) : "";
         select.replaceChildren();
         for (const item of statusItems()) {
+          if (item.directory) continue;
           const option = document.createElement("option");
           option.value = itemKey(item);
           option.textContent = `${item.scope === "staged" ? "STAGED " : ""}${item.path}`;

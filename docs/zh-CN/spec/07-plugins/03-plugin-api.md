@@ -194,10 +194,12 @@ Stage 与 unstage 必须提供有界的非空路径列表，或显式传入 `all
 discard 始终必须提供明确路径。
 
 `status` 报告仓库可用性、当前分支与上游、ahead/behind 数量、已暂存变更、
-未暂存变更、未跟踪文件、冲突以及文件列表是否被截断。同一路径可以同时出现在
-staged 与 unstaged 分组。`diff` 针对一个选中的范围返回有界 hunk，并提供二进制
-与文件过大状态。Commit 默认使用已暂存索引；`stageAll` 是显式的“全部暂存并
-提交”动作。空消息与空提交会被拒绝，仓库 hook 照常运行。
+未暂存变更、未跟踪文件、冲突以及文件列表是否被截断。完全未跟踪的目录会作为
+一个标记 `directory: true` 的聚合条目返回；服务不会把它展开成可能数千个内部
+文件。同一路径可以同时出现在 staged 与 unstaged 分组。`diff` 针对一个选中的
+文件范围返回有界 hunk，并提供二进制与文件过大状态。Commit 默认使用已暂存索引；
+`stageAll` 是显式的“全部暂存并提交”动作。空消息与空提交会被拒绝，仓库 hook
+照常运行。
 
 Push 使用当前分支已配置的上游；`publish: true` 显式发布到
 `origin/<current-branch>`。Pull 永远只允许 fast-forward。Discard、切换分支和

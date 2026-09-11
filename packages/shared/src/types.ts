@@ -1927,6 +1927,8 @@ export type GitFileChange = {
   path: string;
   oldPath?: string;
   status: GitFileStatus;
+  /** Set for an untracked directory reported as one aggregate entry. */
+  directory?: boolean;
   additions: number;
   deletions: number;
   binary?: boolean;

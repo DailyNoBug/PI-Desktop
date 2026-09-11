@@ -209,6 +209,9 @@ test("Git ships as an ordinary plugin over the public Git bridge", () => {
   assert.match(gitView, /class="composer"/);
   assert.match(gitView, /class="composer-actions"/);
   assert.doesNotMatch(gitView, /\.commit \.primary \{ height: auto;/);
+  // Untracked directories are aggregate mutation targets, not file reviews.
+  assert.match(gitView, /change\.directory === true/);
+  assert.match(gitView, /if \(item\.directory\) continue;/);
   assert.match(gitView, /align-items:\s*center/);
   assert.match(gitView, /justify-content:\s*center/);
   assert.match(gitView, /event\.target === \$\("review"\)/);
