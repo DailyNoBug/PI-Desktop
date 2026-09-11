@@ -925,6 +925,7 @@ Codex parity decisions (D034/D070) supersede any older value here.
 | Sidebar width (collapsed) | 48px | Icon-only rail |
 | Sidebar width (expanded) | `240px–520px` (default 275px) | Right-edge resize handle; persisted preferred width |
 | Main pane minimum readable width | 360px | Target when the panel is closed; an open internal panel may reduce MainChat below this target on small windows |
+| Chat column boundary | Flex item minimum `0` | Chat content and the composer stay inside the space allocated by MainPane when sidebars consume width |
 | Work panel width (closed) | 0px | Hidden by default |
 | Work panel width (open) | `244px–720px` (new-profile default 360px), fixed at the committed width | the panel is an in-flow column whose width is taken from the existing client area; the renderer owns its divider (ADR 0151); saved widths remain unchanged |
 | Composer shell minimum | ~80px | One-line draft + toolbar padding |

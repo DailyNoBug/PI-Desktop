@@ -2140,6 +2140,9 @@ reasoning-level control.
   right control groups onto separate rows. Mode and permission labels stay on
   one line and ellipsize within their chips, so a sidebar or work-panel resize
   cannot vertically split or overlap toolbar content.
+- The chat surface yields width to the shell's sidebar and work-panel columns;
+  the composer remains inside the main chat column and never paints underneath
+  either sibling column during a resize.
 - The combined chip opens one anchored menu above itself. The menu starts with
   only Model and Reasoning level entries, each showing its current value and a
   chevron. Selecting an entry replaces the menu contents in place with a back

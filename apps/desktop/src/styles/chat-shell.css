@@ -69,6 +69,13 @@
   flex-direction: column;
 }
 
+/* Let the shell's flex columns own the chat boundary. A fixed child minimum
+ * can overflow MainPane when the sidebar and work panel are both wide,
+ * allowing the composer to paint underneath a sibling column. */
+.chat-surface {
+  min-width: 0;
+}
+
 /* Retained session panes (ADR 0137). Every recently visited session keeps one
  * pane stacked here; exactly one is visible. The stack is a single flex column
  * so the visible pane fills the surface exactly as one transcript used to. */

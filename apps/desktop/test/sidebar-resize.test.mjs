@@ -70,3 +70,10 @@ test("a narrow composer wraps toolbar groups before localized labels can overlap
     /\.mode-chip > span\s*\{[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/,
   );
 });
+
+test("chat content stays inside the main pane while sidebars resize", () => {
+  assert.match(
+    globalStyles,
+    /\.chat-surface\s*\{[\s\S]*?min-width:\s*0;/,
+  );
+});
