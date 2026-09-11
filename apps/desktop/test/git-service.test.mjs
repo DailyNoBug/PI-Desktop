@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -43,13 +43,14 @@ test("parses porcelain v2 branch, staged, worktree, rename, and conflict records
     "2 R. N... 100644 100644 100644 222 333 new.txt",
     "old.txt",
     "? untracked.txt",
+    "? backup-dir/",
     "u UU N... 100644 100644 100644 100644 222 222 333 conflict.txt",
   ].join("\0") + "\0";
   const parsed = parseGitStatusV2(raw);
   assert.equal(parsed.branch, "feature");
   assert.equal(parsed.upstream, "origin/feature");
   assert.deepEqual([parsed.ahead, parsed.behind], [2, 1]);
-  assert.equal(parsed.entries.length, 5);
+  assert.equal(parsed.entries.length, 6);
   assert.deepEqual(
     parsed.entries.map((entry) => [entry.path, entry.index, entry.worktree, entry.untracked, entry.unmerged]),
     [
@@ -57,9 +58,11 @@ test("parses porcelain v2 branch, staged, worktree, rename, and conflict records
       ["index.txt", "M", ".", false, false],
       ["new.txt", "R", ".", false, false],
       ["untracked.txt", "?", "?", true, false],
+      ["backup-dir", "?", "?", true, false],
       ["conflict.txt", "U", "U", false, true],
     ],
   );
+  assert.equal(parsed.entries.find((entry) => entry.path === "backup-dir").directory, true);
   assert.equal(parsed.entries.find((entry) => entry.path === "new.txt").oldPath, "old.txt");
 });
 
@@ -83,6 +86,27 @@ test("status separates staged, worktree, rename, and untracked changes", async (
   const renamed = (await service.status()).staged.find((change) => change.path === "renamed.txt");
   assert.equal(renamed.oldPath, "new.txt");
   assert.equal(renamed.status, "renamed");
+});
+
+test("untracked directories aggregate without hiding other changes", async () => {
+  const { root, service } = await repository();
+  await writeFile(join(root, "a.txt"), "one\nchanged\n", "utf8");
+  await mkdir(join(root, "backup/objects/ab"), { recursive: true });
+  await writeFile(join(root, "backup/HEAD"), "ref: refs/heads/main\n", "utf8");
+  for (let index = 0; index < 12; index += 1) {
+    await writeFile(join(root, `backup/objects/ab/object-${index}`), `${index}\n`, "utf8");
+  }
+
+  const status = await service.status();
+  assert.equal(status.truncated, undefined);
+  assert.deepEqual(
+    status.unstaged.map((change) => [change.path, change.status, change.directory]),
+    [
+      ["a.txt", "modified", undefined],
+      ["backup", "untracked", true],
+    ],
+  );
+  assert.ok(!status.unstaged.some((change) => change.path.startsWith("backup/")));
 });
 
 test("patch hunks retain their old and new starting line numbers", () => {

@@ -230,10 +230,12 @@ Stage and unstage require either a bounded nonempty path list or an explicit
 
 `status` reports repository availability, the current branch and upstream,
 ahead/behind counts, staged changes, unstaged changes, untracked files,
-conflicts, and whether the file list was truncated. A path can appear in both
-staged and unstaged sections. `diff` returns bounded hunks for one selected
-scope, with binary and oversized-file states. Commit uses the staged index by
-default; `stageAll` is the explicit "stage all and commit" action. Empty
+conflicts, and whether the file list was truncated. An entirely untracked
+directory is one aggregate entry marked `directory: true`; the service does not
+expand it into potentially thousands of internal files. A path can appear in
+both staged and unstaged sections. `diff` returns bounded hunks for one selected
+file scope, with binary and oversized-file states. Commit uses the staged index
+by default; `stageAll` is the explicit "stage all and commit" action. Empty
 messages and empty commits are rejected, while repository hooks run normally.
 
 Push uses the configured current-branch upstream; `publish: true` explicitly

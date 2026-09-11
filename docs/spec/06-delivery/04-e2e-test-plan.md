@@ -9992,7 +9992,8 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
 - **Preconditions**: A local bare `origin` with a main branch; clone A and
   clone B configured to use it without terminal prompts. Clone A contains one
   staged file, one modified file, one renamed file, one untracked file, and one
-  binary or oversized file, and is ahead of `origin/main`. Clone B has a
+  binary or oversized file, an entirely untracked directory containing many
+  files, and is ahead of `origin/main`. Clone B has a
   different commit that makes the repositories diverge. A hook-failure fixture
   can reject one commit, a non-Git project directory is available, and the app
   language can be switched between English and Simplified Chinese.
@@ -10011,8 +10012,12 @@ sample extensions under `apps/desktop/test/fixtures/pi-extensions/`.
   the view is absent until re-enabled.
 - **Expected**: The Git view uses the `branch` icon and current locale. It
   reports repository, branch, upstream, ahead/behind, staged, unstaged,
-  untracked, conflicts, and truncation state without exposing diff output in
-  logs. The review dialog spans the host-owned inset application-window surface,
+  untracked files and directories, conflicts, and truncation state without
+  exposing diff output in logs. The untracked directory remains one aggregate
+  row, so an unrelated modified file is still listed even when the directory
+  contains thousands of entries; that directory can stage or discard as a unit
+  but does not open review. The review dialog spans the host-owned inset
+  application-window surface,
   supports all scopes and navigation, and never creates or activates
   message-owned Review or rollback. Stage and
   unstage update the correct sections; discard and branch switching require the
