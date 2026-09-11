@@ -1,10 +1,10 @@
-# ADR 0218: Tree review and AI commit messages in Git
+# ADR 0232: Tree review and AI commit messages in Git
 
 - Status: Accepted
 - Date: 2026-09-11
 - Deciders: PI-Desktop core
-- Related: D391, D392, ADR 0217, `07-plugins/03-plugin-api.md`,
-  `04-ux/08-component-spec.md`, E2E-247
+- Related: D405, D406, ADR 0231, `07-plugins/03-plugin-api.md`,
+  `04-ux/08-component-spec.md`, E2E-255
 
 ## Context
 
@@ -15,7 +15,7 @@ it is the old/new split view. The commit field also required the user to write
 the subject manually even though the panel already has bounded, scoped diffs.
 
 Giving the plugin arbitrary file reads or shell access to gather prompt context
-would weaken the boundary established by ADR 0217. Reusing the plugin-process
+would weaken the boundary established by ADR 0231. Reusing the plugin-process
 panel bridge for `agent.complete` would also impose the generic 30-second panel
 timeout even though side completions have a 90-second budget.
 

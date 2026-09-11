@@ -103,7 +103,6 @@ const enEntries: ChangelogEntry[] = [
     version: "0.13.11",
     date: "2026-09-07",
     highlights: [
-      "Enable the bundled Advisor plugin to have a second model review the current conversation.",
       "Let plugins list models, read in-flight session context, and request host-owned completions without receiving credentials.",
     ],
   },
@@ -817,7 +816,6 @@ const zhCNEntries: ChangelogEntry[] = [
     version: "0.13.11",
     date: "2026-09-07",
     highlights: [
-      "启用内置 Advisor 插件后，可用第二个模型审阅当前对话。",
       "插件可列出模型、读取当前会话，并请求宿主代发补全，不会拿到凭据。",
     ],
   },
@@ -1532,7 +1530,6 @@ const zhTWEntries: ChangelogEntry[] = [
     version: "0.13.11",
     date: "2026-09-07",
     highlights: [
-      "啟用內建 Advisor 外掛後，可用第二個模型審閱當前對話。",
       "外掛可列出模型、讀取當前會話，並請求宿主代發補全，不會拿到憑據。",
     ],
   },

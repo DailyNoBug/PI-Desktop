@@ -7,18 +7,51 @@ const composerSource = await readFile(
   "utf8",
 );
 
+const modifierSendCondition =
+  /e\.key === "Enter"\s*&&\s*!e\.shiftKey\s*&&\s*\(enterToSend \|\| e\.metaKey \|\| e\.ctrlKey\)/;
+
+function promptEditorKeyDown(source) {
+  const start = source.indexOf("onCompositionStart={() => setComposing(true)}");
+  const end = source.indexOf("composer-toolbar", start);
+  assert.ok(start > -1 && end > start, "prompt editor keydown must exist");
+  return source.slice(start, end);
+}
+
 test("enter-to-send ignores the IME confirm keystroke", () => {
-  const guardIndex = composerSource.indexOf(
+  const handler = promptEditorKeyDown(composerSource);
+  const guardIndex = handler.indexOf(
     "e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229",
   );
-  const sendIndex = composerSource.indexOf(
-    'e.key === "Enter" && !e.shiftKey && enterToSend',
-  );
+  const sendIndex = handler.search(modifierSendCondition);
   assert.ok(guardIndex > -1, "composer keydown must check IME composition");
   assert.ok(sendIndex > -1, "composer keydown must keep the send branch");
   assert.ok(
     guardIndex < sendIndex,
     "composition guard must run before the send branch",
+  );
+});
+
+test("modifier Enter sends when Enter-to-send is disabled", () => {
+  const handler = promptEditorKeyDown(composerSource);
+  const sendIndex = handler.search(modifierSendCondition);
+  const autocompleteIndex = handler.search(
+    /\(e\.key === "Enter" \|\| e\.key === "Tab"\) && !e\.shiftKey/,
+  );
+  assert.ok(sendIndex > -1, "prompt editor must include the modifier send branch");
+  assert.ok(
+    autocompleteIndex > -1 && autocompleteIndex < sendIndex,
+    "autocomplete Enter must run before the send branch",
+  );
+  assert.match(handler.slice(sendIndex), /void submit\(\);/);
+
+  const modelMenu = composerSource.slice(
+    composerSource.indexOf("const onModelThinkingMenuKeyDown"),
+    composerSource.indexOf("composer-toolbar"),
+  );
+  assert.doesNotMatch(
+    modelMenu.slice(0, modelMenu.indexOf("onCompositionStart")),
+    modifierSendCondition,
+    "model menu keydown must not own the composer send predicate",
   );
 });
 

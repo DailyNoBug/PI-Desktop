@@ -73,7 +73,7 @@ test("plugins page styles tier permission risk with semantic tokens", () => {
 
 // D296: installed rows are separate soft tiles stacked with a gap, not one
 // hairline-separated panel. Nothing clips, so the row overflow menu can overhang
-// the tile below, and rows near the viewport bottom still open upwards.
+// the tile below. AnchoredMenu owns viewport clamping for rows near the bottom.
 test("plugins installed rows are stacked tiles that let row menus overhang", () => {
   const section = pluginsSection(stylesSource);
 
@@ -82,7 +82,8 @@ test("plugins installed rows are stacked tiles that let row menus overhang", () 
   assert.match(section, /\.plugins-row\s*\{[^}]*border-radius:\s*var\(--radius-md-plus\)[^}]*background:\s*var\(--plugins-tile\)/);
   assert.doesNotMatch(section, /\.plugins-row \+ \.plugins-row/);
   assert.doesNotMatch(section, /\.plugins-row:(first|last)-child/);
-  assert.match(section, /\.plugins-menu\.is-up\s*\{[\s\S]*?bottom:\s*calc\(100% \+ 5px\)/);
+  assert.match(section, /\.plugins-menu\s*\{[\s\S]*?position:\s*fixed;/);
+  assert.doesNotMatch(section, /\.plugins-menu\.is-up/);
 });
 
 // D296: the whole page is divider-free. In-flow rules — border-top/bottom,

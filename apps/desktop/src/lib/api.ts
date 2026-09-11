@@ -131,6 +131,8 @@ declare global {
       platform: NodeJS.Platform;
       /** Authoritative OS locale passed from the main process at window creation. */
       locale?: string;
+      /** Resolve a native dropped File to its source path. */
+      getDroppedFilePath?: (file: File) => string | null;
     };
   }
 }
@@ -347,6 +349,11 @@ export const api = {
     invoke<{ ok: boolean; path: string }>(IPC.invoke.projectOpenFolder, path),
   renameSession: (id: string, title: string) =>
     invoke<{ ok: boolean }>(IPC.invoke.sessionRename, id, title),
+  moveSessionProject: (sessionId: string, projectPath: string) =>
+    invoke<{ session: SessionSummary }>(IPC.invoke.sessionMoveProject, {
+      sessionId,
+      projectPath,
+    }).then((result) => ({ ...result, session: normalizeSession(result.session) })),
   summarizeSessionTitle: (req: SessionSummarizeTitleRequest) =>
     invoke<SessionSummarizeTitleResponse>(IPC.invoke.sessionSummarizeTitle, req),
   configureSession: (
@@ -462,6 +469,8 @@ export const api = {
     ),
   pickFiles: () =>
     invoke<{ token: string | null; canceled?: boolean }>(IPC.invoke.composerPickFiles),
+  getDroppedFilePath: (file: File) =>
+    window.piDesktop?.getDroppedFilePath?.(file) ?? null,
   pickPhotos: () =>
     invoke<{ token: string | null; canceled?: boolean }>(IPC.invoke.composerPickPhotos),
   importFiles: (sessionId: string, token: string) =>

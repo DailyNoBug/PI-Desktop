@@ -47,6 +47,7 @@ import { StartupSplash } from "./components/StartupSplash";
 import { TooltipButton, cx } from "./components/ui";
 import {
   IconPanel,
+  IconPanelOpen,
   IconNewSession,
   IconSidebar,
 } from "./components/icons";
@@ -817,6 +818,23 @@ function AppShell() {
         shortcutPlatform,
       ).join(shortcutPlatform === "darwin" ? "" : "+")
     : "";
+  const toggleWorkPanelShortcutDefinition = KEYBOARD_SHORTCUTS.find(
+    (shortcut) => shortcut.id === "openWorkPanel",
+  );
+  const workPanelToggleShortcut = toggleWorkPanelShortcutDefinition
+    ? keybindingDisplayParts(
+        resolveKeybinding(
+          toggleWorkPanelShortcutDefinition,
+          settings?.keybindings,
+          shortcutPlatform,
+        ),
+        shortcutPlatform,
+      ).join(shortcutPlatform === "darwin" ? "" : "+")
+    : "";
+  const workPanelToggleLabel = t("nav.toggleWorkPanel");
+  const workPanelToggleTooltip = workPanelToggleShortcut
+    ? `${workPanelToggleLabel} ${workPanelToggleShortcut}`
+    : workPanelToggleLabel;
 
   let shell: ReactNode = null;
   if (ready) {
@@ -967,13 +985,16 @@ function AppShell() {
           <TooltipButton
             type="button"
             className="app-work-panel-toggle no-drag"
-            tooltip={t("nav.toggleWorkPanel")}
-            ariaLabel={t("nav.toggleWorkPanel")}
+            tooltip={workPanelToggleTooltip}
+            ariaLabel={workPanelToggleTooltip}
             aria-pressed={workPanelOpen || presentedWorkPanelOpen}
             disabled={!activeSessionId && !presentedWorkPanelOpen && !workPanelExiting}
             onClick={togglePresentedWorkPanel}
           >
-            <IconPanel size={15} />
+            <span className="app-work-panel-toggle-icon" aria-hidden>
+              <IconPanel size={15} />
+              <IconPanelOpen size={15} />
+            </span>
           </TooltipButton>
 
           <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />

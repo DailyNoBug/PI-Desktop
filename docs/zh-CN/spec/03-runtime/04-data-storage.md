@@ -215,13 +215,13 @@ type SidebarPreferences = {
   sessionMeta: Record<string, {
     pinned?: boolean;
     archived?: boolean;
-    order?: number; // compatibility/future manual order
+    order?: number; // renderer-local manual order
   }>;
   projectMeta: Record<string, {
     pinned?: boolean;
     archived?: boolean;
     collapsed?: boolean;
-    order?: number; // compatibility/future manual order
+    order?: number; // renderer-local manual order
   }>;
   projectSort: "recent" | "created" | "oldest" | "name" | "manual";
   sessionView: {
@@ -234,9 +234,10 @@ type SidebarPreferences = {
 
 - 项目密钥和保留路径使用规范化的完整路径；会话密钥使用
   持久会话 ID。 Duplicate/slash-variant 路径在加载时被丢弃。
-- `sessions.mode = 'agent'`/`PRAGMA incremental_vacuum` 是兼容性字段。该基线没有暴露
-  drag/manual-reorder交互；没有可用顺序的值回落为
-  近期订单稳定。
+- `projectSort: "manual"` 和 `projectMeta[*].order` 保存渲染器本地的项目显示顺序。
+  拖动项目标题或在该标题上使用键盘箭头会为可见的规范化路径写入连续顺序值。
+  缺失或无效值回落到稳定路径顺序；置顶和归档优先级仍在手动顺序之前应用。
+  会话 `manual`/`order` 仍是兼容性字段，侧边栏不会公开会话手动重排。
 - 缺失、格式错误或不可写的首选项回退到空元数据，
   `recent`，存档隐藏，以及主机选择的项目。偏好失败
   永远不会阻止主机操作。
@@ -918,7 +919,9 @@ CREATE INDEX idx_notifications_unread
 | 通过 `session.endTurn` 打开终端 | `completed`/`error`：仅当该 id 已索引时才移除进行中检查点，否则留给 outbox 或启动恢复（D327）。`recoverInflight`：最终行从未落盘时，回合已 `completed` 则追加为 `complete`，否则为 `aborted` | 更新 `turns`；对于 completed/error，在同一交易中插入一个通知并修剪至 200 个；中止插入 无；被提升的检查点在该回合下获得一个索引行 |
 | plan/goal 提交 | 主机将准确的 Markdown 字节写入新的唯一 `<workspaceRoot>/.pi/<kind>/*.md` 文件 | 在发出批准请求之前插入一个 `plan_approvals(pending)` 行，其中包含类型、结构化 title/question、工件 path/hash/size 和到期时间 |
 | plan/goal 批准 | 验证不可变工件 path/hash/size | 原子地解析 `plan_approvals`，更新 `sessions.mode` 和显式 `permission_mode`，并设置 `execution_state = 'queued'`； reject/expiry 保持合约模式 |
-| 转录本截断/编辑/无应答智能停止 (`session.replaceMessages`) | 原子记录重写（临时+重命名）；只保留边界仍然存在的检查点 | single tx：删除索引行，批量重新插入携带每个幸存消息所属的 `turn_id`，重置 `last_seq`； smart Stop 仅将其结构化输入框快照保留在渲染器内存中 |
+| 转录本截断/重试/编辑 (`session.truncateFrom`) | 主机拥有的后缀截断：中止残留 running 回合，归档被丢弃的重新生成尾巴，原子前缀重写（临时+重命名）；只保留边界仍然存在的检查点 | 经 `replace_messages` 的 single tx：删除索引行，批量重新插入携带每个幸存消息所属的 `turn_id`，重置 `last_seq`；删除进行中检查点 |
+| 删除消息/无应答智能停止 (`session.replaceMessages`) | 原子记录重写（临时+重命名）；只保留边界仍然存在的检查点 | single tx：删除索引行，批量重新插入携带每个幸存消息所属的 `turn_id`，重置 `last_seq`； smart Stop 仅将其结构化输入框快照保留在渲染器内存中 |
+
 | 会话分叉 (`session.fork`) | 使用重新映射的 message/tool-call id 编写新的转录本； copy/remap 仅当包含其边界时才为检查点 | single tx：克隆会话配置，插入子索引行，设置`last_seq`；失败时删除子文件 |
 | 重新生成分支保存 | 追加修订行（带 `revisionIndex` 时为该已有变体的刷新行） | 带有 `message_count` 的索引行（+ `is_active` 翻转）；刷新只更新 `message_count` |
 | 回合完成分支存档 (`session.saveActiveRevision`) | 附加修订行（活动变体已归档时为刷新行），然后仅重写寻呼机标记的根用户的转录行 | 带有 `message_count` 的索引行（+ `is_active` 翻转）；其他消息的索引行未受影响 |

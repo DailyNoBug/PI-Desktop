@@ -126,6 +126,19 @@ test("plugin content is offset below the strict 46px host drag band", () => {
   assert.match(preloadSource, /prefers-reduced-motion: reduce/);
 });
 
+test("plugin panel documents use the compact global scrollbar contract", () => {
+  assert.match(preloadSource, /function installPluginScrollbarStyle\(\)/);
+  assert.match(
+    preloadSource,
+    /::-webkit-scrollbar\s*\{[\s\S]*?width: 6px;[\s\S]*?height: 6px;/,
+  );
+  assert.match(preloadSource, /::-webkit-scrollbar-track[\s\S]*?background: transparent/);
+  assert.match(preloadSource, /:focus-within::\-webkit-scrollbar-thumb/);
+  assert.match(preloadSource, /\[data-scrolling\]::\-webkit-scrollbar-thumb/);
+  assert.match(preloadSource, /document\.addEventListener\("scroll", onScroll/);
+  assert.match(preloadSource, /installPluginScrollbarStyle\(\);/);
+});
+
 test("paint-through panels let page content draw and receive pointer events", () => {
   assert.match(chromeSource, /PLUGIN_PANEL_CHROME_PAINT_THROUGH_VERSION = "v3"/);
   assert.match(preloadSource, /type PluginPanelChromeMode = "legacy" \| "safe-area" \| "paint-through"/);

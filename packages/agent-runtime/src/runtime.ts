@@ -268,6 +268,18 @@ function mutationTerminationAdvice(
   return "Re-read the live file, regenerate a narrower Edit, and avoid repeating the same payload.";
 }
 export const TOOL_SEARCH_NAME = "ToolSearch";
+/** Stands in for a persisted tool row that never recorded a result. */
+const MISSING_TOOL_RESULT_PLACEHOLDER = "[no tool result recorded]";
+
+function isMissingToolResultPlaceholder(
+  content: ToolResultMessage["content"],
+): boolean {
+  return (
+    content.length === 1 &&
+    content[0].type === "text" &&
+    content[0].text === MISSING_TOOL_RESULT_PLACEHOLDER
+  );
+}
 export const ASK_TOOL_NAME = "asktool";
 
 /**
@@ -325,6 +337,10 @@ export type DelegationRecord = {
   /** `prompt()` / `executeApprovedPlan()` generation that started this run.
    * Resume-after-idle only waits for the current turn's delegates (D352). */
   startedEpoch: number;
+  /** The settled report reached the parent's context once: through a
+   * `TaskWait` result or the resume-after-idle prompt. Auto-delivery is a
+   * single shot per record. */
+  reportDelivered: boolean;
 };
 
 function delegationSummary(record: DelegationRecord): Record<string, unknown> {
@@ -401,8 +417,9 @@ const DELEGATION_RESUME_PROMPT =
 function formatDelegationResults(
   results: Array<{ delegationId: string; agent: string; status: string; report: string }>,
   note?: string,
-): string {
+): { text: string; includedDelegationIds: Set<string> } {
   const parts: string[] = [];
+  const includedDelegationIds = new Set<string>();
   let total = 0;
   let omitted = 0;
   for (const result of results) {
@@ -412,6 +429,7 @@ function formatDelegationResults(
       continue;
     }
     parts.push(block);
+    includedDelegationIds.add(result.delegationId);
     total += block.length + 2;
   }
   if (omitted > 0) {
@@ -419,7 +437,10 @@ function formatDelegationResults(
       `[${omitted} more result${omitted === 1 ? "" : "s"} omitted to protect this context; call TaskWait with their delegationIds to re-read one.]`,
     );
   }
-  return [note, ...parts].filter((part) => part?.trim()).join("\n\n");
+  return {
+    text: [note, ...parts].filter((part) => part?.trim()).join("\n\n"),
+    includedDelegationIds,
+  };
 }
 /**
  * Tokens held back from the context window for the summary prompt and the
@@ -1223,7 +1244,7 @@ function toolResultFromUi(
       type: "text",
       text: interrupted
         ? "[tool call was interrupted before a result was recorded]"
-        : "[no tool result recorded]",
+        : MISSING_TOOL_RESULT_PLACEHOLDER,
     });
   }
   return {
@@ -1684,6 +1705,7 @@ Delegation rules:
     this.mode = mode;
     this.activeDeferredToolNames.clear();
     this.rebuildToolCatalog();
+    this.restoreDeferredToolsFromContext();
     this.agent.state.systemPrompt = this.composeSystemPrompt();
     this.agent.state.tools = this.activeTools();
     this.setPlanningState(planningState, details);
@@ -3422,6 +3444,7 @@ Delegation rules:
           lastActivityAt: startedAt,
           lastPhase: "waiting-model",
           startedEpoch: this.turnEpoch,
+          reportDelivered: false,
         };
         this.delegations.set(delegationId, record);
         const scopedTools = this.scopeDelegateTools(tools, definition);
@@ -3568,6 +3591,24 @@ Delegation rules:
     );
   }
 
+  /**
+   * Current-turn delegates whose report the parent has not seen yet: still
+   * running, or settled before the parent idled and never read through
+   * `TaskWait`. A delegate that finished in a few hundred milliseconds is
+   * "done and unpublished", not "unfinished"; keying the idle resume on
+   * running delegates alone dropped such reports (#226). Stopped and
+   * aborted runs are not auto-delivered.
+   */
+  private pendingCurrentTurnDelegations(): DelegationRecord[] {
+    return [...this.delegations.values()].filter(
+      (record) =>
+        record.startedEpoch === this.turnEpoch &&
+        !record.reportDelivered &&
+        record.status !== "stopped" &&
+        record.status !== "aborted",
+    );
+  }
+
   private abortDelegationsFromPreviousTurns(): void {
     for (const record of this.runningDelegations()) {
       if (record.startedEpoch !== this.turnEpoch) record.abort();
@@ -3588,7 +3629,8 @@ Delegation rules:
   /** D328 keeps the turn open on parent idle, not on a fatal parent error. */
   private keepTurnOpenForDelegates(): boolean {
     return (
-      this.runningDelegations().length > 0 &&
+      (this.runningDelegations().length > 0 ||
+        this.pendingCurrentTurnDelegations().length > 0) &&
       !this.runCancelled &&
       !this.turnHadError
     );
@@ -3696,9 +3738,9 @@ Delegation rules:
       !this.runCancelled &&
       !this.turnHadError &&
       epoch === this.turnEpoch &&
-      this.currentTurnDelegations().length > 0
+      this.pendingCurrentTurnDelegations().length > 0
     ) {
-      const targets = this.currentTurnDelegations();
+      const targets = this.pendingCurrentTurnDelegations();
       this.beginDelegationWait(targets);
       await this.waitForDelegations(targets, targets.length, null);
       this.endDelegationWait();
@@ -3711,7 +3753,9 @@ Delegation rules:
         if (this.turnHadError) this.terminateParentTurn();
         return;
       }
-      const settled = targets.filter((record) => record.status !== "running");
+      const settled = targets.filter(
+        (record) => record.status !== "running" && !record.reportDelivered,
+      );
       if (settled.length === 0) return;
       const results = settled.map((record) => ({
         delegationId: record.delegationId,
@@ -3725,9 +3769,15 @@ Delegation rules:
         still.length > 0
           ? `Still running:\n${still.map(formatDelegationHeartbeat).join("\n")}`
           : "";
+      const formatted = formatDelegationResults(results);
+      for (const record of settled) {
+        if (formatted.includedDelegationIds.has(record.delegationId)) {
+          record.reportDelivered = true;
+        }
+      }
       const text = [
         DELEGATION_RESUME_PROMPT,
-        formatDelegationResults(results),
+        formatted.text,
         heartbeat,
       ]
         .filter((part) => part.trim())
@@ -3827,6 +3877,11 @@ Delegation rules:
         } finally {
           this.endDelegationWait();
         }
+        // A settled report included in this bounded result reached the parent;
+        // the idle resume must not deliver it a second time. Omitted reports
+        // stay pending so the idle resume can deliver them later. Running
+        // delegates keep their shot: a timeout or early `any` convergence has
+        // not consumed it.
         const results = targets.map((record) => ({
           delegationId: record.delegationId,
           agent: record.agentName,
@@ -3853,11 +3908,23 @@ Delegation rules:
           unknownIds.length > 0
             ? `Unknown delegation ids (not found in this session): ${unknownIds.join(", ")}.`
             : undefined;
+        const formatted = formatDelegationResults(
+          results,
+          [note, unknownNote].filter(Boolean).join("\n") || undefined,
+        );
+        for (const record of targets) {
+          if (
+            record.status !== "running" &&
+            formatted.includedDelegationIds.has(record.delegationId)
+          ) {
+            record.reportDelivered = true;
+          }
+        }
         return {
           content: [
             {
               type: "text",
-              text: formatDelegationResults(results, [note, unknownNote].filter(Boolean).join("\n") || undefined),
+              text: formatted.text,
             },
           ],
           details: {
@@ -4008,7 +4075,35 @@ Delegation rules:
 
   private resetDeferredToolsForPrompt(): void {
     this.activeDeferredToolNames.clear();
+    this.restoreDeferredToolsFromContext();
     this.agent.state.tools = this.activeTools();
+  }
+
+  /**
+   * Re-activates the on-demand tools whose successful activation the model
+   * can still see. The context keeps every ToolSearch result that announced
+   * "Activated on-demand tools: X" and every result X itself produced, so
+   * starting a turn with an empty set while those rows remain leaves the
+   * model calling tools that are missing from the schema (#225). Only
+   * successful results count, and only for names still in the deferred
+   * catalog, which `rebuildToolCatalog` already limits to the current mode.
+   */
+  private restoreDeferredToolsFromContext(): void {
+    if (this.deferredToolNames.size === 0) return;
+    const { messages } = buildSessionContext(this.entriesWithCompaction());
+    for (const message of messages) {
+      if (message.role !== "toolResult" || message.isError) continue;
+      if (isMissingToolResultPlaceholder(message.content)) continue;
+      const names =
+        message.toolName === TOOL_SEARCH_NAME
+          ? (message.addedToolNames ?? [])
+          : [message.toolName];
+      for (const name of names) {
+        if (this.deferredToolNames.has(name)) {
+          this.activeDeferredToolNames.add(name);
+        }
+      }
+    }
   }
 
   private buildSubmitTool(kind: ProposalKind): AgentTool {

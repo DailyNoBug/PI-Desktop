@@ -5,6 +5,8 @@ import {
   composerModelBadges,
   composerModelDisplayName,
   composerModelMatchesQuery,
+  composerProviderDisplayName,
+  composerProviderSearchText,
   composerModelsForProvider,
 } from "../src/lib/composer-models.ts";
 
@@ -109,6 +111,36 @@ test("the selected label keeps its alias across equivalent model ids", () => {
   );
 });
 
+test("the Composer uses a vendor account label for its provider heading", () => {
+  assert.equal(
+    composerProviderDisplayName({
+      name: "Anthropic",
+      oauthAccountLabel: "Work account",
+    }),
+    "Work account",
+  );
+});
+
+test("the Composer falls back to the provider name without an account label", () => {
+  assert.equal(
+    composerProviderDisplayName({
+      name: "Anthropic",
+      oauthAccountLabel: "  ",
+    }),
+    "Anthropic",
+  );
+});
+
+test("the Composer searches both the account label and vendor name", () => {
+  assert.equal(
+    composerProviderSearchText({
+      name: "Anthropic",
+      oauthAccountLabel: "Work account",
+    }),
+    "Work account Anthropic",
+  );
+});
+
 test("an exact binding alias wins over a broader equivalent id match", () => {
   assert.equal(
     composerModelDisplayName(
@@ -159,6 +191,40 @@ test("composer model rows expose published reasoning and vision markers", () => 
     }),
     [],
   );
+});
+
+test("composer vision marker follows the binding's image-input override (#214)", () => {
+  const textOnly = {
+    modelId: "grok-auto",
+    displayName: "grok-auto",
+    providerId: "relay",
+    capabilities: ["text"],
+  };
+  const visionModel = {
+    modelId: "grok-4.5",
+    displayName: "Grok 4.5",
+    providerId: "relay",
+    capabilities: ["text", "vision"],
+    modalities: { input: ["text", "image"], output: ["text"] },
+  };
+  const provider = {
+    id: "relay",
+    models: [
+      { ...binding("grok-auto"), supportsImages: true },
+      { ...binding("grok-4.5"), supportsImages: false },
+    ],
+  };
+  // Settings → model → Advanced → Image input checked on a model discovered as text-only.
+  assert.deepEqual(composerModelBadges(textOnly, provider), ["vision"]);
+  // ...and unchecked on a model published as vision-capable.
+  assert.deepEqual(composerModelBadges(visionModel, provider), []);
+  // No override (or no binding at all): the published capability decides, as before.
+  assert.deepEqual(
+    composerModelBadges(visionModel, { id: "relay", models: [binding("grok-4.5")] }),
+    ["vision"],
+  );
+  assert.deepEqual(composerModelBadges(textOnly, { id: "relay", models: [] }), []);
+  assert.deepEqual(composerModelBadges(visionModel), ["vision"]);
 });
 
 test("composer model search matches id, name, family and provider", () => {

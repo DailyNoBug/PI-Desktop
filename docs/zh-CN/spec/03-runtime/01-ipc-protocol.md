@@ -678,6 +678,12 @@ Electron 主进程用该会话精确 provider/API URL 与 model 的本地 models
 导入候选者携带 `projectPath: string | null`。导入成功
 刷新会话和持久项目索引。
 
+重新生成或编辑重发会在追加新的用户回合前截断持久转录本。`agent/prompt`
+接受 `truncateFromMessageId`，并转交给主机拥有的 `session.truncateFrom`；
+未知 id 以 `NOT_FOUND` 拒绝。保留前缀不再经过 JSON-RPC（ADR 0216 / issue #211）。
+`agent/prompt` 自身只为启动配置做有界 `session.get`。
+
+
 `session/fork` 是一个协议 v5 通道，可创建独立的
 来自源会话当前活动记录的会话。当可选时
 `throughMessageId` 存在，复制的快照以该消息结束；一个

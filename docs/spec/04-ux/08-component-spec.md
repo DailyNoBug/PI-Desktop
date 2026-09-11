@@ -43,7 +43,7 @@ Outer frame that positions Topbar, Sidebar, MainChat, and WorkPanel. Owns resize
 |---|---|
 | Default | Sidebar expanded, work panel hidden |
 | Narrow (<640px) | Sidebar auto-collapses to icon rail |
-| Work panel open in a fixed client area | Work panel keeps its fixed committed width; MainChat gives up the internal space, even when that takes it below the 360px readability target |
+| Work panel open in a fixed client area | Work panel keeps its fixed committed width; MainChat gives up internal space only down to its reserved 515px minimum |
 | Fullscreen | Topbar remains; sidebar toggle and artifact-driven panel stay available |
 
 ### 1.4 Interactions
@@ -238,8 +238,10 @@ combined model × reasoning selection (§11).
   120px for native window controls (112px hit targets plus an 8px visual
   buffer). The conversation titlebar also reserves the 28px work-panel toggle
   while the panel is closed. While the panel is open, that 120px band plus the
-  toggle overlay the panel header instead, and the header pads to keep
-  resource close reachable (D357).
+  toggle overlay the panel header instead, and the header ends its box before
+  the band so the panel tab strip and `+` stay clear of the native control band.
+  Resource close actions stay in their tabs so a second header `×` does not echo
+  the native Windows close control (D357).
 - Title cluster (task title) flexes and shows at most the first 10 Unicode
   characters plus an ellipsis; the full title remains in the native tooltip.
   The right cluster (action icons) is `flex: 0 0 auto`
@@ -255,7 +257,9 @@ combined model × reasoning selection (§11).
   `--ds-toolbar-height`. Windows/Linux keep the same `--ds-window-controls-width`
   for the viewport-fixed control band; when the work panel opens, that
   reservation moves from the conversation titlebar onto the panel header so the
-  controls do not travel with MainPane (D357). The control band continues the
+  controls do not travel with MainPane (D357). The panel header carries it by
+  ending its own box before the band — a margin, not padding — because the
+  native drag rectangle is the border box. The control band continues the
   titlebar's `border-subtle` bottom rule and uses the same token for its
   leading divider.
 - Band reservation is platform-independent (D269). The band is opaque and
@@ -431,8 +435,8 @@ visually distinct from list content.
   width is saved on release. Focus the edge handle and use ArrowLeft/Right,
   Home, or End for keyboard resizing; Escape cancels an active pointer resize.
 - Click the viewport-fixed work-panel toggle to reveal or hide the panel
-  without deleting tabs; the work-panel header keeps only dynamic tabs and
-  the active-resource close control
+  without deleting tabs; the work-panel header keeps its tab strip and fixed `+`
+  menu, while each tab owns resource closing
 - Click the `Projects` heading folder-plus action: open the project picker and
   retain the selected project
 - Right-click the `Projects` heading or empty project-list chrome: open a
@@ -462,7 +466,8 @@ visually distinct from list content.
   left edge never flips to the trigger's left side; the surface has a viewport
   width cap for narrow windows. The sort choices remain Recently updated,
   Created date, Oldest first, and Name; pinned rows stay ahead of unpinned rows.
-  A stored `manual` compatibility value requires no drag-reorder UI.
+  Project rows have no reorder grip. Pressing the project title and moving
+  8px starts a pointer reorder and selects the persisted `manual` project order without changing the session sort.
 - When a session hover card is revealed for the active project, the renderer
   re-reads the host workspace metadata before displaying the card so an
   externally changed Git branch is current. This refresh does not activate a
@@ -494,6 +499,8 @@ visually distinct from list content.
   check/radio items expose `aria-checked`
 - Hover-hidden section and project actions remain in the tab order and reveal
   through `:focus-within`; keyboard focus never depends on pointer hover
+- Each project title exposes `aria-grabbed` during a reorder drag and
+  ArrowUp/ArrowDown keyboard reordering; there is no separate grip control
 - Collapsed state: each icon has `aria-label` with session title
 - Keyboard: arrow keys navigate session list
 - Footer Settings, Plugins, and notification controls expose localized
@@ -504,10 +511,10 @@ visually distinct from list content.
   unread count, exposes `aria-expanded`/`aria-controls`, and never relies on
   the badge color alone
 - Profile and notification popovers portal to `document.body` with fixed
-  positioning so the main chat pane cannot paint over them; work-panel tool
-  context menus and the Settings font picker menu use the same body-level
-  floating layer (the font menu is measured against its trigger, clamped to
-  the viewport, and flips above the trigger when there is no room below);
+  positioning so the main chat pane cannot paint over them; the Settings font
+  picker menu uses the same body-level floating layer and clamps to the
+  viewport. The work-panel `+` action is not a floating layer: it creates a
+  New launcher tab in the panel body;
   the font list is windowed (fixed row heights with absolute positioning,
   overscan buffer, and an exact-offset scroll-into-view, mirroring the
   virtual-scroller pattern DBX uses for its data grid) so only the visible
@@ -555,7 +562,8 @@ visually distinct from list content.
 - Global search opens from the conversation topbar, keyboard shortcuts, and
   the application menu; the expanded sidebar header does not host a search
   control
-- No drag-to-reorder contract; `manual` is a persisted compatibility value
+- Project drag/manual reorder is renderer-local and changes presentation only;
+  it never moves an on-disk directory or changes the host-selected workspace
 - Project tabs do not create another host workspace or a second main pane
 
 ### 3.9 Project group contract
@@ -569,6 +577,7 @@ controls.
 | Group root | localized project name; hover and keyboard focus expose the full path in a portaled tooltip plus an accessible description without changing row geometry |
 | Directory disclosure | single full-row target with `aria-expanded` / `aria-controls`; may activate an inactive project before toggling, but never archives |
 | Project pin | presentation priority only; no host row deletion/move |
+| Project reorder | press-and-move on the title (8px), or ArrowUp/ArrowDown on that title, writes contiguous normalized-path order to sidebar preferences; accent insertion line; no visible grip |
 | Project archive | omitted from default view; restorable from archived view |
 | Project close | removes retained tab only; durable project/sessions remain |
 | Session list | exact-path matches only; no basename grouping |
@@ -714,28 +723,22 @@ reading surface of the workstation.
 ### 5.1 Purpose
 
 Docked right work column for inspecting and steering the agent's workspace.
-Launchable surfaces are plugin views (ADR 0104), including bundled `pi.files`
-(project browsing), bundled `pi.browser` (work-panel browser chrome; the
-guest page stays host-owned, ADR 0170), and bundled `pi.git` (source control).
-Review and `file:<path>` are
-*artifact* surfaces: the host renders them, but the conversation opens them, so
-they are absent from the tool list. There is no interactive terminal surface;
-agent Bash output remains in the transcript.
+Launchable surfaces are the host-owned Review row and plugin views (ADR 0104),
+including bundled `pi.files` (project browsing), bundled `pi.browser`
+(work-panel browser chrome; the guest page stays host-owned, ADR 0170), and
+bundled `pi.git` (source control). Review and `file:<path>` are *artifact*
+surfaces: the host renders them, but the conversation opens them, so they are
+absent from the launcher. There is no interactive terminal surface; agent Bash
+output remains in the transcript.
 
 ### 5.2 Anatomy
 
 ```text
 +---------------------------------------+
-| ◫ App.tsx ⌄        drag      | [×][>] |  header, 46px
+| [◫ App.tsx] [▤ Files]       | [+]     |  header, 46px
 +---------------------------------------+
-| Plugin views                ¦ menu    |
-|   ◎ Browser                 ¦         |
-|   ▤ Files                   ¦         |
-|   ⑂ GitLens              [×]¦         |
-|  ------------------------   ¦         |
-| Open items                  ¦         |
-|   ◫ Review               [×]¦         |
-|   ▤ App.tsx              [×]¦         |
+| scrollable tab strip        | fixed + |
+|   x closes; middle click    | new page |
 +---------------------------------------+
 | Active resource body                  |
 |  Review: recorded changes + diff      |
@@ -744,27 +747,32 @@ agent Bash output remains in the transcript.
 |  Plugin view: the plugin's own page   |
 |  no resource: empty state + tool list |
 +---------------------------------------+
- ▌ active row edge marker   • open, inactive
+ ▌ active tab              • open, inactive
 ^ 10px transparent resize hit area on the left edge
 ```
 
-The plugin-views group appears only when at least one loaded plugin
-contributes a view that is in scope (ADR 0104), including bundled `pi.files`
-and `pi.browser`. Its rows use the same edge marker, open dot, and reserved
-close slot. A view whose `icon` token this build does not know renders a
-lettered tile instead.
+The header is a horizontally scrollable `tablist`. Each open New launcher,
+Review, file, or plugin view is one tab with an icon, an ellipsized label, and a
+close button shown on hover, focus, or the active tab. Middle-click closes a
+tab. The `+` button sits outside the scroller and remains visible when tabs
+overflow. Clicking it creates and activates a unique New launcher tab. The
+launcher body contains host-owned Review followed by every in-scope
+`contributes.views` entry as buttons; Files and Browser are not hardcoded in
+the renderer (ADR 0104). The header reserves a tokenized 60px right-side safe
+lane for the viewport-fixed work-panel toggle. The `+` trigger also sits in a
+separated action rail, so it keeps a distinct hit target with at least 24px of
+visual gap on every supported platform.
 
-With no resource the body is an empty state — tiled icon, title, one line of
-copy — followed by the same plugin views the header menu lists, as plain rows:
+With no resource the body remains open and becomes a concise **New** launcher.
+An explicit New tab uses the same data-driven tool list, so selecting a row
+replaces that launcher tab with the destination or activates the existing
+singleton without duplicating it:
 
 ```text
 +---------------------------------------+
-|              ( ◫ )                    |  38px tiled icon
-|         No resource open              |  title
-|   Open a file or link from             |  body
-|   the conversation — or pick a view.   |
-|        ◎ Browser                       |
-|        ▤ Files                         |
+|                 New                   |  launcher title
+|        ◫ Review   ▤ Files              |
+|        ◉ Browser                       |  tool rows
 +---------------------------------------+
 ```
 
@@ -772,20 +780,16 @@ copy — followed by the same plugin views the header menu lists, as plain rows:
 
 - Panel body uses quiet inset paper (`#fafafa`); the 46px header band and tool
   chrome (review toolbar, browser chrome, file viewer header) stay white
-- The header exposes one unified context trigger. Its menu lists plugin
-  views in declared order — each row showing its own open state and, once
-  open, its own close control — then, after a divider, only the further
-  resources the transcript opened. No entry appears twice. Rows use a neutral fill with a straight 2px left edge marker for the
-  active row, never color alone; the trailing close slot is always reserved so
-  labels and open dots never shift between rows. The menu fades in over ≤4px with
-  `--motion-duration-fast` / `--motion-ease-out` and is static under
-  `prefers-reduced-motion` (D173)
-- The 46px header follows a "context left, actions right" model: the unified
-  context trigger anchors the left and shows the active tool icon and ellipsized
-  label; a right action cluster is pinned to the right edge behind a thin
-  divider, so the close control never shifts with the label length.
-  The gap between the two remains a window-drag region. Panel collapse is the
-  viewport-fixed shell toggle, not a header chevron
+- The 46px header is a clipped tab strip plus a tight `+` trigger. Tabs keep a
+  stable `92px–180px` width and a visible gap, so labels do not shrink into
+  each other; only the strip scrolls when there are more tabs than the panel
+  can show. The trigger is outside it and never scrolls away. A New launcher
+  tab carries the concise **New** title and the same data-driven tool rows as
+  the former entry point. Shortcut labels are rendered only for real bindings.
+- Tab close uses a hover/focus/active `×` affordance and middle-click. The
+  active tab uses the normal active fill, while overflow is handled by the
+  strip rather than by a second resource list. Launcher rows use the same
+  fast hover/focus feedback as other panel rows.
 - Active tabs, file-tree rows, diff headers, and the resize handle ease hover
   fills with `--motion-duration-fast` / `--motion-ease-out`
 - Browser URL and empty-tool chrome share the light inset field treatment used
@@ -876,15 +880,16 @@ responses are discarded by request revision.
 | State | Behavior |
 |---|---|
 | Closed (default) | Not rendered; startup has no retained tabs. The viewport-fixed toggle or `Cmd/Ctrl + J` reveals the active session's panel context without creating a tab. Inline review cards remain available in the transcript because they are message-scoped and do not require the work panel. |
-| Open | Docked flex row right of the main pane; opened by an artifact, the viewport-fixed toggle, or `Cmd/Ctrl + J` at a fixed committed width of 244–720px (default 280px). The toggle or `Cmd/Ctrl + J` again collapses it, retaining the session context. Its flex allocation eases from zero to the committed width so MainChat reflows continuously inside the unchanged client area. |
-| Multiple artifacts | The current-resource header keeps one readable label at the panel minimum; its bounded menu lists the tools first and then the transcript-opened resources in first-open order, with full-path tooltips and independent close controls |
+| Open | Docked flex row right of the main pane; opened by an artifact, the viewport-fixed toggle, or `Cmd/Ctrl + J` at a fixed committed width of 244–720px (new-profile default 360px). The toggle or `Cmd/Ctrl + J` again collapses it, retaining the session context. |
+| Multiple artifacts | The header keeps a horizontally scrollable tab strip. The fixed `+` action creates a new launcher tab; its buttons open Review and all in-scope plugin views without duplicating open resource tabs. |
 | Session switch | The destination session's retained open state, tabs, active tab, and Browser resource replace the previous session's panel context atomically; neither context is deleted |
 | Resizing | The inner left divider follows anchored pointer delta or keyboard input for the panel target; pointer changes are frame-coalesced and committed in the renderer. Escape, pointer cancellation, or lost capture restores the prior panel width. Native window edges resize only the fixed application window. |
 | No workspace | Each tab renders its own "open a project" empty state |
-| Open with no resource | `Cmd/Ctrl + J` reveals the panel without creating a tab, so the body renders the no-resource empty state: title, one line of copy, and the available Browser/plugin-view entries. Activating an entry creates or selects that singleton view. The body is not a `role="tabpanel"` here because no tab labels it. |
-| Constrained work area | The panel stays at its committed width inside the existing client area; MainChat absorbs the internal width, possibly falling below its 360px target on small windows |
-| Plugin view active | The body hosts the plugin's own isolated page as a native `WebContentsView`, positioned from the measured surface rect. It is hidden whenever the tab is inactive, the panel is animating or being resized, or a blocking overlay is open — the same rule the Browser preview follows, since both composite above renderer content. A view whose plugin is disabled, uninstalled, reloaded, or crashed is destroyed; the tab stays and re-opens the page on the next lifecycle event (ADR 0104) |
-| Plugin out of scope | A view contributed by a plugin that is not active in the current project disappears from the menu when the project changes. Unlike contributed themes, which are one global setting and stay unfiltered, a view is scoped work |
+| Open with no resource | `Cmd/Ctrl + J` reveals the panel without creating a tab, so the body renders the New launcher. Clicking `+` creates an explicit, closable New tab with the same launcher rows. Activating a row from that tab replaces it with or selects the singleton view. Closing the final tab leaves the panel open in the no-resource state. |
+| Constrained work area | The panel stays at its committed width inside the existing client area; MainChat absorbs internal width only down to its reserved 515px minimum, which side docks cannot paint over |
+| New launcher active | The body hosts concise Review and plugin-view buttons. Each row replaces the launcher tab with its destination or activates the existing singleton; the page is independently closeable. |
+| Plugin view active | The body hosts the plugin's own isolated page as a native `WebContentsView`, positioned from the measured surface rect. It remains visible at its full rect while the divider is being resized or a New launcher tab is created; creating a page never pushes the plugin body down or changes its bounds. It is hidden whenever the tab is inactive, the panel is animating, or a panel-wide blocking overlay is open — the same rule the Browser preview follows, since both composite above renderer content. A view whose plugin is disabled, uninstalled, reloaded, or crashed is destroyed; the tab stays and re-opens the page on the next lifecycle event (ADR 0104) |
+| Plugin out of scope | A view contributed by a plugin that is not active in the current project disappears from the New launcher when the project changes. Unlike contributed themes, which are one global setting and stay unfiltered, a view is scoped work |
 
 ### 5.4 Interactions
 
@@ -916,35 +921,29 @@ responses are discarded by request revision.
   calls the host; the host compares the current content with the recorded
   post-tool hash and
   returns a conflict without overwriting later work.
-- Unified context menu: while the panel is visible, one context trigger in the
-  header opens a single dropdown. Its top section lists the open resources in
-  first-open order (rows select a resource and retain per-resource close
-  divider separates it from the create-new section listing Browser and
-  in-scope plugin views. Activating a closed view creates it through
-  `openWorkPanelTab`; activating an open view selects its singleton tab. The
-  active view combines a neutral fill with a 2px edge marker, and open inactive
-  views show a small status dot. The trigger disappears with the panel and
-  remains available after `Cmd/Ctrl + J` reveals the panel. Artifact triggers
-  still create and activate resources atomically; the shortcut only reveals the
-  existing context.
-- Empty-body view list: the available Browser and in-scope plugin-view rows
-  appear only while the body has no tab at all, and disappear as soon as one
-  exists. Each row calls the same create-or-select path as its header-menu
-  counterpart, so a closed view gets a new singleton tab and an already-open
-  one is selected rather than duplicated. `Cmd/Ctrl + J` itself still creates
-  nothing — the rows are the user's choice, not the shortcut's side effect.
+- Header tabs: the strip is a `tablist` containing one `tab` for every open
+  Review, file, or plugin view. Clicking a tab activates it; the active tab is
+  scrolled into view. Its close button and middle-click close it, selecting the
+  right neighbor and then the left. ArrowLeft/ArrowRight/Home/End move between
+  tabs and Delete/Backspace closes the focused tab. The `+` trigger remains
+  fixed beside the strip and creates a new launcher tab.
+- New launcher: each `+` click creates a unique, active New tab. Its body uses
+  the Review-plus-plugin tool list as buttons. Selecting a row replaces the
+  launcher tab with that destination or activates its existing singleton.
+  `Cmd/Ctrl + J` itself still creates nothing — it reveals the panel's current
+  context, while `+` is the explicit new-page action.
   The "open a project" empty states carry no action button: opening a project
   resets the panel context and hides the panel, so the button would undo the
   surface that offered it (D224).
-- Resource header: the 46px header shows the active resource icon and
-  ellipsized label. Its context chevron opens the bounded unified menu described
-  above; the header's trailing close button closes the current resource
-  directly. Arrow keys, Home, End, and Escape operate the menu; opening the menu
-  hides the native Browser preview until it closes.
+- Resource header: the 46px header shows the scrollable active tab and fixed
+  `+` button. A subagent detail uses a back arrow in the header. Arrow keys,
+  Home, End, and Escape operate the tablist; creating a launcher page never
+  changes a native plugin surface's bounds.
 - Tab close: closing an active tab selects its right neighbor, then its left;
-  closing the last tab hides the panel. The panel-level collapse control is the
-  viewport-fixed shell toggle (not in the work-panel content header) and hides
-  the panel without deleting the runtime tab set; a later artifact reopens it.
+  closing the last tab leaves the panel open on the New launcher. The
+  panel-level collapse control is the viewport-fixed shell toggle (not in the
+  work-panel content header) and hides the panel without deleting the runtime
+  tab set; a later artifact reopens it.
 - Context change: selecting another session atomically projects that session's
   retained `{open, tabs, activeTabId, browserResource}` state. The previous
   session's context remains in renderer memory and is restored when selected
@@ -952,8 +951,9 @@ responses are discarded by request revision.
   Every context remains bound to its originating session/workspace, so relative
   file and Browser resources are never reinterpreted against another workspace.
 - Resize: the inner left-edge handle changes the panel's committed width in the
-  renderer. Moving it left grows the panel into MainChat's internal space;
-  moving it right gives that space back to MainChat. `ArrowLeft` / `ArrowRight`
+  renderer. Moving it left grows the panel into MainChat's internal space until
+  its 515px minimum is reached; moving it right gives that space back to
+  MainChat. `ArrowLeft` / `ArrowRight`
   adjust the panel width in 16px steps (`Shift` uses 32px), and `Home` / `End`
   reach its `244..720px` limits. Pointer math is anchored to the press position
   and starting panel width, so grabbing the handle cannot jump the divider;
@@ -965,23 +965,21 @@ responses are discarded by request revision.
   resources reset; only the committed preferred `{width}` remains in
   localStorage `pi.desktop.workPanel`. Opening and collapsing never request a
   positive native reservation and never change native window bounds. The panel
-  flexes inside the existing client area, so MainChat reflows beside it and may
-  fall below its 360px target on small windows. Background session artifacts
-  never update the visible panel or window geometry.
+  flexes inside the existing client area, so MainChat reflows beside it while
+  retaining its 515px minimum. Background session artifacts never update the
+  visible panel or window geometry.
 
 ### 5.5 Accessibility
 
-- `<aside>` landmark. The current-resource control exposes
-  `aria-haspopup="menu"` / `aria-expanded` / `aria-controls`, keeps its visible
-  label as its accessible name, and its `role="menu"` dropdown groups rows under
-  labelled `role="group"` sections. Rows are `menuitemradio` / `aria-checked`
-  buttons that take real DOM focus (`tabIndex={-1}`) inside `role="none"`
-  wrappers, so ArrowDown/ArrowUp/Home/End move focus across rows only and never
-  through the trailing close buttons; Delete/Backspace closes the focused row.
-  Escape and Tab close the menu and return focus to the trigger. Each resource
-  body remains a `role="tabpanel"`; the no-resource body is not one, since no
-  tab exists to label it. Its tool rows are ordinary buttons inside a
-  `role="group"` labelled "Tools", reachable by Tab in reading order
+- `<aside>` landmark. The header exposes a `role="tablist"` with one
+  `role="tab"` per open New launcher or resource, `aria-selected`,
+  `aria-controls`, roving `tabIndex`, and localized close buttons.
+  ArrowLeft/ArrowRight/Home/End move through tabs; Delete/Backspace and
+  middle-click close the focused tab. The `+` button is a direct action with a
+  localized label and no popup state. A New tab's body is a labelled
+  `role="tabpanel"` containing a labelled `role="group"` of ordinary buttons;
+  the legacy no-tab reveal remains a plain labelled group. Each resource body
+  remains a `role="tabpanel"`.
 - Resize handle: focusable `role="separator"` with
   `aria-orientation="vertical"`, a localized label, dynamic
   `aria-valuemin` / `aria-valuemax` / `aria-valuenow`, visible focus, and
@@ -1157,9 +1155,10 @@ SESSIONS                                      [msg+][↕]
 - The standalone Sessions body shows at most five compact 28px rows and
   scrolls internally when more rows exist. The Projects list uses the remaining
   sidebar height and scrolls independently; neither region scrolls the footer
-  or primary navigation. Both list scrollbars remain 6px, trackless, and
-  transparent at rest; the semantic-ink thumb appears when its list is hovered,
-  focused, or scrolling and remains visible while dragging, so the independent regions
+  or primary navigation. Both list scrollbars use the same global 6px,
+  trackless, transparent-at-rest rule as the conversation and work-panel
+  scrollbars; the semantic-ink thumb appears when its list is hovered, focused,
+  or scrolling and remains visible while dragging, so the independent regions
   stay available without becoming persistent visual rails.
 
 ---
@@ -1416,11 +1415,17 @@ Single message render — either user (plaintext) or assistant (markdown streami
   assistant message (the last model request), using
   `input + output + reasoning + cacheRead + cacheWrite` (D355). They are not
   the sum of every model call in the visual tool-loop. It is hidden until that
-  usage exists. The trigger keeps a small remaining-capacity ring beside the
-  percentage and omits the redundant `Context` label; low capacity changes
-  the semantic color without making color the only signal. Clicking the
-  trigger (or activating it from the keyboard) toggles a non-modal panel with
-  a remaining-token-plus-percentage heading, used/window counts, and two
+  usage exists. The trigger keeps a small capacity ring beside the
+  percentage and omits the redundant `Context` label; the leading figure
+  (ring arc, percentage, token label, popover heading, tooltip, and
+  `aria-label`) follows `settings.contextUsageDisplay` — `"remaining"`
+  (default) or `"used"` — so the ring fills by `remainingRatio` or
+  `usedRatio` accordingly. Low capacity changes the semantic color based
+  on remaining capacity (remaining ≤ 25 % warning, ≤ 10 % critical)
+  regardless of display mode, without making color the only signal.
+  Clicking the trigger (or activating it from the keyboard) toggles a
+  non-modal panel whose heading follows the same display-mode figure,
+  followed by used/window counts and two
   unboxed turn/speed summary values. Model usage is compressed into one
   inline summary row that retains exact last-request
   input/output/cache/reasoning values
@@ -1486,6 +1491,12 @@ message its checkpoint covers.
   `aria-expanded`, and an `aria-controls` relationship to the panel, and opens
   the same compact summary on click or keyboard activation; Escape or a click
   outside closes it and returns focus to the trigger
+- The inspector panel is portaled to the document body and positioned in
+  viewport coordinates, but its horizontal clamp is the conversation pane: the
+  work panel's native browser and plugin surfaces composite above every
+  renderer layer, so a panel that reached the panel column would be covered
+  whatever its z-index. When the pane is narrower than the panel, the popover
+  narrows with the pane instead of crossing that edge.
 - Timestamps: `aria-label` with full time string, visual shows relative time
 
 ### 8.6 MVP constraints
@@ -2176,11 +2187,18 @@ reasoning-level control.
   reasoning-level chip, then the standalone prompt-enhancement action and the
   single Stop/Send submit slot (D347). The inspector trigger shows the ring
   and percentage only. The chip shows Bot, the current model name, and the
-  current reasoning level separated by `·`; `off` omits the level text. The
+  current canonical reasoning level value separated by `·`; `off` omits the
+  level text. The canonical value is rendered as-is (`low`, `high`, `xhigh`,
+  or `max`) and is not localized. The
   prompt-enhancement action shows Sparkles while idle, uses the shared
   `.tool-spinner` and localized `Enhancing…` label while running, and remains
   a one-shot draft rewrite action. Inline file-reference chips, including
   pasted image chips, do not disable this action and remain in the draft.
+- MainPane and the chat surface reserve a 515px minimum so the composer toolbar
+  keeps its left and right control groups on one row. The groups do not shrink;
+  mode and permission labels stay on one line and ellipsize within their chips,
+  so a sidebar or work-panel resize cannot vertically split, squeeze, or
+  overlap toolbar content.
 - The combined chip opens one anchored menu above itself. The menu starts with
   only Model and Reasoning level entries, each showing its current value and a
   chevron. Selecting an entry replaces the menu contents in place with a back
@@ -2240,7 +2258,14 @@ reasoning-level control.
 
 ### 11.5 Interactions
 
-- Enter: send message (configurable: Shift+Enter for newline)
+- Enter: send message when Enter-to-send is on; insert a newline when it is off
+- Native file-system drop: while a file or folder is dragged over the Composer
+  shell, prevent the browser default and show an accent outline without
+  changing layout. Regular files are saved through the existing bounded
+  session-scratch paste flow and appear as removable leaf-name chips in drop
+  order. Folders are not traversed or copied; insert the complete native path
+  at the caret as the literal `@<path>/` directory form. Mixed drops preserve
+  item order and restore focus/caret after file materialization.
 - Send clears the box before the host round trip (D287): the draft leaves the
   textarea in the frame Enter is pressed, so a slow host cannot make a send look
   ignored or let a second Enter queue the same prompt twice. If the store
@@ -2259,7 +2284,7 @@ reasoning-level control.
   Revalidation and older-page prepends are idempotent by message id, so leaving
   and re-entering a session cannot display a second copy of an existing user
   row.
-- Shift+Enter: newline in textarea
+- Shift+Enter: newline in textarea. Cmd/Ctrl+Enter sends when Enter-to-send is off. IME composition and an open autocomplete menu still take precedence over send.
 - Placeholder guidance: the initially rendered context starts on its welcome copy and remains
   unchanged while the page/session context, draft, focus, and IME state change.
   Switching between home/session views or active conversations advances to the
@@ -2367,6 +2392,9 @@ reasoning-level control.
   level submenu starts with `Current model <model> supports these reasoning
   levels` and lists the selected model binding's enabled levels in canonical
   order.
+  Model-row reasoning badges use published reasoning metadata; vision badges
+  use the effective image-input capability for the row's provider binding
+  (`supportsImages` when explicitly set, published image input otherwise).
   Rows use `role="menuitemradio"`, `aria-checked`, active-row styling, and a
   trailing check. Selecting a concrete model or level persists the complete
   session config, clears model filtering, and returns to the root without
@@ -2398,6 +2426,11 @@ reasoning-level control.
 - Stop button: `aria-label="Stop generating"`
 - Queued prompt list: `aria-label="Queued messages"`; each row has an
   accessible Remove button and a Send now button.
+- Native file-system drag-over highlights the complete Composer shell with an
+  outline that does not change layout; dropping a folder leaves its complete
+  path visible in the editable draft, and dropping regular files exposes the
+  existing removable chip labels and full paths through their title and
+  accessible name.
 - Disabled send: `aria-disabled="true"` with tooltip explanation
 - The combined model × reasoning chip exposes `aria-haspopup="menu"` and
   `aria-expanded`. Its root entries use `role="menuitem"`; model and reasoning
@@ -2418,19 +2451,22 @@ reasoning-level control.
   The picker accepts regular files, and the importer classifies each selected
   item as an image or file from its MIME/extension metadata before copying it
   into the active session's scratch `pasted/` directory and adding its compact
-  chip; the original absolute picker paths never enter the prompt. Directory
-  selections are rejected with the normal error toast in the current MVP.
+  chip; the original absolute picker paths never enter the prompt. Native
+  drag-and-drop additionally accepts regular files and folders: file bytes use
+  the same bounded paste bridge, while folders remain visible as literal full
+  paths and are never copied or traversed.
 - The compact chips retain structured kind/name/MIME metadata while keeping
-  the textarea free of binary data. The selected model's models.dev
-  capability controls dispatch when its exact models.dev record matches;
-  unknown IDs use the generic conservative shape. Eligible images become
-  transient visual input for a model whose models.dev `input` includes `image`;
-  non-vision, unknown, and oversized images use the existing canonical
-  `@<path>` file-tool fallback.
+  the textarea free of binary data. The selected model's published record
+  supplies the baseline, then the exact binding's `supportsImages` override
+  controls effective dispatch. Absent or `null` follows the published value;
+  `true` or `false` explicitly enables or disables image input. Eligible images
+  become transient visual input when that effective capability is enabled;
+  unknown/custom models without an explicit override, disabled image input, and
+  oversized images use the existing canonical `@<path>` file-tool fallback.
   There are no visual previews in MVP.
 - No voice input
 
-### 11.8 Slash commands, @ file references, and clipboard files (D123–D125, D197, D209, D262, D362, ADR 0024, ADR 0059, ADR 0070, ADR 0131)
+### 11.8 Slash commands, @ file references, and clipboard files (D123–D125, D197, D209, D262, D362, D395, D397, ADR 0024, ADR 0059, ADR 0070, ADR 0131, ADR 0221, ADR 0222)
 
 The composer owns an inline autocomplete menu — one component serving two
 modes. Focus never leaves the textarea (D125).
@@ -2503,8 +2539,9 @@ Anatomy:
   displays the leaf name, keeps the structured reference in session-scoped
   transient state, and submits it separately from visible text. Main stores
   image bytes under `attachments/<sha256>` and sends visual input only when the
-  selected models.dev model accepts images and the 10 MB inline bound is met;
-  otherwise it appends a safe `@path` fallback. Removing a chip does not delete
+  selected model's effective binding capability accepts images and the 10 MB
+  inline bound is met; otherwise it appends a safe `@path` fallback. Removing
+  a chip does not delete
   scratch bytes. A text-only paste longer than `largePasteThreshold` follows
   the same bounded session bridge with generated `text/plain` UTF-8 bytes,
   inserts `@<sanitized-name>` plus a trailing space at the original selection,
@@ -2577,8 +2614,11 @@ there is no separate top-bar model selector.
   one display name only, falling back to the model ID when no display name is
   available. The native hover tooltip exposes that complete display name
   without resizing or reflowing the menu; the model ID is not rendered as a
-  second visible label. A configured alias is applied from the persisted
-  binding on both the initial and refreshed row.
+  second visible label. A configured model alias is applied from the persisted
+  binding on both the initial and refreshed row. For an OAuth provider, the
+  group heading uses its non-secret account label when present, so duplicate
+  vendor accounts remain distinguishable without appending the label to a
+  model row.
 
 ### 12.5 Accessibility
 
@@ -2933,8 +2973,10 @@ compatibility remains owned by pi-ai.
    tooltip), context window and max output as a two-column numeric pair
    without native spinners, seven thinking-level chips, a constrained
    default-thinking select on the thinking label row, and one wrapping row
-   for attachment and delegation checkboxes. The thinking label, optional
-   catalog hint, and default selector sit above one compact, keyboard-operable
+   for attachment and delegation checkboxes. The seven thinking controls use
+   the canonical values as-is and are not localized. The thinking label,
+   optional catalog hint, and default selector sit above one compact,
+   keyboard-operable
    grouped control that spans the pane; its seven options share the width
    equally and wrap only when the pane is narrow. The first row starts
    expanded and additional rows start collapsed so large model sets do not
@@ -3127,10 +3169,11 @@ Sidebar footer                                        Popover (360px max)
 4. Chat messages constrained to 720px max width
 5. ToolCallCard shows status, args preview, result preview, duration per [01-ui-ia.md](01-ui-ia.md) §5
 6. PermissionCard shows tool name, risk, args, countdown, and three action buttons per [03-permission-ux.md](03-permission-ux.md)
-7. Composer: Enter sends, Shift+Enter newline, draft grows from one through
-   seven visible lines then scrolls, and the single submit slot shows Send for
-   a non-empty draft or an idle/empty draft, and Stop only for a running empty
-   draft
+7. Composer: Enter sends when Enter-to-send is on; when it is off, Cmd/Ctrl+Enter
+   sends and Enter inserts a newline; Shift+Enter always inserts a newline;
+   draft grows from one through seven visible lines then scrolls, and the single
+   submit slot shows Send for a non-empty draft or an idle/empty draft, and Stop
+   only for a running empty draft
 8. Composer model × reasoning chip shows the provider/model pair; remains
    available for next-turn configuration during a stream; links to settings
    when unconfigured

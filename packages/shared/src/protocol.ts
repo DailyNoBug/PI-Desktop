@@ -82,6 +82,7 @@ export const IPC = {
     sessionList: "pi-desktop/session/list",
     sessionCreate: "pi-desktop/session/create",
     sessionFork: "pi-desktop/session/fork",
+    sessionMoveProject: "pi-desktop/session/moveProject",
     sessionGet: "pi-desktop/session/get",
     sessionDelete: "pi-desktop/session/delete",
     sessionRename: "pi-desktop/session/rename",

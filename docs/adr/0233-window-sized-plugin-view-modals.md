@@ -1,9 +1,9 @@
-# ADR 0219: Window-sized plugin view modals
+# ADR 0233: Window-sized plugin view modals
 
 - Status: Accepted
 - Date: 2026-09-12
 - Deciders: PI-Desktop core
-- Related: D391, D392, D393, ADR 0104, ADR 0217, ADR 0218,
+- Related: D405, D406, D407, ADR 0104, ADR 0231, ADR 0232,
   `07-plugins/03-plugin-api.md`, `04-ux/08-component-spec.md`
 
 ## Context

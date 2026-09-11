@@ -69,7 +69,11 @@ test("work panel collapse control is the viewport-fixed shell toggle", () => {
     globalStyles,
     /:root\[data-platform="win32"\] \.main-titlebar\.work-panel-open,[\s\S]*:root\[data-platform="linux"\] \.main-titlebar\.work-panel-open\s*\{[^}]*right:\s*0;/,
   );
-  assert.doesNotMatch(globalStyles, /\.work-panel-header\s*\{[^}]*margin-right:/s);
+  // The reservation is platform-scoped; the base header rule stays neutral.
+  assert.doesNotMatch(
+    globalStyles,
+    /^\.work-panel-header\s*\{[^}]*margin-right:/ms,
+  );
 });
 
 test("macOS hides sidebar branding and keeps header actions beside traffic lights", () => {
@@ -189,17 +193,14 @@ test("sidebar floating menus open to the anchor's right", () => {
 });
 
 test("portaled sort menu does not stretch to the viewport edge", () => {
-  const defaultPopoverRuleIndex = globalStyles.indexOf(
-    ".sidebar-popover {\n  top: calc(100% + 4px);\n  right: 0;\n}",
-  );
-  const floatingPopoverRuleIndex = globalStyles.indexOf(
-    ".sidebar-popover.sidebar-floating-menu",
-  );
+  const basePopoverRule = globalStyles.match(
+    /\.sidebar-row-menu,\n\.sidebar-popover\s*\{[^}]*\}/s,
+  )?.[0] ?? "";
   const floatingPopoverRule =
     globalStyles.match(/\.sidebar-popover\.sidebar-floating-menu\s*\{[^}]*\}/s)?.[0] ?? "";
 
-  assert.ok(defaultPopoverRuleIndex >= 0);
-  assert.ok(floatingPopoverRuleIndex > defaultPopoverRuleIndex);
+  assert.match(basePopoverRule, /position:\s*fixed;/);
+  assert.doesNotMatch(basePopoverRule, /position:\s*absolute;/);
   assert.match(floatingPopoverRule, /top:\s*auto;/);
   assert.match(floatingPopoverRule, /right:\s*auto;/);
   assert.match(globalStyles, /\.sidebar-floating-menu\s*\{[^}]*width:\s*max-content;/s);
@@ -247,7 +248,8 @@ test("project rows expose folder actions and full-path hover", () => {
     /className="sidebar-session-group-title project-toggle"[\s\S]*?tooltip=\{entry\.path\}[\s\S]*?tooltipDelayMs=\{500\}[\s\S]*?aria-describedby=\{`\$\{projectId\}-path-description`\}/,
   );
   assert.match(sidebarSource, /<TooltipButton/);
-  assert.match(globalStyles, /\.ui-tooltip-path\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  assert.match(globalStyles, /\.ui-tooltip-path\s*\{[^}]*width:\s*max-content/);
+  assert.match(globalStyles, /\.ui-tooltip-path\s*\{[^}]*max-width:\s*min\(420px,\s*calc\(100vw - 16px\)\)/);
   assert.match(sidebarSource, /className="sr-only">\s*\{entry\.path\}/);
 });
 

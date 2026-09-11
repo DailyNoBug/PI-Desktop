@@ -223,13 +223,13 @@ type SidebarPreferences = {
   sessionMeta: Record<string, {
     pinned?: boolean;
     archived?: boolean;
-    order?: number; // compatibility/future manual order
+    order?: number; // renderer-local manual order
   }>;
   projectMeta: Record<string, {
     pinned?: boolean;
     archived?: boolean;
     collapsed?: boolean;
-    order?: number; // compatibility/future manual order
+    order?: number; // renderer-local manual order
   }>;
   projectSort: "recent" | "created" | "oldest" | "name" | "manual";
   sessionView: {
@@ -242,9 +242,12 @@ type SidebarPreferences = {
 
 - Project keys and retained paths use normalized full paths; session keys use
   durable session ids. Duplicate/slash-variant paths are discarded on load.
-- `manual`/`order` are compatibility fields. This baseline exposes no
-  drag/manual-reorder interaction; values without a usable order fall back to
-  a stable recent ordering.
+- `projectSort: "manual"` and `projectMeta[*].order` store renderer-local
+  project presentation order. Dragging a project title or using ArrowUp
+  and ArrowDown on that title writes contiguous order values for the visible normalized paths.
+  Missing or invalid values fall back to stable path order; pinned and archived
+  priority remains applied before manual order. Session `manual`/`order` remain
+  compatibility fields and are not exposed by the sidebar.
 - Missing, malformed, or unwritable preferences fall back to empty metadata,
   `recent`, archived hidden, and the host-selected project. Preference failure
   never blocks a host operation.
@@ -761,14 +764,16 @@ CREATE INDEX idx_message_revisions_root
   error-ended turn never reaches `agent_end`. So every operation that discards
   the live branch first writes it back over the revision it belongs to (D307):
   `session.activateRevision` re-archives the live branch of the family from
-  the durable transcript before the switch, the regenerate path passes
-  `revisionIndex` to `session.saveRevision` to refresh the stamped variant, and
-  `session.saveActiveRevision` refreshes an already-archived index instead of
-  skipping it. The refresh is one more line in the append-only file (last
-  record for `(rootUserId, revisionIndex)` wins) plus a `message_count` update.
-  The variant named by the live root's `activeRevision` stamp is the one
-  refreshed; a stamped variant with no index row yet (its turn failed before
-  archive) is stored as its own new variant, never over a previous one.
+  the durable transcript before the switch, `session.truncateFrom` archives the
+  discarded tail on regenerate/retry (refreshing the stamped variant, or
+  minting an inactive one), and `session.saveActiveRevision` refreshes an
+  already-archived index instead of skipping it. The refresh is one more line
+  in the append-only file (last record for `(rootUserId, revisionIndex)` wins)
+  plus a `message_count` update. The variant named by the live root's
+  `activeRevision` stamp is the one refreshed; a stamped variant with no index
+  row yet (its turn failed before archive) is stored as its own new variant,
+  never over a previous one.
+
 
 ### 4.10 artifacts — files a session produced
 
@@ -956,7 +961,9 @@ is the source of truth, the index is derived and self-healing.
 | turn terminal via `session.endTurn` | `completed`/`error`: remove the in-flight checkpoint only when its id is already indexed; otherwise leave it for the outbox or boot (D327). `recoverInflight`: append the leftover as `complete` when the turn is `completed`, otherwise as `aborted`, when its final row never landed | update `turns`; for completed/error insert one notification and prune to 200 in the same tx; aborted inserts none; a promoted checkpoint gets an index row under the turn |
 | plan/goal submission | host writes the exact Markdown bytes to a new unique `<workspaceRoot>/.pi/<kind>/*.md` file | insert one `plan_approvals(pending)` row with the kind, structured title/question, artifact path/hash/size, and expiry before emitting the approval request |
 | plan/goal approval | verify the immutable artifact path/hash/size | atomically resolve `plan_approvals`, update `sessions.mode` and explicit `permission_mode`, and set `execution_state = 'queued'`; reject/expiry stay in the contract mode |
-| transcript truncate / edit / unanswered smart Stop (`session.replaceMessages`) | atomic transcript rewrite (temp + rename); preserve only a checkpoint whose boundary remains | single tx: delete index rows, bulk reinsert carrying each surviving message's owning `turn_id`, reset `last_seq`; smart Stop keeps its structured composer snapshot only in renderer memory |
+| transcript truncate / retry / edit (`session.truncateFrom`) | host-owned suffix cut: abort leftover running turn, archive discarded regenerate tail, atomic prefix rewrite (temp + rename); preserve only a checkpoint whose boundary remains | single tx via `replace_messages`: delete index rows, bulk reinsert carrying each surviving message's owning `turn_id`, reset `last_seq`; drop inflight checkpoint |
+| message delete / unanswered smart Stop (`session.replaceMessages`) | atomic transcript rewrite (temp + rename); preserve only a checkpoint whose boundary remains | single tx: delete index rows, bulk reinsert carrying each surviving message's owning `turn_id`, reset `last_seq`; smart Stop keeps its structured composer snapshot only in renderer memory |
+
 | session fork (`session.fork`) | write a new transcript with remapped message/tool-call ids; copy/remap the checkpoint only when its boundary is included | single tx: clone session configuration, insert child index rows, set `last_seq`; remove child file on failure |
 | regenerate branch save | append revision line (with `revisionIndex`: a refresh line for that existing variant) | index row with `message_count` (+ `is_active` flip); a refresh only updates `message_count` |
 | turn-completion branch archive (`session.saveActiveRevision`) | append revision line (a refresh line when the active variant is already archived), then rewrite only the root user's transcript line for the pager stamp | index row with `message_count` (+ `is_active` flip); index rows for other messages untouched |

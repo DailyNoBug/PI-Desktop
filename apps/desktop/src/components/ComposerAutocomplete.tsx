@@ -3,12 +3,14 @@ import { useTranslation } from "react-i18next";
 import type { ComposerCommand } from "@pi-desktop/shared";
 import type { AutocompleteItem, useComposerAutocomplete } from "../hooks/use-composer-autocomplete";
 import {
+  IconBookOpen,
   IconFileText,
   IconFolder,
   IconPlug,
   IconSlash,
   IconSparkles,
 } from "./icons";
+import { AnchoredMenu } from "./settings/AnchoredMenu";
 
 /**
  * Composer autocomplete panel (D123–D125, spec 08 §11.8): full composer
@@ -44,18 +46,22 @@ const GROUP_KEYS: Record<ComposerCommand["kind"], string> = {
   builtin: "chat.slashGroupApp",
   plugin: "chat.slashGroupPlugins",
   extension: "chat.slashGroupExtensions",
+  skill: "chat.slashGroupSkills",
 };
 
 function CommandIcon({ kind }: { kind: ComposerCommand["kind"] }) {
   if (kind === "template") return <IconSlash size={14} />;
+  if (kind === "skill") return <IconBookOpen size={14} />;
   if (kind === "plugin" || kind === "extension") return <IconPlug size={14} />;
   return <IconSparkles size={14} />;
 }
 
 export function ComposerAutocomplete({
+  anchorRef,
   ac,
   onAccept,
 }: {
+  anchorRef: React.RefObject<HTMLElement | null>;
   ac: ReturnType<typeof useComposerAutocomplete>;
   onAccept: (index: number) => void;
 }) {
@@ -100,6 +106,9 @@ export function ComposerAutocomplete({
           <span className="composer-ac-name">
             /<Highlighted text={item.command.name} ranges={item.match.ranges} />
           </span>
+          {item.command.kind === "skill" && item.command.title !== item.command.name ? (
+            <span className="composer-ac-hint">{item.command.title}</span>
+          ) : null}
           {item.command.argumentHint ? (
             <span className="composer-ac-hint">{item.command.argumentHint}</span>
           ) : null}
@@ -151,10 +160,18 @@ export function ComposerAutocomplete({
       : "chat.slashEmpty";
 
   return (
-    <div
-      className="composer-autocomplete"
+    <AnchoredMenu
+      className="composer-autocomplete-anchor"
+      open={ac.open}
+      onClose={ac.close}
+      anchorRef={anchorRef}
+      menuClassName="composer-autocomplete"
+      label={t(ac.mode === "file" ? "chat.fileMenu" : "chat.slashMenu")}
       role="listbox"
-      aria-label={t(ac.mode === "file" ? "chat.fileMenu" : "chat.slashMenu")}
+      side="top"
+      matchAnchorWidth
+      initialFocus="none"
+      trigger={() => null}
     >
       <div className="composer-ac-list" ref={listRef}>
         {rows.length > 0 ? (
@@ -169,6 +186,6 @@ export function ComposerAutocomplete({
           <span className="composer-ac-truncated">{t("chat.fileTruncated")}</span>
         ) : null}
       </div>
-    </div>
+    </AnchoredMenu>
   );
 }

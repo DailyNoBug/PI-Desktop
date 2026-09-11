@@ -76,7 +76,6 @@ export const koEntries: ChangelogEntry[] = [
     version: "0.13.11",
     date: "2026-09-07",
     highlights: [
-      "번들로 제공되는 Advisor 플러그인이 두 번째 모델로 현재 대화를 검토할 수 있게 합니다.",
       "플러그인이 모델을 나열하고 진행 중인 세션 컨텍스트를 읽으며, 자격 증명 없이 호스트 소유 completion을 요청할 수 있게 합니다.",
     ],
   },

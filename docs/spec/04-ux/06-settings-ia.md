@@ -109,12 +109,15 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
 - **Permissions** card: the global permission-mode control
   (ask / accept-edits / auto) that governs how autonomously the agent acts.
 - **Defaults** card: the host-backed default operating mode (Agent / Plan / Goal),
-  command shell selection, Link open destination, Enter-to-send control, and the
-  large text paste threshold. Link open destination uses the Work panel browser
-  by default and can route plain HTTP(S) link clicks to the system browser.
-  The threshold controls when a text-only paste becomes a temporary
-  session-scratch file; it defaults to 600 characters and accepts integer values
-  from 1 through 1,000,000.
+  command shell selection, Link open destination, context usage display
+  (remaining or used), Enter-to-send control, and the large text paste
+  threshold. Link open destination uses the Work panel browser by default
+  and can route plain HTTP(S) link clicks to the system browser. Context
+  usage display controls whether the composer toolbar context ring and its
+  popover lead with the remaining or the used capacity figure; the default
+  is remaining. The threshold controls when a text-only paste becomes a
+  temporary session-scratch file; it defaults to 600 characters and accepts
+  integer values from 1 through 1,000,000.
 - The **Command shell** row in Defaults uses the host-discovered catalog of native
   PowerShell 5.1, PowerShell 7, cmd, Git Bash, and Bash with IDs
   `windows-powershell`, `windows-pwsh`, `cmd`, `git-bash`, and
@@ -134,7 +137,7 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   session; the transcript shows where each compaction happened and the context
   usage inspector shows whether a checkpoint is installed.
 
-Token usage is **not a Settings destination** (D335 / D390 / ADR 0216). The
+Token usage is **not a Settings destination** (D335 / D404 / ADR 0230). The
 expanded sidebar footer Activity icon, directly right of Settings, opens a
 read-only fourteen-day
 completed-turn summary from host-owned history
@@ -234,9 +237,11 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     detached. Search results keep a dedicated no-match state instead of
     reusing the search placeholder.
   - each model option and configuration row shows a compact text/vision
-    capability state. Vision is derived only from the exact models.dev model
-    record; provider discovery or a user-entered ID cannot promote an unknown
-    model to image transport.
+    capability state. Settings compares the checkbox with the published model
+    record, while the Composer badge and runtime use the effective binding:
+    absent or `null` `supportsImages` follows the published value, and an
+    explicit `true` or `false` overrides it. An unknown model remains
+    conservative unless its configured binding explicitly enables image input.
   - model discovery is debounced after a valid endpoint, key, or API style
     change, including no-auth/local endpoints; named add-path discovery waits
     for an API key (editing reuses the stored secret) and does not mark
@@ -406,6 +411,11 @@ system while preserving their different data ownership:
   an empty state whose action opens Models. Builtins and project shadows stay
   on the existing read-only rows; the picker is for new and user-owned
   subagents only.
+  The create/edit sheet stays compact at desktop sizes: form controls are
+  local filled wells with restrained padding, the prompt editor is the only
+  intentionally tall control, and Advanced remains a compact disclosure. Hover
+  and focus lift a control without adding a persistent in-flow divider; invalid
+  form state is announced from the shared error region.
 
 ### Instructions (`instructions` tab)
 - Edit the global instruction Markdown used by every PI-Desktop Agent session.

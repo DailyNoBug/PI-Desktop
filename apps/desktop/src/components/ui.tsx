@@ -30,28 +30,75 @@ function useTooltip<T extends HTMLElement>(
   hideDelayMs: number,
 ) {
   const anchorRef = useRef<T>(null);
+  const showTimerRef = useRef<number | null>(null);
+  const hideTimerRef = useRef<number | null>(null);
+  const visibleRef = useRef(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<TooltipPosition | null>(null);
   const active =
     Boolean(label) &&
     (hovered || focused) &&
+    !dismissed &&
     (showWhenDisabled || !disabled);
-  const open = visible;
+
+  const setTooltipVisible = (next: boolean) => {
+    visibleRef.current = next;
+    setVisible(next);
+  };
+  const dismiss = () => {
+    setDismissed(true);
+    if (visibleRef.current) setTooltipVisible(false);
+  };
 
   useEffect(() => {
-    if (active) {
-      const timer = window.setTimeout(() => setVisible(true), delayMs);
-      return () => window.clearTimeout(timer);
+    if (showTimerRef.current !== null) {
+      window.clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
     }
-    if (!visible) return;
-    const timer = window.setTimeout(() => setVisible(false), hideDelayMs);
-    return () => window.clearTimeout(timer);
-  }, [active, delayMs, hideDelayMs, visible]);
+    if (hideTimerRef.current !== null) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+
+    if (active) {
+      if (!visibleRef.current) {
+        showTimerRef.current = window.setTimeout(() => {
+          showTimerRef.current = null;
+          setTooltipVisible(true);
+        }, Math.max(0, delayMs));
+      }
+    } else if (visibleRef.current) {
+      hideTimerRef.current = window.setTimeout(() => {
+        hideTimerRef.current = null;
+        setTooltipVisible(false);
+      }, Math.max(0, hideDelayMs));
+    }
+
+    return () => {
+      if (showTimerRef.current !== null) {
+        window.clearTimeout(showTimerRef.current);
+        showTimerRef.current = null;
+      }
+      if (hideTimerRef.current !== null) {
+        window.clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = null;
+      }
+    };
+  }, [active, delayMs, hideDelayMs]);
+
+  useEffect(() => {
+    if (!disabled) return;
+    setHovered(false);
+    setFocused(false);
+    if (visibleRef.current) setTooltipVisible(false);
+  }, [disabled]);
+
 
   useLayoutEffect(() => {
-    if (!open) {
+    if (!visible) {
       setPosition(null);
       return;
     }
@@ -71,16 +118,20 @@ function useTooltip<T extends HTMLElement>(
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [open]);
+  }, [visible]);
 
   return {
     anchorRef,
-    open,
+    open: visible,
     position,
-    onPointerEnter: () => setHovered(true),
+    onPointerEnter: () => {
+      setDismissed(false);
+      setHovered(true);
+    },
     onPointerLeave: () => setHovered(false),
     onFocus: () => setFocused(true),
     onBlur: () => setFocused(false),
+    dismiss,
   };
 }
 
@@ -200,8 +251,10 @@ export function TooltipButton({
   ref,
   onPointerEnter,
   onPointerLeave,
+  onPointerDown,
   onFocus,
   onBlur,
+  onClick,
   ...buttonProps
 }: TooltipButtonProps) {
   const tooltip = useTooltip<HTMLButtonElement>(
@@ -230,6 +283,10 @@ export function TooltipButton({
           tooltip.onPointerLeave();
           onPointerLeave?.(event);
         }}
+        onPointerDown={(event) => {
+          tooltip.dismiss();
+          onPointerDown?.(event);
+        }}
         onFocus={(event) => {
           tooltip.onFocus();
           onFocus?.(event);
@@ -237,6 +294,10 @@ export function TooltipButton({
         onBlur={(event) => {
           tooltip.onBlur();
           onBlur?.(event);
+        }}
+        onClick={(event) => {
+          tooltip.dismiss();
+          onClick?.(event);
         }}
       >
         {children}

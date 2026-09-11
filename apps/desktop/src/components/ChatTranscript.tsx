@@ -736,7 +736,7 @@ const ToolRow = memo(function ToolRow({
   const modelId = variant === "topology" ? delegateModelId(message) : "";
   const thinkingLevel =
     variant === "topology" ? delegateThinkingLevel(message) : undefined;
-  const thinkingLabel = thinkingLevel ? t(`thinkingLevel.${thinkingLevel}`) : "";
+  const thinkingLabel = thinkingLevel ?? "";
   const modelLabel = [modelId, thinkingLabel].filter(Boolean).join(" ");
   // The delegate's last answer row is its report, so the body must not print
   // the same text a second time.
@@ -1286,7 +1286,7 @@ export function SubagentDetail({
   const agentName = delegateAgentName(message, delegate);
   const modelId = delegateModelId(message);
   const thinkingLevel = delegateThinkingLevel(message);
-  const thinkingLabel = thinkingLevel ? t(`thinkingLevel.${thinkingLevel}`) : "";
+  const thinkingLabel = thinkingLevel ?? "";
   const modelLabel = [modelId, thinkingLabel].filter(Boolean).join(" ");
   const outcome = subagentOutcome(message, delegationStatuses);
   const payload = toolResultPayload(message);
