@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +18,7 @@ import type {
 } from "@pi-desktop/shared";
 import {
   fileReferenceLabel,
+  formatFileInsert,
   formatTokenCount,
   initialThinkingLevelForBinding,
   modelIdsMatch,
@@ -63,6 +65,11 @@ import {
   useComposerAutocomplete,
 } from "../hooks/use-composer-autocomplete";
 import { ComposerAutocomplete } from "./ComposerAutocomplete";
+import {
+  composerDropItems,
+  hasComposerFileDrag,
+  type ComposerDropItem,
+} from "../lib/composer-drop";
 import { TooltipButton } from "./ui";
 import { ContextUsageInspector } from "./ContextUsageInspector";
 import { AskToolCard } from "./AskToolCard";
@@ -114,6 +121,15 @@ type ComposerFileReference = {
 
 function isImageFilePath(path: string): boolean {
   return /\.(avif|bmp|gif|heic|jpe?g|png|tiff?|webp)$/i.test(path);
+}
+
+function formatDroppedDirectoryPath(path: string): string {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const formatted = formatFileInsert(normalized, "dir");
+  // `formatFileInsert` leaves a spaced directory quote open for interactive
+  // @ completion. A completed native drop needs a closed token so mixed drops
+  // can separate the directory from the following file chip.
+  return /\s/.test(normalized) ? `${formatted}"` : formatted;
 }
 
 /** Paste/scratch files keep absolute paths; `@` menu entries are workspace-relative. */
@@ -672,6 +688,7 @@ export function Composer({
   const modelListRef = useRef<HTMLDivElement>(null);
   const thinkingListRef = useRef<HTMLDivElement>(null);
   const [pasting, setPasting] = useState(false);
+  const [dropTargetActive, setDropTargetActive] = useState(false);
   const [enhancingPrompt, setEnhancingPrompt] = useState(false);
   const [enhancementUndoText, setEnhancementUndoText] = useState<string | null>(null);
   const [enhancementError, setEnhancementError] =
@@ -1960,6 +1977,136 @@ export function Composer({
     }
   };
 
+  const attachDroppedItems = async (items: ComposerDropItem[]) => {
+    if (inputBlocked || items.length === 0) return;
+    const editor = ref.current;
+    const sourceValue = editor ? readEditorValue(editor) : valueRef.current;
+    const { start: selectionStart, end: selectionEnd } = editor
+      ? editorSelectionRange(editor)
+      : { start: sourceValue.length, end: sourceValue.length };
+    const sourceSessionId = activeSessionId;
+    const sourceDraftKey = draftKey;
+    const previousReferences = snapshotReferences(sourceSessionId ?? "");
+    const fileItems = items.filter((item) => !item.isDirectory);
+    setPasting(true);
+    try {
+      let sessionId = sourceSessionId;
+      if (fileItems.length && !sessionId) {
+        sessionId = (await materializeDraftSession()) ?? "";
+      }
+      if (fileItems.length && !sessionId) throw new Error("session unavailable");
+
+      const pasted = fileItems.length
+        ? await api.pasteFiles(
+            sessionId!,
+            await Promise.all(
+              fileItems.map(async ({ file }) => ({
+                name: file.name || undefined,
+                mimeType: file.type || undefined,
+                data: await file.arrayBuffer(),
+              })),
+            ),
+          ).then((result) => result.files)
+        : [];
+      const chips = pasted.map((file) => {
+        const token = nextChipToken();
+        return {
+          token,
+          reference: createFileReference(file.path, file.name, sessionId ?? "", {
+            kind: file.kind,
+            mimeType: file.mimeType,
+            token,
+          }),
+        };
+      });
+      let fileIndex = 0;
+      const inserted = items
+        .map((item) => {
+          if (item.isDirectory) {
+            return item.path ? formatDroppedDirectoryPath(item.path) : "";
+          }
+          const chip = chips[fileIndex];
+          fileIndex += 1;
+          return chip?.token ?? "";
+        })
+        .filter(Boolean)
+        .join(" ");
+      if (!inserted) return;
+
+      const nextText =
+        sourceValue.slice(0, selectionStart) +
+        inserted +
+        sourceValue.slice(selectionEnd);
+      const ownerSessionId = sessionId ?? "";
+      const nextReferences = [
+        ...previousReferences.map((reference) =>
+          createFileReference(reference.path, reference.name, ownerSessionId, reference),
+        ),
+        ...chips.map((chip) => chip.reference),
+      ];
+      const targetKey = sessionId || sourceDraftKey;
+      writeComposerDraft(targetKey, {
+        text: nextText,
+        fileReferences: [
+          ...previousReferences,
+          ...chips.map((chip) => ({
+            path: chip.reference.path,
+            name: chip.reference.name,
+            kind: chip.reference.kind,
+            ...(chip.reference.mimeType ? { mimeType: chip.reference.mimeType } : {}),
+            token: chip.token,
+          })),
+        ],
+      });
+      const currentSessionId = useAppStore.getState().activeSessionId;
+      if (currentSessionId === sessionId) {
+        applyEditorDraft(nextText, nextReferences, selectionStart + inserted.length);
+      } else if (sourceDraftKey === HOME_DRAFT_KEY && sessionId) {
+        deleteComposerDraft(HOME_DRAFT_KEY);
+      }
+      if (chips.length) {
+        showToast(t("chat.filesAttached", { count: chips.length }), {
+          variant: "success",
+        });
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error), {
+        variant: "error",
+      });
+    } finally {
+      setPasting(false);
+    }
+  };
+
+  const onComposerDragEnter = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasComposerFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    setDropTargetActive(true);
+  };
+
+  const onComposerDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasComposerFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const onComposerDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    setDropTargetActive(false);
+  };
+
+  const onComposerDrop = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasComposerFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    setDropTargetActive(false);
+    if (inputBlocked) return;
+    const items = composerDropItems(event.dataTransfer, api.getDroppedFilePath);
+    void attachDroppedItems(items);
+  };
+
   const composerAc = useComposerAutocomplete({
     value,
     cursor,
@@ -2101,7 +2248,15 @@ export function Composer({
             </TooltipButton>
           </div>
         ) : null}
-        <div className={`composer-shell${inputBlocked ? " is-gated" : ""}`}>
+        <div
+          className={`composer-shell${inputBlocked ? " is-gated" : ""}${
+            dropTargetActive ? " is-drop-target" : ""
+          }`}
+          onDragEnter={onComposerDragEnter}
+          onDragOver={onComposerDragOver}
+          onDragLeave={onComposerDragLeave}
+          onDrop={onComposerDrop}
+        >
           {inputFocused ? (
             <ComposerAutocomplete ac={composerAc} onAccept={acceptCompletion} />
           ) : null}

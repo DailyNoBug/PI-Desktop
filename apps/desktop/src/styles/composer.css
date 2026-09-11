@@ -144,6 +144,12 @@
   box-shadow: 0 7px 24px color-mix(in oklab, var(--ds-text-primary) 9%, transparent);
 }
 
+/* Native file-system drops get a target cue without changing shell geometry. */
+.composer-shell.is-drop-target {
+  outline: 2px solid color-mix(in oklab, var(--ds-accent) 72%, transparent);
+  outline-offset: 3px;
+}
+
 .composer-input-wrap {
   position: relative;
   display: flex;
