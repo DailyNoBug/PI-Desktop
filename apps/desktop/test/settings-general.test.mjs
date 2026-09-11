@@ -115,6 +115,23 @@ test("Basics and AI tabs expose their respective app and AI controls", () => {
   assert.match(aiSource, /CommandShellRow/);
   assert.match(aiSource, /enterToSend: !settings\.enterToSend/);
   assert.match(aiSource, /LargePasteThresholdRow/);
+  assert.match(aiSource, /ContextUsageDisplayRow/);
+  assert.match(
+    settingsPageSource,
+    /saveSettings\(\{ contextUsageDisplay: value \}\)/,
+  );
+  for (const key of [
+    "settings.contextUsageDisplay",
+    "settings.contextUsageDisplayRemaining",
+    "settings.contextUsageDisplayUsed",
+  ]) {
+    assert.match(settingsSearchSource, new RegExp(key.replaceAll(".", "\\.")));
+    assert.match(enLocaleSource, new RegExp(`${key.split(".").at(-1)}:`));
+    assert.match(zhLocaleSource, new RegExp(`${key.split(".").at(-1)}:`));
+    assert.match(trLocaleSource, new RegExp(`${key.split(".").at(-1)}:`));
+  }
+  assert.match(sharedTypesSource, /contextUsageDisplay\?: ContextUsageDisplay/);
+  assert.match(sharedTypesSource, /ContextUsageDisplay = "remaining" \| "used"/);
   assert.match(settingsPageSource, /largePasteThreshold/);
   assert.match(settingsPageSource, /saveSettings\(\{ largePasteThreshold: next \}\)/);
   assert.doesNotMatch(settingsPageSource, /commandShellConfigured/);

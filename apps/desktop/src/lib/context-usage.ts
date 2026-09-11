@@ -1,6 +1,7 @@
 import {
   effectiveContextWindow,
   modelIdsMatch,
+  type ContextUsageDisplay,
   type MessageUsage,
   type ModelInfo,
   type ProviderPublic,
@@ -118,6 +119,49 @@ export function calculateContextUsage(
     usedPercent,
     remainingPercent: 100 - usedPercent,
   };
+}
+
+/**
+ * Which figure the composer ring and its summary lead with (D398). Absent or
+ * unrecognised values keep the remaining-capacity default, so a persisted
+ * typo never blanks the trigger.
+ */
+export function resolveContextUsageDisplay(value: unknown): ContextUsageDisplay {
+  return value === "used" ? "used" : "remaining";
+}
+
+export type ContextUsageView = {
+  display: ContextUsageDisplay;
+  /** Percentage the trigger, heading, and popover lead with. */
+  percent: number;
+  /** Token count matching `percent`. */
+  tokens: number;
+  /** Ring arc fill, 0–1, matching `percent`. */
+  ratio: number;
+};
+
+/**
+ * Pick the leading percentage/token pair for the configured display mode.
+ * Capacity colors stay on `ContextUsage.remainingPercent` in both modes, so
+ * "used 78%" still warns when only 22% is left.
+ */
+export function contextUsageView(
+  usage: ContextUsage,
+  display: ContextUsageDisplay,
+): ContextUsageView {
+  return display === "used"
+    ? {
+        display,
+        percent: usage.usedPercent,
+        tokens: usage.usedTokens,
+        ratio: usage.usedRatio,
+      }
+    : {
+        display,
+        percent: usage.remainingPercent,
+        tokens: usage.remainingTokens,
+        ratio: usage.remainingRatio,
+      };
 }
 
 function serializedLength(value: unknown): number {
