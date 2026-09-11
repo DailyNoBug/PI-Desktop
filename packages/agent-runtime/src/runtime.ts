@@ -325,6 +325,10 @@ export type DelegationRecord = {
   /** `prompt()` / `executeApprovedPlan()` generation that started this run.
    * Resume-after-idle only waits for the current turn's delegates (D352). */
   startedEpoch: number;
+  /** The settled report reached the parent's context once: through a
+   * `TaskWait` result or the resume-after-idle prompt. Auto-delivery is a
+   * single shot per record. */
+  reportDelivered: boolean;
 };
 
 function delegationSummary(record: DelegationRecord): Record<string, unknown> {
@@ -3422,6 +3426,7 @@ Delegation rules:
           lastActivityAt: startedAt,
           lastPhase: "waiting-model",
           startedEpoch: this.turnEpoch,
+          reportDelivered: false,
         };
         this.delegations.set(delegationId, record);
         const scopedTools = this.scopeDelegateTools(tools, definition);
@@ -3568,6 +3573,24 @@ Delegation rules:
     );
   }
 
+  /**
+   * Current-turn delegates whose report the parent has not seen yet: still
+   * running, or settled before the parent idled and never read through
+   * `TaskWait`. A delegate that finished in a few hundred milliseconds is
+   * "done and unpublished", not "unfinished"; keying the idle resume on
+   * running delegates alone dropped such reports (#226). Stopped and
+   * aborted runs are not auto-delivered.
+   */
+  private pendingCurrentTurnDelegations(): DelegationRecord[] {
+    return [...this.delegations.values()].filter(
+      (record) =>
+        record.startedEpoch === this.turnEpoch &&
+        !record.reportDelivered &&
+        record.status !== "stopped" &&
+        record.status !== "aborted",
+    );
+  }
+
   private abortDelegationsFromPreviousTurns(): void {
     for (const record of this.runningDelegations()) {
       if (record.startedEpoch !== this.turnEpoch) record.abort();
@@ -3588,7 +3611,8 @@ Delegation rules:
   /** D328 keeps the turn open on parent idle, not on a fatal parent error. */
   private keepTurnOpenForDelegates(): boolean {
     return (
-      this.runningDelegations().length > 0 &&
+      (this.runningDelegations().length > 0 ||
+        this.pendingCurrentTurnDelegations().length > 0) &&
       !this.runCancelled &&
       !this.turnHadError
     );
@@ -3696,9 +3720,9 @@ Delegation rules:
       !this.runCancelled &&
       !this.turnHadError &&
       epoch === this.turnEpoch &&
-      this.currentTurnDelegations().length > 0
+      this.pendingCurrentTurnDelegations().length > 0
     ) {
-      const targets = this.currentTurnDelegations();
+      const targets = this.pendingCurrentTurnDelegations();
       this.beginDelegationWait(targets);
       await this.waitForDelegations(targets, targets.length, null);
       this.endDelegationWait();
@@ -3711,8 +3735,11 @@ Delegation rules:
         if (this.turnHadError) this.terminateParentTurn();
         return;
       }
-      const settled = targets.filter((record) => record.status !== "running");
+      const settled = targets.filter(
+        (record) => record.status !== "running" && !record.reportDelivered,
+      );
       if (settled.length === 0) return;
+      for (const record of settled) record.reportDelivered = true;
       const results = settled.map((record) => ({
         delegationId: record.delegationId,
         agent: record.agentName,
@@ -3826,6 +3853,12 @@ Delegation rules:
           );
         } finally {
           this.endDelegationWait();
+        }
+        // A settled report returned here reached the parent; the idle resume
+        // must not deliver it a second time. Running delegates keep their
+        // shot: a timeout or an early `any` convergence has not consumed it.
+        for (const record of targets) {
+          if (record.status !== "running") record.reportDelivered = true;
         }
         const results = targets.map((record) => ({
           delegationId: record.delegationId,
