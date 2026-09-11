@@ -518,8 +518,9 @@ overlap it and rely only on descendant `no-drag`, so every visible control
 pixel remains clickable. Termination is geometric: a region ends where the
 element's border box ends, so an element that only pads its content clear of
 the band still covers the controls with its rectangle. The open work-panel
-header uses one compact resource switcher with menu-owned close actions; it
-does not add a second `×` beside the native Windows close control. The band
+header uses a horizontally scrollable tab strip with a fixed `+` add trigger;
+each tab owns its close action and the header does not add a second `×` beside
+the native Windows close control. The band
 floats over the destination pages, so on Windows/Linux a page frame and any
 right-edge detail sheet start below it instead of placing their own header
 actions or close control under the window controls. No application menu is
@@ -925,7 +926,7 @@ Codex parity decisions (D034/D070) supersede any older value here.
 | Sidebar width (expanded) | `240px–520px` (default 275px) | Right-edge resize handle; persisted preferred width |
 | Main pane minimum readable width | 360px | Target when the panel is closed; an open internal panel may reduce MainChat below this target on small windows |
 | Work panel width (closed) | 0px | Hidden by default |
-| Work panel width (open) | `244px–720px` (default 280px), fixed at the committed width | the panel is an in-flow column whose width is taken from the existing client area; the renderer owns its divider (ADR 0151) |
+| Work panel width (open) | `244px–720px` (new-profile default 360px), fixed at the committed width | the panel is an in-flow column whose width is taken from the existing client area; the renderer owns its divider (ADR 0151); saved widths remain unchanged |
 | Composer shell minimum | ~80px | One-line draft + toolbar padding |
 | Composer draft height | 1–7 text lines | Auto-grow; internal scroll beyond line 7 |
 | Chat message max width | 720px assistant / 560px user plate | Prevent eye-span over-stretch; user turns stay compact |
@@ -943,7 +944,8 @@ Windows, and Linux retain the fade-and-slide exit.
 ### 10.1 Responsive collapse
 
 - The work panel never participates in responsive collapse. It keeps its
-  committed `244..720px` width (default 280px) while visible.
+  committed `244..720px` width (new-profile default 360px) while visible; saved
+  widths remain unchanged.
 - The inner panel divider changes the panel width in the renderer. Moving it
   left takes more internal space from MainChat; moving it right returns that
   space. Native window edges resize only the fixed app window.

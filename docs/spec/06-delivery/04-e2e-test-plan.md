@@ -2642,27 +2642,22 @@ Each scenario is documented in this format:
 - **Steps**: 1) Relaunch and inspect the titlebar and application menu; confirm
   the panel starts closed and a viewport-fixed work-panel toggle is present
   (disabled with no session). Press Cmd/Ctrl+J or click the toggle and inspect
-  the empty panel title and context menu, then press/click again to confirm it
+  the New launcher, then press/click again to confirm it
   collapses the
   panel and no tab is created or deleted; a third press must restore the same
   context. 2) Open two distinct file artifacts, the same first file again,
-  a URL preview, and a completed Bash row. 3) Open the header's unified
-  context menu: verify Browser and in-scope plugin views appear once, with active,
-  open-inactive, and closed states, and that transcript-opened resources appear
-  only in the second section. Open/select each available view with pointer
-  and keyboard. Record the work-panel body bounds before and after opening the
-  menu and confirm the body does not move or resize; the menu floats over it
-  as a body-level overlay. Resize or scroll the window and confirm the menu
-  remains anchored to the trigger (flipping above it when the lower edge has
-  no room),
-  reopen a Browser that already has a URL and confirm the URL survives, walk the
-  rows with ArrowDown/ArrowUp/Home/End (focus must skip the close buttons), close
-  an inactive row with Delete and confirm the menu stays open with focus on the
-  neighbor, press Escape and confirm focus returns to the trigger, then close the
-  active item from the header. Confirm the right action cluster stays at the
-  header's right edge for both the shortest and longest labels. 4) Close active middle and edge items
-  and verify neighbor selection. 5) Use the viewport-fixed work-panel toggle and
-  trigger another artifact. 6) In session A, leave the panel open with multiple
+  a URL preview, and a completed Bash row. 3) Verify the header is a tablist:
+  open enough tabs to overflow it, confirm only the strip scrolls and the `+`
+  trigger stays visible, activate the scrolled-away tab, and close tabs with
+  hover/focus `×` and middle-click. 4) Open the `+` menu and verify its single
+  Tools & panels group contains Review plus each in-scope plugin view exactly
+  once. Use Arrow/Home/End, Escape, and Tab; confirm shortcut labels appear
+  only for real bindings. Confirm the menu stays anchored during resize/scroll
+  and the native plugin surface is clipped below its opaque bounds. 5) Close
+  active middle and edge tabs and verify neighbor selection. Close the final
+  tab and confirm the panel remains open on the New launcher. 6) Use the
+  viewport-fixed work-panel toggle and trigger another artifact. 7) In session A,
+  leave the panel open with multiple
   tabs and a Browser resource; switch to session B, create a different tab set,
   then switch repeatedly between A and B and select a project without an active
   conversation. Generate a background artifact in the non-visible session.
@@ -2694,24 +2689,15 @@ Each scenario is documented in this format:
   closing animate the panel's width/flex allocation with its bounded
   opacity/slide, so MainChat reflows continuously without a pre-animation jump.
   Opening the panel, collapsing it, or committing a divider resize updates the
-  presentation jump. Once the panel is open, a single unified context trigger
-  opens one dropdown that lists Browser and in-scope plugin views, with a fill
-  plus 2px edge marker for the active row and a dot for open inactive ones, each
-  open row carrying its own close control in an always-reserved trailing slot;
-  a second section appears after a divider only for transcript-opened resources
-  (full-path tooltips, per-item close), so no entry is listed twice. The menu
-  fades in over ≤4px and is static under reduced motion. Arrow/Home/End move
-  focus across rows only and skip the close buttons, ArrowDown/ArrowUp on the
-  trigger open on the active/last row, Delete/Backspace closes the focused row
-  while the menu stays open with focus on its neighbor, and Escape/Tab/selection
-  restore focus to the trigger. Reopening an already-open tool activates it and
-  preserves its Browser URL. The right action cluster stays pinned to the
-  header's right edge regardless of label length. Opening the menu temporarily
-  hides the native Browser preview so it is never occluded. The sole collapse
-  control is the viewport-fixed toggle rather than a content-header chevron.
-  Active close selects the right neighbor then left; closing the last tab hides
-  the panel. Collapse retains runtime tabs but hides the panel until another
-  artifact reopens it. Width clamps to the fixed `244px–720px` range and
+  presentation without a native-window jump. The header is a horizontally
+  scrollable tablist with a fixed `+`; the strip alone scrolls, active tabs
+  scroll into view, and close selects the right neighbor then left. The add
+  menu has one Tools & panels group with Review and in-scope plugin views,
+  fades in over ≤4px, and is static under reduced motion. Its keyboard focus
+  and dismissal return to `+`; opening it clips native plugin surfaces below
+  the opaque menu. Closing the last tab leaves the panel open on New. Collapse
+  retains runtime tabs but hides the panel until another artifact reopens it.
+  Width clamps to the fixed `244px–720px` range and
   previews its current/minimum/maximum values through the panel separator. The
   inner divider exposes the panel width to assistive technology and supports
   the documented keyboard steps. Pointer-down preserves the starting width,
@@ -7353,22 +7339,22 @@ This test plan spec is accepted when:
   panel context holds no tabs.
 - **Steps**:
   1) Press `Cmd/Ctrl + J` and confirm the panel appears with an empty body that
-     shows a tiled icon, the title "No resource open", one line of supporting
-     copy, and Browser/in-scope plugin-view rows — not a blank area below the
-     title bar.
+     shows the title "New" and Review plus Browser/in-scope plugin-view rows —
+     not a blank area below the title bar.
   2) Tab into the available rows and confirm each takes a visible focus ring
      and that hovering a row shows only a background fill.
   3) Activate Browser or a plugin view and confirm its singleton tab is created
      and selected; the empty body and its view list disappear.
-  4) Open the header context menu, activate the same view again, and confirm it
+  4) Open the `+` Tools & panels menu, activate the same view again, and confirm it
      selects the existing tab rather than creating a second one.
-  5) Close the view tab and confirm the panel hides when it was the last tab,
-     then press `Cmd/Ctrl + J` again and confirm the empty body returns.
+  5) Close the view tab and confirm the panel remains open on the New launcher
+     when it was the last tab; press `Cmd/Ctrl + J` again and confirm it hides.
   6) Repeat step 1 in Chinese and in both light and dark themes, and at the
      244px panel minimum, confirming the copy wraps rather than clipping.
 - **Expected**: `Cmd/Ctrl + J` reveals the panel without creating a tab, and the
-  no-resource body lists the same Browser/plugin-view entries as the header
-  menu; a row creates or selects that singleton view exactly as the menu does.
+  New launcher lists the same Review/plugin-view entries as the `+` menu; a row
+  creates or selects that singleton view exactly as the menu does. Closing the
+  final tab leaves the panel open on New.
   The empty body is not exposed as a `tabpanel`; its rows are buttons in a
   `role="group"` labelled Tools. Panel empty states share the app's empty-state
   proportions with no action button in the "open a project" states.

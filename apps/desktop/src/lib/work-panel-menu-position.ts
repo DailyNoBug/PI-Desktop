@@ -1,5 +1,5 @@
 /**
- * Placement for the work-panel resource switcher.
+ * Placement for the work-panel add menu.
  *
  * The switcher is rendered at document.body level so it cannot participate in
  * the panel's header/body layout. These viewport coordinates keep the menu

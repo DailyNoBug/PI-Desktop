@@ -584,6 +584,24 @@
   box-shadow: var(--ds-raised-shadow);
 }
 
+.app-work-panel-toggle-icon {
+  position: relative;
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+}
+
+.app-work-panel-toggle-icon > svg {
+  position: absolute;
+  inset: 0;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.app-work-panel-toggle[aria-pressed="false"] .app-work-panel-toggle-icon > svg:last-child,
+.app-work-panel-toggle[aria-pressed="true"] .app-work-panel-toggle-icon > svg:first-child {
+  opacity: 0;
+}
+
 :root[data-platform="win32"] .app-work-panel-toggle,
 :root[data-platform="linux"] .app-work-panel-toggle {
   right: calc(var(--ds-window-controls-width) + 12px);

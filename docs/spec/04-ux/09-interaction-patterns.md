@@ -406,25 +406,22 @@ may be retained while exactly one workspace supplies the visible shell context.
 - File resources use normalized paths as identity. Browser and plugin views
   are singletons; repeated triggers preserve resource order and activate the
   existing resource.
-- Once open, the panel's unified context trigger anchors the left of the header
-  and opens a single dropdown. Its top section lists Browser and in-scope
-  plugin views, each row carrying its own open state and, once open, its own
-  close control. A second section appears after a divider only when the
-  transcript opened further resources, so no entry is ever listed twice. The
-  right action cluster is pinned to the header's right edge behind a divider
-  and never shifts with the label length (D173).
-- Menu rows own DOM focus. Opening with the trigger's ArrowDown/ArrowUp lands on
-  the active row or the last row respectively; Arrow/Home/End then walk rows
-  only, never their trailing close buttons. Delete/Backspace closes the focused
-  row's resource without dismissing the menu and keeps focus on the neighbor
-  that takes its place. Selecting a row, Escape, or Tab closes the menu and
-  restores focus to the trigger; only a session switch dismisses it implicitly
-  (D173).
+- Once open, the panel header is a `tablist` that scrolls horizontally while a
+  tight `+` trigger stays fixed beside it. Each tab owns its active state and
+  close button; the active tab is scrolled into view. The add menu is one
+  Tools & panels group containing host-owned Review followed by every in-scope
+  plugin view, so Files and Browser stay data-driven (D173).
+- Tab focus uses roving `tabIndex`: ArrowLeft/ArrowRight/Home/End move across
+  tabs and Delete/Backspace closes the focused tab. Middle-click closes a tab;
+  closing an active tab selects the right neighbor, then the left. The `+`
+  menu uses Arrow/Home/End, Escape, and Tab, and returns focus to `+` on
+  dismissal. Shortcut labels appear only for bindings that actually exist.
 - Activating a tool that is already open activates its existing resource instead
   of replacing it, so Browser keeps its URL and Files its selection (D173).
-- Every resource can be closed from its menu row. Closing the active resource
-  selects the right neighbor, then the left; closing the final tab hides the
-  panel. The viewport-fixed panel toggle hides the panel without deleting tabs.
+- Every resource can be closed from its tab. Closing the active resource selects
+  the right neighbor, then the left; closing the final tab keeps the panel open
+  on the New launcher. The viewport-fixed panel toggle hides the panel without
+  deleting tabs.
 - On every platform, opening and collapsing the visible panel change only the
   internal flex allocation; native window bounds remain unchanged. The inner
   divider updates the renderer-owned panel target between 244px and 720px,

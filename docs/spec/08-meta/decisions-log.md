@@ -4579,3 +4579,23 @@ D193, and D194.
 - Decision D391 and ADR 0217 define this. See
   `03-runtime/07-process-model.md`, `03-runtime/06-host-rpc-protocol.md` §7,
   and E2E-247.
+
+## 2026-09-11 — Right panel uses a tab strip and data-driven add menu (D399)
+
+- Issue #229 replaces the right panel's combined resource menu with a
+  horizontally scrollable header tab strip and a fixed tight `+` trigger. Only
+  the strip scrolls; tabs use ARIA tab semantics, close on their own hover or
+  focus affordance and middle-click, and keep the active resource in view.
+- The `+` menu has one **Tools & panels** group: host-owned Review followed by
+  the current scoped `contributes.views` metadata. Files and Browser remain
+  plugin data rather than a renderer hardcoded list. Shortcut labels are
+  conditional on a real binding. The same list is used by the no-tab New
+  launcher, so closing the final tab keeps the panel open instead of hiding it.
+- The viewport-fixed toggle remains the sole collapse control and keeps the
+  existing customizable `Mod+J` binding. Its icon has explicit collapsed and
+  expanded states, and its localized tooltip/accessibility name includes the
+  resolved binding when present.
+- A new profile starts with a 360px panel width inside the existing 244–720px
+  range; persisted widths are left unchanged. No protocol, storage schema,
+  plugin manifest, or native-window reservation changes. ADR 0224, UX §4–§5,
+  and E2E-056 define the shipped behavior.

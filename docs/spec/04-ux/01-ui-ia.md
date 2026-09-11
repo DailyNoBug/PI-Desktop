@@ -65,9 +65,10 @@ destination, chat as the home surface, tools and permissions inline.
   the right outside the traffic-light safety area; no logo/title is rendered
   there, including in fullscreen. When the work panel is open, native window
   controls stay viewport-fixed at the window's right edge and the panel header
-  reserves that band plus the work-panel toggle. Resource switching and close
-  actions stay together in the panel menu, so the Windows native close control
-  is not visually duplicated by a second header `×`.
+  reserves that band plus the work-panel toggle. The panel header is a
+  horizontally scrollable tab strip followed by a fixed `+` add trigger; tab
+  close actions stay in the tabs, so the Windows native close control is not
+  visually duplicated by a second header `×`.
   Windows/Linux use a menu-free frameless 46px row with sidebar actions on the
   left and accessible minimize / maximize-or-restore / close controls at the
   right edge of the conversation pane when the panel is closed (D129). When
@@ -78,18 +79,16 @@ destination, chat as the home surface, tools and permissions inline.
   bell instead (D130/D117).
 - **Work panel**: docked right column (not an overlay) opened by an artifact,
   the viewport-fixed toggle, or `Cmd/Ctrl + J`. File, URL, browser-preview, and successful workspace-edit
-  artifacts create their resources atomically. A combined panel entry keeps
-  Browser and in-scope plugin views available while
-  the panel is visible; opened-but-inactive views show a quiet dot and the active
-  resource has a restrained edge marker. The 46px content header names the
-  current resource and opens a compact switcher for all current session
-  resources. Resource close actions live on the switcher's menu rows. File
-  paths stay distinct in that switcher while
-  plugin views deduplicate by view reference. The viewport-fixed toggle and
+  artifacts create their resources atomically. The 46px content header exposes
+  a tablist and a fixed `+` trigger. Its single Tools & panels menu contains
+  host-owned Review followed by every in-scope plugin view, without hardcoding
+  or duplicating plugin tabs. File paths stay distinct while plugin views
+  deduplicate by view reference. The viewport-fixed toggle and
   `Cmd/Ctrl + J` both toggle the active session's retained panel context —
   revealing it without creating a resource tab and collapsing it without
   discarding one; the create trigger remains unavailable while the panel is
-  closed. A
+  closed. Closing the final tab keeps the panel open and shows the New launcher.
+  A
   successful active-session workspace Write/Edit artifact opens Review;
   scratch, failed, and background-session writes never steal focus. The outer
   inner divider resizes the panel from 244px to 720px; moving it left takes

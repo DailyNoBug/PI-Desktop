@@ -66,21 +66,15 @@ test("a plugin view counts as a tool, not a transcript resource", () => {
   );
 });
 
-test("the panel menu renders plugin views as their own group", () => {
-  assert.match(panelSource, /panel\.pluginViews/);
-  assert.match(panelSource, /aria-labelledby="work-panel-menu-plugin-views"/);
-  assert.match(panelSource, /pluginViews\.map\(\(view, index\) =>/);
-  // Rows must carry the same affordances as the built-in tool rows so a plugin
+test("the panel add menu renders plugin views in the data-driven tools group", () => {
+  assert.match(panelSource, /workPanelTools\(t, pluginViews\)/);
+  assert.match(panelSource, /panel\.toolsAndPanels/);
+  assert.match(panelSource, /pluginViews\.map\(\(view\) =>/);
+  // Rows carry the same affordances as the host-owned Review row, so a plugin
   // surface is not visibly second-class.
   assert.match(panelSource, /role="menuitemradio"/);
   assert.match(panelSource, /work-panel-open-dot/);
-  assert.match(panelSource, /data-work-panel-plugin-view=\{view\.ref\}/);
-  // Focus restoration counts menu rows, so the resource group's index has to
-  // include the plugin-view group drawn above it.
-  assert.match(
-    panelSource,
-    /pluginViews\.length \+ index/,
-  );
+  assert.match(panelSource, /data-work-panel-menu-item/);
 });
 
 test("plugin views reach the panel body and the empty state", () => {
@@ -88,13 +82,14 @@ test("plugin views reach the panel body and the empty state", () => {
   assert.match(panelSource, /<PluginViewTab/);
   // The revealed-but-empty panel lists the same entries the menu offers, so a
   // user who has only plugin views installed is not shown a dead end.
-  assert.match(panelSource, /work-panel-empty-tool[\s\S]*openPluginView\(view\)/);
+  assert.match(panelSource, /tools\.map[\s\S]*work-panel-launcher-row/);
+  assert.doesNotMatch(panelSource, /openPluginView\(view\)/);
 });
 
-test("the native surface stays visible below the open context menu", () => {
+test("the native surface stays visible below the open add menu", () => {
   assert.match(
     panelSource,
-    /occludedById=\{\s*contextMenuPosition \? "work-panel-context-menu" : undefined/s,
+    /occludedById=\{menuPosition \? "work-panel-new-menu" : undefined\}/s,
   );
   assert.match(viewTabSource, /occludedById\?: string/);
   assert.match(viewTabSource, /document\.getElementById\(occludedById\)/);

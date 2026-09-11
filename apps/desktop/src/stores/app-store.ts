@@ -4420,7 +4420,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
   closeWorkPanelTab: (tabId) => {
-    let closePanel = false;
     set((state) => {
       const sessionId = state.activeSessionId;
       if (!sessionId) return {};
@@ -4432,7 +4431,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         tabId,
       );
       const activeTab = next.tabs.find((tab) => tab.id === next.activeTabId);
-      closePanel = next.activeTabId === null;
       const fileRequest =
         activeTab?.kind === "file" && activeTab.resource
           ? {
@@ -4442,7 +4440,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             }
           : state.workPanelFileRequest;
       const nextContext: WorkPanelContext = {
-        open: closePanel ? false : state.workPanelOpen,
+        // Closing the final tab leaves the panel open so the user can choose
+        // another tool from the new-tab launcher instead of losing the dock.
+        open: state.workPanelOpen,
         tabs: next.tabs,
         activeTabId: next.activeTabId,
         fileRequest,
@@ -4450,7 +4450,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workPanelTabs: next.tabs,
         activeWorkPanelTabId: next.activeTabId,
-        workPanelOpen: closePanel ? false : state.workPanelOpen,
+        workPanelOpen: state.workPanelOpen,
         workPanelFileRequest: fileRequest,
         workPanelContexts: {
           ...state.workPanelContexts,
