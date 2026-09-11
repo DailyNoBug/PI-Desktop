@@ -90,6 +90,7 @@ import {
   IconSparkles,
   IconTarget,
   IconX,
+  IconFolder,
 } from "./icons";
 
 const COMPOSER_MIN_HEIGHT_PX = 28;
@@ -689,6 +690,9 @@ export function Composer({
   const thinkingListRef = useRef<HTMLDivElement>(null);
   const [pasting, setPasting] = useState(false);
   const [dropTargetActive, setDropTargetActive] = useState(false);
+  const [droppedDirectories, setDroppedDirectories] = useState<ComposerDropItem[]>(
+    [],
+  );
   const [enhancingPrompt, setEnhancingPrompt] = useState(false);
   const [enhancementUndoText, setEnhancementUndoText] = useState<string | null>(null);
   const [enhancementError, setEnhancementError] =
@@ -2098,13 +2102,44 @@ export function Composer({
     setDropTargetActive(false);
   };
 
+  const openDroppedFolderAsProject = async () => {
+    const directories = droppedDirectories;
+    setDroppedDirectories([]);
+    try {
+      for (const directory of directories) {
+        if (directory.path) {
+          await useAppStore.getState().activateProject(directory.path);
+        }
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error), {
+        variant: "error",
+      });
+    }
+  };
+
+  /**
+   * Second explicit step for a folder drop: keep the literal directory path in
+   * the draft. Dropping a folder never attaches unknown directory contents.
+   */
+  const insertDroppedDirectoryPaths = () => {
+    const directories = droppedDirectories;
+    setDroppedDirectories([]);
+    if (directories.length) void attachDroppedItems(directories);
+  };
+
   const onComposerDrop = (event: ReactDragEvent<HTMLDivElement>) => {
     if (!hasComposerFileDrag(event.dataTransfer)) return;
     event.preventDefault();
     setDropTargetActive(false);
     if (inputBlocked) return;
     const items = composerDropItems(event.dataTransfer, api.getDroppedFilePath);
-    void attachDroppedItems(items);
+    const directories = items.filter((item) => item.isDirectory);
+    const files = items.filter((item) => !item.isDirectory);
+    // Attaching a directory is not an attachment decision: it needs an explicit
+    // choice between opening the folder as a project and referencing its path.
+    if (directories.length) setDroppedDirectories(directories);
+    if (files.length) void attachDroppedItems(files);
   };
 
   const composerAc = useComposerAutocomplete({
@@ -2245,6 +2280,42 @@ export function Composer({
               onClick={() => setEnhancementError(null)}
             >
               <IconX size={13} aria-hidden="true" />
+            </TooltipButton>
+          </div>
+        ) : null}
+        {droppedDirectories.length ? (
+          <div className="composer-directory-drop" role="status">
+            <IconFolder size={13} aria-hidden />
+            <span className="composer-directory-drop-name">
+              {t("project.droppedFolder", {
+                count: droppedDirectories.length,
+                defaultValue: "Folder dropped",
+              })}
+            </span>
+            <button
+              type="button"
+              className="composer-directory-drop-action"
+              data-action="open-dropped-folder-project"
+              onClick={() => void openDroppedFolderAsProject()}
+            >
+              {t("project.openAsProject", { defaultValue: "Open as project" })}
+            </button>
+            <button
+              type="button"
+              className="composer-directory-drop-action"
+              data-action="reference-dropped-folder"
+              onClick={insertDroppedDirectoryPaths}
+            >
+              {t("project.referenceFolder", { defaultValue: "Reference folder" })}
+            </button>
+            <TooltipButton
+              type="button"
+              className="composer-directory-drop-dismiss"
+              tooltip={t("nav.dismissFolderDrop")}
+              ariaLabel={t("nav.dismissFolderDrop")}
+              onClick={() => setDroppedDirectories([])}
+            >
+              <IconX size={13} aria-hidden />
             </TooltipButton>
           </div>
         ) : null}

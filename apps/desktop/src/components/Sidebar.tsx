@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type AnimationEventHandler as ReactAnimationEventHandler,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -38,6 +39,10 @@ import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import { isDefaultSessionTitle, useAppStore } from "../stores/app-store";
 import { normalizeProjectPath } from "../lib/sidebar-session-groups";
+import {
+  composerDropItems,
+  hasComposerFileDrag,
+} from "../lib/composer-drop";
 import {
   sidebarSessionStatus,
   type SidebarSessionStatus,
@@ -112,6 +117,8 @@ type SessionHoverCard = {
 
 const VIEWPORT_PADDING = 8;
 const SIDEBAR_RESIZE_STEP = 16;
+/** Private MIME so a sidebar session drag is never mistaken for an OS file drop. */
+const SESSION_DRAG_MIME = "application/x-pi-desktop-session";
 
 type SidebarResizeState = {
   pointerId: number;
@@ -256,6 +263,7 @@ export function Sidebar({
   const renameSession = useAppStore((s) => s.renameSession);
   const deleteSessionAction = useAppStore((s) => s.deleteSession);
   const setSessionSort = useAppStore((s) => s.setSessionSort);
+  const moveSessionProject = useAppStore((s) => s.moveSessionProject);
   const setSessionArchiveVisibility = useAppStore((s) => s.setSessionArchiveVisibility);
   const toggleProjectPinned = useAppStore((s) => s.toggleProjectPinned);
   const archiveProjectAction = useAppStore((s) => s.archiveProject);
@@ -280,6 +288,9 @@ export function Sidebar({
   } | null>(null);
   const [sessionHoverCard, setSessionHoverCard] = useState<SessionHoverCard | null>(null);
   const [expandedProjectSessions, setExpandedProjectSessions] = useState<Record<string, boolean>>({});
+  const [draggingSessionId, setDraggingSessionId] = useState<string | null>(null);
+  const [dropProjectKey, setDropProjectKey] = useState<string | null>(null);
+  const [projectsDropActive, setProjectsDropActive] = useState(false);
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const menuFirstItemRef = useRef<HTMLButtonElement | null>(null);
@@ -1127,6 +1138,134 @@ export function Sidebar({
     }
   };
 
+  const moveSessionToProject = useCallback(
+    async (sessionId: string, projectPath: string, projectName: string) => {
+      // A running turn owns the current project's instructions, tools, and
+      // working directory; the host rejects the move as well.
+      if (runningSessions[sessionId]) {
+        showToast(
+          t("nav.moveRunningSessionBlocked", {
+            defaultValue: "Stop the running session before moving it.",
+          }),
+          { variant: "warning" },
+        );
+        return;
+      }
+      try {
+        const moved = await moveSessionProject(sessionId, projectPath);
+        if (!moved) {
+          showToast(
+            t("nav.moveSessionUnavailable", {
+              defaultValue: "This session cannot move to that project.",
+            }),
+            { variant: "warning" },
+          );
+          return;
+        }
+        showToast(
+          t("nav.sessionMoved", {
+            name: projectName,
+            defaultValue: "Moved to " + projectName,
+          }),
+          { variant: "success" },
+        );
+      } catch (error) {
+        reportError(error);
+      }
+    },
+    [moveSessionProject, reportError, runningSessions, showToast, t],
+  );
+
+  const beginSessionDrag = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>, sessionId: string) => {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(SESSION_DRAG_MIME, sessionId);
+      event.dataTransfer.setData("text/plain", sessionId);
+      setDraggingSessionId(sessionId);
+    },
+    [],
+  );
+
+  const endSessionDrag = useCallback(() => {
+    setDraggingSessionId(null);
+    setDropProjectKey(null);
+  }, []);
+
+  const sessionIdFromDrag = (dataTransfer: DataTransfer): string | null =>
+    dataTransfer.getData(SESSION_DRAG_MIME) ||
+    dataTransfer.getData("text/plain") ||
+    null;
+
+  // A project group accepts a session row from another group. The current
+  // group is not a drop target so a drag within one project is a no-op.
+  const onProjectDropTargetOver = (
+    event: ReactDragEvent<HTMLElement>,
+    entry: ProjectEntry,
+  ) => {
+    const sessionId = draggingSessionId ?? sessionIdFromDrag(event.dataTransfer);
+    if (!sessionId) return;
+    const dragged = sessions.find((item) => item.id === sessionId);
+    if (!dragged || normalizeProjectPath(dragged.projectPath) === entry.key) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropProjectKey(entry.key);
+  };
+
+  const onProjectDropTargetLeave = (entry: ProjectEntry) => {
+    setDropProjectKey((current) => (current === entry.key ? null : current));
+  };
+
+  const onProjectDropTargetDrop = (
+    event: ReactDragEvent<HTMLElement>,
+    entry: ProjectEntry,
+  ) => {
+    const sessionId = draggingSessionId ?? sessionIdFromDrag(event.dataTransfer);
+    setDraggingSessionId(null);
+    setDropProjectKey(null);
+    if (!sessionId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void moveSessionToProject(sessionId, entry.path, entry.name);
+  };
+
+  // Native folder drops on the projects list add or switch to that project.
+  const onProjectsAreaDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasComposerFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setProjectsDropActive(true);
+  };
+
+  const onProjectsAreaDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
+    const related = event.relatedTarget;
+    if (related instanceof Node && event.currentTarget.contains(related)) return;
+    setProjectsDropActive(false);
+  };
+
+  const onProjectsAreaDrop = async (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasComposerFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    setProjectsDropActive(false);
+    const directories = composerDropItems(event.dataTransfer, api.getDroppedFilePath)
+      .filter((item) => item.isDirectory && item.path);
+    if (!directories.length) {
+      showToast(
+        t("nav.dropFolderToAddProject", {
+          defaultValue: "Drop a folder to add it as a project.",
+        }),
+        { variant: "warning" },
+      );
+      return;
+    }
+    for (const directory of directories) {
+      try {
+        await activateProject(directory.path!);
+      } catch (error) {
+        reportError(error);
+      }
+    }
+  };
+
   const renderSessionRows = (
     items: SessionSummary[],
     options?: { temporary?: boolean; projectPath?: string },
@@ -1145,8 +1284,17 @@ export function Sidebar({
     return (
       <div
         key={session.id}
-        className={`thread-item ${active ? "active" : ""} ${archived ? "archived" : ""}`}
+        className={`thread-item ${active ? "active" : ""} ${archived ? "archived" : ""} ${draggingSessionId === session.id ? "is-dragging" : ""}`}
         data-sidebar-session-row={session.id}
+        draggable={!running}
+        onDragStart={(event) => {
+          if (running) {
+            event.preventDefault();
+            return;
+          }
+          beginSessionDrag(event, session.id);
+        }}
+        onDragEnd={endSessionDrag}
         onContextMenu={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -1275,9 +1423,12 @@ export function Sidebar({
     return (
       <section
         key={entry.key}
-        className={`sidebar-session-group project-group ${entry.active ? "active" : ""} ${entry.meta.archived ? "archived" : ""}`}
+        className={`sidebar-session-group project-group ${entry.active ? "active" : ""} ${entry.meta.archived ? "archived" : ""} ${dropProjectKey === entry.key ? "is-drop-target" : ""}`}
         aria-labelledby={projectId}
         data-sidebar-project-group={entry.key}
+        onDragOver={(event) => onProjectDropTargetOver(event, entry)}
+        onDragLeave={() => onProjectDropTargetLeave(entry)}
+        onDrop={(event) => onProjectDropTargetDrop(event, entry)}
       >
         <div
           className="sidebar-session-group-header"
@@ -1454,6 +1605,11 @@ export function Sidebar({
     const entry = projectMenu
       ? projectEntries.find((item) => item.key === projectMenu)
       : undefined;
+    const otherProjects = session
+      ? projectEntries.filter(
+          (item) => item.key !== normalizeProjectPath(session.projectPath),
+        )
+      : [];
     if (!session && !entry) return null;
     return createPortal(
       <div
@@ -1536,6 +1692,31 @@ export function Sidebar({
                   <IconFolder size={14} />
                   {t("nav.openSessionPath")}
                 </button>
+              </>
+            ) : null}
+            {otherProjects.length ? (
+              <>
+                <div className="sidebar-popover-divider" />
+                <div className="sidebar-popover-title">
+                  {t("nav.moveToProject", { defaultValue: "Move to project" })}
+                </div>
+                {otherProjects.map((project) => (
+                  <button
+                    key={project.key}
+                    type="button"
+                    role="menuitem"
+                    data-action="move-session-to-project"
+                    data-project-key={project.key}
+                    disabled={Boolean(runningSessions[session.id])}
+                    onClick={() => {
+                      closeMenus(false);
+                      void moveSessionToProject(session.id, project.path, project.name);
+                    }}
+                  >
+                    <IconFolder size={14} />
+                    {project.name}
+                  </button>
+                ))}
               </>
             ) : null}
             <button
@@ -1848,7 +2029,7 @@ export function Sidebar({
         </div>
 
         <div
-          className="sidebar-session-groups min-h-0 flex-1 overflow-auto px-0.5"
+          className={`sidebar-session-groups min-h-0 flex-1 overflow-auto px-0.5 ${projectsDropActive ? "is-drop-target" : ""}`}
           onScroll={() => {
             if (sessionMenu || projectMenu || sectionMenu || sortOpen) closeMenus(false);
           }}
@@ -1864,6 +2045,12 @@ export function Sidebar({
             event.stopPropagation();
             openSectionMenu("projects", event.clientX, event.clientY);
           }}
+          onDragEnter={(event) => {
+            if (hasComposerFileDrag(event.dataTransfer)) event.preventDefault();
+          }}
+          onDragOver={onProjectsAreaDragOver}
+          onDragLeave={onProjectsAreaDragLeave}
+          onDrop={onProjectsAreaDrop}
         >
           {projectEntries.length > 0 ? projectEntries.map(renderProjectGroup) : (
             <section className="sidebar-session-group" aria-labelledby="sidebar-project-group-label">
