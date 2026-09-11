@@ -406,6 +406,11 @@ system while preserving their different data ownership:
   an empty state whose action opens Models. Builtins and project shadows stay
   on the existing read-only rows; the picker is for new and user-owned
   subagents only.
+  The create/edit sheet stays compact at desktop sizes: form controls are
+  local filled wells with restrained padding, the prompt editor is the only
+  intentionally tall control, and Advanced remains a compact disclosure. Hover
+  and focus lift a control without adding a persistent in-flow divider; invalid
+  form state is announced from the shared error region.
 
 ### Instructions (`instructions` tab)
 - Edit the global instruction Markdown used by every PI-Desktop Agent session.

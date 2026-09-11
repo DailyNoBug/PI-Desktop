@@ -122,6 +122,9 @@ test("the editor styles ship with the picker", () => {
   assert.match(extensionsCss, /\.ext-preset-chip\.is-selected/);
   assert.match(extensionsCss, /\.ext-preset-desc/);
   assert.match(extensionsCss, /\.ext-sheet-advanced-toggle/);
+  assert.match(extensionsCss, /\.ext-sheet \.field-input,[\s\S]*?background: var\(--ds-tile\)/);
+  assert.match(extensionsCss, /\.ext-sheet \.field-input:focus,[\s\S]*?box-shadow: 0 0 0 2px/);
+  assert.match(extensionsCss, /\.ext-sheet \.ext-skill-body[\s\S]*?min-height: 166px/);
   assert.doesNotMatch(extensionsCss, /minmax\(220px/);
 });
 
@@ -171,4 +174,5 @@ test("the create sheet is a compact chip row with an Advanced disclosure", () =>
   assert.match(editorSource, /useState\(!!editing\)/);
   assert.doesNotMatch(editorSource, /extensions\.subagents\.presetApply/);
   assert.doesNotMatch(editorSource, /extensions\.subagents\.sheetSubtitle/);
+  assert.match(editorSource, /id="subagent-sheet-error" className="ext-sheet-error" role="alert"/);
 });

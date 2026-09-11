@@ -727,7 +727,11 @@ export function SubagentEditorSheet({
           />
         </div>
 
-        {errorKey && !pristine ? <p className="ext-sheet-error">{t(errorKey)}</p> : null}
+        {errorKey && !pristine ? (
+          <p id="subagent-sheet-error" className="ext-sheet-error" role="alert">
+            {t(errorKey)}
+          </p>
+        ) : null}
         <div className="ext-sheet-actions">
           {editing && onReveal ? (
             <Button variant="ghost" onClick={onReveal}>
