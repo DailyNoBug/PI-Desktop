@@ -98,8 +98,8 @@ test("global search stays on the conversation topbar, not the sidebar header", (
 test("project rows expose drag and keyboard reorder behavior", () => {
   assert.match(sidebarSource, /data-action="reorder-project"/);
   assert.match(sidebarSource, /onDragStart=\{\(event\) => startProjectDrag/);
-  assert.match(sidebarSource, /onDragOver=\{\(event\) => handleProjectDragOver/);
-  assert.match(sidebarSource, /onDrop=\{\(event\) => handleProjectDrop/);
+  assert.match(sidebarSource, /handleProjectDragOver\(event, entry\.key\)/);
+  assert.match(sidebarSource, /handleProjectDrop\(event, entry\.key\)/);
   assert.match(sidebarSource, /onKeyDown=\{\(event\) => moveProjectWithKeyboard/);
   assert.match(sidebarSource, /PROJECT_DRAG_MIME/);
   assert.match(storeSource, /reorderProjects: \(paths\) =>/);

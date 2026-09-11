@@ -765,6 +765,17 @@ export function Sidebar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [clearProjectDrag, draggingProjectKey]);
 
+  useEffect(() => {
+    if (!draggingProjectKey) return;
+    const clearDragState = () => clearProjectDrag();
+    window.addEventListener("dragend", clearDragState);
+    window.addEventListener("drop", clearDragState, true);
+    return () => {
+      window.removeEventListener("dragend", clearDragState);
+      window.removeEventListener("drop", clearDragState, true);
+    };
+  }, [clearProjectDrag, draggingProjectKey]);
+
   const reorderProjectEntries = useCallback(
     (sourceKey: string, targetKey: string, insertAfter: boolean) => {
       if (!sourceKey || !targetKey || sourceKey === targetKey) return;
@@ -772,6 +783,14 @@ export function Sidebar({
       const sourceIndex = keys.indexOf(sourceKey);
       const targetIndex = keys.indexOf(targetKey);
       if (sourceIndex < 0 || targetIndex < 0) return;
+      const source = projectEntries[sourceIndex];
+      const target = projectEntries[targetIndex];
+      if (
+        Boolean(source.meta.archived) !== Boolean(target.meta.archived) ||
+        Boolean(source.meta.pinned) !== Boolean(target.meta.pinned)
+      ) {
+        return;
+      }
       keys.splice(sourceIndex, 1);
       const nextTargetIndex = keys.indexOf(targetKey) + (insertAfter ? 1 : 0);
       keys.splice(nextTargetIndex, 0, sourceKey);
@@ -815,8 +834,7 @@ export function Sidebar({
       if (!Array.from(event.dataTransfer.types).includes(PROJECT_DRAG_MIME)) {
         return;
       }
-      const sourceKey =
-        draggingProjectKey || event.dataTransfer.getData(PROJECT_DRAG_MIME);
+      const sourceKey = draggingProjectKey;
       if (!sourceKey || sourceKey === projectKey) {
         clearProjectDrag();
         return;
@@ -1305,17 +1323,28 @@ export function Sidebar({
       setDropProjectKey(null);
     };
     window.addEventListener("dragend", clearDragState);
-    window.addEventListener("drop", clearDragState);
+    window.addEventListener("drop", clearDragState, true);
     return () => {
       window.removeEventListener("dragend", clearDragState);
-      window.removeEventListener("drop", clearDragState);
+      window.removeEventListener("drop", clearDragState, true);
     };
   }, [draggingSessionId]);
 
-  const sessionIdFromDrag = (dataTransfer: DataTransfer): string | null =>
-    dataTransfer.getData(SESSION_DRAG_MIME) ||
-    dataTransfer.getData("text/plain") ||
-    null;
+  const sessionIdFromDrag = (dataTransfer: DataTransfer): string | null => {
+    try {
+      return dataTransfer.getData(SESSION_DRAG_MIME) || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const sessionIdForDragOver = (
+    dataTransfer: DataTransfer,
+    localSessionId: string | null,
+  ): string | null => {
+    if (!Array.from(dataTransfer.types).includes(SESSION_DRAG_MIME)) return null;
+    return sessionIdFromDrag(dataTransfer) ?? localSessionId;
+  };
 
   // A project group accepts a session row from another group. The current
   // group is not a drop target so a drag within one project is a no-op.
@@ -1323,7 +1352,7 @@ export function Sidebar({
     event: ReactDragEvent<HTMLElement>,
     entry: ProjectEntry,
   ) => {
-    const sessionId = sessionIdFromDrag(event.dataTransfer) ?? draggingSessionId;
+    const sessionId = sessionIdForDragOver(event.dataTransfer, draggingSessionId);
     if (!sessionId) return;
     const dragged = sessions.find((item) => item.id === sessionId);
     if (!dragged || normalizeProjectPath(dragged.projectPath) === entry.key) return;
@@ -1342,7 +1371,7 @@ export function Sidebar({
   ) => {
     // The transfer payload is authoritative: a stale dragging id must never
     // move a session the user did not drag.
-    const sessionId = sessionIdFromDrag(event.dataTransfer) ?? draggingSessionId;
+    const sessionId = sessionIdFromDrag(event.dataTransfer);
     setDraggingSessionId(null);
     setDropProjectKey(null);
     const dragged = sessionId

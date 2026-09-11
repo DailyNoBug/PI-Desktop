@@ -12,6 +12,7 @@ const mcpControl = read("../electron/main/mcp-control.ts");
 const api = read("../src/lib/api.ts");
 const store = read("../src/stores/app-store.ts");
 const sidebar = read("../src/components/Sidebar.tsx");
+const sidebarPreferences = read("../src/lib/sidebar-preferences.ts");
 const composer = read("../src/components/Composer.tsx");
 const sessionsCss = read("../src/styles/sessions.css");
 const composerCss = read("../src/styles/composer.css");
@@ -84,8 +85,10 @@ test("sidebar sessions drag onto project groups and offer a menu fallback", () =
   assert.match(sidebar, /beginSessionDrag\(event, session\.id\)/);
   assert.match(sidebar, /onDragEnd=\{endSessionDrag\}/);
   assert.match(sidebar, /is-dragging/);
-  assert.match(sidebar, /onDragOver=\{\(event\) => onProjectDropTargetOver\(event, entry\)\}/);
-  assert.match(sidebar, /onDrop=\{\(event\) => onProjectDropTargetDrop\(event, entry\)\}/);
+  assert.match(sidebar, /onProjectDropTargetOver\(event, entry\)/);
+  assert.match(sidebar, /handleProjectDragOver\(event, entry\.key\)/);
+  assert.match(sidebar, /onProjectDropTargetDrop\(event, entry\)/);
+  assert.match(sidebar, /handleProjectDrop\(event, entry\.key\)/);
   assert.match(sidebar, /dropProjectKey === entry\.key \? "is-drop-target" : ""/);
   assert.match(sidebar, /data-action="move-session-to-project"/);
   assert.match(sidebar, /nav\.moveToProject/);
@@ -156,7 +159,7 @@ test("drag state cannot outlive the dragged row or trust a stale id", () => {
   // A row can unmount mid-drag (sort refresh, archive, delete) before its own
   // dragend fires, so the drag session is also cleared from the window.
   assert.match(sidebar, /window\.addEventListener\("dragend", clearDragState\)/);
-  assert.match(sidebar, /window\.addEventListener\("drop", clearDragState\)/);
+  assert.match(sidebar, /window\.addEventListener\("drop", clearDragState, true\)/);
 
   const overBlock = sidebar.match(
     /const onProjectDropTargetOver = \([\s\S]*?\n  \};\n/,
@@ -166,17 +169,43 @@ test("drag state cannot outlive the dragged row or trust a stale id", () => {
   )?.[0] ?? "";
   // The transfer payload wins over renderer state in both directions, and an
   // unknown id is dropped rather than moving a session the user never dragged.
-  for (const block of [overBlock, dropBlock]) {
-    assert.match(
-      block,
-      /const sessionId = sessionIdFromDrag\(event\.dataTransfer\) \?\? draggingSessionId;/,
-    );
-  }
+  assert.match(overBlock, /const sessionId = sessionIdForDragOver\(event\.dataTransfer, draggingSessionId\);/);
+  assert.match(dropBlock, /const sessionId = sessionIdFromDrag\(event\.dataTransfer\);/);
+  assert.match(sidebar, /Array\.from\(dataTransfer\.types\)\.includes\(SESSION_DRAG_MIME\)/);
+  assert.doesNotMatch(sidebar, /sessionIdFromDrag\(event\.dataTransfer\) \?\? draggingSessionId/);
   assert.match(dropBlock, /if \(!dragged\) return;/);
   // A drop without a session payload belongs to the native folder handler.
   assert.match(dropBlock, /const dragged = sessionId/);
   assert.match(
     sidebar,
-    /onDragLeave=\{\(event\) => \{[\s\S]*?event\.currentTarget\.contains\(related\)/,
+    /onDragLeave=\{\(event\) => \{[\s\S]*?event\.currentTarget\.contains\(relatedTarget\)/,
   );
+});
+
+test("session move and prompt setup share a per-session critical section", () => {
+  assert.match(main, /const sessionOperationTails = new Map<string, Promise<void>>\(\)/);
+  assert.match(main, /async function acquireSessionOperation\(sessionId: string\)/);
+  const moveHandler = main.match(
+    /IPC\.invoke\.sessionMoveProject,[\s\S]*?\n  \);\n/,
+  )?.[0] ?? "";
+  assert.match(moveHandler, /acquireSessionOperation\(sessionId\)/);
+  assert.match(moveHandler, /finally \{[\s\S]*?releaseSessionOperation\(\)/);
+  const promptHandler = main.match(
+    /handle\(IPC\.invoke\.agentPrompt,[\s\S]*?\n  \}\);\n\n  handle\(IPC\.invoke\.agentCompact/,
+  )?.[0] ?? "";
+  assert.match(promptHandler, /acquireSessionOperation\(req\.sessionId\)/);
+  assert.match(promptHandler, /finally \{[\s\S]*?releaseSessionOperation\(\)/);
+  const planDispatch = main.match(
+    /async function dispatchApprovedPlan\([\s\S]*?\n\}\n\nasync function drainApprovedPlanExecutions/,
+  )?.[0] ?? "";
+  assert.match(planDispatch, /acquireSessionOperation\(initial\.sessionId\)/);
+  assert.match(sidebar, /window\.addEventListener\("dragend", clearDragState\)/);
+});
+
+test("drag ordering keeps priority buckets and rejects malformed ranks", () => {
+  assert.match(sidebar, /Boolean\(source\.meta\.archived\)/);
+  assert.match(sidebar, /Boolean\(source\.meta\.pinned\)/);
+  assert.match(sidebar, /const sourceKey = draggingProjectKey/);
+  assert.match(sidebarPreferences, /Number\.isSafeInteger\(value\)/);
+  assert.match(sidebarPreferences, /manualOrder\(meta\[ak\]\?\.order\)/);
 });
