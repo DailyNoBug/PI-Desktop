@@ -28,7 +28,8 @@
 
 | Shortcut | Action | Context |
 |---|---|---|
-| `Enter` | Send message | Composer focused |
+| `Enter` | Send message when Enter-to-send is on; newline when it is off | Composer focused |
+| `Cmd/Ctrl + Enter` | Send message when Enter-to-send is off | Composer focused |
 | `Shift + Enter` | Newline | Composer focused |
 | `Escape` | Clear input / blur composer | Composer focused |
 | `Cmd/Ctrl + ↑` | Scroll to top of transcript | Transcript focused |
@@ -1100,8 +1101,8 @@ Project drag/drop follows these patterns:
 ### 8a.3 Keyboard while open
 
 - ↑/↓ move the highlight with wraparound; Home/End are left to the textarea.
-- Enter / Tab accept the highlighted item; Enter never sends while the menu
-  has a highlighted item (this precedes the Enter-to-send setting, which
+- Enter / Tab accept the highlighted item; Enter and Cmd/Ctrl+Enter never send
+  while the menu has a highlighted item (this precedes the Enter-to-send setting).
   otherwise keeps its behavior).
 - Escape closes only the menu — it takes precedence over the composer's
   "clear input or blur" Escape and must not propagate to overlay handlers.
@@ -1287,7 +1288,7 @@ This does not prevent state changes — it makes them instant.
 ## 11. Acceptance criteria
 
 1. All keyboard shortcuts in §1 are functional and do not conflict with system shortcuts
-2. Enter sends message; Shift+Enter inserts newline in composer
+2. Enter sends when Enter-to-send is on; when it is off, Cmd/Ctrl+Enter sends and Enter/Shift+Enter insert a newline
 3. Abort immediately cancels running turn and pending permissions without confirmation dialog
 3a. Send stays enabled while running, queues prompts per session, and Send now
     finishes the current boundary before releasing its prioritized prompt

@@ -274,7 +274,7 @@
 | Cmd/Ctrl+O | 开放项目 |
 | Cmd/Ctrl+, | 设置 |
 | Cmd/Ctrl+。 | 中止当前运行 |
-| 输入/Shift+Enter | 发送/换行符（可配置回车发送） |
+| Enter / Shift+Enter / Cmd/Ctrl+Enter | 发送/换行（回车发送开启时 Enter 发送；关闭后 Cmd/Ctrl+Enter 发送） |
 | ESC | 关闭 overlay/menu |
 
 ## 7. 依赖于状态的 chrome

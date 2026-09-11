@@ -2212,7 +2212,7 @@ reasoning-level control.
 
 ### 11.5 Interactions
 
-- Enter: send message (configurable: Shift+Enter for newline)
+- Enter: send message when Enter-to-send is on; insert a newline when it is off
 - Native file-system drop: while a file or folder is dragged over the Composer
   shell, prevent the browser default and show an accent outline without
   changing layout. Regular files are saved through the existing bounded
@@ -2238,7 +2238,7 @@ reasoning-level control.
   Revalidation and older-page prepends are idempotent by message id, so leaving
   and re-entering a session cannot display a second copy of an existing user
   row.
-- Shift+Enter: newline in textarea
+- Shift+Enter: newline in textarea. Cmd/Ctrl+Enter sends when Enter-to-send is off. IME composition and an open autocomplete menu still take precedence over send.
 - Placeholder guidance: the initially rendered context starts on its welcome copy and remains
   unchanged while the page/session context, draft, focus, and IME state change.
   Switching between home/session views or active conversations advances to the
@@ -3123,10 +3123,11 @@ Sidebar footer                                        Popover (360px max)
 4. Chat messages constrained to 720px max width
 5. ToolCallCard shows status, args preview, result preview, duration per [01-ui-ia.md](01-ui-ia.md) §5
 6. PermissionCard shows tool name, risk, args, countdown, and three action buttons per [03-permission-ux.md](03-permission-ux.md)
-7. Composer: Enter sends, Shift+Enter newline, draft grows from one through
-   seven visible lines then scrolls, and the single submit slot shows Send for
-   a non-empty draft or an idle/empty draft, and Stop only for a running empty
-   draft
+7. Composer: Enter sends when Enter-to-send is on; when it is off, Cmd/Ctrl+Enter
+   sends and Enter inserts a newline; Shift+Enter always inserts a newline;
+   draft grows from one through seven visible lines then scrolls, and the single
+   submit slot shows Send for a non-empty draft or an idle/empty draft, and Stop
+   only for a running empty draft
 8. Composer model × reasoning chip shows the provider/model pair; remains
    available for next-turn configuration during a stream; links to settings
    when unconfigured

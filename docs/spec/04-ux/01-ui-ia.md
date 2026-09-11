@@ -316,7 +316,7 @@ shared capability contract:
 | Cmd/Ctrl+O | open project |
 | Cmd/Ctrl+, | settings |
 | Cmd/Ctrl+. | abort current run |
-| Enter / Shift+Enter | send / newline (configurable Enter-to-send) |
+| Enter / Shift+Enter / Cmd/Ctrl+Enter | send / newline (Enter-to-send; when off, Cmd/Ctrl+Enter sends) |
 | Esc | dismiss overlay/menu |
 
 ## 7. State-dependent chrome
