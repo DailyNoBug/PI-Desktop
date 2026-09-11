@@ -475,9 +475,9 @@ Every scroll container in the renderer uses one quiet scrollbar: 8px,
 trackless, with a thumb that is transparent at rest. The thumb appears only
 while the pointer is over the owning scroll region or while that region is
 scrolling (the renderer marks the scrolling element with `data-scrolling` for
-a short hold after the last scroll event, so wheel, trackpad, keyboard, and
-pinned-follow scrolls all reveal it); it strengthens under the pointer and
-while dragged. Scrollbars are styled only through the `::-webkit-scrollbar`
+300ms after the last scroll event, so wheel, trackpad, keyboard, and pinned-
+follow scrolls all reveal it); it strengthens under the pointer and while
+dragged. Scrollbars are styled only through the `::-webkit-scrollbar`
 pseudo-elements. Partials never set `scrollbar-width` or `scrollbar-color`,
 because WebKit and Chromium then ignore the pseudo-elements and the surface
 falls back to an always-visible native bar. Reserved gutters

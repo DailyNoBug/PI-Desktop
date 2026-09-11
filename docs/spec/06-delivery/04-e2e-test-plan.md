@@ -3652,7 +3652,9 @@ Each scenario is documented in this format:
   appearing as a fully visible tooltip 8px above the chip on hover and on
   keyboard focus (#74); the tooltip remains fully painted when it overlaps the
   sidebar edge and is never occluded by the sidebar background; no chip renders
-  caption text. While an assistant response is streaming, its toolbar omits
+  caption text. Clicking an action dismisses its tooltip immediately; it does not
+  remain visible while the action retains focus. While an assistant response is
+  streaming, its toolbar omits
   Copy; after the response settles, the assistant toolbar offers Copy, Fork,
   Regenerate. The user toolbar offers the pager (when variants exist), Copy,
   Edit, Delete. Edit replaces the prompt bubble with a wider inline
@@ -7983,11 +7985,11 @@ This test plan spec is accepted when:
   list with the wheel or trackpad after moving the pointer away from the thumb.
 - **Expected**: Both regions remain independently scrollable and the footer
   stays fixed. At rest each scrollbar is trackless, 6px wide, and transparent;
-  hovering or focusing the owning list reveals only its thumb, and dragging
-  keeps it visible so navigation remains visually quiet without changing the
-  scroll region's width. Chat, code, and Settings scrollbars follow the same
-  rest/reveal rule at 8px: transparent until their scroller is hovered or
-  scrolling (D300).
+  hovering or focusing the owning list reveals only its thumb, while scrolling
+  reveals it for 300ms after the last scroll event. Dragging keeps it visible so
+  navigation remains visually quiet without changing the scroll region's width.
+  Chat, code, and Settings scrollbars follow the same rest/reveal rule at 8px:
+  transparent until their scroller is hovered or scrolling (D300).
 - **Specs linked**: `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`
 - **Acceptance**: Quality (sidebar polish and independent navigation)

@@ -855,9 +855,12 @@ Running turns and pending approvals continue to gate the controls.
   it is not clipped by pane overflow or hidden below a neighboring surface.
   Native `title` remains for full-value metadata such as paths, IDs, and
   descriptions; rich hover cards and popovers keep their specialized surfaces.
-  Decorative icons remain `aria-hidden` and do not need a tooltip.
+- Decorative icons remain `aria-hidden` and do not need a tooltip.
 - Tooltip text must describe the action, not the icon shape, and must come from
   the active i18n catalog.
+- Clicking an action dismisses its tooltip immediately and suppresses it until
+  the pointer leaves or focus moves away; keyboard focus still reveals the
+  tooltip before activation.
 
 ## 7. Focus management
 
