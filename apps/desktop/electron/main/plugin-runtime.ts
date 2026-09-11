@@ -2852,7 +2852,7 @@ export class PluginRuntime {
         errorCode: "RATE_LIMITED",
         ts: Date.now(),
       });
-      throw apiError("RATE_LIMITED", "advisor complete rate exceeded");
+      throw apiError("RATE_LIMITED", "plugin completion rate exceeded");
     }
     const includeSessionContext = input.includeSessionContext === true;
     if (includeSessionContext) {
@@ -2890,7 +2890,7 @@ export class PluginRuntime {
           errorCode: "TIMEOUT",
           ts: Date.now(),
         });
-        throw apiError("TIMEOUT", "advisor complete timed out");
+        throw apiError("TIMEOUT", "plugin completion timed out");
       }
       throw error;
     } finally {

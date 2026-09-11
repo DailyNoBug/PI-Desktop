@@ -76,7 +76,6 @@ export const deEntries: ChangelogEntry[] = [
     "version": "0.13.11",
     "date": "2026-09-07",
     "highlights": [
-      "Aktivieren Sie das mitgelieferte Advisor-Plugin, damit ein zweites Modell die aktuelle Konversation überprüft.",
       "Ermöglichen Sie Plugins, Modelle aufzulisten, den Sitzungskontext während der Übertragung zu lesen und hosteigene Vervollständigungen anzufordern, ohne Anmeldeinformationen zu erhalten."
     ]
   },

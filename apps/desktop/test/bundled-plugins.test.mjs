@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
@@ -160,30 +160,8 @@ test("Browser declares plan-safe actions for Plan-mode URL inspection (ADR 0211)
 });
 
 
-test("Advisor ships as an ordinary plugin over the public complete APIs", () => {
-  const advisorManifest = JSON.parse(read("resources/plugins/pi.advisor/manifest.json"));
-  const advisorMain = read("resources/plugins/pi.advisor/main.js");
-  const advisorPanel = read("resources/plugins/pi.advisor/renderer/index.html");
-  assert.equal(advisorManifest.id, "pi.advisor");
-  assert.equal(advisorManifest.enabledByDefault, false);
-  assert.deepEqual(
-    [...advisorManifest.permissions].sort(),
-    [
-      "agent.complete",
-      "agent.prompt.inject",
-      "agent.tool.register",
-      "models.list",
-      "session.read",
-      "ui.panel",
-    ],
-  );
-  assert.match(advisorMain, /pi\.agent\.complete/);
-  assert.match(advisorMain, /includeSessionContext:\s*true/);
-  assert.match(advisorMain, /pi\.session\.getLlmContext|pi\.models\.list/);
-  assert.match(advisorPanel, /pluginBridge/);
-  assert.match(advisorPanel, /advisor\.set/);
-  assert.doesNotMatch(advisorMain, /apiKey|safeStorage|net\.fetch/);
-  assert.doesNotMatch(advisorPanel, /require\(|ipcRenderer/);
+test("Advisor is temporarily not bundled", () => {
+  assert.equal(existsSync(resolve("resources/plugins/pi.advisor")), false);
 });
 
 test("bundled plugins are packaged and located at runtime", () => {

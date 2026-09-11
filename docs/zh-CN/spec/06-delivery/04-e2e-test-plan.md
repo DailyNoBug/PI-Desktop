@@ -6030,20 +6030,20 @@ IPC 请求无法关闭。
 - **里程碑**：M5
 - **状态**：单元已覆盖（`plugin-complete.test.mjs`、`plugin-session-context.test.ts`、`subagent-wiring.test.mjs`）；完整 UI 旅程仍为草稿（除非用户明确要求，否则不要在本地跑 E2E）
 
-#### E2E-189：随应用打包的 Advisor 插件选择评审模型并返回第二意见
+#### E2E-189：随应用打包的 Advisor 插件暂时不可用
 
-- **前提条件**：`pi.advisor` 作为随应用打包插件安装（不可卸载），首次注册为关闭。至少一个已认证 provider。一个 Agent 会话。
+- **前提条件**：PI-Desktop 的打包版或开发构建。
 - **步骤**：
-  1. 插件关闭时，确认 `/advisor` 不存在，且 advisor 工具未注册。
-  2. 启用 `pi.advisor`。确认 `/advisor` 出现，且在选择评审模型前 advisor 工具仍未注册。
-  3. 运行 `/advisor`（或插件命令）并选择模型和 effort。确认 toast `Advisor: <label>[, <effort>]`，且设置已持久化。
-  4. 让 Agent 做一项非琐碎任务。确认它可以无参数调用 `plugin_pi_advisor_advisor`，并在可见回复中复述建议。
-  5. 禁用插件。确认 `/advisor` 消失且工具已注销。确认卸载被拒绝。
-- **预期**：首次注册为关闭（`enabledByDefault: false`）。关闭时不消耗补全、不占工具 schema。插件只使用公开宿主 API。D015 前缀为 `plugin_pi_advisor_advisor`。用户显式启用会在下次启动后保留。
-- **链接规格**：`07-plugins/03-plugin-api.md`、ADR 0174、D336
-- **验收**：G（插件智能体工具）、C（对话）
+  1. 检查随应用打包的插件资源，确认不存在 `pi.advisor`。
+  2. 打开命令面板和插件设置，确认不存在 `/advisor`、Advisor 插件及其
+     `advisor` 工具。
+- **预期**：暂时移除后不暴露 Advisor 命令、插件、面板、技能或 Agent 工具。
+  通用的宿主代发插件补全 API 仍可供显式安装的插件使用。
+- **关联规格**：`07-plugins/03-plugin-api.md`、ADR 0174、D336
+- **验收**：G（插件 Agent 工具）、C（对话）
 - **里程碑**：M5
-- **状态**：单元已覆盖（`bundled-plugins.test.mjs`、`plugin-complete.test.mjs`）；完整 UI 旅程仍为草稿（除非用户明确要求，否则不要在本地跑 E2E）
+- **状态**：单元已覆盖（`bundled-plugins.test.mjs`）；完整 UI 旅程仍为草稿
+  （除非用户明确要求，否则不要在本地运行 E2E）
 
 #### E2E-190：设置中的网络代理应用到应用自有 HTTP
 

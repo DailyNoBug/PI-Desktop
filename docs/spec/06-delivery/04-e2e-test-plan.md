@@ -8905,32 +8905,21 @@ are withdrawn with ADR 0165.
   `plugin-session-context.test.ts`, `subagent-wiring.test.mjs`); full UI
   journey Draft (do not run E2E locally unless explicitly requested)
 
-#### E2E-189: Bundled Advisor plugin picks a reviewer and returns a second opinion
+#### E2E-189: Bundled Advisor plugin is temporarily unavailable
 
-- **Preconditions**: `pi.advisor` is installed as bundled (not uninstallable)
-  and starts disabled. At least one authenticated provider. An Agent session.
+- **Preconditions**: A packaged or development build of PI-Desktop.
 - **Steps**:
-  1. Confirm `/advisor` is absent and the `advisor` tool is not registered
-     while the plugin is disabled.
-  2. Enable `pi.advisor`. Confirm `/advisor` appears and the `advisor` tool is
-     still absent until a reviewer is selected.
-  3. Run `/advisor` (or the plugin command) and pick a model plus effort.
-     Confirm the toast `Advisor: <label>[, <effort>]` and that settings persist.
-  4. Ask the Agent to proceed with a non-trivial task. Confirm it can call
-     `plugin_pi_advisor_advisor` with no parameters and restates the guidance
-     in the visible reply.
-  5. Disable the plugin. Confirm `/advisor` is gone and the tool is
-     unregistered. Confirm Uninstall is refused.
-- **Expected**: First registration is disabled (`enabledByDefault: false`). Off
-  costs no completion and no tool schema. The plugin uses only public host APIs.
-  D015 prefix is `plugin_pi_advisor_advisor`. An explicit enable survives the
-  next launch.
+  1. Inspect the bundled plugin resources and confirm `pi.advisor` is absent.
+  2. Open the command palette and plugin settings. Confirm `/advisor`, the
+     Advisor plugin, and its `advisor` tool are absent.
+- **Expected**: The temporary removal does not expose an Advisor command,
+  plugin, panel, skill, or agent tool. The general host-owned plugin completion
+  APIs remain available to explicitly installed plugins.
 - **Specs linked**: `07-plugins/03-plugin-api.md`, ADR 0174, D336
 - **Acceptance**: G (plugin agent tool), C (conversation)
 - **Milestone**: M5
-- **Status**: Unit-covered (`bundled-plugins.test.mjs`,
-  `plugin-complete.test.mjs`); full UI journey Draft (do not run E2E locally
-  unless explicitly requested)
+- **Status**: Unit-covered (`bundled-plugins.test.mjs`); full UI journey Draft
+  (do not run E2E locally unless explicitly requested)
 
 #### E2E-190: Settings Network proxy applies to app-owned HTTP
 
