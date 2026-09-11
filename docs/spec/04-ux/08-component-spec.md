@@ -43,7 +43,7 @@ Outer frame that positions Topbar, Sidebar, MainChat, and WorkPanel. Owns resize
 |---|---|
 | Default | Sidebar expanded, work panel hidden |
 | Narrow (<640px) | Sidebar auto-collapses to icon rail |
-| Work panel open in a fixed client area | Work panel keeps its fixed committed width; MainChat gives up the internal space, even when that takes it below the 360px readability target |
+| Work panel open in a fixed client area | Work panel keeps its fixed committed width; MainChat gives up internal space only down to its reserved 515px minimum |
 | Fullscreen | Topbar remains; sidebar toggle and artifact-driven panel stay available |
 
 ### 1.4 Interactions
@@ -831,7 +831,7 @@ workflow while rendering entirely inside the plugin's isolated page:
 | Resizing | The inner left divider follows anchored pointer delta or keyboard input for the panel target; pointer changes are frame-coalesced and committed in the renderer. Escape, pointer cancellation, or lost capture restores the prior panel width. Native window edges resize only the fixed application window. |
 | No workspace | Each tab renders its own "open a project" empty state |
 | Open with no resource | `Cmd/Ctrl + J` reveals the panel without creating a tab, so the body renders the New launcher. Activating a row creates or selects that singleton view. Closing the final tab leaves the panel open in this state. The body is not a `role="tabpanel"` here because no tab labels it. |
-| Constrained work area | The panel stays at its committed width inside the existing client area; MainChat absorbs the internal width, possibly falling below its 360px target on small windows |
+| Constrained work area | The panel stays at its committed width inside the existing client area; MainChat absorbs internal width only down to its reserved 515px minimum, which side docks cannot paint over |
 | Plugin view active | The body hosts the plugin's own isolated page as a native `WebContentsView`, positioned from the measured surface rect. It remains visible at its full rect while the divider is being resized or the add menu is open; the menu positioner moves the menu beside the native surface because renderer content cannot paint above a `WebContentsView`, so opening the menu never pushes the plugin body down or changes its bounds. It is hidden whenever the tab is inactive, the panel is animating, or a panel-wide blocking overlay is open — the same rule the Browser preview follows, since both composite above renderer content. A view whose plugin is disabled, uninstalled, reloaded, or crashed is destroyed; the tab stays and re-opens the page on the next lifecycle event (ADR 0104) |
 | Plugin out of scope | A view contributed by a plugin that is not active in the current project disappears from the menu when the project changes. Unlike contributed themes, which are one global setting and stay unfiltered, a view is scoped work |
 
@@ -895,8 +895,9 @@ workflow while rendering entirely inside the plugin's isolated page:
   Every context remains bound to its originating session/workspace, so relative
   file and Browser resources are never reinterpreted against another workspace.
 - Resize: the inner left-edge handle changes the panel's committed width in the
-  renderer. Moving it left grows the panel into MainChat's internal space;
-  moving it right gives that space back to MainChat. `ArrowLeft` / `ArrowRight`
+  renderer. Moving it left grows the panel into MainChat's internal space until
+  its 515px minimum is reached; moving it right gives that space back to
+  MainChat. `ArrowLeft` / `ArrowRight`
   adjust the panel width in 16px steps (`Shift` uses 32px), and `Home` / `End`
   reach its `244..720px` limits. Pointer math is anchored to the press position
   and starting panel width, so grabbing the handle cannot jump the divider;
@@ -908,9 +909,9 @@ workflow while rendering entirely inside the plugin's isolated page:
   resources reset; only the committed preferred `{width}` remains in
   localStorage `pi.desktop.workPanel`. Opening and collapsing never request a
   positive native reservation and never change native window bounds. The panel
-  flexes inside the existing client area, so MainChat reflows beside it and may
-  fall below its 360px target on small windows. Background session artifacts
-  never update the visible panel or window geometry.
+  flexes inside the existing client area, so MainChat reflows beside it while
+  retaining its 515px minimum. Background session artifacts never update the
+  visible panel or window geometry.
 
 ### 5.5 Accessibility
 
@@ -2137,13 +2138,11 @@ reasoning-level control.
   `.tool-spinner` and localized `Enhancing…` label while running, and remains
   a one-shot draft rewrite action. Inline file-reference chips, including
   pasted image chips, do not disable this action and remain in the draft.
-- When the composer container is `≤360px` wide, its toolbar wraps the left and
-  right control groups onto separate rows. Mode and permission labels stay on
-  one line and ellipsize within their chips, so a sidebar or work-panel resize
-  cannot vertically split or overlap toolbar content.
-- The chat surface yields width to the shell's sidebar and work-panel columns;
-  the composer remains inside the main chat column and never paints underneath
-  either sibling column during a resize.
+- MainPane and the chat surface reserve a 515px minimum so the composer toolbar
+  keeps its left and right control groups on one row. The groups do not shrink;
+  mode and permission labels stay on one line and ellipsize within their chips,
+  so a sidebar or work-panel resize cannot vertically split, squeeze, or
+  overlap toolbar content.
 - The combined chip opens one anchored menu above itself. The menu starts with
   only Model and Reasoning level entries, each showing its current value and a
   chevron. Selecting an entry replaces the menu contents in place with a back

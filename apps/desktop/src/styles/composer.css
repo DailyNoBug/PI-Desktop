@@ -316,6 +316,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: nowrap;
   min-width: 0;
   padding: 4px 8px 8px;
 }
@@ -325,30 +326,11 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: 0;
+  flex: 0 0 auto;
 }
 
 .composer-right .context-inspector-trigger {
   min-height: 28px;
-}
-
-/* A sidebar/work-panel resize can leave a narrow composer container even when
- * the native window itself remains valid. Give each control group its own row
- * before flexbox starts squeezing localized labels into multiple lines. */
-@container composer-stack (max-width: 360px) {
-  .composer-toolbar {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-
-  .composer-left,
-  .composer-right {
-    flex: 1 1 100%;
-  }
-
-  .composer-right {
-    justify-content: flex-end;
-  }
 }
 
 .icon-btn {
