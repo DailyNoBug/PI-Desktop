@@ -425,6 +425,11 @@
   color: var(--ds-text-muted);
 }
 
+.projects-tag.is-remote {
+  background: color-mix(in oklab, var(--ds-info) 14%, transparent);
+  color: var(--ds-text-secondary);
+}
+
 .projects-updated {
   flex: 0 0 auto;
   margin-left: auto;

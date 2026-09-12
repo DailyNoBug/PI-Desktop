@@ -141,6 +141,7 @@ export class PiHostService {
         return (result.projects ?? []).map((project) => ({
           id: String(project.id ?? project.path ?? ""),
           label: project.name || basename(project.path ?? "project"),
+          ...(project.path ? { path: project.path } : {}),
           archived: false,
         }));
       },
@@ -157,6 +158,7 @@ export class PiHostService {
         const projects = await this.projectIndex();
         const projectId = typeof params.projectId === "string" ? params.projectId : undefined;
         const projectPath = projects.get(projectId ?? "");
+        const directProjectPath = typeof params.projectPath === "string" ? params.projectPath : undefined;
         const result = await this.host.call<{ session?: HostSession }>("session.create", {
           ...(typeof params.title === "string" ? { title: params.title } : {}),
           ...(params.mode ? { mode: params.mode } : {}),
@@ -164,7 +166,7 @@ export class PiHostService {
           ...(params.providerId ? { providerId: params.providerId } : {}),
           ...(params.modelId ? { modelId: params.modelId } : {}),
           ...(params.thinkingLevel ? { thinkingLevel: params.thinkingLevel } : {}),
-          ...(projectPath ? { projectPath } : {}),
+          ...(projectPath ?? directProjectPath ? { projectPath: projectPath ?? directProjectPath } : {}),
         });
         if (!result.session) throw new RacpError("INTERNAL", "host returned no session");
         this.sessionProjects.set(result.session.id, result.session.projectPath ?? null);
@@ -667,6 +669,10 @@ export class PiHostService {
       ...(projectId ? { projectId } : {}),
       ...(session.projectPath ? { workspaceLabel: basename(session.projectPath) } : {}),
       mode: mode(session.mode),
+      ...(session.providerId ? { providerId: session.providerId } : {}),
+      ...(session.modelId ? { modelId: session.modelId } : {}),
+      thinkingLevel: session.thinkingLevel ?? "off",
+      messageCount: session.messageCount ?? 0,
       status: toRacpStatus(session.id, this.activeTurns),
       planningState: "inactive",
       permissionMode: permissionMode(session.permissionMode),

@@ -70,6 +70,7 @@ import {
   type AgentPromptRequest,
   type PromptEnhancementRequest,
   type SessionSummarizeTitleRequest,
+  type RemoteConnectionInput,
   type AgentStopRequest,
   type AskToolResolution,
   type AppMenuCommand,
@@ -91,6 +92,8 @@ import {
   type PlanExecutionFinishStatus,
   type PlanResolutionResult,
   type PlanResolveRequest,
+  type PlanProposal,
+  type ProjectRecord,
   type Result,
   type Risk,
   type ShortcutPlatform,
@@ -102,6 +105,7 @@ import {
   type UserSkillRecord,
   type UserSubagentRecord,
   type WindowControlAction,
+  type RemoteConnectionView,
   validateNetworkProxy,
   trustedExtensionCommandId,
   trustedExtensionCommandName,
@@ -269,6 +273,7 @@ import {
 } from "./mcp-control";
 import { createAgentHostBridge, type AgentHostBridge } from "./agent-host-bridge";
 import type { AgentQueuePushRequest } from "@pi-desktop/shared";
+import { RemoteManager } from "./remote-manager";
 
 // The shared error-code union is reconciled in the shared lane. Keep desktop
 // source type-safe while that lane is temporarily staged at main.
@@ -382,6 +387,7 @@ let host: HostProcess | null = null;
 let sidecar: AgentSidecar | null = null;
 let mcpControl: McpControlServer | null = null;
 let agentHostBridge: AgentHostBridge | null = null;
+let remoteManager: RemoteManager | null = null;
 let desktopControl: ReturnType<typeof createMcpControlController> | null = null;
 let quitting = false;
 let shutdownComplete = false;
@@ -1097,6 +1103,8 @@ type RuntimeProvider = {
   headers?: Record<string, string>;
   enabled?: boolean;
   supportsVision?: boolean;
+  supportsReasoning?: boolean;
+  supportedThinkingLevels?: string[];
 };
 
 type RuntimeSession = {
@@ -1375,6 +1383,12 @@ function pluginActiveInProject(pluginId: string, projectPath: string | null | un
  */
 function currentWorkspacePath(): string | null {
   return (globalThis as { __piWorkspacePath?: string | null }).__piWorkspacePath ?? null;
+}
+
+function requiredId(value: unknown, field: string): string {
+  const id = typeof value === "string" ? value.trim() : "";
+  if (!id) throw Object.assign(new Error(`${field} is required`), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+  return id;
 }
 
 function workspaceInfo(
@@ -6141,6 +6155,11 @@ function registerIpc() {
         errorCode: ErrorCodes.INVALID_ARGUMENT,
       });
     }
+    if (remoteManager?.isRemotePath(requestedPath)) {
+      throw Object.assign(new Error("remote projects open on their SSH Host"), {
+        errorCode: ErrorCodes.UNSUPPORTED,
+      });
+    }
     const projectPath = resolve(requestedPath);
     const listed = (await host.call("projects.list")) as {
       projects?: Array<{ path?: string }>;
@@ -6304,14 +6323,36 @@ function registerIpc() {
       host.call<{ sessions: RuntimeSession[] }>("session.list"),
       sessionCapabilityContext(),
     ]);
+    const remoteSessionsRaw = await remoteManager?.listSessions().catch(() => []) ?? [];
+    const remoteSessions = remoteSessionsRaw.map((session) => {
+      const provider = session.providerId
+        ? providers.find((candidate) => candidate.id === session.providerId)
+        : undefined;
+      return {
+        ...session,
+        ...(provider
+          ? {
+              supportsReasoning: provider.supportsReasoning,
+              supportsVision: provider.supportsVision,
+              ...(provider.supportedThinkingLevels ? { supportedThinkingLevels: provider.supportedThinkingLevels } : {}),
+            }
+          : {}),
+      };
+    });
     return {
       ...result,
-      sessions: result.sessions.map((session) =>
-        enrichSession(session, providers, defaults),
-      ),
+      sessions: [
+        ...result.sessions.map((session) => enrichSession(session, providers, defaults)),
+        ...remoteSessions,
+      ],
     };
   });
   handle(IPC.invoke.sessionCreate, async (input = {}) => {
+    if (input.projectPath && remoteManager?.isRemotePath(input.projectPath)) {
+      const session = await remoteManager.createSession(input);
+      logger.app("remote", "info", "remote session created", { sessionId: session.id });
+      return { session };
+    }
     if (!host) throw new Error("host unavailable");
     const capabilityPromise = sessionCapabilityContext();
     const res = await host.call<{ session?: (RuntimeSession & { id?: string }) | null }>(
@@ -6334,6 +6375,9 @@ function registerIpc() {
         throw Object.assign(new Error("sessionId required"), {
           errorCode: ErrorCodes.INVALID_ARGUMENT,
         });
+      }
+      if (remoteManager?.knowsSession(sessionId)) {
+        return { session: await remoteManager.forkSession(sessionId, input.title, input.throughMessageId) };
       }
       if (activeTurns.has(sessionId)) {
         throw Object.assign(new Error("Cannot fork a running session"), {
@@ -6386,6 +6430,10 @@ function registerIpc() {
       const request = typeof input === "string" ? { id: input } : input ?? {};
       const id = String(request.id ?? "").trim();
       if (!id) throw new Error("session id required");
+      if (remoteManager?.knowsSession(id)) {
+        const session = await remoteManager.getSessionDetail(id);
+        if (session) return { session };
+      }
       const [result, { providers, defaults }] = await Promise.all([
         host.call<{ session?: RuntimeSession | null }>("session.get", {
           id,
@@ -6407,6 +6455,11 @@ function registerIpc() {
     },
   );
   handle(IPC.invoke.sessionDelete, async (id: string) => {
+    if (remoteManager?.knowsSession(id)) {
+      await remoteManager.deleteSession(id);
+      logger.app("remote", "info", "remote session deleted", { sessionId: id });
+      return { ok: true };
+    }
     if (!host) throw new Error("host unavailable");
     const res = await host.call("session.delete", { id });
     await persistenceOutbox.dropSession(id);
@@ -6424,6 +6477,10 @@ function registerIpc() {
     return res;
   });
   handle(IPC.invoke.sessionRename, async (id: string, title: string) => {
+    if (remoteManager?.knowsSession(id)) {
+      await remoteManager.renameSession(id, title);
+      return { ok: true };
+    }
     if (!host) throw new Error("host unavailable");
     return host.call("session.rename", { id, title });
   });
@@ -6441,6 +6498,11 @@ function registerIpc() {
       if (!projectPath) {
         throw Object.assign(new Error("projectPath required"), {
           errorCode: ErrorCodes.INVALID_ARGUMENT,
+        });
+      }
+      if (remoteManager?.knowsSession(sessionId) || remoteManager?.isRemotePath(projectPath)) {
+        throw Object.assign(new Error("Remote sessions stay bound to their originating project"), {
+          errorCode: ErrorCodes.UNSUPPORTED,
         });
       }
       const releaseSessionOperation = await acquireSessionOperation(sessionId);
@@ -6603,6 +6665,12 @@ function registerIpc() {
         permissionMode?: "inherit" | "ask" | "accept-edits" | "auto";
       },
     ) => {
+      if (remoteManager?.knowsSession(id)) {
+        const nextConfig: Record<string, unknown> = { ...config };
+        if (config.permissionMode === "inherit") delete nextConfig.permissionMode;
+        const session = await remoteManager.configureSession(id, nextConfig);
+        return { session };
+      }
       if (!host) throw new Error("host unavailable");
       const result = await host.call<{ session?: RuntimeSession | null }>(
         "session.configure",
@@ -7269,7 +7337,100 @@ function registerIpc() {
     return host.call("secrets.has", { secretRef });
   });
 
+  handle(IPC.invoke.remoteListConnections, async () => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return { connections: remoteManager.listConnections() };
+  });
+  handle(IPC.invoke.remoteRefreshConnections, async () => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return { connections: await remoteManager.refreshConnections() };
+  });
+  handle(IPC.invoke.remoteTestConnection, async (input: { connectionId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.testConnection(requiredId(input.connectionId, "connectionId"));
+  });
+  handle(IPC.invoke.remoteAddConnection, async (input: RemoteConnectionInput) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return { connection: await remoteManager.addConnection(input) };
+  });
+  handle(IPC.invoke.remoteUpdateConnection, async (input: { connectionId?: string; input?: RemoteConnectionInput }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    if (!input.input) {
+      throw Object.assign(new Error("connection input is required"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+    }
+    return {
+      connection: await remoteManager.updateConnection(
+        requiredId(input.connectionId, "connectionId"),
+        input.input,
+      ),
+    };
+  });
+  handle(IPC.invoke.remoteRemoveConnection, async (input: { connectionId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    await remoteManager.removeConnection(requiredId(input.connectionId, "connectionId"));
+    return { ok: true };
+  });
+  handle(IPC.invoke.remoteConnect, async (input: { connectionId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return { connection: await remoteManager.connect(requiredId(input.connectionId, "connectionId")) };
+  });
+  handle(IPC.invoke.remoteDisconnect, async (input: { connectionId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    await remoteManager.disconnect(requiredId(input.connectionId, "connectionId"));
+    return { ok: true };
+  });
+  handle(IPC.invoke.remoteDiagnostics, async (input: { connectionId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.diagnostics(requiredId(input.connectionId, "connectionId"));
+  });
+  handle(IPC.invoke.remoteImportProvider, async (input: { connectionId?: string; providerId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.importProvider(
+      requiredId(input.connectionId, "connectionId"),
+      requiredId(input.providerId, "providerId"),
+    );
+  });
+  handle(IPC.invoke.remoteDeleteProvider, async (input: { connectionId?: string; providerId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.deleteProvider(
+      requiredId(input.connectionId, "connectionId"),
+      requiredId(input.providerId, "providerId"),
+    );
+  });
+  handle(IPC.invoke.remoteListProjects, async () => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return { projects: remoteManager.listProjects() };
+  });
+  handle(IPC.invoke.remoteAddProject, async (input: { connectionId?: string; remotePath?: string; name?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return {
+      workspace: await remoteManager.addProject({
+        connectionId: requiredId(input.connectionId, "connectionId"),
+        remotePath: requiredId(input.remotePath, "remotePath"),
+        ...(input.name ? { name: input.name } : {}),
+      }),
+    };
+  });
+  handle(IPC.invoke.remoteOpenProject, async (input: { projectId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return { workspace: await remoteManager.openProject(requiredId(input.projectId, "projectId")) };
+  });
+  handle(IPC.invoke.remoteRemoveProject, async (input: { projectId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    await remoteManager.removeProject(requiredId(input.projectId, "projectId"));
+    return { ok: true };
+  });
+  handle(IPC.invoke.remoteBrowseDirectory, async (input: { connectionId?: string; path?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.browseDirectory({
+      connectionId: requiredId(input.connectionId, "connectionId"),
+      ...(input.path ? { path: input.path } : {}),
+    });
+  });
+
   handle(IPC.invoke.projectGet, async () => {
+    const remoteWorkspace = remoteManager?.getProject();
+    if (remoteWorkspace) return { workspace: remoteWorkspace };
     if (!host) throw new Error("host unavailable");
     let res = (await host.call("workspace.get")) as {
       workspace: { path: string; name: string } | null;
@@ -7293,7 +7454,20 @@ function registerIpc() {
   });
   handle(IPC.invoke.projectList, async () => {
     if (!host) throw new Error("host unavailable");
-    return host.call("projects.list");
+    const local = await host.call<{ projects?: ProjectRecord[] }>("projects.list");
+    const manager = remoteManager;
+    const remote = manager?.listProjects().map((project) => {
+      const workspace = manager.projectWorkspace(project.id);
+      return {
+        id: project.id,
+        path: workspace?.path ?? project.normalizedRemotePath,
+        name: workspace?.name ?? project.name,
+        pinned: false,
+        createdAt: Date.parse(project.lastOpenedAt ?? "") || 0,
+        lastOpenedAt: Date.parse(project.lastOpenedAt ?? "") || 0,
+      };
+    }) ?? [];
+    return { projects: [...(local.projects ?? []), ...remote] };
   });
   handle(IPC.invoke.projectOpenFolder, async (path: string) => {
     if (!host) throw new Error("host unavailable");
@@ -7342,6 +7516,12 @@ function registerIpc() {
     return { workspace: await withGitBranch(res.workspace), canceled: false };
   });
   handle(IPC.invoke.projectSet, async (path: string) => {
+    if (remoteManager?.isRemotePath(path)) {
+      const workspace = await remoteManager.setProject(path);
+      if (!workspace) throw new Error("remote project was not opened");
+      setCurrentWorkspacePath(workspace.path);
+      return { workspace };
+    }
     if (!host) throw new Error("host unavailable");
     setCurrentWorkspacePath(path);
     const res = (await host.call("workspace.set", { path })) as {
@@ -7350,12 +7530,22 @@ function registerIpc() {
     return { workspace: await withGitBranch(res.workspace) };
   });
   handle(IPC.invoke.projectClear, async () => {
+    if (remoteManager?.getProject()) {
+      await remoteManager.clearProject();
+      setCurrentWorkspacePath(null);
+      return { ok: true };
+    }
     setCurrentWorkspacePath(null);
     if (!host) throw new Error("host unavailable");
     return host.call("workspace.clear");
   });
 
   handleWithEvent(IPC.invoke.composerPickFiles, async (event) => {
+    if (remoteManager?.getProject()) {
+      throw Object.assign(new Error("use the remote Files panel to reference remote files"), {
+        errorCode: ErrorCodes.UNSUPPORTED,
+      });
+    }
     const result = await dialog.showOpenDialog({
       properties: ["openFile", "multiSelections"],
     });
@@ -7369,6 +7559,11 @@ function registerIpc() {
   });
 
   handleWithEvent(IPC.invoke.composerPickPhotos, async (event) => {
+    if (remoteManager?.getProject()) {
+      throw Object.assign(new Error("use the remote Files panel to reference remote images"), {
+        errorCode: ErrorCodes.UNSUPPORTED,
+      });
+    }
     const result = await dialog.showOpenDialog({
       properties: ["openFile", "multiSelections"],
       filters: [
@@ -7464,6 +7659,9 @@ function registerIpc() {
   );
 
   handle(IPC.invoke.workspaceDiff, async () => {
+    if (remoteManager?.getProject()) {
+      return remoteManager.workspaceDiff(null);
+    }
     if (!host) throw new Error("host unavailable");
     const res = (await host.call("workspace.get")) as {
       workspace: { path: string } | null;
@@ -7477,6 +7675,11 @@ function registerIpc() {
   handle(
     IPC.invoke.workspaceReviewRollback,
     async (input: { sessionId: string; snapshotId: string }) => {
+      if (remoteManager?.knowsSession(input.sessionId)) {
+        throw Object.assign(new Error("remote review rollback is not available"), {
+          errorCode: ErrorCodes.UNSUPPORTED,
+        });
+      }
       if (!host) throw new Error("host unavailable");
       return host.call("review.rollback", input);
     },
@@ -7571,6 +7774,9 @@ function registerIpc() {
   };
 
   handle(IPC.invoke.fsList, async (input: { path?: string } = {}) => {
+    if (remoteManager?.getProject()) {
+      return { entries: await remoteManager.listWorkspace(null, String(input.path ?? "")) };
+    }
     const root = await requireWorkspaceRoot();
     return { entries: await listDir(root, String(input.path ?? "")) };
   });
@@ -7592,6 +7798,9 @@ function registerIpc() {
     IPC.invoke.fsRead,
     async (input: { path?: string; mimeType?: string } = {}) => {
       const requested = String(input.path ?? "").trim();
+      if (remoteManager?.getProject()) {
+        return remoteManager.readWorkspace(null, requested);
+      }
       let workspaceRoot: string | null = null;
       try {
         workspaceRoot = await requireWorkspaceRoot();
@@ -7613,6 +7822,13 @@ function registerIpc() {
     IPC.invoke.fsReadImageDataUrl,
     async (input: { ref?: string; mimeType?: string } = {}) => {
       const requested = String(input.ref ?? "").trim();
+      if (remoteManager?.getProject()) {
+        const result = await remoteManager.readWorkspace(null, requested);
+        if (result.kind === "image" && result.dataUrl) {
+          return { kind: "image", dataUrl: result.dataUrl, size: result.size };
+        }
+        return { kind: result.kind === "tooLarge" ? "tooLarge" : "notImage", ...(result.size !== undefined ? { size: result.size } : {}) };
+      }
       return readOpenableImage(
         requested,
         await optionalWorkspaceRoot(),
@@ -7624,6 +7840,11 @@ function registerIpc() {
 
   handle(IPC.invoke.fsReveal, async (input: { path?: string } = {}) => {
     const requested = String(input.path ?? "").trim();
+    if (remoteManager?.getProject()) {
+      throw Object.assign(new Error("remote files reveal in the remote session, not the local file manager"), {
+        errorCode: ErrorCodes.UNSUPPORTED,
+      });
+    }
     let workspaceRoot: string | null = null;
     try {
       workspaceRoot = await requireWorkspaceRoot();
@@ -7647,6 +7868,11 @@ function registerIpc() {
   });
 
   handle(IPC.invoke.fsOpen, async (input: { path?: string } = {}) => {
+    if (remoteManager?.getProject()) {
+      throw Object.assign(new Error("remote files open in the work panel"), {
+        errorCode: ErrorCodes.UNSUPPORTED,
+      });
+    }
     const workspaceRoot = await optionalWorkspaceRoot();
     const target = resolveOpenablePath(String(input.path ?? ""), workspaceRoot, fsExtraRoots());
     if (!target) {
@@ -7687,6 +7913,9 @@ function registerIpc() {
   };
 
   handle(IPC.invoke.fsIndex, async () => {
+    if (remoteManager?.getProject()) {
+      return remoteManager.indexWorkspace(null);
+    }
     const root = await optionalWorkspaceRoot();
     if (!root) return { entries: [], truncated: false };
     return getWorkspaceFileIndex(root);
@@ -8138,6 +8367,19 @@ function registerIpc() {
   });
 
   handle(IPC.invoke.agentPrompt, async (req: AgentPromptRequest) => {
+    if (remoteManager?.knowsSession(req.sessionId)) {
+      if (req.truncateBefore !== undefined || req.truncateFromMessageId !== undefined) {
+        throw Object.assign(new Error("Remote regenerate branches are not available yet"), {
+          errorCode: ErrorCodes.UNSUPPORTED,
+        });
+      }
+      const result = await remoteManager.prompt(req.sessionId, req.content, req.attachments);
+      logger.app("remote", "info", "remote prompt accepted", {
+        sessionId: req.sessionId,
+        turnId: result.turnId,
+      });
+      return result;
+    }
     if (!host || !sidecar) throw new Error("backend unavailable");
     const releaseSessionOperation = await acquireSessionOperation(req.sessionId);
     try {
@@ -8416,6 +8658,9 @@ function registerIpc() {
   });
 
   handle(IPC.invoke.agentCompact, async (req: { sessionId: string }) => {
+    if (remoteManager?.knowsSession(req.sessionId)) {
+      return remoteManager.compactSession(req.sessionId);
+    }
     if (!host || !sidecar) throw new Error("backend unavailable");
     if (activeTurns.has(req.sessionId)) {
       throw Object.assign(new Error("Session already has an active turn"), {
@@ -8446,6 +8691,10 @@ function registerIpc() {
   });
 
   handle(IPC.invoke.agentAbort, async (req: { sessionId: string }) => {
+    if (remoteManager?.knowsSession(req.sessionId)) {
+      logger.app("remote", "info", "remote prompt aborted", { sessionId: req.sessionId });
+      return remoteManager.stopSession(req.sessionId, true);
+    }
     if (!sidecar) throw new Error("sidecar unavailable");
     logger.app("session", "info", "prompt aborted", { sessionId: req.sessionId });
     agentHostBridge?.markAborting(req.sessionId);
@@ -8473,6 +8722,12 @@ function registerIpc() {
   });
 
   handle(IPC.invoke.agentStop, async (req: AgentStopRequest) => {
+    if (remoteManager?.knowsSession(req.sessionId)) {
+      logger.app("remote", "info", "remote prompt graceful stop requested", {
+        sessionId: req.sessionId,
+      });
+      return remoteManager.stopSession(req.sessionId, false);
+    }
     if (!sidecar) throw new Error("sidecar unavailable");
     logger.app("session", "info", "prompt graceful stop requested", {
       sessionId: req.sessionId,
@@ -8484,6 +8739,9 @@ function registerIpc() {
   });
 
   handle(IPC.invoke.agentGetStatus, async (sessionId: string) => {
+    if (remoteManager?.knowsSession(sessionId)) {
+      return remoteManager.getStatus(sessionId);
+    }
     if (!sidecar) throw new Error("sidecar unavailable");
     return sidecar.call("agent.getStatus", { sessionId });
   });
@@ -8491,19 +8749,33 @@ function registerIpc() {
   // The Host-owned turn queue (D375 / D386). The renderer mirrors it; the
   // headless module admits, orders, and drains it.
   handle(IPC.invoke.agentQueuePush, async (req: AgentQueuePushRequest) => {
+    if (remoteManager?.knowsSession(req.sessionId)) {
+      return remoteManager.queuePush(req.sessionId, req.content, req.attachments);
+    }
     if (!agentHostBridge) throw new Error("agent host unavailable");
     return agentHostBridge.queue.push(req);
   });
   handle(IPC.invoke.agentQueueList, async (req: { sessionId: string }) => {
+    if (remoteManager?.knowsSession(req.sessionId)) {
+      return { entries: await remoteManager.queueList(req.sessionId) };
+    }
     if (!agentHostBridge) throw new Error("agent host unavailable");
     return { entries: agentHostBridge.queue.list(req.sessionId) };
   });
   handle(IPC.invoke.agentQueueRemove, async (req: { turnId: string }) => {
+    if (remoteManager?.knowsTurn(req.turnId)) {
+      await remoteManager.queueRemove(req.turnId);
+      return { ok: true };
+    }
     if (!agentHostBridge) throw new Error("agent host unavailable");
     await agentHostBridge.queue.remove(req.turnId);
     return { ok: true };
   });
   handle(IPC.invoke.agentQueuePrioritize, async (req: { turnId: string }) => {
+    if (remoteManager?.knowsTurn(req.turnId)) {
+      await remoteManager.queuePrioritize(req.turnId);
+      return { ok: true };
+    }
     if (!agentHostBridge) throw new Error("agent host unavailable");
     await agentHostBridge.queue.prioritize(req.turnId);
     return { ok: true };
@@ -8513,6 +8785,10 @@ function registerIpc() {
     requestId: string;
     decision: string;
   }) => {
+    if (remoteManager?.knowsApproval(resolution.requestId)) {
+      await remoteManager.resolvePermissionById(resolution.requestId, resolution.decision);
+      return { ok: true };
+    }
     if (!host) throw new Error("host unavailable");
     logger.app("permission", "info", "permission resolved", {
       data: { requestId: resolution.requestId, decision: resolution.decision },
@@ -8529,6 +8805,10 @@ function registerIpc() {
   });
 
   handle(IPC.invoke.askToolResolve, async (resolution: AskToolResolution) => {
+    if (remoteManager?.knowsSession(resolution.sessionId)) {
+      await remoteManager.resolveAsk(resolution.sessionId, resolution);
+      return { ok: true };
+    }
     if (!sidecar) throw new Error("sidecar unavailable");
     const sessionId = String(resolution?.sessionId ?? "").trim();
     const requestId = String(resolution?.requestId ?? "").trim();
@@ -8541,15 +8821,45 @@ function registerIpc() {
   });
 
   handle(IPC.invoke.plansPending, async (input: { sessionId?: string } = {}) => {
+    if (input.sessionId && remoteManager?.knowsSession(input.sessionId)) {
+      return { plans: await remoteManager.pendingPlans(input.sessionId) };
+    }
     if (!host) throw new Error("host unavailable");
-    return host.call("plans.pending", {
+    const local = await host.call<{ plans?: PlanProposal[] }>("plans.pending", {
       ...(typeof input.sessionId === "string" && input.sessionId.trim()
         ? { sessionId: input.sessionId.trim() }
         : {}),
     });
+    const remotePlans = await remoteManager?.pendingPlans(input.sessionId).catch(() => []) ?? [];
+    return { plans: [...(local.plans ?? []), ...remotePlans] };
   });
 
   handle(IPC.invoke.plansResolve, async (resolution: PlanResolveRequest) => {
+    if (remoteManager?.knowsSession(resolution.sessionId)) {
+      await remoteManager.resolvePlan(
+        resolution.sessionId,
+        resolution.proposalId,
+        resolution.action,
+        resolution.action === "approve" ? resolution.targetPermissionMode : undefined,
+      );
+      return {
+        ok: true,
+        proposal: {
+          ...resolution,
+          id: resolution.proposalId,
+          title: "Remote plan",
+          question: "",
+          status: resolution.action === "approve" ? "approved" : "rejected",
+          markdown: "",
+          plan: "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          kind: "plan",
+          version: resolution.version ?? 1,
+        } as PlanProposal,
+        state: "inactive",
+      };
+    }
     if (!host) throw new Error("host unavailable");
     const proposalId = String(resolution?.proposalId ?? "").trim();
     if (!proposalId) throw new Error("proposalId required");
@@ -9510,6 +9820,36 @@ app.whenReady().then(async () => {
   // not race the renderer allocation just because backend startup was slow.
   prewarmPluginLauncher();
   const invokeIpc = registerIpc();
+  remoteManager = RemoteManager.open(
+    dataDir,
+    () => host,
+    async ({ connection, fingerprints }) => {
+      const result = await dialog.showMessageBox(
+        mainWindow ?? new BrowserWindow({ show: false }),
+        {
+          type: "warning",
+          buttons: ["Trust Host", "Cancel"],
+          defaultId: 0,
+          cancelId: 1,
+          title: "Verify remote host",
+          message: `Trust ${connection.sshConfigAlias ?? connection.hostname ?? connection.displayName}?`,
+          detail: fingerprints.join("\n"),
+          noLink: true,
+        },
+      );
+      return result.response === 0;
+    },
+    {
+      onAgentEvent: (event) => emitAgentEvent(event),
+      onConnectionsChanged: () => sendToRenderer(IPC.event.remoteChanged, {}),
+      onSessionsChanged: () => sendToRenderer(IPC.event.sessionsChanged, { reason: "remote.session" }),
+      onQueueChanged: (event) => sendToRenderer(IPC.event.agentQueueChanged, event),
+      onAudit: (event, data) => logger.app("remote", "info", event, { data }),
+    },
+  );
+  void remoteManager.refreshConnections().catch((error) => {
+    logger.app("remote", "warn", "SSH config refresh failed", { data: String(error) });
+  });
   agentHostBridge = createAgentHostBridge({
     invoke: invokeIpc,
     channels: IPC.invoke,
@@ -9784,6 +10124,7 @@ app.on("before-quit", (event) => {
     // whatever does not make it in time is covered by the last checkpoint
     // (D299). Bounded: a quit must not hang on an unresponsive provider.
     await settleRunningTurnsForQuit();
+    await remoteManager?.dispose();
     const hostShutdown = host?.dispose();
     const mcpShutdown = mcpControl?.stop();
     const pluginPanelShutdown = pluginPanels.closeAll();

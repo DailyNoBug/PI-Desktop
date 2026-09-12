@@ -44,6 +44,7 @@
 - [17-asktool-questions.md](/zh-CN/spec/03-runtime/17-asktool-questions)
 - [18-line-anchored-edit-contract.md](/zh-CN/spec/03-runtime/18-line-anchored-edit-contract)
 - [19-remote-agent-control-protocol.md](/zh-CN/spec/03-runtime/19-remote-agent-control-protocol)
+- [20-remote-ssh-desktop.md](/zh-CN/spec/03-runtime/20-remote-ssh-desktop)
 
 ## 4. 用户体验
 - [README.md](/zh-CN/spec/04-ux/README)

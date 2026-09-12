@@ -70,6 +70,7 @@ export type RemoteConnectionView = RemoteConnection & {
     stage?: RemoteConnectionState;
     at: string;
   };
+  lastExitCode?: number | null;
   reconnectAttempt?: number;
 };
 
@@ -114,6 +115,7 @@ const CONNECTION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 export function normalizeRemotePath(path: string): string | null {
   const value = path.trim();
   if (!POSIX_ABSOLUTE_PATH.test(value) || value.includes("\0")) return null;
+  if (value.split("/").some((segment) => segment === "." || segment === "..")) return null;
   if (value === "/") return "/";
   return value.replace(/\/+$/, "");
 }

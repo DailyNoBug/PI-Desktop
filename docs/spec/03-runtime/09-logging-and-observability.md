@@ -52,6 +52,8 @@ The application categories are:
 - `persistence` — transcript and outbox persistence failures
 - `updater` — updater diagnostics and errors
 - `diagnostics` — blocked navigation, menu, and template diagnostics
+- `remote` — SSH connection stages, pairing, bootstrap, remote provider sync,
+  and remote project lifecycle records; secrets and credentials are never included
 - `runtime` — host/sidecar lifecycle and uncategorized child output
 
 There is no dedicated `timing` category. Timing files from older application

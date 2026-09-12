@@ -9919,6 +9919,45 @@ browser milestones are scheduled.
   `packages/pi-host/src/packaging.test.ts`; native Linux release journeys
   remain release qualification
 
+#### E2E-257: Connections manages SSH discovery and host trust
+
+- **Preconditions**: an OpenSSH config contains `Host gpu`, `Host *`, and an
+  `Include`; a manual test host and a local provider are configured. The next
+  host key is not in `known_hosts`.
+- **Steps**: 1) Open Settings → Connections and refresh. 2) Add the manual
+  host. 3) Test both entries. 4) Connect to the unknown Host and inspect the
+  fingerprint dialog. 5) Cancel once, reconnect, and accept the fingerprint.
+  6) Copy diagnostics. 7) Sync and then delete the selected provider.
+- **Expected**: `gpu` appears exactly once and `Host *` does not appear. Manual
+  fields persist without private-key bytes. Cancellation performs no
+  `known_hosts` write; acceptance writes only the scanned keys. Connection
+  state advances through named stages, diagnostics are redacted, and provider
+  sync/delete names the remote machine and never returns the secret.
+- **Specs linked**: `04-ux/06-settings-ia.md` §Connections,
+  `03-runtime/20-remote-ssh-desktop.md` §§3–8, ADR 0234
+- **Acceptance**: A, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`;
+  native SSH/fingerprint journey remains E2E-231 harness work
+
+#### E2E-258: Remote projects never fall back to local disk
+
+- **Preconditions**: one remote project is active and a local directory contains
+  files with the same relative names. The remote project has one session.
+- **Steps**: 1) Open the Files tab and a text file. 2) Run the `@` file index.
+  3) Open Review. 4) Press the local add-file, reveal, and open controls if
+  visible. 5) Search renderer source for child-process or SSH APIs.
+- **Expected**: Files, reads, and diff come from the remote session root; the
+  identically named local files remain unchanged. Local-only controls are hidden
+  or return `UNSUPPORTED`; no renderer module imports `child_process` or spawns
+  SSH. Remote prompts and tools continue through `lib/api.ts`.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §6,
+  `02-architecture/03-repo-structure.md`, ADR 0234
+- **Acceptance**: B, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`;
+  live remote filesystem journey remains E2E-231 harness work
+
 ## Trusted extension scenarios (R7 v1)
 
 The following scenarios are the acceptance targets of D387 / ADR 0214 and

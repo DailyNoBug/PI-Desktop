@@ -4,6 +4,25 @@
 */
 
 @media (max-width: 720px) {
+  .remote-connection-row {
+    grid-template-columns: 28px 1fr;
+  }
+
+  .remote-connection-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .remote-form-grid,
+  .remote-project-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .remote-provider-select {
+    max-width: none;
+    width: 100%;
+  }
+
   .plugins-toolbar-end {
     flex: 1 1 100%;
     justify-content: flex-start;

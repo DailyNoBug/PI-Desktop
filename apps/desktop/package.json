@@ -115,6 +115,10 @@
         "to": "agent-runtime"
       },
       {
+        "from": "../../scripts/pi-host-bootstrap.sh",
+        "to": "pi-host/bootstrap.sh"
+      },
+      {
         "from": "resources/skills",
         "to": "skills"
       },

@@ -113,6 +113,10 @@ export const RacpSessionSchema = Type.Object({
   projectId: Type.Optional(Type.String()),
   workspaceLabel: Type.Optional(Type.String()),
   mode: RacpSessionModeSchema,
+  providerId: Type.Optional(Type.String()),
+  modelId: Type.Optional(Type.String()),
+  thinkingLevel: Type.Optional(Type.String()),
+  messageCount: Type.Optional(Type.Integer({ minimum: 0 })),
   status: RacpSessionStatusSchema,
   planningState: RacpPlanningStateSchema,
   permissionMode: RacpPermissionModeSchema,
@@ -266,6 +270,7 @@ export const RacpApprovalRequestSchema = Type.Object({
   summary: Type.String(),
   expiresAt: Type.String(),
   revision: Type.Integer({ minimum: 0 }),
+  toolCallId: Type.Optional(Type.String()),
   toolName: Type.Optional(Type.String()),
   risk: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")])),
   agentName: Type.Optional(Type.String()),
@@ -370,6 +375,8 @@ export type RacpHostSummary = Static<typeof RacpHostSummarySchema>;
 export const RacpProjectSummarySchema = Type.Object({
   id: Type.String({ minLength: 1 }),
   label: Type.String(),
+  /** Host absolute path; visible only to an explicitly scoped owner client. */
+  path: Type.Optional(Type.String({ minLength: 1 })),
   archived: Type.Boolean(),
 });
 export type RacpProjectSummary = Static<typeof RacpProjectSummarySchema>;
@@ -384,6 +391,7 @@ export type RacpSessionListResult = {
 
 export type RacpSessionCreateParams = {
   projectId?: string;
+  projectPath?: string;
   title?: string;
   mode?: RacpSessionMode;
   permissionMode?: RacpPermissionMode;

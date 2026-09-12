@@ -206,6 +206,7 @@ owner，工作区读取都按会话持久根、Host 忽略规则和 `PATH_OUTSID
 | `session/rename` | controller | 重命名会话 |
 | `session/delete` | owner | 删除会话及其在 Host 上的 transcript |
 | `session/compact` | controller | 对活动会话执行手动上下文检查点 |
+| `workspace/browse` | owner | 在注册项目前浏览远端绝对目录；面向 SSH 配对 owner，有界并做权限检查 |
 | `workspace/list` | viewer | 有界列出会话根下的条目，遵守 Host 忽略规则 |
 | `workspace/read` | viewer | 读取会话根下的一个有界文件，图片以 data URL 返回 |
 | `workspace/diff` | viewer | 返回会话根的工作树 diff |

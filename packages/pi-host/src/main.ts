@@ -48,6 +48,7 @@ Usage:
   pi-host --stop [--runtime-dir PATH]
   pi-host --revoke-device [--runtime-dir PATH]
   pi-host --provider-import < JSON
+  pi-host --provider-delete < provider id
 `);
   process.exit(2);
 }
@@ -158,6 +159,10 @@ async function controlCommands(): Promise<boolean> {
     await importProviders();
     return true;
   }
+  if (hasArgument("--provider-delete")) {
+    await deleteProvider();
+    return true;
+  }
   return false;
 }
 
@@ -177,6 +182,25 @@ async function importProviders(): Promise<void> {
       await host.call("providers.create", provider);
     }
     process.stdout.write(`${JSON.stringify({ imported: providers.length })}\n`);
+  } finally {
+    await host.dispose();
+  }
+}
+
+async function deleteProvider(): Promise<void> {
+  const dir = runtimeDir();
+  mkdirSync(dir, { recursive: true });
+  const host = new RpcProcess({
+    command: hostCorePath(),
+    label: "host-core",
+    env: { ...process.env, PI_DESKTOP_DATA_DIR: dir },
+  });
+  try {
+    await host.call("app.handshake", { protocolVersion: PROTOCOL_VERSION });
+    const id = readFileSync(0, "utf8").trim();
+    if (!id) throw new Error("provider id is required");
+    await host.call("providers.delete", { id });
+    process.stdout.write(`${JSON.stringify({ deleted: true })}\n`);
   } finally {
     await host.dispose();
   }

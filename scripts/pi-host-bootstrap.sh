@@ -5,6 +5,7 @@ set -eu
 : "${PI_HOST_ARCH:?PI_HOST_ARCH is required}"
 : "${PI_HOST_CHECKSUM:?PI_HOST_CHECKSUM is required}"
 : "${PI_HOST_BASE_URL:=https://github.com/vastsa/PI-Desktop/releases/download}"
+: "${PI_HOST_FORCE_RESTART:=0}"
 
 ROOT="${PI_HOST_ROOT:-$HOME/.pi-desktop/host}"
 VERSION_DIR="$ROOT/versions/$PI_HOST_VERSION"
@@ -39,7 +40,7 @@ if pid="$(running_pid)"; then
   if [ -f "$RUNTIME_DIR/host.json" ]; then
     current_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$RUNTIME_DIR/host.json")"
   fi
-  if [ "$current_version" = "$PI_HOST_VERSION" ]; then
+  if [ "$current_version" = "$PI_HOST_VERSION" ] && [ "$PI_HOST_FORCE_RESTART" != "1" ]; then
     echo "PI_HOST_ALREADY_RUNNING version=$PI_HOST_VERSION pid=$pid"
     cat "$RUNTIME_DIR/host.json"
     exit 0

@@ -53,6 +53,11 @@ import type {
   PluginInstallResult,
   ProjectRecord,
   ProjectWorkspace,
+  RemoteConnectionInput,
+  RemoteConnectionView,
+  RemoteDiagnostics,
+  RemoteDirectoryResult,
+  RemoteProjectRecord,
   PullRequestSummary,
   ScheduledTask,
   ProviderCreateInput,
@@ -488,6 +493,44 @@ export const api = {
   clearProject: () => invoke(IPC.invoke.projectClear),
   setProject: (path: string) =>
     invoke<{ workspace: ProjectWorkspace | null }>(IPC.invoke.projectSet, path),
+  listRemoteConnections: () =>
+    invoke<{ connections: RemoteConnectionView[] }>(IPC.invoke.remoteListConnections),
+  refreshRemoteConnections: () =>
+    invoke<{ connections: RemoteConnectionView[] }>(IPC.invoke.remoteRefreshConnections),
+  testRemoteConnection: (connectionId: string) =>
+    invoke<{ ok: true; os: string; arch: string; home: string; shell: string }>(
+      IPC.invoke.remoteTestConnection,
+      { connectionId },
+    ),
+  addRemoteConnection: (input: RemoteConnectionInput) =>
+    invoke<{ connection: RemoteConnectionView }>(IPC.invoke.remoteAddConnection, input),
+  updateRemoteConnection: (connectionId: string, input: RemoteConnectionInput) =>
+    invoke<{ connection: RemoteConnectionView }>(IPC.invoke.remoteUpdateConnection, {
+      connectionId,
+      input,
+    }),
+  removeRemoteConnection: (connectionId: string) =>
+    invoke(IPC.invoke.remoteRemoveConnection, { connectionId }),
+  connectRemote: (connectionId: string) =>
+    invoke<{ connection: RemoteConnectionView }>(IPC.invoke.remoteConnect, { connectionId }),
+  disconnectRemote: (connectionId: string) =>
+    invoke(IPC.invoke.remoteDisconnect, { connectionId }),
+  remoteDiagnostics: (connectionId: string) =>
+    invoke<RemoteDiagnostics>(IPC.invoke.remoteDiagnostics, { connectionId }),
+  importRemoteProvider: (connectionId: string, providerId: string) =>
+    invoke<{ imported: number }>(IPC.invoke.remoteImportProvider, { connectionId, providerId }),
+  deleteRemoteProvider: (connectionId: string, providerId: string) =>
+    invoke<{ deleted: boolean }>(IPC.invoke.remoteDeleteProvider, { connectionId, providerId }),
+  listRemoteProjects: () =>
+    invoke<{ projects: RemoteProjectRecord[] }>(IPC.invoke.remoteListProjects),
+  addRemoteProject: (input: { connectionId: string; remotePath: string; name?: string }) =>
+    invoke<{ workspace: ProjectWorkspace }>(IPC.invoke.remoteAddProject, input),
+  openRemoteProject: (projectId: string) =>
+    invoke<{ workspace: ProjectWorkspace }>(IPC.invoke.remoteOpenProject, { projectId }),
+  removeRemoteProject: (projectId: string) =>
+    invoke(IPC.invoke.remoteRemoveProject, { projectId }),
+  browseRemoteDirectory: (input: { connectionId: string; path?: string }) =>
+    invoke<RemoteDirectoryResult>(IPC.invoke.remoteBrowseDirectory, input),
   listPullRequests: () =>
     invoke<{ pulls: PullRequestSummary[]; error?: string }>(IPC.invoke.pullsList),
   listScheduled: () =>
@@ -924,6 +967,10 @@ export const api = {
     return window.piDesktop.on(IPC.event.agentQueueChanged, (payload) =>
       listener(payload as AgentQueueChangedEvent),
     );
+  },
+  onRemoteChanged: (listener: () => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.remoteChanged, () => listener());
   },
   onPlansChanged: (listener: (event: PlanningStateEvent) => void) => {
     if (!window.piDesktop?.on) return () => undefined;

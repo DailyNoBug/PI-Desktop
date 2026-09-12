@@ -74,6 +74,7 @@ export class ApprovalBroker {
       summary: `${request.toolName}: ${request.reason}`,
       expiresAt: new Date(expiresAtMs).toISOString(),
       revision: context.revision,
+      toolCallId: request.toolCallId,
       toolName: request.toolName,
       risk: request.risk,
       ...(request.agentName ? { agentName: request.agentName } : {}),
