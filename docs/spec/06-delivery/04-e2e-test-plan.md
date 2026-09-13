@@ -10006,6 +10006,27 @@ browser milestones are scheduled.
   `packages/pi-host/src/mcp.test.ts`; full Settings journey remains E2E-231
   harness work
 
+#### E2E-261: Remote Skills manage the owning Host registry
+
+- **Preconditions**: `gpu-server` is connected and remote project
+  `/home/dev/project` is active. A local Markdown skill fixture is available.
+- **Steps**: 1) Open Settings → Agent capabilities → Skills with the remote
+  project selected. 2) Create a global Skill. 3) Import the local Markdown
+  fixture into the project level. 4) Edit, disable, and re-enable it. 5) Read
+  it from the editor. 6) Attempt the reveal action. 7) Delete it.
+- **Expected**: Rows are labeled `Remote: gpu-server`. Every registry mutation
+  and read targets the remote Host. Imported document bytes cross only through
+  the authenticated RACP create operation; reveal is unavailable, and deletion
+  removes the model-facing Skill without touching the local registry.
+- **Specs linked**:
+  `03-runtime/19-remote-agent-control-protocol.md` §6.2,
+  `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0234
+- **Acceptance**: A, B, Security
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by
+  `apps/desktop/test/remote-ssh.test.mjs`; full Settings journey remains
+  E2E-231 harness work
+
 ## Trusted extension scenarios (R7 v1)
 
 The following scenarios are the acceptance targets of D387 / ADR 0214 and

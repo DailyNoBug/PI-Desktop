@@ -216,6 +216,13 @@ owner，工作区读取都按会话持久根、Host 忽略规则和 `PATH_OUTSID
 | `mcp/setEnabled` | owner | 启用或停用用户自有 MCP 定义 |
 | `mcp/setScope` | owner | 修改用户自有 MCP 定义的激活作用域 |
 | `mcp/test` | owner | 强制 MCP 握手并返回有界状态 |
+| `skills/list` | owner | 列出用户自有 Skill 定义 |
+| `skills/create` | owner | 创建用户自有 Skill 定义 |
+| `skills/update` | owner | 更新用户自有 Skill 定义 |
+| `skills/read` | owner | 读取用户自有 Skill 定义与文档正文 |
+| `skills/remove` | owner | 删除用户自有 Skill 定义 |
+| `skills/setEnabled` | owner | 启用或停用用户自有 Skill 定义 |
+| `skills/setScope` | owner | 修改用户自有 Skill 定义的激活作用域 |
 | `terminal/open` | controller | 在 Host 上以会话根为 cwd 打开 pty；返回终端 id 与有界回放环；受策略限制 |
 | `terminal/input` | controller | 向已打开终端写入字节 |
 | `terminal/resize` | controller | 调整已打开终端尺寸 |

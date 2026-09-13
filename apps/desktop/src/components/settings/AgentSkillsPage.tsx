@@ -4,6 +4,8 @@ import {
   GLOBAL_SCOPE,
   type AgentCapabilityLevel,
   type UserSkillRecord,
+  isRemoteProjectPath,
+  parseRemoteProjectUri,
 } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
@@ -280,6 +282,10 @@ export function AgentSkillsPage() {
       (selectedProjectPath ? projectDisplayName(selectedProjectPath) : undefined),
     [options, selectedProjectPath],
   );
+  const remoteHost = useMemo(
+    () => (isRemoteProjectPath(selectedProjectPath) ? parseRemoteProjectUri(selectedProjectPath)?.connectionKey : undefined),
+    [selectedProjectPath],
+  );
 
   const renderRow = (skill: UserSkillRecord, level: AgentCapabilityLevel) => {
     const key = rowKey(level, skill.id);
@@ -287,7 +293,7 @@ export function AgentSkillsPage() {
     const busy = busyId === key;
     const isArmed = armed === key;
     const items: CapabilityMenuItem[] = [
-      {
+      ...(remoteHost ? [] : [{
         key: "reveal",
         label: t("extensions.skills.reveal"),
         icon: <IconFolderOpen size={14} />,
@@ -295,7 +301,7 @@ export function AgentSkillsPage() {
           setMenuFor(null);
           void reveal(skill, level);
         },
-      },
+      } satisfies CapabilityMenuItem]),
       {
         key: "remove",
         label: isArmed ? t("settings.capabilityRemoveConfirm") : t("extensions.skills.remove"),
@@ -327,6 +333,11 @@ export function AgentSkillsPage() {
             </span>
             {skill.source === "imported" ? (
               <span className="agent-capability-badge">{t("settings.imported")}</span>
+            ) : null}
+            {remoteHost ? (
+              <span className="agent-capability-badge is-status">
+                {t("settings.capabilityRemote", { host: remoteHost })}
+              </span>
             ) : null}
           </>
         }

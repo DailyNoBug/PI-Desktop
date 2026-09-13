@@ -121,7 +121,7 @@ test("remote MCP management and execution stay on the remote Host", async () => 
   ]) {
     assert.match(manager, new RegExp(`"${operation}"`));
   }
-  assert.match(main, /function remoteMcpContext/);
+  assert.match(main, /function remoteCapabilityContext/);
   for (const method of ["listMcp", "upsertMcp", "removeMcp", "testMcp"]) {
     assert.match(main, new RegExp(`remoteManager\\.${method}\\(`));
   }
@@ -130,4 +130,42 @@ test("remote MCP management and execution stay on the remote Host", async () => 
   assert.match(piHost, /this\.mcp\.callTool\(request\.toolName/);
   assert.match(piHost, /plugins\.resolveExecution/);
   assert.match(renderer, /capabilityRemote/);
+});
+
+test("remote Skills manage the remote registry without local fallback", async () => {
+  const [racp, manager, main, piHost, renderer] = await Promise.all([
+    read("packages/shared/src/racp.ts"),
+    read("apps/desktop/electron/main/remote-manager.ts"),
+    read("apps/desktop/electron/main/index.ts"),
+    read("packages/pi-host/src/pi-host.ts"),
+    read("apps/desktop/src/components/settings/AgentSkillsPage.tsx"),
+  ]);
+  for (const operation of [
+    "skills/list",
+    "skills/create",
+    "skills/update",
+    "skills/read",
+    "skills/remove",
+    "skills/setEnabled",
+    "skills/setScope",
+  ]) {
+    assert.match(racp, new RegExp(`"${operation}"`));
+    assert.match(manager, new RegExp(`"${operation}"`));
+  }
+  for (const method of [
+    "listSkills",
+    "createSkill",
+    "updateSkill",
+    "readSkill",
+    "removeSkill",
+    "setSkillEnabled",
+    "setSkillScope",
+  ]) {
+    assert.match(main, new RegExp(`remoteManager\\.${method}\\(`));
+  }
+  assert.match(piHost, /"skills\.create"/);
+  assert.match(piHost, /"skills\.read"/);
+  assert.match(renderer, /capabilityRemote/);
+  assert.match(renderer, /remoteHost \? \[\] : \[\{/);
+  assert.match(main, /revealing remote files locally is unsupported/);
 });

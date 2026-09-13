@@ -394,6 +394,20 @@ export class RacpWsServer {
         return this.options.profile.setMcpScope(params);
       case "mcp/test":
         return this.options.profile.testMcp(params);
+      case "skills/list":
+        return this.options.profile.listSkills(params);
+      case "skills/create":
+        return this.options.profile.createSkill(params);
+      case "skills/update":
+        return this.options.profile.updateSkill(params);
+      case "skills/read":
+        return this.options.profile.readSkill(params);
+      case "skills/remove":
+        return this.options.profile.removeSkill(params);
+      case "skills/setEnabled":
+        return this.options.profile.setSkillEnabled(params);
+      case "skills/setScope":
+        return this.options.profile.setSkillScope(params);
       case "terminal/open":
       case "terminal/input":
       case "terminal/resize":

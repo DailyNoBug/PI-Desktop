@@ -45,6 +45,8 @@ Renderer 继续调用 `lib/api.ts`，没有 SSH、child process、key 或 token 
 
 远程项目 prompt 从远端 Host 自己的 `~/.agents` 与 `<workspace>/.agents` 注册表解析启用的全局/项目 Skills。模型目录只含 id、名称和描述；`Skill` 调用由远端 Host 通过 `skills.read` 应答，因此技能文档与执行都留在该 Host。Plan 模式与本地 runtime 一样拒绝 Skill 工具。
 
+Settings 会把 Skill 列表、创建/编辑、删除、启用/作用域、读取和本地 Markdown 导入路由到这些远端注册表。导入只在 Electron Main 读取一次本地文档，然后通过 RACP 写入正文，不 mount 远端文件系统。本地 reveal 会隐藏，因为路径属于远端 Host。
+
 用户自有 MCP server 遵循同一规则。Settings 会通过 owner-only RACP 操作，把
 MCP 列表、创建/编辑、删除、启用/作用域、导入和测试路由到选中的远程项目。
 `pi-host` 在该 Host 上启动 stdio 进程（或访问其 HTTP endpoint）、发现工具，并在

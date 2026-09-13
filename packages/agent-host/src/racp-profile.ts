@@ -7,6 +7,7 @@ import type {
   RacpSession,
   RemoteDirectoryResult,
   WorkspaceDiff,
+  UserSkillRecord,
 } from "@pi-desktop/shared";
 
 export type RacpTerminalSnapshot = {
@@ -46,6 +47,13 @@ export interface RacpRemoteProfile {
   setMcpEnabled(params: Record<string, unknown>): Promise<{ server: McpServerRecord }>;
   setMcpScope(params: Record<string, unknown>): Promise<{ server: McpServerRecord }>;
   testMcp(params: Record<string, unknown>): Promise<{ status: McpServerStatus }>;
+  listSkills(params: Record<string, unknown>): Promise<{ skills: UserSkillRecord[] }>;
+  createSkill(params: Record<string, unknown>): Promise<{ skill: UserSkillRecord }>;
+  updateSkill(params: Record<string, unknown>): Promise<{ skill: UserSkillRecord }>;
+  readSkill(params: Record<string, unknown>): Promise<{ skill: UserSkillRecord | null; body: string | null }>;
+  removeSkill(params: Record<string, unknown>): Promise<{ ok?: boolean }>;
+  setSkillEnabled(params: Record<string, unknown>): Promise<{ skill: UserSkillRecord }>;
+  setSkillScope(params: Record<string, unknown>): Promise<{ skill: UserSkillRecord }>;
   advertiseTools?(tools: RacpRelayTool[]): Promise<{ accepted: RacpRelayTool[]; rejected: Array<{ name: string; reason: string }> }>;
   openTerminal?(params: Record<string, unknown>): Promise<RacpTerminalSnapshot>;
   writeTerminal?(params: Record<string, unknown>): Promise<void>;

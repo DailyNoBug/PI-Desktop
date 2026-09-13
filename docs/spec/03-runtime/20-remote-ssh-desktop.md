@@ -134,6 +134,11 @@ its own `~/.agents` and `<workspace>/.agents` registries. The model-facing
 catalog contains ids, names, and descriptions only; a `Skill` call is answered
 by the remote Host with `skills.read`, so skill bodies and execution remain on
 that Host. Plan mode rejects the Skill tool exactly as the local runtime does.
+Settings routes Skill list, create/edit, delete, enable/scope, read, and local
+Markdown import to those remote registries. Import reads the selected local
+document once in Electron Main and writes its body through RACP; it never
+mounts the remote filesystem. Local reveal is hidden because the path belongs
+to the remote Host.
 
 The same rule applies to user-owned MCP servers. Settings routes MCP list,
 create/edit, delete, enable/scope, import, and test calls to the selected

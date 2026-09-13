@@ -31,6 +31,8 @@ import type {
   SessionSummary,
   ToolPermissionRequest,
   UiMessage,
+  UserSkillInput,
+  UserSkillRecord,
   WorkspaceDiff,
 } from "@pi-desktop/shared";
 import {
@@ -1074,6 +1076,116 @@ export class RemoteManager {
       id,
       level: query.level,
       ...(query.level === "project" || target.remotePath ? { projectPath: target.remotePath } : {}),
+    });
+  }
+
+  async listSkills(query: {
+    level: "global" | "project";
+    projectPath?: string;
+  }): Promise<{ skills: UserSkillRecord[] }> {
+    const target = this.remoteProjectContext(query.projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    return this.request(runtime, "skills/list", {
+      level: query.level,
+      projectPath: target.remotePath,
+    });
+  }
+
+  async createSkill(
+    skill: UserSkillInput,
+    projectPath?: string,
+  ): Promise<{ skill: UserSkillRecord }> {
+    const target = this.remoteProjectContext(projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    const result = await this.request<{ skill: UserSkillRecord }>(runtime, "skills/create", {
+      skill: {
+        ...skill,
+        ...(skill.projectPath ? { projectPath: target.remotePath } : {}),
+      },
+    });
+    this.events.onAudit("remote.skill.created", { connectionId: target.connectionId, skillId: skill.id ?? "" });
+    return result;
+  }
+
+  async updateSkill(
+    id: string,
+    skill: UserSkillInput,
+    projectPath?: string,
+  ): Promise<{ skill: UserSkillRecord }> {
+    const target = this.remoteProjectContext(projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    return this.request(runtime, "skills/update", {
+      id,
+      skill: {
+        ...skill,
+        ...(skill.projectPath ? { projectPath: target.remotePath } : {}),
+      },
+    });
+  }
+
+  async readSkill(query: {
+    id: string;
+    level?: "global" | "project";
+    projectPath?: string;
+  }): Promise<{ skill: UserSkillRecord | null; body: string | null }> {
+    const target = this.remoteProjectContext(query.projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    return this.request(runtime, "skills/read", {
+      id: query.id,
+      ...(query.level ? { level: query.level } : {}),
+      ...(query.level === "project" || query.projectPath ? { projectPath: target.remotePath } : {}),
+    });
+  }
+
+  async removeSkill(query: {
+    id: string;
+    level: "global" | "project";
+    projectPath?: string;
+  }): Promise<{ ok?: boolean }> {
+    const target = this.remoteProjectContext(query.projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    const result = await this.request<{ ok?: boolean }>(runtime, "skills/remove", {
+      id: query.id,
+      level: query.level,
+      projectPath: target.remotePath,
+    });
+    this.events.onAudit("remote.skill.removed", { connectionId: target.connectionId, skillId: query.id });
+    return result;
+  }
+
+  async setSkillEnabled(
+    id: string,
+    enabled: boolean,
+    query: { level: "global" | "project"; projectPath?: string },
+  ): Promise<{ skill: UserSkillRecord }> {
+    const target = this.remoteProjectContext(query.projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    return this.request(runtime, "skills/setEnabled", {
+      id,
+      enabled,
+      level: query.level,
+      projectPath: target.remotePath,
+    });
+  }
+
+  async setSkillScope(
+    id: string,
+    scope: Record<string, unknown>,
+    projectPath?: string,
+  ): Promise<{ skill: UserSkillRecord }> {
+    const target = this.remoteProjectContext(projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    return this.request(runtime, "skills/setScope", {
+      id,
+      scope,
+      ...(target.remotePath ? { projectPath: target.remotePath } : {}),
     });
   }
 

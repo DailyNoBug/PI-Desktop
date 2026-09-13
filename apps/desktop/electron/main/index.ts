@@ -12,7 +12,7 @@ import {
   shell,
   Tray,
 } from "electron";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import {
@@ -101,6 +101,7 @@ import {
   type HostStatusEvent,
   type UiMessage,
   type MessageUsage,
+  type UserSkillInput,
   addUsage,
   type UserSkillRecord,
   type UserSubagentRecord,
@@ -1388,7 +1389,7 @@ function currentWorkspacePath(): string | null {
   return (globalThis as { __piWorkspacePath?: string | null }).__piWorkspacePath ?? null;
 }
 
-function remoteMcpContext(query: { projectPath?: string } = {}): {
+function remoteCapabilityContext(query: { projectPath?: string } = {}): {
   connectionId: string;
   connectionKey: string;
   remotePath: string;
@@ -9190,7 +9191,7 @@ function registerIpc() {
   // mutation is followed by a refresh that drops stale ones.
 
   handle(IPC.invoke.mcpList, async (query: Partial<AgentCapabilityQuery> = {}) => {
-    const remoteTarget = remoteMcpContext(query);
+    const remoteTarget = remoteCapabilityContext(query);
     if (remoteTarget) {
       if (!remoteManager) throw new Error("remote manager unavailable");
       if (query.level !== "global" && query.level !== "project") {
@@ -9214,7 +9215,7 @@ function registerIpc() {
 
   handle(IPC.invoke.mcpUpsert, async (server: McpServerInput) => {
     const requestedProjectPath = server.projectPath ?? currentWorkspacePath() ?? undefined;
-    const remoteTarget = remoteMcpContext({
+    const remoteTarget = remoteCapabilityContext({
       projectPath: requestedProjectPath,
     });
     if (remoteTarget) {
@@ -9233,7 +9234,7 @@ function registerIpc() {
   handle(
     IPC.invoke.mcpRemove,
     async (payload: { id: string } & Partial<AgentCapabilityQuery>) => {
-      const remoteTarget = remoteMcpContext(payload);
+      const remoteTarget = remoteCapabilityContext(payload);
       if (remoteTarget) {
         if (!remoteManager) throw new Error("remote manager unavailable");
         if (payload.level !== "global" && payload.level !== "project") {
@@ -9257,7 +9258,7 @@ function registerIpc() {
   handle(
     IPC.invoke.mcpSetEnabled,
     async (payload: { id: string; enabled: boolean } & Partial<AgentCapabilityQuery>) => {
-      const remoteTarget = remoteMcpContext(payload);
+      const remoteTarget = remoteCapabilityContext(payload);
       if (remoteTarget) {
         if (!remoteManager) throw new Error("remote manager unavailable");
         if (payload.level !== "global" && payload.level !== "project") {
@@ -9281,7 +9282,7 @@ function registerIpc() {
   handle(
     IPC.invoke.mcpSetScope,
     async (payload: { id: string; scope: ActivationScope }) => {
-      const remoteTarget = remoteMcpContext();
+      const remoteTarget = remoteCapabilityContext();
       if (remoteTarget) {
         if (!remoteManager) throw new Error("remote manager unavailable");
         const res = await remoteManager.setMcpScope(
@@ -9303,7 +9304,7 @@ function registerIpc() {
   handle(
     IPC.invoke.mcpTest,
     async (payload: { id: string } & Partial<AgentCapabilityQuery>) => {
-      const remoteTarget = remoteMcpContext(payload);
+      const remoteTarget = remoteCapabilityContext(payload);
       if (remoteTarget) {
         if (!remoteManager) throw new Error("remote manager unavailable");
         if (payload.level !== "global" && payload.level !== "project") {
@@ -9339,7 +9340,7 @@ function registerIpc() {
    * single bad entry costs that entry rather than the whole paste.
    */
   handle(IPC.invoke.mcpImport, async (payload: { text: string }) => {
-    const remoteTarget = remoteMcpContext();
+    const remoteTarget = remoteCapabilityContext();
     if (remoteTarget) {
       if (!remoteManager) throw new Error("remote manager unavailable");
       const parsed = parseMcpImport(String(payload?.text ?? ""));
@@ -9381,11 +9382,29 @@ function registerIpc() {
   // --- Skills the user owns -------------------------------------------------
 
   handle(IPC.invoke.skillList, async (query: Partial<AgentCapabilityQuery> = {}) => {
+    const remoteTarget = remoteCapabilityContext(query);
+    if (remoteTarget) {
+      if (!remoteManager) throw new Error("remote manager unavailable");
+      if (query.level !== "global" && query.level !== "project") {
+        throw Object.assign(new Error("capability level is required"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+      }
+      return remoteManager.listSkills({
+        level: query.level,
+        projectPath: remoteTarget.canonicalProjectPath,
+      });
+    }
     if (!host) throw new Error("host unavailable");
     return host.call("skills.list", query);
   });
 
   handle(IPC.invoke.skillCreate, async (skill: Record<string, unknown>) => {
+    const projectPath = (skill as UserSkillInput).projectPath ?? currentWorkspacePath() ?? undefined;
+    if (remoteCapabilityContext({ projectPath })) {
+      if (!remoteManager) throw new Error("remote manager unavailable");
+      const res = await remoteManager.createSkill(skill as UserSkillInput, projectPath);
+      sendToRenderer(IPC.event.pluginChanged, { reason: "skill", pluginId: res.skill?.id });
+      return res;
+    }
     if (!host) throw new Error("host unavailable");
     const res = await host.call("skills.create", { skill });
     sendToRenderer(IPC.event.pluginChanged,{ reason: "skill" });
@@ -9394,13 +9413,28 @@ function registerIpc() {
 
   /** Import exactly one markdown file into the selected capability directory. */
   handle(IPC.invoke.skillImport, async (query: Partial<AgentCapabilityQuery> = {}) => {
-    if (!host) throw new Error("host unavailable");
+    const remoteTarget = remoteCapabilityContext(query);
     const picked = await dialog.showOpenDialog({
       title: "Import skill",
       properties: ["openFile"],
       filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
     });
     if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
+    if (remoteTarget) {
+      if (!remoteManager) throw new Error("remote manager unavailable");
+      const body = await readFile(picked.filePaths[0], "utf8");
+      const name = basename(picked.filePaths[0]).replace(/\.(md|markdown)$/i, "");
+      const res = await remoteManager.createSkill({
+        name,
+        body,
+        ...(query.level ? { level: query.level } : {}),
+        ...(query.projectPath ? { projectPath: remoteTarget.remotePath } : {}),
+        enabled: true,
+      }, remoteTarget.canonicalProjectPath);
+      sendToRenderer(IPC.event.pluginChanged, { reason: "skill", pluginId: res.skill?.id });
+      return res;
+    }
+    if (!host) throw new Error("host unavailable");
     const res = await host.call("skills.import", {
       path: picked.filePaths[0],
       ...query,
@@ -9412,6 +9446,14 @@ function registerIpc() {
   handle(
     IPC.invoke.skillUpdate,
     async (payload: { id: string } & Record<string, unknown>) => {
+      const projectPath = (payload as { projectPath?: string }).projectPath ?? currentWorkspacePath() ?? undefined;
+      if (remoteCapabilityContext({ projectPath })) {
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        const { id, projectPath: _remoteProjectPath, ...skill } = payload;
+        const res = await remoteManager.updateSkill(id, skill as UserSkillInput, projectPath);
+        sendToRenderer(IPC.event.pluginChanged, { reason: "skill", pluginId: res.skill?.id });
+        return res;
+      }
       if (!host) throw new Error("host unavailable");
       const { id, ...skill } = payload;
       const res = await host.call("skills.update", { id, skill });
@@ -9423,8 +9465,17 @@ function registerIpc() {
   handle(
     IPC.invoke.skillRead,
     async (payload: string | ({ id: string } & Partial<AgentCapabilityQuery>)) => {
-      if (!host) throw new Error("host unavailable");
       const request = typeof payload === "string" ? { id: payload } : payload;
+      const remoteTarget = remoteCapabilityContext(request);
+      if (remoteTarget) {
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        return remoteManager.readSkill({
+          id: request.id,
+          ...(request.level ? { level: request.level } : {}),
+          projectPath: remoteTarget.canonicalProjectPath,
+        });
+      }
+      if (!host) throw new Error("host unavailable");
       return host.call("skills.read", request);
     },
   );
@@ -9432,8 +9483,22 @@ function registerIpc() {
   handle(
     IPC.invoke.skillRemove,
     async (payload: string | ({ id: string } & Partial<AgentCapabilityQuery>)) => {
-      if (!host) throw new Error("host unavailable");
       const request = typeof payload === "string" ? { id: payload } : payload;
+      const remoteTarget = remoteCapabilityContext(request);
+      if (remoteTarget) {
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        if (request.level !== "global" && request.level !== "project") {
+          throw Object.assign(new Error("capability level is required"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+        }
+        const res = await remoteManager.removeSkill({
+          id: request.id,
+          level: request.level,
+          projectPath: remoteTarget.canonicalProjectPath,
+        });
+        sendToRenderer(IPC.event.pluginChanged, { reason: "skill", pluginId: request.id });
+        return res;
+      }
+      if (!host) throw new Error("host unavailable");
       const res = await host.call("skills.remove", request);
       sendToRenderer(IPC.event.pluginChanged,{ reason: "skill" });
       return res;
@@ -9443,6 +9508,19 @@ function registerIpc() {
   handle(
     IPC.invoke.skillSetEnabled,
     async (payload: { id: string; enabled: boolean } & Partial<AgentCapabilityQuery>) => {
+      const remoteTarget = remoteCapabilityContext(payload);
+      if (remoteTarget) {
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        if (payload.level !== "global" && payload.level !== "project") {
+          throw Object.assign(new Error("capability level is required"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+        }
+        const res = await remoteManager.setSkillEnabled(payload.id, payload.enabled, {
+          level: payload.level,
+          projectPath: remoteTarget.canonicalProjectPath,
+        });
+        sendToRenderer(IPC.event.pluginChanged, { reason: "skill", pluginId: payload.id });
+        return res;
+      }
       if (!host) throw new Error("host unavailable");
       const res = await host.call("skills.setEnabled", payload);
       sendToRenderer(IPC.event.pluginChanged,{ reason: "skill" });
@@ -9453,6 +9531,16 @@ function registerIpc() {
   handle(
     IPC.invoke.skillSetScope,
     async (payload: { id: string; scope: ActivationScope }) => {
+      if (remoteCapabilityContext()) {
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        const res = await remoteManager.setSkillScope(
+          payload.id,
+          payload.scope as unknown as Record<string, unknown>,
+          currentWorkspacePath() ?? undefined,
+        );
+        sendToRenderer(IPC.event.pluginChanged, { reason: "skill", pluginId: payload.id });
+        return res;
+      }
       if (!host) throw new Error("host unavailable");
       const res = await host.call("skills.setScope", payload);
       sendToRenderer(IPC.event.pluginChanged,{ reason: "skill" });
@@ -9468,6 +9556,9 @@ function registerIpc() {
   handle(
     IPC.invoke.skillReveal,
     async (payload: string | ({ id: string } & Partial<AgentCapabilityQuery>)) => {
+      if (remoteCapabilityContext(typeof payload === "string" ? {} : payload)) {
+        throw Object.assign(new Error("revealing remote files locally is unsupported"), { errorCode: ErrorCodes.UNSUPPORTED });
+      }
       if (!host) throw new Error("host unavailable");
       const request = typeof payload === "string" ? { id: payload } : payload;
       const res = await host.call<{ skill: UserSkillRecord | null }>("skills.read", request);

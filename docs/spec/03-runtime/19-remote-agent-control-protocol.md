@@ -603,6 +603,13 @@ session root as working directory and stream through `terminal.output`.
 | `mcp/setEnabled` | owner | Enable or disable a user-owned MCP definition |
 | `mcp/setScope` | owner | Change a user-owned MCP definition's activation scope |
 | `mcp/test` | owner | Force an MCP handshake and return its bounded status |
+| `skills/list` | owner | List user-owned Skill definitions |
+| `skills/create` | owner | Create a user-owned Skill definition |
+| `skills/update` | owner | Update a user-owned Skill definition |
+| `skills/read` | owner | Read a user-owned Skill definition and document body |
+| `skills/remove` | owner | Remove a user-owned Skill definition |
+| `skills/setEnabled` | owner | Enable or disable a user-owned Skill definition |
+| `skills/setScope` | owner | Change a user-owned Skill definition's activation scope |
 | `terminal/open` | controller | Open a pty on the Host with the session root as cwd; returns a terminal id and the bounded replay ring; policy-gated (security §4.1) |
 | `terminal/input` | controller | Write bytes to an open terminal |
 | `terminal/resize` | controller | Resize an open terminal |

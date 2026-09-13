@@ -104,6 +104,27 @@ const profile: RacpRemoteProfile = {
   async testMcp() {
     throw new Error("unused");
   },
+  async listSkills() {
+    return { skills: [] };
+  },
+  async createSkill() {
+    throw new Error("unused");
+  },
+  async updateSkill() {
+    throw new Error("unused");
+  },
+  async readSkill() {
+    return { skill: null, body: null };
+  },
+  async removeSkill() {
+    return { ok: false };
+  },
+  async setSkillEnabled() {
+    throw new Error("unused");
+  },
+  async setSkillScope() {
+    throw new Error("unused");
+  },
   async openTerminal() {
     return { terminalId: "term_1", replay: Buffer.alloc(0).toString("base64") };
   },

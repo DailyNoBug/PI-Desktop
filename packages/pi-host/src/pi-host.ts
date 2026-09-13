@@ -16,6 +16,7 @@ import type {
   RemoteDirectoryResult,
   SessionSummary,
   UiMessage,
+  UserSkillRecord,
   WorkspaceDiff,
 } from "@pi-desktop/shared";
 import {
@@ -327,6 +328,15 @@ export class PiHostService {
         this.mcp.mergeRecords([server]);
         return { status: await this.mcp.test(server.id) };
       },
+      listSkills: async (params) => this.host.call<{ skills?: UserSkillRecord[] }>("skills.list", params).then((result) => ({
+        skills: result.skills ?? [],
+      })),
+      createSkill: async (params) => this.host.call<{ skill: UserSkillRecord }>("skills.create", params),
+      updateSkill: async (params) => this.host.call<{ skill: UserSkillRecord }>("skills.update", params),
+      readSkill: async (params) => this.host.call<{ skill: UserSkillRecord | null; body: string | null }>("skills.read", params),
+      removeSkill: async (params) => this.host.call<{ ok?: boolean }>("skills.remove", params),
+      setSkillEnabled: async (params) => this.host.call<{ skill: UserSkillRecord }>("skills.setEnabled", params),
+      setSkillScope: async (params) => this.host.call<{ skill: UserSkillRecord }>("skills.setScope", params),
       advertiseTools: async (tools: RacpRelayTool[]) => {
         const rejected = tools
           .filter((tool) => tool.requiresWorkspace)
