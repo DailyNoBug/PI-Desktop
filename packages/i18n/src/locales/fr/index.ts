@@ -613,6 +613,16 @@ export const fr = {
     "user": "Utilisateur",
     "port": "Port",
     "identityFile": "Fichier d'identité",
+    "authentication": "Authentification",
+    "auth": {
+      "agent": "Agent SSH",
+      "password": "Mot de passe",
+      "identity": "Fichier d'identité",
+    },
+    "password": "Mot de passe",
+    "savedPassword": "Mot de passe enregistré",
+    "chooseFile": "Choisir un fichier",
+    "selectIdentityFile": "Sélectionner un fichier d'identité SSH",
     "state": {
       "disconnected": "Déconnecté",
       "resolving": "Résolution",

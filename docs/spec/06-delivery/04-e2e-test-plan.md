@@ -9811,28 +9811,33 @@ browser milestones are scheduled.
   serves the `pi-host` bundle for that platform at the desktop's version, an
   older bundle, a newer bundle, and a tampered bundle with a wrong checksum.
   The desktop has one local session open, one user MCP server configured,
-  and one installed plugin whose tool requires workspace access.
+  one installed plugin whose tool requires workspace access, and one
+  password-only SSH fixture in addition to the key-based machine.
 - **Steps**: 1) Add the remote machine from the desktop and let the uploaded
   bootstrap script download, verify, and start `pi-host` over SSH.
-  2) Observe the pairing exchange and the resulting device token. 3) Create a
+  2) Add the password-only fixture through the manual form, choose password
+  authentication, and test it without entering an identity path. 3) Observe the
+  pairing exchange and the resulting device token for the key-based machine. 4) Create a
   session under a remote project through the picker's browse, Home, typed
   absolute path, and recent-path controls, then through `project/list` and
-  `session/create`. 4) Start a turn whose fixture reads, edits, and runs a
+  `session/create`. 5) Start a turn whose fixture reads, edits, and runs a
   command in the remote project, and approve the command from the desktop
-  card. 5) Regenerate the answer, switch between both revisions, and switch
-  back to the latest branch. 6) Switch the session to Plan mode and back with
-  `session/configure` while idle, then attempt it while a turn runs. 7) Open
-  the files tab and the diff tab for the remote session. 8) Advertise relay
+  card. 6) Regenerate the answer, switch between both revisions, and switch
+  back to the latest branch. 7) Switch the session to Plan mode and back with
+  `session/configure` while idle, then attempt it while a turn runs. 8) Open
+  the files tab and the diff tab for the remote session. 9) Advertise relay
   from the desktop, run a
   turn that calls the desktop MCP tool, then close the desktop during a
-  second call. 9) Open a terminal on the remote session and run a command.
-  10) Kill the SSH session mid-turn with the terminal open, restore it, and
-  let the desktop reconnect. 11) Inspect the remote tool catalog. 12) Attempt
+  second call. 10) Open a terminal on the remote session and run a command.
+  11) Kill the SSH session mid-turn with the terminal open, restore it, and
+  let the desktop reconnect. 12) Inspect the remote tool catalog. 13) Attempt
   to connect from a non-loopback address on the remote machine, then with a
-  reused pairing token. 13) Point the bootstrap at the tampered bundle, then
+  reused pairing token. 14) Point the bootstrap at the tampered bundle, then
   at the older bundle, then at the newer bundle, and reconnect after each.
 - **Expected**: Files change only on the remote machine and the command runs
-  there; the approval card appears in the desktop with the local vocabulary;
+  there; the password-only connection tests successfully without an identity
+  path and its exported JSON contains no password; the approval card appears
+  in the desktop with the local vocabulary;
   the remote host-core binds loopback only; `session/configure` succeeds while
   idle and returns `CONFLICT` while running; files and diff come from the
   remote session root and a path outside it returns
@@ -9851,7 +9856,8 @@ browser milestones are scheduled.
   until the Desktop is upgraded; and the local session is untouched throughout.
 - **Specs linked**: `02-architecture/05-remote-agent-control.md` §§5.2 and
   6.3, `03-runtime/19-remote-agent-control-protocol.md` §§6.2, 9.4, and
-  11.1, `05-security/02-remote-control-security.md` §§3.4, 4.3, 5.1, and 7,
+  11.1, `03-runtime/20-remote-ssh-desktop.md` §3,
+  `05-security/02-remote-control-security.md` §§3.4, 4.3, 5.1, and 7,
   `06-delivery/07-remote-control-rollout.md` §2
 - **Acceptance**: E (tools & permissions), Security, Recovery, Quality
 - **Milestone**: Post-MVP (rollout R2)

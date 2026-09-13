@@ -618,6 +618,16 @@ export const zhCN = {
     user: "用户",
     port: "端口",
     identityFile: "私钥文件",
+    authentication: "认证方式",
+    auth: {
+      agent: "SSH Agent",
+      password: "密码",
+      identity: "私钥文件",
+    },
+    password: "密码",
+    savedPassword: "已保存密码",
+    chooseFile: "选择文件",
+    selectIdentityFile: "选择 SSH 私钥文件",
     state: {
       disconnected: "已断开",
       resolving: "正在解析",

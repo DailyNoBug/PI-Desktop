@@ -14,8 +14,13 @@
   }
 
   .remote-form-grid,
+  .remote-identity-row,
   .remote-project-controls {
     grid-template-columns: 1fr;
+  }
+
+  .remote-auth-segment {
+    width: 100%;
   }
 
   .remote-provider-select {

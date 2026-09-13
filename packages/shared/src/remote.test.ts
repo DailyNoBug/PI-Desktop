@@ -54,6 +54,67 @@ describe("remote SSH contracts", () => {
     }).ok).toBe(false);
   });
 
+  it("validates explicit managed SSH authentication choices", () => {
+    const password = validateRemoteConnectionInput({
+      displayName: "GPU",
+      source: "managed",
+      hostname: "gpu.internal",
+      authMethod: "password",
+      password: "secret-value",
+      enabled: true,
+    });
+    expect(password).toEqual({
+      ok: true,
+      value: expect.objectContaining({
+        authMethod: "password",
+        password: "secret-value",
+      }),
+    });
+
+    expect(validateRemoteConnectionInput({
+      displayName: "GPU",
+      source: "managed",
+      hostname: "gpu.internal",
+      authMethod: "identity",
+      enabled: true,
+    }).ok).toBe(false);
+    expect(validateRemoteConnectionInput({
+      displayName: "GPU",
+      source: "managed",
+      hostname: "gpu.internal",
+      authMethod: "identity",
+      identityFilePath: "/Users/dev/.ssh/id_ed25519",
+      enabled: true,
+    }).ok).toBe(true);
+    expect(validateRemoteConnectionInput({
+      displayName: "GPU",
+      source: "managed",
+      hostname: "gpu.internal",
+      identityFilePath: "/Users/dev/.ssh/id_ed25519",
+      enabled: true,
+    })).toEqual({
+      ok: true,
+      value: expect.objectContaining({ authMethod: "identity" }),
+    });
+    expect(validateRemoteConnectionInput({
+      displayName: "GPU",
+      source: "ssh-config",
+      sshConfigAlias: "gpu",
+      authMethod: "password",
+      password: "secret-value",
+      enabled: true,
+    }).ok).toBe(false);
+    expect(validateRemoteConnectionInput({
+      displayName: "GPU",
+      source: "managed",
+      hostname: "gpu.internal",
+      authMethod: "password",
+      identityFilePath: "/Users/dev/.ssh/id_ed25519",
+      password: "secret-value",
+      enabled: true,
+    }).ok).toBe(false);
+  });
+
   it("registers the full SSH failure vocabulary", () => {
     for (const code of [
       ErrorCodes.SSH_NOT_AVAILABLE,

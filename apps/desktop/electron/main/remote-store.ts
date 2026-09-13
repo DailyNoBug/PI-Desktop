@@ -18,6 +18,18 @@ type StoreShape = {
 
 const emptyStore: StoreShape = { version: 1, connections: [], hosts: [], projects: [] };
 
+function durableConnectionInput(
+  input: RemoteConnectionInput,
+): Omit<RemoteConnectionInput, "password"> {
+  const { password: _password, ...durable } = input;
+  const authMethod = durable.authMethod ?? (durable.identityFilePath ? "identity" : "agent");
+  return {
+    ...durable,
+    authMethod,
+    ...(authMethod === "identity" ? {} : { identityFilePath: "" }),
+  };
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -63,7 +75,7 @@ export class RemoteStore {
     const id = `ssh:${alias}`;
     const existing = this.getConnection(id);
     if (existing) return existing;
-    const next: RemoteConnection = { ...input, id, createdAt: now(), updatedAt: now() };
+    const next: RemoteConnection = { ...durableConnectionInput(input), id, createdAt: now(), updatedAt: now() };
     this.putConnection(next);
     return next;
   }
@@ -72,7 +84,7 @@ export class RemoteStore {
     const validated = validateRemoteConnectionInput(input);
     if (!validated.ok) throw new Error(validated.error);
     const connection: RemoteConnection = {
-      ...validated.value,
+      ...durableConnectionInput(validated.value),
       id: `managed:${randomUUID()}`,
       createdAt: now(),
       updatedAt: now(),
@@ -86,7 +98,12 @@ export class RemoteStore {
     if (!existing) throw new Error("remote connection not found");
     const validated = validateRemoteConnectionInput(input);
     if (!validated.ok) throw new Error(validated.error);
-    const next: RemoteConnection = { ...existing, ...validated.value, id, updatedAt: now() };
+    const next: RemoteConnection = {
+      ...existing,
+      ...durableConnectionInput(validated.value),
+      id,
+      updatedAt: now(),
+    };
     this.putConnection(next);
     return next;
   }

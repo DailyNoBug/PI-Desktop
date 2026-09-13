@@ -40,9 +40,10 @@ RemoteConnection
   visible project never rewrites another session's project root.
 
 Device tokens use the local host-core secret store with refs of the form
-`remote-host:<hostId>:device-token`. Private-key bytes, passwords, provider API
-keys, and device tokens never enter the renderer, SQLite project metadata, SSH
-URLs, or logs.
+`remote-host:<hostId>:device-token`. Private-key bytes, provider API keys, and
+device tokens never enter the renderer. A managed SSH password may be submitted
+once as write-only input, but is never returned to the renderer and never enters
+connection JSON, SQLite project metadata, SSH URLs, or logs.
 
 ## 3. SSH discovery and management
 
@@ -55,11 +56,15 @@ Settings owns a **Connections** destination.
    `ProxyCommand`, `ControlMaster`, and all other connection semantics are
    resolved by system `ssh -G`.
 3. A user may also create a manual connection with display name, an optional
-   OpenSSH alias, hostname, user, port, and identity-file path. When an alias
-   is supplied, OpenSSH resolves it; explicit fields remain durable metadata
-   and can be used when the alias is removed.
-4. Authentication is delegated to OpenSSH and the user's agent; PI-Desktop
-   stores only paths and non-secret connection fields.
+   OpenSSH alias, hostname, user, port, and one explicit authentication choice:
+   agent, password, or identity file. When an alias is supplied, OpenSSH
+   resolves it; explicit fields remain durable metadata and can be used when
+   the alias is removed.
+4. Authentication is delegated to system OpenSSH. Agent and identity modes use
+   the user's agent and a durable path respectively. Password mode stores a
+   write-only value in host-core's secret backend and supplies it through a
+   secret-free launcher and temporary mode-0600 askpass socket; the durable
+   connection and export documents contain only `authMethod`.
 5. An unknown host key is proposed through the same system-OpenSSH connection
    options (including aliases, `ProxyJump`, and `ProxyCommand`) into a private
    temporary `known_hosts` file, displayed for explicit acceptance, confirmed
