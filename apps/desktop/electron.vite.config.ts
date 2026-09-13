@@ -42,8 +42,44 @@ function dropLegacyFontFallbacks(): Plugin {
   };
 }
 
+// ws probes optional native accelerators inside try/catch. Rollup otherwise
+// hoists those CommonJS requires into unconditional top-level imports, which
+// turns a deliberately absent peer into a startup crash. Preserve ws's own
+// fallback by making each probe throw synchronously inside its original block.
+function preserveWsOptionalNativePeers(): Plugin {
+  return {
+    name: "pi-preserve-ws-optional-native-peers",
+    apply: "build",
+    enforce: "pre",
+    transform(code, id) {
+      const isBufferUtil = /[\\/]node_modules[\\/]ws[\\/]lib[\\/]buffer-util\.js(?:\?.*)?$/.test(id);
+      const isValidation = /[\\/]node_modules[\\/]ws[\\/]lib[\\/]validation\.js(?:\?.*)?$/.test(id);
+      if (isBufferUtil) {
+        return {
+          code: code.replace(
+            "require('bufferutil')",
+            `(() => { throw new Error("bufferutil is intentionally optional"); })()`,
+          ),
+          map: null,
+        };
+      }
+      if (isValidation) {
+        return {
+          code: code.replace(
+            "require('utf-8-validate')",
+            `(() => { throw new Error("utf-8-validate is intentionally optional"); })()`,
+          ),
+          map: null,
+        };
+      }
+      return null;
+    },
+  };
+}
+
 export default defineConfig({
   main: {
+    plugins: [preserveWsOptionalNativePeers()],
     build: {
       rollupOptions: {
         // Bundle JS workspace packages into Main. Only runtime modules that

@@ -226,6 +226,9 @@ sidecar/host shutdown sequence runs before the updater replaces the app.
   release entry. ASAR does not carry a second complete
   `@pi-desktop/agent-runtime` package tree; Electron Main may inline the
   pure-JS helpers it calls without changing process or protocol ownership
+- Main's bundled Remote SSH `ws` client does not package the optional native
+  accelerators `bufferutil` or `utf-8-validate`; packaging preserves their
+  in-library fallback so absent peers cannot become startup imports
 - renderer dependencies ship through Vite output rather than duplicate raw
   package trees; no interactive PTY native module is packaged
 - packaged builds use the Main-owned update controller. macOS, non-AppImage
