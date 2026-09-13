@@ -3,6 +3,7 @@ import { ErrorCodes } from "./errors.js";
 import {
   isRemoteProjectPath,
   normalizeRemotePath,
+  parseSshHostTarget,
   compareApplicationVersions,
   parseRemoteProjectUri,
   remoteProjectUri,
@@ -23,6 +24,18 @@ describe("remote SSH contracts", () => {
     });
     expect(isRemoteProjectPath(uri)).toBe(true);
     expect(isRemoteProjectPath("/home/dev/project")).toBe(false);
+  });
+
+  it("parses Codex-style SSH host targets", () => {
+    expect(parseSshHostTarget("root@gpu.internal")).toEqual({
+      user: "root",
+      hostname: "gpu.internal",
+    });
+    expect(parseSshHostTarget("gpu.internal")).toEqual({ hostname: "gpu.internal" });
+    expect(parseSshHostTarget("[::1]")).toEqual({ hostname: "[::1]" });
+    expect(parseSshHostTarget("bad user@host")).toBeNull();
+    expect(parseSshHostTarget("root@")).toBeNull();
+    expect(parseSshHostTarget("@host")).toBeNull();
   });
 
   it("rejects paths and aliases that could escape the URI identity", () => {

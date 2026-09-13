@@ -618,6 +618,10 @@ export const zhTW = {
     user: "使用者",
     port: "連接埠",
     identityFile: "私鑰檔案",
+    manualAdd: "手動新增",
+    hostPlaceholder: "host.com 或 user@host.com",
+    discoverAdd: "已探索主機",
+    connectRemoteDevice: "透過 SSH 連線到遠端裝置",
     authentication: "驗證方式",
     auth: {
       agent: "SSH Agent",

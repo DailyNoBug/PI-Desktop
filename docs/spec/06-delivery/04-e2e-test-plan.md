@@ -9815,7 +9815,7 @@ browser milestones are scheduled.
   password-only SSH fixture in addition to the key-based machine.
 - **Steps**: 1) Add the remote machine from the desktop and let the uploaded
   bootstrap script download, verify, and start `pi-host` over SSH.
-  2) Add the password-only fixture through the manual form, choose password
+  2) Add the password-only fixture through the add-modal manual pane, choose password
   authentication, and test it without entering an identity path. 3) Observe the
   pairing exchange and the resulting device token for the key-based machine. 4) Create a
   session under a remote project through the picker's browse, Home, typed

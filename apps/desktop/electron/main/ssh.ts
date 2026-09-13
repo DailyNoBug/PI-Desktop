@@ -84,7 +84,12 @@ export function discoverSshAliases(path = configFile()): string[] {
 
 function baseArgs(connection: RemoteConnection): string[] {
   if (connection.sshConfigAlias) {
-    return [connection.sshConfigAlias];
+    const args: string[] = [];
+    if (connection.user) args.push("-l", connection.user);
+    if (connection.port) args.push("-p", String(connection.port));
+    if (connection.identityFilePath) args.push("-i", connection.identityFilePath);
+    args.push(connection.sshConfigAlias);
+    return args;
   }
   const args: string[] = [];
   if (connection.port) args.push("-p", String(connection.port));
@@ -273,7 +278,7 @@ export async function effectiveSshConfig(connection: RemoteConnection): Promise<
   }
   return {
     hostname,
-    ...(values.get("user") ? { user: values.get("user") } : {}),
+    ...(connection.user?.trim() ? { user: connection.user.trim() } : values.get("user") ? { user: values.get("user") } : {}),
     port,
     ...(values.get("identityfile") ? { identityFile: values.get("identityfile")!.replace(/^"|"$/g, "") } : {}),
   };

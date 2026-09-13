@@ -224,6 +224,24 @@ export function isRemoteProjectPath(path: string | null | undefined): path is st
   return typeof path === "string" && parseRemoteProjectUri(path) !== null;
 }
 
+/** Parse Codex-style manual input such as `root@gpu.example`, `gpu.example`, or `[::1]`. */
+export function parseSshHostTarget(value: string | null | undefined): {
+  user?: string;
+  hostname: string;
+} | null {
+  const input = value?.trim() ?? "";
+  if (!input || /\s/.test(input)) return null;
+  const at = input.lastIndexOf("@");
+  const rawUser = at > 0 ? input.slice(0, at) : "";
+  const hostname = at > 0 ? input.slice(at + 1) : input;
+  if (!hostname || hostname.startsWith("@") || hostname.endsWith("@")) return null;
+  if (rawUser && (!/^[A-Za-z0-9._~-]+$/.test(rawUser) || rawUser.includes("@"))) return null;
+  return {
+    ...(rawUser ? { user: rawUser } : {}),
+    hostname,
+  };
+}
+
 export function validateRemoteConnectionInput(
   input: Partial<RemoteConnectionInput> | undefined,
 ): { ok: true; value: RemoteConnectionInput } | { ok: false; error: string } {

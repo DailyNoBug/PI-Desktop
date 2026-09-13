@@ -623,6 +623,10 @@ export const en = {
     user: "User",
     port: "Port",
     identityFile: "Identity file",
+    manualAdd: "Manual add",
+    hostPlaceholder: "host.com or user@host.com",
+    discoverAdd: "Discovered hosts",
+    connectRemoteDevice: "Connect to a remote device over SSH",
     authentication: "Authentication",
     auth: {
       agent: "SSH agent",

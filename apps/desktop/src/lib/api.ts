@@ -500,6 +500,8 @@ export const api = {
     invoke<{ connections: RemoteConnectionView[] }>(IPC.invoke.remoteListConnections),
   refreshRemoteConnections: () =>
     invoke<{ connections: RemoteConnectionView[] }>(IPC.invoke.remoteRefreshConnections),
+  discoverRemoteSshHosts: () =>
+    invoke<{ aliases: string[] }>(IPC.invoke.remoteDiscoverSshHosts),
   exportRemoteConnections: () =>
     invoke<{ export: string }>(IPC.invoke.remoteExportConnections),
   importRemoteConnections: (text: string) =>

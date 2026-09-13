@@ -622,6 +622,10 @@ export const tr = {
     user: "Kullanıcı",
     port: "Port",
     identityFile: "Kimlik dosyası",
+    manualAdd: "El ile ekle",
+    hostPlaceholder: "host.com veya user@host.com",
+    discoverAdd: "Bulunan sunucular",
+    connectRemoteDevice: "SSH ile uzak cihaza bağlan",
     authentication: "Kimlik doğrulama",
     auth: {
       agent: "SSH aracısı",

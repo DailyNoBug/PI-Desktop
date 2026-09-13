@@ -270,19 +270,16 @@ export class RemoteManager {
   }
 
   async refreshConnections(): Promise<RemoteConnectionView[]> {
-    try {
-      for (const alias of discoverSshAliases()) {
-        this.store.upsertDiscoveredConnection({
-          displayName: alias,
-          source: "ssh-config",
-          sshConfigAlias: alias,
-          enabled: true,
-        });
-      }
-    } catch (error) {
-      if ((error as { code?: string }).code !== "SSH_CONFIG_NOT_FOUND") throw error;
-    }
     return this.listConnections();
+  }
+
+  async discoverSshHosts(): Promise<{ aliases: string[] }> {
+    try {
+      return { aliases: discoverSshAliases() };
+    } catch (error) {
+      if ((error as { code?: string }).code === "SSH_CONFIG_NOT_FOUND") return { aliases: [] };
+      throw toIpcError(error);
+    }
   }
 
   listConnections(): RemoteConnectionView[] {

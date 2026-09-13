@@ -113,6 +113,7 @@ export const IPC = {
     projectClear: "pi-desktop/project/clear",
     remoteListConnections: "pi-desktop/remote/connections/list",
     remoteRefreshConnections: "pi-desktop/remote/connections/refresh",
+    remoteDiscoverSshHosts: "pi-desktop/remote/connections/discover",
     remoteExportConnections: "pi-desktop/remote/connections/export",
     remoteImportConnections: "pi-desktop/remote/connections/import",
     remoteTestConnection: "pi-desktop/remote/connections/test",

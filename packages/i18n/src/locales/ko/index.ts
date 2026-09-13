@@ -622,6 +622,10 @@ export const ko = {
     user: "사용자",
     port: "포트",
     identityFile: "신원 파일",
+    manualAdd: "직접 추가",
+    hostPlaceholder: "host.com 또는 user@host.com",
+    discoverAdd: "발견한 호스트",
+    connectRemoteDevice: "SSH로 원격 기기에 연결",
     authentication: "인증",
     auth: {
       agent: "SSH 에이전트",
