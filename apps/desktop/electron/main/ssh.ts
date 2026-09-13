@@ -344,8 +344,15 @@ export async function knownHostAccepted(config: EffectiveSshConfig): Promise<boo
   for (const name of hostKeyNames(config)) {
     const result = await new Promise<SshExecutionResult>((resolve, reject) => {
       execFile("ssh-keygen", ["-F", name, "-f", path], { timeout: 5_000 }, (error, stdout, stderr) => {
-        if (error && !(error as { code?: number }).code) reject(error);
-        else resolve({ code: (error as { code?: number }).code ?? 0, stdout: String(stdout), stderr: String(stderr) });
+        if (!error) {
+          resolve({ code: 0, stdout: String(stdout), stderr: String(stderr) });
+          return;
+        }
+        if (!error.code) {
+          reject(error);
+          return;
+        }
+        resolve({ code: Number(error.code), stdout: String(stdout), stderr: String(stderr) });
       });
     });
     if (/Host .* found/.test(result.stdout)) return true;
