@@ -595,6 +595,8 @@ export const en = {
     upgradeHost: "Upgrade Host",
     syncProvider: "Sync provider",
     deleteProvider: "Delete remote provider",
+    revokeDevice: "Revoke device",
+    deviceRevoked: "Device token revoked",
     verifyTitle: "Verify remote host",
     verifyMessage: "Trust {{target}}?",
     verifyHost: "Trust Host",

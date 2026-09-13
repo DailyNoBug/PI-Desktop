@@ -590,6 +590,8 @@ export const zhCN = {
     upgradeHost: "升级 Host",
     syncProvider: "同步模型服务",
     deleteProvider: "删除远程模型服务凭据",
+    revokeDevice: "撤销设备",
+    deviceRevoked: "设备令牌已撤销",
     verifyTitle: "验证远程主机",
     verifyMessage: "信任 {{target}} 吗？",
     verifyHost: "信任主机",

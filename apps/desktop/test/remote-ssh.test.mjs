@@ -24,6 +24,7 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
     ["remoteConnect", "connectRemote"],
     ["remoteDisconnect", "disconnectRemote"],
     ["remoteUpgradeHost", "upgradeRemoteHost"],
+    ["remoteRevokeDevice", "revokeRemoteDevice"],
     ["remoteDiagnostics", "remoteDiagnostics"],
     ["remoteImportProvider", "importRemoteProvider"],
     ["remoteDeleteProvider", "deleteRemoteProvider"],
@@ -60,6 +61,7 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(manager, /secrets\.getForRuntime/);
   assert.match(manager, /onAudit\("ssh\.host_key\.accepted"/);
   assert.match(manager, /onAudit\("remote\.pairing\.created"/);
+  assert.match(manager, /onAudit\("remote\.pairing\.revoked"/);
   assert.match(manager, /onAudit\("remote\.permission\.decision"/);
   assert.match(manager, /async upgradeHost/);
   assert.match(manager, /PI_HOST_FORCE_RESTART: "1"/);
@@ -81,7 +83,16 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(ssh, /127\.0\.0\.1:\$\{localPort\}:127\.0\.0\.1:\$\{remotePort\}/);
   assert.match(main, /new RemoteManager|RemoteManager\.open/);
   assert.match(main, /remoteManager\.upgradeHost/);
+  assert.match(main, /remoteManager\.revokeDevice/);
   assert.match(connections, /upgradeRemoteHost/);
+  assert.match(connections, /revokeRemoteDevice/);
+  const managerSource = manager.slice(
+    manager.indexOf("async revokeDevice"),
+    manager.indexOf("remoteProjectContext"),
+  );
+  assert.match(managerSource, /--stop/);
+  assert.match(managerSource, /--revoke-device/);
+  assert.match(managerSource, /secrets\.delete/);
   assert.match(connections, /exportRemoteConnections/);
   assert.match(connections, /importRemoteConnections/);
   assert.match(main, /setAsDefaultProtocolClient\("pi-desktop"\)/);

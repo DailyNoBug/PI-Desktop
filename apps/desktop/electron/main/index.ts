@@ -7425,6 +7425,10 @@ function registerIpc() {
     if (!remoteManager) throw new Error("remote manager unavailable");
     return { connection: await remoteManager.upgradeHost(requiredId(input.connectionId, "connectionId")) };
   });
+  handle(IPC.invoke.remoteRevokeDevice, async (input: { connectionId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.revokeDevice(requiredId(input.connectionId, "connectionId"));
+  });
   handle(IPC.invoke.remoteDiagnostics, async (input: { connectionId?: string }) => {
     if (!remoteManager) throw new Error("remote manager unavailable");
     return remoteManager.diagnostics(requiredId(input.connectionId, "connectionId"));

@@ -594,6 +594,8 @@ export const ko = {
     upgradeHost: "Host 업데이트",
     syncProvider: "프로바이더 동기화",
     deleteProvider: "원격 프로바이더 삭제",
+    revokeDevice: "기기 토큰 해제",
+    deviceRevoked: "기기 토큰을 해제했습니다",
     verifyTitle: "원격 호스트 확인",
     verifyMessage: "{{target}}을(를) 신뢰할까요?",
     verifyHost: "호스트 신뢰",

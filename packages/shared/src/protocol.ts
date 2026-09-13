@@ -122,6 +122,7 @@ export const IPC = {
     remoteConnect: "pi-desktop/remote/connections/connect",
     remoteDisconnect: "pi-desktop/remote/connections/disconnect",
     remoteUpgradeHost: "pi-desktop/remote/connections/upgradeHost",
+    remoteRevokeDevice: "pi-desktop/remote/connections/revokeDevice",
     remoteDiagnostics: "pi-desktop/remote/connections/diagnostics",
     remoteImportProvider: "pi-desktop/remote/connections/importProvider",
     remoteDeleteProvider: "pi-desktop/remote/connections/deleteProvider",

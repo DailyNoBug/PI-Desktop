@@ -32,13 +32,16 @@ RemoteConnection
 - 远端会话携带 `hostId`，没有该字段表示本地 Host。
 - Device token 只保存在本机 host-core secret store；私钥、密码、provider key 和 token 不进入 Renderer、普通 SQLite、URL 或日志。
 - 未知 Host key 必须显示指纹并经用户确认；绝不注入 `StrictHostKeyChecking=no`。
-- 每个连接提供状态、来源、最近连接时间、Host 版本、连接/断开、测试、显式升级/重启到当前 Desktop 版本、刷新、编辑、移除、远程项目选择和诊断复制。
+- 每个连接提供状态、来源、最近连接时间、Host 版本、连接/断开、测试、显式升级/重启到当前 Desktop 版本、device token 撤销、刷新、编辑、移除、远程项目选择和诊断复制。
 - 用户可手工创建连接，字段包含显示名、可选 OpenSSH alias、hostname、user、port 和 identity file 路径。提供 alias 时由 OpenSSH 解析；显式字段仍持久保存，alias 移除后可继续使用。
 - 连接可以导出/导入版本化 JSON。文档只含非秘密连接元数据，绝不包含 device token、provider 凭据、私钥字节、Host 记录或项目。导入逐项校验，并更新既有 alias 或 managed endpoint 而不是制造重复记录。
 
 Desktop 通过 SSH 检测 Linux 架构，获取同版本 GitHub Release checksum，上传 bootstrap 脚本，在远端用户目录 SHA-256 验证并安装 `pi-host`，以 `setsid` 显式启动 daemon，再通过 RACP 初始化交换一次性 pairing token。之后建立只绑定 loopback 的本地端口转发。
 
 协议或存储版本不兼容时终止本次连接并提示升级，不能运行 Agent。显式升级会关闭本地传输，用强制重启重新执行带 checksum 的 bootstrap，并沿同一配对路径重连；绝不安装未校验包或绕过版本协商。
+
+撤销 device token 会断开本地 RACP 客户端、停止远端 Host、清除 owner-only
+token 文件、删除本地 secret，并在下次连接前要求重新配对。
 
 重连使用 `0s, 1s, 2s, 4s, 8s, 15s, 30s, 30s…`；认证、Host key、token、checksum 或协议不兼容错误不盲目重试。RACP 订阅保留 `{ epoch, sequence }` cursor，重连后按 cursor 或 snapshot 恢复，不重复执行已完成的工具调用或已准入 prompt。
 

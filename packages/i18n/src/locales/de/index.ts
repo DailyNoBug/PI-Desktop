@@ -585,6 +585,8 @@ export const de = {
     "upgradeHost": "Host aktualisieren",
     "syncProvider": "Anbieter synchronisieren",
     "deleteProvider": "Remote-Anbieter löschen",
+    "revokeDevice": "Gerät widerrufen",
+    "deviceRevoked": "Device-Token widerrufen",
     "verifyTitle": "Remote-Host überprüfen",
     "verifyMessage": "{{target}} vertrauen?",
     "verifyHost": "Host vertrauen",

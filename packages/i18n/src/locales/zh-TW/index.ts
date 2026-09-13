@@ -590,6 +590,8 @@ export const zhTW = {
     upgradeHost: "升級 Host",
     syncProvider: "同步模型服務",
     deleteProvider: "刪除遠端模型服務憑證",
+    revokeDevice: "撤銷裝置",
+    deviceRevoked: "裝置權杖已撤銷",
     verifyTitle: "驗證遠端主機",
     verifyMessage: "信任 {{target}} 嗎？",
     verifyHost: "信任主機",

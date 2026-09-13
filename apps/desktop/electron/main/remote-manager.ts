@@ -1078,6 +1078,29 @@ export class RemoteManager {
     return { deleted: true };
   }
 
+  async revokeDevice(id: string): Promise<{ revoked: boolean }> {
+    const connection = this.requireConnection(id);
+    await this.disconnect(id);
+    const script = [
+      `NODE="$HOME/.pi-desktop/host/current/node"`,
+      `HOST="$HOME/.pi-desktop/host/current/pi-host.js"`,
+      `RUNTIME="$HOME/.pi-desktop/host/runtime"`,
+      `if [ ! -x "$NODE" ] || [ ! -f "$HOST" ]; then echo "REMOTE_HOST_UNAVAILABLE: pi-host is not installed" >&2; exit 1; fi`,
+      `"$NODE" "$HOST" --stop --runtime-dir "$RUNTIME" >/dev/null 2>&1 || true`,
+      `"$NODE" "$HOST" --revoke-device --runtime-dir "$RUNTIME"`,
+      "",
+    ].join("\n");
+    const result = await runSshScript(connection, script, {});
+    if (result.code !== 0) throw classifySsh(result);
+    const hostId = this.hostIdFor(id);
+    const host = this.getHost();
+    if (host) await host.call("secrets.delete", { secretRef: tokenRef(hostId) }).catch(() => undefined);
+    const revoked = result.stdout.includes("revoked");
+    this.events.onAudit("remote.pairing.revoked", { connectionId: id, hostId, revoked });
+    this.events.onConnectionsChanged();
+    return { revoked };
+  }
+
   remoteProjectContext(projectPath: string | null | undefined): {
     connectionId: string;
     connectionKey: string;

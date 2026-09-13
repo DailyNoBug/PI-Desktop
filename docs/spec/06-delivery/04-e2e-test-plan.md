@@ -9936,7 +9936,9 @@ browser milestones are scheduled.
   re-import it. 4) Test both entries. 5) Connect to the unknown Host and
   inspect the
   fingerprint dialog. 6) Cancel once, reconnect, and accept the fingerprint.
-  7) Copy diagnostics. 8) Use the explicit Host upgrade action. 9) Sync and
+  7) Copy diagnostics. 8) Use the explicit Host upgrade action. 9) Revoke the
+  device token, confirm the old token cannot authenticate, then reconnect and
+  complete the new pairing confirmation. 10) Sync and
   then delete the selected provider.
 - **Expected**: `gpu` appears exactly once and `Host *` does not appear. Manual
   fields persist without private-key bytes. Cancellation performs no
@@ -9944,7 +9946,9 @@ browser milestones are scheduled.
   export contains no token or secret material, and re-import is idempotent.
   state advances through named stages, diagnostics are redacted, explicit
   upgrade force-restarts the checksummed current version before RACP
-  negotiation, and provider sync/delete names the remote machine and never
+  negotiation, revocation invalidates the old device token and local secret,
+  reconnection requires a new one-time pairing exchange, and provider
+  sync/delete names the remote machine and never
   returns the secret.
 - **Specs linked**: `04-ux/06-settings-ia.md` §Connections,
   `03-runtime/20-remote-ssh-desktop.md` §§3–8, ADR 0234

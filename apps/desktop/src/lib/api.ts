@@ -523,6 +523,8 @@ export const api = {
     invoke(IPC.invoke.remoteDisconnect, { connectionId }),
   upgradeRemoteHost: (connectionId: string) =>
     invoke<{ connection: RemoteConnectionView }>(IPC.invoke.remoteUpgradeHost, { connectionId }),
+  revokeRemoteDevice: (connectionId: string) =>
+    invoke<{ revoked: boolean }>(IPC.invoke.remoteRevokeDevice, { connectionId }),
   remoteDiagnostics: (connectionId: string) =>
     invoke<RemoteDiagnostics>(IPC.invoke.remoteDiagnostics, { connectionId }),
   importRemoteProvider: (connectionId: string, providerId: string) =>

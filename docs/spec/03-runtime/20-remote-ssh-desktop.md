@@ -71,8 +71,8 @@ Settings owns a **Connections** destination.
 
 Each connection exposes state, source, last connected time, Host version,
 connect/disconnect, test, explicit Host upgrade/restart to the current Desktop
-version, refresh, edit, remove, remote project selection, and copyable
-diagnostics.
+version, device-token revocation, refresh, edit, remove, remote project
+selection, and copyable diagnostics.
 
 ## 4. Bootstrap, pairing, and forwarding
 
@@ -98,6 +98,9 @@ an upgrade rather than running Agent work against an incompatible Host.
 The explicit upgrade action closes the local transport, reruns the checksummed
 bootstrap with forced restart, and reconnects through the same pairing path; it
 never installs an unverified bundle or bypasses version negotiation.
+Device-token revocation disconnects the local RACP client, stops the remote
+Host, clears the owner-only token file, deletes the local secret, and requires
+a new pairing exchange before the next connection.
 
 ## 5. Reconnect
 

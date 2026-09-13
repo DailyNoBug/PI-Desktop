@@ -4,7 +4,7 @@ import type { ProviderPublic, RemoteConnectionInput, RemoteConnectionView } from
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
 import { Button, Input, Select, Textarea, TooltipButton, cx } from "../ui";
-import { IconClipboard, IconDownload, IconFolderOpen, IconPencil, IconPlus, IconRefresh, IconServer, IconX } from "../icons";
+import { IconClipboard, IconDownload, IconFolderOpen, IconPencil, IconPlus, IconRefresh, IconServer, IconShield, IconX } from "../icons";
 import { RemoteProjectDialog } from "./RemoteProjectDialog";
 
 const emptyForm: RemoteConnectionInput = {
@@ -68,10 +68,11 @@ export function ConnectionsSection() {
     }
   };
 
-  const action = async (id: string, operation: () => Promise<unknown>) => {
+  const action = async (id: string, operation: () => Promise<unknown>, successMessage?: string) => {
     setBusyId(id);
     try {
       await operation();
+      if (successMessage) showToast(successMessage, { variant: "success" });
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), { variant: "error" });
     } finally {
@@ -277,6 +278,19 @@ export function ConnectionsSection() {
                       onClick={() => edit(connection)}
                     >
                       <IconPencil size={14} />
+                    </TooltipButton>
+                    <TooltipButton
+                      tooltip={t("remote.revokeDevice")}
+                      ariaLabel={t("remote.revokeDevice")}
+                      className="icon-button danger"
+                      disabled={busyId === connection.id}
+                      onClick={() => void action(
+                        connection.id,
+                        () => api.revokeRemoteDevice(connection.id),
+                        t("remote.deviceRevoked"),
+                      )}
+                    >
+                      <IconShield size={14} />
                     </TooltipButton>
                     <TooltipButton
                       tooltip={t("remote.remove")}

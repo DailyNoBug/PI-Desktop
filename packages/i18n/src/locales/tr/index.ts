@@ -594,6 +594,8 @@ export const tr = {
     upgradeHost: "Host'u güncelle",
     syncProvider: "Servisi eşitle",
     deleteProvider: "Uzak servisi sil",
+    revokeDevice: "Cihaz belirtecini iptal et",
+    deviceRevoked: "Cihaz belirteci iptal edildi",
     verifyTitle: "Uzak sunucuyu doğrula",
     verifyMessage: "{{target}} güvenilsin mi?",
     verifyHost: "Sunucuya güven",

@@ -585,6 +585,8 @@ export const fr = {
     "upgradeHost": "Mettre à jour l'hôte",
     "syncProvider": "Synchroniser le fournisseur",
     "deleteProvider": "Supprimer le fournisseur distant",
+    "revokeDevice": "Révoquer l'appareil",
+    "deviceRevoked": "Jeton d'appareil révoqué",
     "verifyTitle": "Vérifier l'hôte distant",
     "verifyMessage": "Faire confiance à {{target}} ?",
     "verifyHost": "Faire confiance à l'hôte",
