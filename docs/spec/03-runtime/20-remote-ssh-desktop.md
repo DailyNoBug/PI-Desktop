@@ -49,17 +49,16 @@ connection JSON, SQLite project metadata, SSH URLs, or logs.
 
 Settings owns a **Connections** destination.
 
-1. On refresh, Electron Main reads only concrete `Host` aliases and `Include`
+1. On add-dialog discovery, Electron Main reads only concrete `Host` aliases and `Include`
    directives from the user's OpenSSH config. Pure patterns such as `Host *`
    are not entries.
 2. Effective hostname, port, user, identity file, `ProxyJump`,
    `ProxyCommand`, `ControlMaster`, and all other connection semantics are
    resolved by system `ssh -G`.
-3. A user may also create a manual connection with display name, an optional
-   OpenSSH alias, hostname, user, port, and one explicit authentication choice:
-   agent, password, or identity file. When an alias is supplied, OpenSSH
-   resolves it; explicit fields remain durable metadata and can be used when
-   the alias is removed.
+3. A user may also create a manual connection with display name,
+   `user@host` or `host`, port, and one explicit authentication choice:
+   agent, password, or identity file. An explicit target user is authoritative
+   even when an OpenSSH alias or configuration file supplies another user.
 4. Authentication is delegated to system OpenSSH. Agent and identity modes use
    the user's agent and a durable path respectively. Password mode stores a
    write-only value in host-core's secret backend and supplies it through a

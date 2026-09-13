@@ -426,24 +426,20 @@ system while preserving their different data ownership:
 
 ### Connections
 
-- **SSH connections** lists discovered OpenSSH aliases and manual connections
-  with display name, target, source, state, reconnect attempt, last error, and
-  remote Host version. Primary actions are Connect/Disconnect, Open remote
-  project, Test, Refresh, Edit, Remove, Sync provider, Delete remote provider,
-  and Copy diagnostics.
-- **Add/edit connection** uses a segmented source control (OpenSSH config or
-  Manual). OpenSSH entries require an alias; manual entries require hostname and
-  optionally user and port. Manual authentication is a second segmented control
-  for SSH agent, password, or identity file; the user supplies exactly one.
-  Password is a write-only field that indicates an existing value without
-  revealing it, while identity uses a Main-owned native file picker and stores
-  only the path. The form never accepts or displays private-key bytes.
+- **SSH connections** lists selected OpenSSH aliases and manual connections
+  with display name, target, source, state, reconnect attempt, and last error.
+  Connect/Disconnect is the only row action.
+- **Add connection** opens a modal. Its first pane discovers concrete OpenSSH
+  aliases on demand; Manual add opens a compact form that accepts
+  `host`, `user@host`, and an optional port. Manual authentication is a
+  segmented control for SSH agent, password, or identity file; the user supplies
+  exactly one. Password is write-only, while identity uses a Main-owned native
+  file picker and stores only the path. The form never accepts or displays
+  private-key bytes.
 - **Open remote project** opens a modal with connection selector, Home action,
   editable absolute path, bounded remote directory list, and Git-repository
   marker. Directory browsing is Host-owned; no native local folder picker is
   used.
-- The provider control names the exact remote machine that will receive the
-  credential before sync or deletion.
 
 ### Import
 - Scan supported local agent stores for **sessions** and **model configuration**

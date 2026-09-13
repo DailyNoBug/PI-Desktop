@@ -618,6 +618,10 @@ export const zhCN = {
     user: "用户",
     port: "端口",
     identityFile: "私钥文件",
+    manualAdd: "手动添加",
+    hostPlaceholder: "host.com 或 user@host.com",
+    discoverAdd: "已发现主机",
+    connectRemoteDevice: "通过 SSH 连接到远程设备",
     authentication: "认证方式",
     auth: {
       agent: "SSH Agent",

@@ -15,6 +15,7 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
   for (const [channel, fn] of [
     ["remoteListConnections", "listRemoteConnections"],
     ["remoteRefreshConnections", "refreshRemoteConnections"],
+    ["remoteDiscoverSshHosts", "discoverRemoteSshHosts"],
     ["remoteExportConnections", "exportRemoteConnections"],
     ["remoteImportConnections", "importRemoteConnections"],
     ["remoteTestConnection", "testRemoteConnection"],
@@ -52,20 +53,22 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
 });
 
 test("managed SSH connections support one explicit password or identity credential", async () => {
-  const [ui, api, main, manager, store, ssh] = await Promise.all([
+  const [ui, dialog, api, main, manager, store, ssh] = await Promise.all([
     read("apps/desktop/src/components/settings/ConnectionsSection.tsx"),
+    read("apps/desktop/src/components/settings/RemoteConnectionDialog.tsx"),
     read("apps/desktop/src/lib/api.ts"),
     read("apps/desktop/electron/main/index.ts"),
     read("apps/desktop/electron/main/remote-manager.ts"),
     read("apps/desktop/electron/main/remote-store.ts"),
     read("apps/desktop/electron/main/ssh.ts"),
   ]);
-  assert.match(ui, /authMethod: "agent"/);
-  assert.match(ui, /\["agent", "password", "identity"\]/);
-  assert.match(ui, /type="password"/);
-  assert.match(ui, /autoComplete="new-password"/);
-  assert.match(ui, /savedPassword/);
-  assert.match(ui, /api\.selectRemoteIdentityFile\(\)/);
+  assert.match(dialog, /useState<RemoteConnectionAuthMethod>\("agent"\)/);
+  assert.match(dialog, /\["agent", "password", "identity"\]/);
+  assert.match(dialog, /type="password"/);
+  assert.match(dialog, /autoComplete="new-password"/);
+  assert.match(dialog, /api\.selectRemoteIdentityFile\(\)/);
+  assert.match(dialog, /api\.discoverRemoteSshHosts\(\)/);
+  assert.match(dialog, /parseSshHostTarget\(target\)/);
   assert.match(api, /selectRemoteIdentityFile/);
   assert.match(main, /dialog\.showOpenDialog/);
   assert.match(main, /remoteSelectIdentityFile/);
@@ -177,8 +180,6 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(manager, /discardProposedHostKeys\(proposed\)/);
   assert.match(main, /remoteManager\.upgradeHost/);
   assert.match(main, /remoteManager\.revokeDevice/);
-  assert.match(connections, /upgradeRemoteHost/);
-  assert.match(connections, /revokeRemoteDevice/);
   const managerSource = manager.slice(
     manager.indexOf("async revokeDevice"),
     manager.indexOf("remoteProjectContext"),
@@ -186,12 +187,31 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(managerSource, /--stop/);
   assert.match(managerSource, /--revoke-device/);
   assert.match(managerSource, /secrets\.delete/);
-  assert.match(connections, /exportRemoteConnections/);
-  assert.match(connections, /importRemoteConnections/);
+  assert.match(connections, /api\.connectRemote/);
+  assert.match(connections, /api\.disconnectRemote/);
+  assert.doesNotMatch(connections, /TooltipButton|remote-connection-actions/);
   assert.match(main, /setAsDefaultProtocolClient\("pi-desktop"\)/);
   assert.match(main, /app\.on\("open-url"/);
   assert.match(main, /app\.on\("second-instance"/);
   assert.doesNotMatch(ssh, /StrictHostKeyChecking=no/);
+});
+
+test("SSH add uses a discovery modal and explicit target users override aliases", async () => {
+  const [connections, dialog, ssh, shared] = await Promise.all([
+    read("apps/desktop/src/components/settings/ConnectionsSection.tsx"),
+    read("apps/desktop/src/components/settings/RemoteConnectionDialog.tsx"),
+    read("apps/desktop/electron/main/ssh.ts"),
+    read("packages/shared/src/remote.ts"),
+  ]);
+  assert.match(connections, /<RemoteConnectionDialog/);
+  assert.match(connections, /remote-empty-card/);
+  assert.doesNotMatch(connections, /api\.testRemoteConnection|api\.upgradeRemoteHost|api\.revokeRemoteDevice|api\.remoteDiagnostics/);
+  assert.match(dialog, /mode === "discover"/);
+  assert.match(dialog, /setMode\("manual"\)/);
+  assert.match(dialog, /api\.discoverRemoteSshHosts\(\)/);
+  assert.match(shared, /export function parseSshHostTarget/);
+  assert.match(ssh, /if \(connection\.sshConfigAlias\) \{\s*const args: string\[\] = \[\];\s*if \(connection\.user\) args\.push\("-l", connection\.user\);/);
+  assert.match(ssh, /connection\.user\?\.trim\(\) \? \{ user: connection\.user\.trim\(\) \}/);
 });
 
 test("remote deep links are packaged and confirmed in Main", async () => {

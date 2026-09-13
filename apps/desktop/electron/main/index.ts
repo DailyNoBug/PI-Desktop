@@ -7380,6 +7380,10 @@ function registerIpc() {
     if (!remoteManager) throw new Error("remote manager unavailable");
     return { connections: await remoteManager.refreshConnections() };
   });
+  handle(IPC.invoke.remoteDiscoverSshHosts, async () => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.discoverSshHosts();
+  });
   handle(IPC.invoke.remoteExportConnections, async () => {
     if (!remoteManager) throw new Error("remote manager unavailable");
     return { export: remoteManager.exportConnections() };

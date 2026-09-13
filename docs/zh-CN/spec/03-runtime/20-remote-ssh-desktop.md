@@ -37,7 +37,7 @@ RemoteConnection
   `StrictHostKeyChecking=accept-new` 确认，校验指纹一致，再写入真实
   `known_hosts`。
 - 每个连接提供状态、来源、最近连接时间、Host 版本、连接/断开、测试、显式升级/重启到当前 Desktop 版本、device token 撤销、刷新、编辑、移除、远程项目选择和诊断复制。
-- 用户可手工创建连接，字段包含显示名、可选 OpenSSH alias、hostname、user、port，以及 agent、密码或 identity file 三选一的显式认证方式。提供 alias 时由 OpenSSH 解析；显式字段仍持久保存，alias 移除后可继续使用。
+- 用户可手工创建连接，字段包含显示名、`user@host` 或 `host`、port，以及 agent、密码或 identity file 三选一的显式认证方式。显式 target user 始终生效，即使 OpenSSH alias 或配置文件提供其他用户。
 - 密码输入只写入 host-core secret backend，不进入连接 JSON、导出/导入、诊断或日志；连接时通过不含秘密的临时 askpass launcher 交给 system OpenSSH。Identity 模式只保存路径，不读取私钥字节。
 - 连接可以导出/导入版本化 JSON。文档只含非秘密连接元数据，绝不包含 device token、provider 凭据、私钥字节、Host 记录或项目。导入逐项校验，并更新既有 alias 或 managed endpoint 而不是制造重复记录。
 

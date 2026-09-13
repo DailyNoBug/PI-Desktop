@@ -8,6 +8,11 @@
     grid-template-columns: 28px 1fr;
   }
 
+  .remote-connection-row > :last-child {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
   .remote-connection-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
@@ -21,6 +26,14 @@
 
   .remote-auth-segment {
     width: 100%;
+  }
+
+  .remote-connection-footer {
+    align-items: stretch;
+  }
+
+  .remote-connection-footer .button {
+    flex: 1 1 auto;
   }
 
   .remote-provider-select {

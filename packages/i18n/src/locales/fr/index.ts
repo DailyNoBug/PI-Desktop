@@ -613,6 +613,10 @@ export const fr = {
     "user": "Utilisateur",
     "port": "Port",
     "identityFile": "Fichier d'identité",
+    "manualAdd": "Ajout manuel",
+    "hostPlaceholder": "host.com ou user@host.com",
+    "discoverAdd": "Hôtes découverts",
+    "connectRemoteDevice": "Se connecter à un appareil distant par SSH",
     "authentication": "Authentification",
     "auth": {
       "agent": "Agent SSH",
