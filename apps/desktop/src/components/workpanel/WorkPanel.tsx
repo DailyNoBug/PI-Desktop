@@ -9,7 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
-import type { PluginViewMeta } from "@pi-desktop/shared";
+import { isRemoteProjectPath, type PluginViewMeta } from "@pi-desktop/shared";
 import {
   isKnownWorkPanelTab,
   parsePluginViewRef,
@@ -30,7 +30,9 @@ import {
   IconFileText,
   IconPlug,
   IconPlus,
+  IconTerminal,
 } from "../icons";
+import { TerminalTab } from "./TerminalTab";
 import { ReviewTab } from "./ReviewTab";
 import { FilesTab } from "./FilesTab";
 import { PluginViewTab } from "./PluginViewTab";
@@ -45,6 +47,7 @@ import {
 const TAB_ICONS = {
   new: IconPlus,
   review: IconDiff,
+  terminal: IconTerminal,
   file: IconFileText,
   plugin: IconPlug,
 } as const;
@@ -87,9 +90,10 @@ function tabLabel(
 function workPanelTools(
   t: (key: string) => string,
   pluginViews: PluginViewMeta[],
+  terminalAvailable: boolean,
 ): WorkPanelTool[] {
-  // Review is the only host-owned launcher. Files, Browser, and every future
-  // tool are plugin-contributed views, so their list stays data-driven.
+  // Review and the remote-only terminal are host-owned launchers. Files,
+  // Browser, and every future tool are plugin-contributed views.
   return [
     {
       id: "review",
@@ -97,6 +101,12 @@ function workPanelTools(
       label: t("panel.tabs.review"),
       icon: IconDiff,
     },
+    ...(terminalAvailable ? [{
+      id: "terminal",
+      tab: toolWorkPanelTab("terminal"),
+      label: t("panel.tabs.terminal"),
+      icon: IconTerminal,
+    }] : []),
     ...pluginViews.map((view) => {
       const Icon = pluginViewIcon(view.icon);
       return {
@@ -145,6 +155,7 @@ export function WorkPanel({
   const tabs = rawTabs.filter(isKnownWorkPanelTab);
   const activeTabId = useAppStore((s) => s.activeWorkPanelTabId);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const workspacePath = useAppStore((s) => s.workspace?.path ?? null);
   const pluginViews = useAppStore((s) => s.pluginViews);
   const width = useAppStore((s) => s.workPanelWidth);
   const activateTab = useAppStore((s) => s.activateWorkPanelTab);
@@ -154,7 +165,7 @@ export function WorkPanel({
   const replaceWorkPanelTab = useAppStore((s) => s.replaceWorkPanelTab);
   const setWidth = useAppStore((s) => s.setWorkPanelWidth);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
-  const tools = workPanelTools(t, pluginViews);
+  const tools = workPanelTools(t, pluginViews, isRemoteProjectPath(workspacePath));
 
   const [panelDragWidth, setPanelDragWidth] = useState<number | null>(null);
   const panelResizeState = useRef<WorkPanelResizeState | null>(null);
@@ -510,6 +521,17 @@ export function WorkPanel({
               <FilesTab />
             </div>
           )}
+          {!subagentPanel && activeTab?.kind === "terminal" && activeSessionId ? (
+            <div
+              key={activeTab.id}
+              id={`work-panel-surface-${activeTab.id}`}
+              className="work-panel-tabpane"
+              role="tabpanel"
+              aria-labelledby={`work-panel-tab-${activeTab.id}`}
+            >
+              <TerminalTab sessionId={activeSessionId} />
+            </div>
+          ) : null}
           {!subagentPanel &&
             activeTab?.kind === "plugin" &&
             (() => {

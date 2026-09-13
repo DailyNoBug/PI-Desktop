@@ -88,6 +88,26 @@ export type RemoteDirectoryResult = {
   readable: boolean;
 };
 
+export type RemoteTerminalSnapshot = {
+  terminalId: string;
+  replay: string;
+};
+
+export type RemoteTerminalEvent =
+  | {
+      kind: "output";
+      sessionId: string;
+      terminalId: string;
+      data: string;
+    }
+  | {
+      kind: "changed";
+      sessionId: string;
+      terminalId: string;
+      status: "open" | "exit";
+      exitCode?: number;
+    };
+
 export type RemoteDiagnostics = {
   desktopVersion: string;
   racpVersion: string;

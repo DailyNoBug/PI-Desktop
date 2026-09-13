@@ -71,6 +71,10 @@ service 等 Desktop shell 能力保持本地标注，不声称远端可用。
 | Files list/read/index 与 Review diff | `workspace/list`、`workspace/read`、`workspace/diff` |
 | project get/list/set/clear | 本地远端项目记录与活动 Host |
 
+工作面板仅在远程项目激活时提供 Terminal 工具。它打开远端 pty，通过 RACP
+流式传输 base64 PTY 输出，传播测量到的尺寸变化，并在公告连接关闭时把 UI 标为
+断开。关闭标签页会关闭远端终端；重连不会尝试重新附加已消失的 pty。
+
 Remote provider 凭据由 Settings 明确显示目标机器后，经 SSH bootstrap 通道写入远端 Host 的秘密存储，也支持删除；凭据不经过 RACP。
 
 打包应用注册 `pi-desktop` scheme。稳定入口为

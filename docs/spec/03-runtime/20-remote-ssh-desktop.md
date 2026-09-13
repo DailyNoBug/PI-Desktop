@@ -123,6 +123,12 @@ project path:
 | Files list/read/index and Review diff | `workspace/list`, `workspace/read`, `workspace/diff` |
 | project get/list/set/clear | local remote-project records and the active Host |
 
+The work panel offers a Terminal tool only while a remote project is active.
+It opens a remote pty, streams base64 PTY output through RACP, propagates
+measured size changes, and marks the UI disconnected when the advertising
+connection closes. Closing the tab closes the remote terminal; reconnect does
+not attempt to reattach the dead pty.
+
 Remote agent events are converted back to the shared normalized
 `AgentEventEnvelope` before reaching the existing transcript reducer. Local
 file pickers, local reveal/open actions, local scratch attachment import, and

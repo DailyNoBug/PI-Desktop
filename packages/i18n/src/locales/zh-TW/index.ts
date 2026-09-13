@@ -570,6 +570,8 @@ export const zhTW = {
     connectionsImported: "已匯入 {{count}} 個，跳過 {{skipped}} 個",
     home: "主目錄",
     recentPaths: "最近路徑",
+    terminalInput: "終端機輸入",
+    terminalDisconnected: "終端機已中斷",
     path: "遠端路徑",
     emptyDirectory: "空資料夾",
     gitRepository: "Git 儲存庫",
@@ -1366,6 +1368,7 @@ export const zhTW = {
     closeTab: "關閉{{name}}",
     tabs: {
       review: "審閱",
+      terminal: "終端機",
       browser: "瀏覽器",
       file: "檔案",
       plugin: "外掛檢視",

@@ -574,6 +574,8 @@ export const tr = {
     connectionsImported: "{{count}} içe aktarıldı, {{skipped}} atlandı",
     home: "Giriş klasörü",
     recentPaths: "Son yollar",
+    terminalInput: "Terminal girişi",
+    terminalDisconnected: "Terminal bağlantısı kesildi",
     path: "Uzak yol",
     emptyDirectory: "Boş klasör",
     gitRepository: "Git deposu",
@@ -1376,6 +1378,7 @@ export const tr = {
     closeTab: "{{name}} öğesini kapat",
     tabs: {
       review: "İnceleme",
+      terminal: "Terminal",
       browser: "Tarayıcı",
       file: "Dosyalar",
       plugin: "Eklenti görünümü",

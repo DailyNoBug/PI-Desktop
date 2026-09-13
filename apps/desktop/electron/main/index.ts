@@ -7473,6 +7473,57 @@ function registerIpc() {
       ...(input.path ? { path: input.path } : {}),
     });
   });
+  handle(IPC.invoke.remoteTerminalOpen, async (input: {
+    sessionId?: string;
+    columns?: number;
+    rows?: number;
+  }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.openTerminal({
+      sessionId: requiredId(input.sessionId, "sessionId"),
+      ...(input.columns !== undefined ? { columns: input.columns } : {}),
+      ...(input.rows !== undefined ? { rows: input.rows } : {}),
+    });
+  });
+  handle(IPC.invoke.remoteTerminalWrite, async (input: {
+    sessionId?: string;
+    terminalId?: string;
+    text?: string;
+  }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    await remoteManager.writeTerminal({
+      sessionId: requiredId(input.sessionId, "sessionId"),
+      terminalId: requiredId(input.terminalId, "terminalId"),
+      text: typeof input.text === "string" ? input.text : "",
+    });
+    return { ok: true };
+  });
+  handle(IPC.invoke.remoteTerminalResize, async (input: {
+    sessionId?: string;
+    terminalId?: string;
+    columns?: number;
+    rows?: number;
+  }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    await remoteManager.resizeTerminal({
+      sessionId: requiredId(input.sessionId, "sessionId"),
+      terminalId: requiredId(input.terminalId, "terminalId"),
+      columns: Math.max(2, Math.min(500, Math.floor(Number(input.columns ?? 80)))),
+      rows: Math.max(2, Math.min(300, Math.floor(Number(input.rows ?? 24)))),
+    });
+    return { ok: true };
+  });
+  handle(IPC.invoke.remoteTerminalClose, async (input: {
+    sessionId?: string;
+    terminalId?: string;
+  }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    await remoteManager.closeTerminal({
+      sessionId: requiredId(input.sessionId, "sessionId"),
+      terminalId: requiredId(input.terminalId, "terminalId"),
+    });
+    return { ok: true };
+  });
 
   handle(IPC.invoke.projectGet, async () => {
     const remoteWorkspace = remoteManager?.getProject();
@@ -10155,6 +10206,7 @@ app.whenReady().then(async () => {
       onConnectionsChanged: () => sendToRenderer(IPC.event.remoteChanged, {}),
       onSessionsChanged: () => sendToRenderer(IPC.event.sessionsChanged, { reason: "remote.session" }),
       onQueueChanged: (event) => sendToRenderer(IPC.event.agentQueueChanged, event),
+      onTerminalEvent: (event) => sendToRenderer(IPC.event.remoteTerminalEvent, event),
       onAudit: (event, data) => logger.app("remote", "info", event, { data }),
     },
   );

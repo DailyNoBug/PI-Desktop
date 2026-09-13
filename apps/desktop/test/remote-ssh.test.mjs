@@ -32,12 +32,18 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
     ["remoteOpenProject", "openRemoteProject"],
     ["remoteRemoveProject", "removeRemoteProject"],
     ["remoteBrowseDirectory", "browseRemoteDirectory"],
+    ["remoteTerminalOpen", "openRemoteTerminal"],
+    ["remoteTerminalWrite", "writeRemoteTerminal"],
+    ["remoteTerminalResize", "resizeRemoteTerminal"],
+    ["remoteTerminalClose", "closeRemoteTerminal"],
   ]) {
     assert.match(protocol, new RegExp(`${channel}: "pi-desktop/remote/`));
     assert.match(api, new RegExp(`${fn}:`));
   }
   assert.match(protocol, /remoteChanged: "pi-desktop\/remote\/event\/changed"/);
+  assert.match(protocol, /remoteTerminalEvent: "pi-desktop\/remote\/event\/terminal"/);
   assert.match(api, /onRemoteChanged/);
+  assert.match(api, /onRemoteTerminalEvent/);
   assert.match(preload, /IPC_WHITELIST/);
 });
 
@@ -214,4 +220,28 @@ test("remote regenerate branches stay on the remote Host", async () => {
   assert.match(piHost, /"session\.truncateFrom"/);
   assert.match(piHost, /"session\.saveActiveRevision"/);
   assert.match(piHost, /revisionRootId: revisionMeta\.rootUserId/);
+});
+
+test("remote terminal UI drives the remote PTY only", async () => {
+  const [manager, main, panel, tabs, terminal] = await Promise.all([
+    read("apps/desktop/electron/main/remote-manager.ts"),
+    read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/src/components/workpanel/WorkPanel.tsx"),
+    read("apps/desktop/src/lib/work-panel-tabs.ts"),
+    read("apps/desktop/src/components/workpanel/TerminalTab.tsx"),
+  ]);
+  for (const operation of ["terminal/open", "terminal/input", "terminal/resize", "terminal/close"]) {
+    assert.match(manager, new RegExp(`"${operation}"`));
+  }
+  for (const method of ["openTerminal", "writeTerminal", "resizeTerminal", "closeTerminal"]) {
+    assert.match(main, new RegExp(`remoteManager\\.${method}\\(`));
+  }
+  assert.match(manager, /disconnectTerminals\(runtime\)/);
+  assert.match(panel, /isRemoteProjectPath\(workspacePath\)/);
+  assert.match(panel, /<TerminalTab sessionId=\{activeSessionId\} \/>/);
+  assert.match(tabs, /\| "terminal"/);
+  assert.match(terminal, /api\.openRemoteTerminal/);
+  assert.match(terminal, /api\.writeRemoteTerminal/);
+  assert.match(terminal, /api\.resizeRemoteTerminal/);
+  assert.match(terminal, /api\.closeRemoteTerminal/);
 });

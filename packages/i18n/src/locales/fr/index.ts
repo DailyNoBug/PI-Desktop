@@ -565,6 +565,8 @@ export const fr = {
     "connectionsImported": "{{count}} importées, {{skipped}} ignorées",
     "home": "Dossier personnel",
     "recentPaths": "Chemins récents",
+    "terminalInput": "Entrée du terminal",
+    "terminalDisconnected": "Terminal déconnecté",
     "path": "Chemin distant",
     "emptyDirectory": "Dossier vide",
     "gitRepository": "Dépôt Git",
@@ -1357,6 +1359,7 @@ export const fr = {
     "closeTab": "Fermer {{name}}",
     "tabs": {
       "review": "Réviser",
+      "terminal": "Terminal",
       "browser": "Navigateur",
       "file": "Fichiers",
       "plugin": "Vue du plugin"

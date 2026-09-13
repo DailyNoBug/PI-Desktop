@@ -570,6 +570,8 @@ export const zhCN = {
     connectionsImported: "已导入 {{count}} 个，跳过 {{skipped}} 个",
     home: "主目录",
     recentPaths: "最近路径",
+    terminalInput: "终端输入",
+    terminalDisconnected: "终端已断开",
     path: "远程路径",
     emptyDirectory: "空文件夹",
     gitRepository: "Git 仓库",
@@ -1366,6 +1368,7 @@ export const zhCN = {
     closeTab: "关闭{{name}}",
     tabs: {
       review: "审阅",
+      terminal: "终端",
       browser: "浏览器",
       file: "文件",
       plugin: "插件视图",

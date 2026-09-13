@@ -58,6 +58,8 @@ import type {
   RemoteDiagnostics,
   RemoteDirectoryResult,
   RemoteProjectRecord,
+  RemoteTerminalEvent,
+  RemoteTerminalSnapshot,
   PullRequestSummary,
   ScheduledTask,
   ProviderCreateInput,
@@ -537,6 +539,18 @@ export const api = {
     invoke(IPC.invoke.remoteRemoveProject, { projectId }),
   browseRemoteDirectory: (input: { connectionId: string; path?: string }) =>
     invoke<RemoteDirectoryResult>(IPC.invoke.remoteBrowseDirectory, input),
+  openRemoteTerminal: (input: { sessionId: string; columns?: number; rows?: number }) =>
+    invoke<RemoteTerminalSnapshot>(IPC.invoke.remoteTerminalOpen, input),
+  writeRemoteTerminal: (input: { sessionId: string; terminalId: string; text: string }) =>
+    invoke(IPC.invoke.remoteTerminalWrite, input),
+  resizeRemoteTerminal: (input: {
+    sessionId: string;
+    terminalId: string;
+    columns: number;
+    rows: number;
+  }) => invoke(IPC.invoke.remoteTerminalResize, input),
+  closeRemoteTerminal: (input: { sessionId: string; terminalId: string }) =>
+    invoke(IPC.invoke.remoteTerminalClose, input),
   listPullRequests: () =>
     invoke<{ pulls: PullRequestSummary[]; error?: string }>(IPC.invoke.pullsList),
   listScheduled: () =>
@@ -977,6 +991,12 @@ export const api = {
   onRemoteChanged: (listener: () => void) => {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.remoteChanged, () => listener());
+  },
+  onRemoteTerminalEvent: (listener: (event: RemoteTerminalEvent) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.remoteTerminalEvent, (payload) =>
+      listener(payload as RemoteTerminalEvent),
+    );
   },
   onPlansChanged: (listener: (event: PlanningStateEvent) => void) => {
     if (!window.piDesktop?.on) return () => undefined;

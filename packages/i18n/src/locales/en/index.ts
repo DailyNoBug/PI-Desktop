@@ -575,6 +575,8 @@ export const en = {
     connectionsImported: "Imported {{count}}, skipped {{skipped}}",
     home: "Home",
     recentPaths: "Recent paths",
+    terminalInput: "Terminal input",
+    terminalDisconnected: "Terminal disconnected",
     path: "Remote path",
     emptyDirectory: "Empty folder",
     gitRepository: "Git repository",
@@ -1377,6 +1379,7 @@ export const en = {
     closeTab: "Close {{name}}",
     tabs: {
       review: "Review",
+      terminal: "Terminal",
       browser: "Browser",
       file: "Files",
       plugin: "Plugin view",

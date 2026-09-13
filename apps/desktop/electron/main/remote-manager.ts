@@ -27,6 +27,8 @@ import type {
   RemoteDirectoryResult,
   RemoteHostRuntime,
   RemoteProjectRecord,
+  RemoteTerminalEvent,
+  RemoteTerminalSnapshot,
   SessionDetail,
   SessionSummary,
   ToolPermissionRequest,
@@ -76,6 +78,7 @@ export type RemoteManagerEvents = {
   onConnectionsChanged: () => void;
   onSessionsChanged: () => void;
   onQueueChanged: (event: { sessionId: string; entries: QueuedTurnSummary[] }) => void;
+  onTerminalEvent: (event: RemoteTerminalEvent) => void;
   onAudit: (event: string, data?: Record<string, unknown>) => void;
 };
 
@@ -96,6 +99,7 @@ type RemoteRuntime = {
   hostSubscription?: string;
   activeTurns: Map<string, string>;
   sessionProjects: Map<string, string>;
+  terminals: Map<string, string>;
 };
 
 const NON_RETRYABLE_REMOTE_CODES = new Set<string>([
@@ -833,6 +837,53 @@ export class RemoteManager {
     await this.request(runtime, "turn/prioritize", { turnId, context: { requestId: `send-now-${turnId}`, idempotencyKey: `send-now-${turnId}` } });
   }
 
+  async openTerminal(input: {
+    sessionId: string;
+    columns?: number;
+    rows?: number;
+  }): Promise<RemoteTerminalSnapshot> {
+    const runtime = this.runtimeForSession(input.sessionId);
+    if (!runtime) throw new Error("session is not remote");
+    const result = await this.request<RemoteTerminalSnapshot>(runtime, "terminal/open", {
+      sessionId: input.sessionId,
+      ...(input.columns !== undefined ? { columns: input.columns } : {}),
+      ...(input.rows !== undefined ? { rows: input.rows } : {}),
+    });
+    runtime.terminals.set(result.terminalId, input.sessionId);
+    return result;
+  }
+
+  async writeTerminal(input: {
+    sessionId: string;
+    terminalId: string;
+    text: string;
+  }): Promise<void> {
+    const runtime = this.runtimeForSession(input.sessionId);
+    if (!runtime) throw new Error("session is not remote");
+    await this.request(runtime, "terminal/input", input);
+  }
+
+  async resizeTerminal(input: {
+    sessionId: string;
+    terminalId: string;
+    columns: number;
+    rows: number;
+  }): Promise<void> {
+    const runtime = this.runtimeForSession(input.sessionId);
+    if (!runtime) throw new Error("session is not remote");
+    await this.request(runtime, "terminal/resize", input);
+  }
+
+  async closeTerminal(input: {
+    sessionId: string;
+    terminalId: string;
+  }): Promise<void> {
+    const runtime = this.runtimeForSession(input.sessionId);
+    if (!runtime) throw new Error("session is not remote");
+    await this.request(runtime, "terminal/close", input);
+    runtime.terminals.delete(input.terminalId);
+  }
+
   async resolvePermission(sessionId: string, requestId: string, decision: string): Promise<void> {
     const runtime = this.runtimeForSession(sessionId);
     if (!runtime) throw new Error("session is not remote");
@@ -1352,6 +1403,7 @@ export class RemoteManager {
     client.onEvent((event) => this.handleRacpEvent(runtime, event));
     client.onClose(() => {
       if (runtime.client !== client || runtime.explicitDisconnect) return;
+      this.disconnectTerminals(runtime);
       this.failure(id, Object.assign(new Error("RACP connection closed"), { code: ErrorCodes.REMOTE_HOST_UNAVAILABLE }));
       this.scheduleReconnect(id);
     });
@@ -1401,6 +1453,14 @@ export class RemoteManager {
   private handleRacpEvent(runtime: RemoteRuntime, racpEvent: RacpClientEvent): void {
     if (!("eventId" in racpEvent)) return;
     const event = racpEvent as RacpEventEnvelope;
+    if (event.kind === "terminal.output" || event.kind === "terminal.changed") {
+      const terminalEvent = event.payload as RemoteTerminalEvent;
+      this.events.onTerminalEvent(terminalEvent);
+      if (terminalEvent.kind === "changed" && terminalEvent.status === "exit") {
+        runtime.terminals.delete(terminalEvent.terminalId);
+      }
+      return;
+    }
     if (event.sessionId && typeof event.sequence === "number") {
       runtime.sessionCursors.set(event.sessionId, { epoch: event.epoch, sequence: event.sequence });
       const subscription = runtime.sessionSubscriptions.get(event.sessionId);
@@ -1520,11 +1580,24 @@ export class RemoteManager {
     runtime.tunnel = undefined;
     runtime.hostSubscription = undefined;
     runtime.sessionSubscriptions.clear();
+    this.disconnectTerminals(runtime);
     if (client) await client.disconnect().catch(() => undefined);
     if (tunnel) {
       disposeTunnel(tunnel);
       await Promise.race([tunnel.exit, new Promise((resolve) => setTimeout(resolve, 1_000).unref?.())]);
     }
+  }
+
+  private disconnectTerminals(runtime: RemoteRuntime): void {
+    for (const [terminalId, sessionId] of runtime.terminals) {
+      this.events.onTerminalEvent({
+        kind: "changed",
+        sessionId,
+        terminalId,
+        status: "exit",
+      });
+    }
+    runtime.terminals.clear();
   }
 
   private failure(id: string, error: unknown): void {
@@ -1606,6 +1679,7 @@ export class RemoteManager {
         sessionSubscriptions: new Map(),
         activeTurns: new Map(),
         sessionProjects: new Map(),
+        terminals: new Map(),
       };
       this.runtimes.set(id, runtime);
     }

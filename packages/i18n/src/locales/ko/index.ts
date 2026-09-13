@@ -574,6 +574,8 @@ export const ko = {
     connectionsImported: "{{count}}개 가져왔고 {{skipped}}개 건너뛰었습니다",
     home: "홈",
     recentPaths: "최근 경로",
+    terminalInput: "터미널 입력",
+    terminalDisconnected: "터미널 연결이 끊어졌습니다",
     path: "원격 경로",
     emptyDirectory: "빈 폴더",
     gitRepository: "Git 저장소",
@@ -1376,6 +1378,7 @@ export const ko = {
     closeTab: "{{name}} 닫기",
     tabs: {
       review: "검토",
+      terminal: "터미널",
       browser: "브라우저",
       file: "파일",
       plugin: "플러그인 화면",
