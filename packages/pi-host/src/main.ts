@@ -222,13 +222,13 @@ async function run(): Promise<void> {
     env: { ...process.env, PI_DESKTOP_DATA_DIR: dir },
     onStderr: (text) => process.stderr.write(`[host-core] ${text}`),
   });
-  const sidecar = new RpcProcess({
+  const sidecar: RpcProcess = new RpcProcess({
     command: process.execPath,
     args: [sidecarPath()],
     label: "agent-sidecar",
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     onStderr: (text) => process.stderr.write(`[agent-sidecar] ${text}`),
-    handleRequest: async (request) => {
+    handleRequest: async (request): Promise<unknown> => {
       const params = request.params as { method?: string; params?: unknown };
       const method = params.method;
       if (!method || !HOST_PROXY_ALLOWED.has(method)) {
@@ -236,10 +236,27 @@ async function run(): Promise<void> {
           errorCode: ErrorCodes.FORBIDDEN,
         });
       }
+      const toolParams = (params.params ?? {}) as {
+        sessionId?: string;
+        mode?: string;
+        toolName?: string;
+        args?: unknown;
+      };
+      if (method === "tools.execute" && toolParams.toolName === "Skill") {
+        if (toolParams.mode === "plan") {
+          throw Object.assign(new Error("Skill is unavailable in Plan mode"), {
+            errorCode: ErrorCodes.TOOL_DISABLED_IN_PLAN,
+          });
+        }
+        return service.executeSkill({
+          sessionId: String(toolParams.sessionId ?? ""),
+          args: toolParams.args,
+        });
+      }
       return host.call(method, params.params ?? {});
     },
   });
-  const service = new PiHostService(host, sidecar, dir);
+  const service: PiHostService = new PiHostService(host, sidecar, dir);
   const unsubscribeHost = host.onNotification((method, params) => {
     void service.handleHostNotification(method, params).catch((error) => {
       process.stderr.write(`host notification failed: ${String(error)}\n`);

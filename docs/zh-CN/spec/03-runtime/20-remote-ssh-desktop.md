@@ -39,6 +39,8 @@ Desktop 通过 SSH 检测 Linux 架构，获取同版本 GitHub Release checksum
 
 Renderer 继续调用 `lib/api.ts`，没有 SSH、child process、key 或 token API。Electron Main 按 `hostId` 和 `ssh://` 项目 URI 路由 session、turn、queue、审批、AskTool、Files 和 Review diff 操作。远端事件转换回共享 `AgentEventEnvelope` 后进入现有 transcript reducer。
 
+远程项目 prompt 从远端 Host 自己的 `~/.agents` 与 `<workspace>/.agents` 注册表解析启用的全局/项目 Skills。模型目录只含 id、名称和描述；`Skill` 调用由远端 Host 通过 `skills.read` 应答，因此技能文档与执行都留在该 Host。Plan 模式与本地 runtime 一样拒绝 Skill 工具。
+
 | 现有 API | 远端路由 |
 |---|---|
 | session list/create/get/fork/configure/rename/delete/compact | 对应 RACP remote-host 操作 |

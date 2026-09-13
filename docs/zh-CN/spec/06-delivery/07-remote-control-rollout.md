@@ -143,7 +143,7 @@ runbook 写明 feature flag、配对撤销路径、远端机器上的数据保�
   x64/arm64 发布包、Electron Main 的 SSH 发现/bootstrap/端口转发/重连监督器、
   Connections UI 和 renderer 会话路由已实现并由源码契约测试覆盖。真实 SSH
   E2E、反向工具中继执行和原生远端能力标注仍待完成；RACP PTY
-  终端生命周期已有单元测试。
+  终端生命周期和远端 Skill catalog/read 路径已有单元或源码契约测试覆盖。
 
 ## 8. 修订记录
 

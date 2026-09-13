@@ -31,6 +31,7 @@ import {
   modelConfigWithBinding,
   optionalProviderHeaders,
   visionFromModelConfig,
+  type PluginSkillDef,
 } from "@pi-desktop/agent-runtime";
 import {
   AgentHost,
@@ -150,6 +151,31 @@ export class PiHostService {
       dataDir: this.dataDir,
     });
     await this.agentHost.start();
+  }
+
+  async executeSkill(input: {
+    sessionId: string;
+    args: unknown;
+  }): Promise<{ ok: boolean; content: string; isError?: boolean }> {
+    const id = String((input.args as { id?: unknown } | null)?.id ?? "").trim();
+    if (!id) {
+      return { ok: false, content: "Skill: `id` is required.", isError: true };
+    }
+    const session = await this.getSession(input.sessionId);
+    const result = await this.host.call<{
+      skill?: { name?: string } | null;
+      body?: string | null;
+    }>("skills.read", {
+      id,
+      ...(session.projectPath ? { projectPath: session.projectPath } : {}),
+    });
+    if (!result.skill || typeof result.body !== "string") {
+      return { ok: false, content: `Skill "${id}" was not found.`, isError: true };
+    }
+    return {
+      ok: true,
+      content: `# Skill: ${result.skill.name ?? id} (${id})\n\n${result.body}`,
+    };
   }
 
   remoteProfile(): RacpRemoteProfile {
@@ -515,9 +541,13 @@ export class PiHostService {
     if (!shell?.available) throw new RacpError("REMOTE_SHELL_UNAVAILABLE", "no remote command shell is available");
     const projectPath = session.projectPath?.trim() || undefined;
     this.sessionProjects.set(session.id, projectPath ?? null);
-    const [projectInstructions, subagents] = await Promise.all([
+    const [projectInstructions, subagents, activeSkills] = await Promise.all([
       loadInstructionChain(projectPath ?? null),
       loadSubagentDefinitions(projectPath ?? null),
+      this.host.call<{ skills?: Array<{ id: string; name: string; description?: string }> }>(
+        "skills.active",
+        { ...(projectPath ? { projectPath } : {}) },
+      ),
     ]);
     const effectivePermission = permissionOverride ?? permissionMode(
       isGlobalPermissionMode(session.permissionMode) ? session.permissionMode : settings.defaultPermissionMode,
@@ -535,9 +565,14 @@ export class PiHostService {
         scratchDir: join(this.dataDir, "scratch", session.id),
         attachmentsDir: join(this.dataDir, "attachments"),
         ...(projectPath ? { projectPath } : {}),
-        ...(projectInstructions ? { projectInstructions } : {}),
-        subagents: subagents.definitions,
-        provider: {
+      ...(projectInstructions ? { projectInstructions } : {}),
+      subagents: subagents.definitions,
+      pluginSkills: (activeSkills.skills ?? []).map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        ...(skill.description ? { description: skill.description } : {}),
+      })) satisfies PluginSkillDef[],
+      provider: {
           id: provider.id,
           name: provider.name,
           ...(provider.vendorKey ? { vendorKey: provider.vendorKey } : {}),

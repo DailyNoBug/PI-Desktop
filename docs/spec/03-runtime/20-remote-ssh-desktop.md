@@ -120,6 +120,12 @@ file pickers, local reveal/open actions, local scratch attachment import, and
 local-only review rollback are hidden or return `UNSUPPORTED` for a remote
 project instead of silently touching local disk.
 
+Remote project prompts resolve the Host's active global and project Skills from
+its own `~/.agents` and `<workspace>/.agents` registries. The model-facing
+catalog contains ids, names, and descriptions only; a `Skill` call is answered
+by the remote Host with `skills.read`, so skill bodies and execution remain on
+that Host. Plan mode rejects the Skill tool exactly as the local runtime does.
+
 ## 7. Remote providers
 
 Settings shows which selected provider credential will be written to which

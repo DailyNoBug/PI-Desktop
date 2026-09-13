@@ -25,4 +25,16 @@ describe("pi-host packaging contract", () => {
     expect(script).toMatch(/writeFileSync\([^\n]+\.sha256/);
     expect(script).toContain("\"x64\" && arch !== \"arm64\"");
   });
+
+  it("loads and executes Skills from the remote Host", async () => {
+    const [service, main] = await Promise.all([
+      readFile(join(import.meta.dirname, "pi-host.ts"), "utf8"),
+      readFile(join(import.meta.dirname, "main.ts"), "utf8"),
+    ]);
+    expect(service).toContain('"skills.active"');
+    expect(service).toContain('"skills.read"');
+    expect(service).toContain("pluginSkills:");
+    expect(main).toContain('toolParams.toolName === "Skill"');
+    expect(main).toContain('toolParams.mode === "plan"');
+  });
 });
