@@ -81,7 +81,7 @@ export function discoverSshAliases(path = configFile()): string[] {
 }
 
 function baseArgs(connection: RemoteConnection): string[] {
-  if (connection.source === "ssh-config" && connection.sshConfigAlias) {
+  if (connection.sshConfigAlias) {
     return [connection.sshConfigAlias];
   }
   const args: string[] = [];

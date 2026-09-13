@@ -9931,8 +9931,10 @@ browser milestones are scheduled.
   `Include`; a manual test host and a local provider are configured. The next
   host key is not in `known_hosts`.
 - **Steps**: 1) Open Settings → Connections and refresh. 2) Add the manual
-  host. 3) Export connections, inspect the clipboard JSON, and re-import it.
-  4) Test both entries. 5) Connect to the unknown Host and inspect the
+  host with an optional OpenSSH alias and test both alias-resolved and
+  explicit-host modes. 3) Export connections, inspect the clipboard JSON, and
+  re-import it. 4) Test both entries. 5) Connect to the unknown Host and
+  inspect the
   fingerprint dialog. 6) Cancel once, reconnect, and accept the fingerprint.
   7) Copy diagnostics. 8) Use the explicit Host upgrade action. 9) Sync and
   then delete the selected provider.

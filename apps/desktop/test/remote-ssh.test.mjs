@@ -74,6 +74,8 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.doesNotMatch(manager, /from "electron"/);
   assert.doesNotMatch(api, /child_process|node:child_process|ssh-spawn|privateKey/);
   assert.match(ssh, /resolveSshExecutable/);
+  assert.match(ssh, /if \(connection\.sshConfigAlias\) \{/);
+  assert.doesNotMatch(ssh, /connection\.source === "ssh-config" && connection\.sshConfigAlias/);
   assert.match(ssh, /BatchMode=yes/);
   assert.match(ssh, /ExitOnForwardFailure=yes/);
   assert.match(ssh, /127\.0\.0\.1:\$\{localPort\}:127\.0\.0\.1:\$\{remotePort\}/);

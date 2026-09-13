@@ -54,8 +54,10 @@ Settings owns a **Connections** destination.
 2. Effective hostname, port, user, identity file, `ProxyJump`,
    `ProxyCommand`, `ControlMaster`, and all other connection semantics are
    resolved by system `ssh -G`.
-3. A user may also create a manual connection with display name, hostname,
-   user, port, and identity-file path.
+3. A user may also create a manual connection with display name, an optional
+   OpenSSH alias, hostname, user, port, and identity-file path. When an alias
+   is supplied, OpenSSH resolves it; explicit fields remain durable metadata
+   and can be used when the alias is removed.
 4. Authentication is delegated to OpenSSH and the user's agent; PI-Desktop
    stores only paths and non-secret connection fields.
 5. An unknown host key is scanned and fingerprinted, displayed for explicit

@@ -33,6 +33,7 @@ RemoteConnection
 - Device token 只保存在本机 host-core secret store；私钥、密码、provider key 和 token 不进入 Renderer、普通 SQLite、URL 或日志。
 - 未知 Host key 必须显示指纹并经用户确认；绝不注入 `StrictHostKeyChecking=no`。
 - 每个连接提供状态、来源、最近连接时间、Host 版本、连接/断开、测试、显式升级/重启到当前 Desktop 版本、刷新、编辑、移除、远程项目选择和诊断复制。
+- 用户可手工创建连接，字段包含显示名、可选 OpenSSH alias、hostname、user、port 和 identity file 路径。提供 alias 时由 OpenSSH 解析；显式字段仍持久保存，alias 移除后可继续使用。
 - 连接可以导出/导入版本化 JSON。文档只含非秘密连接元数据，绝不包含 device token、provider 凭据、私钥字节、Host 记录或项目。导入逐项校验，并更新既有 alias 或 managed endpoint 而不是制造重复记录。
 
 Desktop 通过 SSH 检测 Linux 架构，获取同版本 GitHub Release checksum，上传 bootstrap 脚本，在远端用户目录 SHA-256 验证并安装 `pi-host`，以 `setsid` 显式启动 daemon，再通过 RACP 初始化交换一次性 pairing token。之后建立只绑定 loopback 的本地端口转发。

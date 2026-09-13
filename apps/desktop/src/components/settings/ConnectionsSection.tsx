@@ -335,12 +335,15 @@ export function ConnectionsSection() {
               <span>{t("remote.name")}</span>
               <Input value={form.displayName} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} />
             </label>
-            {form.source === "ssh-config" ? (
-              <label>
-                <span>{t("remote.alias")}</span>
-                <Input value={form.sshConfigAlias ?? ""} onChange={(event) => setForm((current) => ({ ...current, sshConfigAlias: event.target.value }))} />
-              </label>
-            ) : (
+            <label>
+              <span>{t("remote.alias")}</span>
+              <Input
+                value={form.sshConfigAlias ?? ""}
+                aria-required={form.source === "ssh-config"}
+                onChange={(event) => setForm((current) => ({ ...current, sshConfigAlias: event.target.value }))}
+              />
+            </label>
+            {form.source === "managed" ? (
               <>
                 <label>
                   <span>{t("remote.hostname")}</span>
@@ -359,7 +362,7 @@ export function ConnectionsSection() {
                   <Input value={form.identityFilePath ?? ""} onChange={(event) => setForm((current) => ({ ...current, identityFilePath: event.target.value }))} />
                 </label>
               </>
-            )}
+            ) : null}
           </div>
           <div className="settings-panel-actions">
             <Button
