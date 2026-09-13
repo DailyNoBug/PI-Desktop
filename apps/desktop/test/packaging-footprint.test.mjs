@@ -117,6 +117,28 @@ test("main bundles JavaScript dependencies and externalizes only runtime modules
   assert.doesNotMatch(JSON.stringify(packageJson.dependencies), /node-pty/);
 });
 
+test("main preserves ws optional native peer fallbacks", async () => {
+  assert.match(viteConfigSource, /preserveWsOptionalNativePeers/);
+  assert.match(viteConfigSource, /bufferutil is intentionally optional/);
+  assert.match(viteConfigSource, /utf-8-validate is intentionally optional/);
+  assert.doesNotMatch(JSON.stringify(packageJson.dependencies), /bufferutil|utf-8-validate/);
+
+  const mainBundle = await readFile(
+    new URL("../out/main/index.js", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    mainBundle,
+    /Could not resolve "bufferutil" imported by "ws"/,
+  );
+  assert.doesNotMatch(
+    mainBundle,
+    /Could not resolve "utf-8-validate" imported by "ws"/,
+  );
+  assert.doesNotMatch(mainBundle, /__viteOptionalPeerDep_bufferutil_ws_true/);
+  assert.doesNotMatch(mainBundle, /__viteOptionalPeerDep_utf8Validate_ws_true/);
+});
+
 test("packaging keeps only shipped locales and excludes non-runtime artifacts", () => {
   assert.deepEqual(packageJson.build.electronLanguages, [
     "en-US",
