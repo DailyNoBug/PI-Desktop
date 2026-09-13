@@ -622,6 +622,16 @@ export const ko = {
     user: "사용자",
     port: "포트",
     identityFile: "신원 파일",
+    authentication: "인증",
+    auth: {
+      agent: "SSH 에이전트",
+      password: "비밀번호",
+      identity: "신원 파일",
+    },
+    password: "비밀번호",
+    savedPassword: "저장된 비밀번호",
+    chooseFile: "파일 선택",
+    selectIdentityFile: "SSH 신원 파일 선택",
     state: {
       disconnected: "연결 해제됨",
       resolving: "확인 중",

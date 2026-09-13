@@ -623,6 +623,16 @@ export const en = {
     user: "User",
     port: "Port",
     identityFile: "Identity file",
+    authentication: "Authentication",
+    auth: {
+      agent: "SSH agent",
+      password: "Password",
+      identity: "Identity file",
+    },
+    password: "Password",
+    savedPassword: "Saved password",
+    chooseFile: "Choose file",
+    selectIdentityFile: "Select SSH identity file",
     state: {
       disconnected: "Disconnected",
       resolving: "Resolving",

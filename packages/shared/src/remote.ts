@@ -20,6 +20,7 @@ export const REMOTE_CONNECTION_STATES = [
 export type RemoteConnectionState = (typeof REMOTE_CONNECTION_STATES)[number];
 
 export type RemoteConnectionSource = "ssh-config" | "managed";
+export type RemoteConnectionAuthMethod = "agent" | "password" | "identity";
 
 export type RemoteConnectionInput = {
   displayName: string;
@@ -28,11 +29,14 @@ export type RemoteConnectionInput = {
   hostname?: string;
   user?: string;
   port?: number;
+  authMethod?: RemoteConnectionAuthMethod;
   identityFilePath?: string;
+  /** Write-only input. Durable connection records never retain this value. */
+  password?: string;
   enabled: boolean;
 };
 
-export type RemoteConnection = RemoteConnectionInput & {
+export type RemoteConnection = Omit<RemoteConnectionInput, "password"> & {
   id: string;
   /** Explicitly selected workspace-free local tools relayed to this Host. */
   relayTools?: string[];
@@ -246,6 +250,28 @@ export function validateRemoteConnectionInput(
   if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
     return { ok: false, error: "port must be an integer from 1 to 65535" };
   }
+  const authMethod = input?.authMethod ??
+    (source === "managed" && input?.identityFilePath?.trim() ? "identity" : "agent");
+  if (authMethod !== "agent" && authMethod !== "password" && authMethod !== "identity") {
+    return { ok: false, error: "authMethod must be agent, password, or identity" };
+  }
+  if (source !== "managed" && authMethod !== "agent") {
+    return { ok: false, error: "explicit SSH authentication methods require a managed connection" };
+  }
+  const identityFilePath = input?.identityFilePath?.trim();
+  if (authMethod === "identity" && !identityFilePath) {
+    return { ok: false, error: "identityFilePath is required for identity authentication" };
+  }
+  if (authMethod !== "identity" && identityFilePath) {
+    return { ok: false, error: "identityFilePath is only valid for identity authentication" };
+  }
+  const password = input?.password;
+  if (password !== undefined && password.length > 8192) {
+    return { ok: false, error: "password must contain at most 8192 characters" };
+  }
+  if (password && authMethod !== "password") {
+    return { ok: false, error: "password is only valid for password authentication" };
+  }
   return {
     ok: true,
     value: {
@@ -255,7 +281,9 @@ export function validateRemoteConnectionInput(
       ...(hostname ? { hostname } : {}),
       ...(input?.user?.trim() ? { user: input.user.trim() } : {}),
       ...(port !== undefined ? { port } : {}),
-      ...(input?.identityFilePath?.trim() ? { identityFilePath: input.identityFilePath.trim() } : {}),
+      ...(authMethod ? { authMethod } : {}),
+      ...(identityFilePath ? { identityFilePath } : {}),
+      ...(password ? { password } : {}),
       enabled: input?.enabled !== false,
     },
   };

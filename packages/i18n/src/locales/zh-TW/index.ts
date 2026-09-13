@@ -618,6 +618,16 @@ export const zhTW = {
     user: "使用者",
     port: "連接埠",
     identityFile: "私鑰檔案",
+    authentication: "驗證方式",
+    auth: {
+      agent: "SSH Agent",
+      password: "密碼",
+      identity: "私鑰檔案",
+    },
+    password: "密碼",
+    savedPassword: "已儲存密碼",
+    chooseFile: "選擇檔案",
+    selectIdentityFile: "選擇 SSH 私鑰檔案",
     state: {
       disconnected: "已中斷",
       resolving: "正在解析",

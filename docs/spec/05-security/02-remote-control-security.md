@@ -159,6 +159,10 @@ pairing only binds a desktop device to the Host it started.
   desktop, ends the pairing; a new pairing needs a new SSH bootstrap.
 - Provider configuration for the remote Host is written over the SSH channel
   by the bootstrap step as Host-local configuration; it never crosses RACP.
+- A managed SSH password is a write-only Desktop credential stored in
+  host-core secure storage. It is never exported or returned to the renderer;
+  connection time passes it only to system OpenSSH through a secret-free
+  launcher and a mode-0600 temporary askpass socket.
 
 ## 4. Authorization model
 

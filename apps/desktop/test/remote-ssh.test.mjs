@@ -33,6 +33,7 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
     ["remoteOpenProject", "openRemoteProject"],
     ["remoteRemoveProject", "removeRemoteProject"],
     ["remoteBrowseDirectory", "browseRemoteDirectory"],
+    ["remoteSelectIdentityFile", "selectRemoteIdentityFile"],
     ["remoteRelayCatalog", "remoteRelayCatalog"],
     ["remoteRelaySet", "setRemoteRelayTools"],
     ["remoteTerminalOpen", "openRemoteTerminal"],
@@ -48,6 +49,52 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
   assert.match(api, /onRemoteChanged/);
   assert.match(api, /onRemoteTerminalEvent/);
   assert.match(preload, /IPC_WHITELIST/);
+});
+
+test("managed SSH connections support one explicit password or identity credential", async () => {
+  const [ui, api, main, manager, store, ssh] = await Promise.all([
+    read("apps/desktop/src/components/settings/ConnectionsSection.tsx"),
+    read("apps/desktop/src/lib/api.ts"),
+    read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/electron/main/remote-manager.ts"),
+    read("apps/desktop/electron/main/remote-store.ts"),
+    read("apps/desktop/electron/main/ssh.ts"),
+  ]);
+  assert.match(ui, /authMethod: "agent"/);
+  assert.match(ui, /\["agent", "password", "identity"\]/);
+  assert.match(ui, /type="password"/);
+  assert.match(ui, /autoComplete="new-password"/);
+  assert.match(ui, /savedPassword/);
+  assert.match(ui, /api\.selectRemoteIdentityFile\(\)/);
+  assert.match(api, /selectRemoteIdentityFile/);
+  assert.match(main, /dialog\.showOpenDialog/);
+  assert.match(main, /remoteSelectIdentityFile/);
+
+  assert.match(store, /const \{ password: _password, \.\.\.durable \} = input/);
+  assert.doesNotMatch(
+    store.slice(store.indexOf("function durableConnectionInput"), store.indexOf("upsertDiscoveredConnection")),
+    /["']password["']\s*:/,
+  );
+  assert.match(manager, /remote-connection:\$\{connectionId\}:password/);
+  assert.match(manager, /secrets\.getForRuntime/);
+  assert.match(manager, /secrets\.set/);
+  assert.match(manager, /saved SSH password is missing/);
+  const exportBlock = manager.slice(
+    manager.indexOf("exportConnections(): string"),
+    manager.indexOf("async importConnections("),
+  );
+  assert.doesNotMatch(exportBlock, /password/i);
+
+  assert.match(ssh, /SSH_ASKPASS_REQUIRE: "force"/);
+  assert.match(ssh, /BatchMode=no/);
+  assert.match(ssh, /NumberOfPasswordPrompts=1/);
+  assert.match(ssh, /askpass\.cjs/);
+  assert.match(ssh, /const server = createServer\(\(socket\) => socket\.end\(password\)\)/);
+  assert.match(ssh, /chmodSync\(socketPath, 0o600\)/);
+  assert.match(ssh, /server\.listen\(socketPath/);
+  assert.match(ssh, /named pipe|askpass\.sock/);
+  assert.doesNotMatch(ssh.slice(ssh.indexOf("function askpassContext"), ssh.indexOf("function run(")), /SSH_PASSWORD_ENV/);
+  assert.doesNotMatch(ssh.slice(ssh.indexOf("function askpassContext"), ssh.indexOf("function run(")), /\$\{password\}/);
 });
 
 test("reverse relay tools are explicit, permission-gated, and workspace-free", async () => {
@@ -124,8 +171,8 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(ssh, /ExitOnForwardFailure=yes/);
   assert.match(ssh, /127\.0\.0\.1:\$\{localPort\}:127\.0\.0\.1:\$\{remotePort\}/);
   assert.match(main, /new RemoteManager|RemoteManager\.open/);
-  assert.match(manager, /proposeHostKeys\(runtime\.connection\)/);
-  assert.match(manager, /confirmHostKeys\(runtime\.connection, proposed\)/);
+  assert.match(manager, /proposeHostKeys\(runtime\.connection, password\)/);
+  assert.match(manager, /confirmHostKeys\(runtime\.connection, proposed, password\)/);
   assert.match(manager, /discardProposedHostKeys\(proposed\)/);
   assert.match(main, /remoteManager\.upgradeHost/);
   assert.match(main, /remoteManager\.revokeDevice/);

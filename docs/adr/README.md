@@ -252,3 +252,4 @@ Each ADR includes:
 | 0232 | Tree review and AI commit messages in Git | Accepted (D406) |
 | 0233 | Window-sized plugin view modals | Accepted (D407) |
 | 0234 | Remote SSH Agent Runtime | Accepted for implementation (D408) |
+| 0235 | Managed SSH password authentication | Accepted (D409) |

@@ -1,5 +1,6 @@
 import { spawn, execFile } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { createServer } from "node:net";
@@ -93,21 +94,105 @@ function baseArgs(connection: RemoteConnection): string[] {
   return args;
 }
 
-function commonArgs(connection: RemoteConnection): string[] {
+function commonArgs(connection: RemoteConnection, password?: string): string[] {
   return [
-    "-o", "BatchMode=yes",
-    "-o", "ConnectTimeout=10",
+    ...authenticationArgs(connection, password),
     ...baseArgs(connection),
   ];
 }
 
-function run(
+function authenticationArgs(connection: RemoteConnection, password?: string): string[] {
+  return [
+    "-o", password === undefined ? "BatchMode=yes" : "BatchMode=no",
+    "-o", "ConnectTimeout=10",
+    ...(password === undefined ? [] : ["-o", "NumberOfPasswordPrompts=1"]),
+  ];
+}
+
+type AskpassContext = {
+  env: NodeJS.ProcessEnv;
+  cleanup: () => void;
+};
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+async function askpassContext(password: string): Promise<AskpassContext> {
+  const directory = mkdtempSync(join(tmpdir(), "pi-askpass-"));
+  const helper = join(directory, "askpass.cjs");
+  const launcher = join(directory, process.platform === "win32" ? "askpass.cmd" : "askpass");
+  const socketPath = process.platform === "win32"
+    ? `\\\\.\\pipe\\pi-desktop-askpass-${randomUUID()}`
+    : join(directory, "askpass.sock");
+  writeFileSync(helper, `${[
+    `"use strict";`,
+    `const net = require("node:net");`,
+    `const socket = net.createConnection(process.argv[2]);`,
+    `let value = "";`,
+    `socket.on("data", (chunk) => { value += chunk; });`,
+    `socket.on("error", () => process.exit(1));`,
+    `socket.on("close", () => {`,
+    `  if (value) process.stdout.write(value);`,
+    `});`,
+    "",
+  ].join("\n")}\n`, { mode: 0o600 });
+  if (process.platform === "win32") {
+    writeFileSync(
+      launcher,
+      `@echo off\r\n"${process.execPath}" "${helper}" "${socketPath}"\r\n`,
+      { mode: 0o700 },
+    );
+  } else {
+    writeFileSync(
+      launcher,
+      `#!/bin/sh\nexec env ELECTRON_RUN_AS_NODE=1 ${shellQuote(process.execPath)} ${shellQuote(helper)} ${shellQuote(socketPath)}\n`,
+      { mode: 0o700 },
+    );
+  }
+  const server = createServer((socket) => socket.end(password));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => resolve());
+    });
+    if (process.platform !== "win32") chmodSync(socketPath, 0o600);
+  } catch (error) {
+    server.close();
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    server.close();
+    rmSync(directory, { recursive: true, force: true });
+  };
+  server.once("error", () => {
+    cleanup();
+  });
+  return {
+    env: {
+      DISPLAY: process.env.DISPLAY ?? "pi-desktop",
+      SSH_ASKPASS: launcher,
+      SSH_ASKPASS_REQUIRE: "force",
+    },
+    cleanup,
+  };
+}
+
+async function run(
   command: string,
   args: string[],
-  options: { stdin?: string; timeoutMs?: number } = {},
+  options: { stdin?: string; timeoutMs?: number; password?: string } = {},
 ): Promise<SshExecutionResult> {
+  const askpass = options.password === undefined ? undefined : await askpassContext(options.password);
   return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      ...(askpass ? { env: { ...process.env, ...askpass.env } } : {}),
+    });
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -118,12 +203,14 @@ function run(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      askpass?.cleanup();
       resolveRun(result);
     };
     const fail = (error: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      askpass?.cleanup();
       rejectRun(error);
     };
     child.stdout.setEncoding("utf8");
@@ -192,11 +279,14 @@ export async function effectiveSshConfig(connection: RemoteConnection): Promise<
   };
 }
 
-export async function sshProbe(connection: RemoteConnection): Promise<{ os: string; arch: string; home: string; shell: string }> {
+export async function sshProbe(
+  connection: RemoteConnection,
+  password?: string,
+): Promise<{ os: string; arch: string; home: string; shell: string }> {
   const result = await run(resolveSshExecutable(), [
-    ...commonArgs(connection),
+    ...commonArgs(connection, password),
     "printf 'PI_HOST_PROBE_OS=%s\\nARCH=%s\\nHOME=%s\\nSHELL=%s\\n' \"$(uname -s)\" \"$(uname -m)\" \"$HOME\" \"$SHELL\"",
-  ]);
+  ], { password });
   if (result.code !== 0) throw classify(result, "connecting");
   const values = Object.fromEntries(result.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split("=", 2) as [string, string]));
   return {
@@ -211,21 +301,26 @@ export async function runSshScript(
   connection: RemoteConnection,
   script: string,
   environment: Record<string, string>,
+  password?: string,
 ): Promise<SshExecutionResult> {
   const envArgs = Object.entries(environment).map(([key, value]) => `${key}=${value}`);
-  const result = await run(resolveSshExecutable(), [...commonArgs(connection), "env", ...envArgs, "sh", "-s"], {
+  const result = await run(resolveSshExecutable(), [...commonArgs(connection, password), "env", ...envArgs, "sh", "-s"], {
     stdin: script,
     timeoutMs: 120_000,
+    password,
   });
   if (result.code !== 0) throw classify(result, "bootstrapping");
   return result;
 }
 
-export async function readRemoteRuntimeMetadata(connection: RemoteConnection): Promise<Record<string, unknown> | null> {
+export async function readRemoteRuntimeMetadata(
+  connection: RemoteConnection,
+  password?: string,
+): Promise<Record<string, unknown> | null> {
   const result = await run(resolveSshExecutable(), [
-    ...commonArgs(connection),
+    ...commonArgs(connection, password),
     `sh -c 'METADATA="$HOME/.pi-desktop/host/runtime/host.json"; [ -f "$METADATA" ] || exit 1; PID=$(tr "," "\n" < "$METADATA" | grep ".pid." | tr -cd "0-9"); [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null || exit 1; cat "$METADATA"'`,
-  ]);
+  ], { password });
   if (result.code !== 0) throw classify(result, "connecting");
   try {
     const value = JSON.parse(result.stdout.trim());
@@ -258,16 +353,19 @@ export async function knownHostAccepted(config: EffectiveSshConfig): Promise<boo
   return false;
 }
 
-export async function proposeHostKeys(connection: RemoteConnection): Promise<ProposedHostKeys> {
+export async function proposeHostKeys(
+  connection: RemoteConnection,
+  password?: string,
+): Promise<ProposedHostKeys> {
   const directory = mkdtempSync(join(tmpdir(), "pi-desktop-host-key-"));
   const knownHostsPath = join(directory, "known_hosts");
   writeFileSync(knownHostsPath, "", { mode: 0o600 });
   const result = await run(resolveSshExecutable(), [
-    ...commonArgs(connection),
+    ...commonArgs(connection, password),
     "-o", `UserKnownHostsFile=${knownHostsPath}`,
     "-o", "StrictHostKeyChecking=yes",
     "true",
-  ], { timeoutMs: 15_000 });
+  ], { timeoutMs: 15_000, password });
   const fingerprints = [...new Set(
     `${result.stderr}\n${result.stdout}`.match(/SHA256:[A-Za-z0-9+/=]+/g) ?? [],
   )];
@@ -281,13 +379,17 @@ export async function proposeHostKeys(connection: RemoteConnection): Promise<Pro
   };
 }
 
-export async function confirmHostKeys(connection: RemoteConnection, proposed: ProposedHostKeys): Promise<string[]> {
+export async function confirmHostKeys(
+  connection: RemoteConnection,
+  proposed: ProposedHostKeys,
+  password?: string,
+): Promise<string[]> {
   const result = await run(resolveSshExecutable(), [
-    ...commonArgs(connection),
+    ...commonArgs(connection, password),
     "-o", `UserKnownHostsFile=${proposed.knownHostsPath}`,
     "-o", "StrictHostKeyChecking=accept-new",
     "true",
-  ], { timeoutMs: 15_000 });
+  ], { timeoutMs: 15_000, password });
   if (result.code !== 0) {
     throw new SshError("SSH_HOST_KEY_FAILED", "could not confirm the remote host key", "connecting", result.code);
   }
@@ -342,18 +444,22 @@ export async function startSshTunnel(
   connection: RemoteConnection,
   remotePort: number,
   localPort: number,
+  password?: string,
 ): Promise<SshTunnel> {
+  const askpass = password === undefined ? undefined : await askpassContext(password);
   const child = spawn(resolveSshExecutable(), [
     "-N",
     "-T",
-    "-o", "BatchMode=yes",
-    "-o", "ConnectTimeout=10",
+    ...authenticationArgs(connection, password),
     "-o", "ServerAliveInterval=15",
     "-o", "ServerAliveCountMax=3",
     "-o", "ExitOnForwardFailure=yes",
     "-L", `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
     ...baseArgs(connection),
-  ], { stdio: ["ignore", "pipe", "pipe"] });
+  ], {
+    stdio: ["ignore", "pipe", "pipe"],
+    ...(askpass ? { env: { ...process.env, ...askpass.env } } : {}),
+  });
   const exit = new Promise<SshExecutionResult>((resolve) => {
     let stderr = "";
     child.stderr?.setEncoding("utf8");
@@ -367,6 +473,7 @@ export async function startSshTunnel(
       stderr: signal ? `${stderr}\nconnection timed out`.trim() : stderr,
     }));
   });
+  void exit.then(() => askpass?.cleanup()).catch(() => askpass?.cleanup());
   return { process: child, localPort, exit };
 }
 

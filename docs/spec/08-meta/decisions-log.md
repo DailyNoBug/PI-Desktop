@@ -4748,3 +4748,17 @@ D193, and D194.
 - Remote sessions, queues, approvals, event state, tools, Skills, MCP,
   subagents, and provider secrets are owned by the remote Host. Provider
   configuration is written over the SSH bootstrap channel, never through RACP.
+
+## 2026-09-14 — Managed SSH password authentication (D409)
+
+- Decision D409 / ADR 0235 amends ADR 0234's manual-connection credential UX:
+  a managed connection explicitly selects SSH agent, password, or one identity
+  file. Password and identity are alternatives; agent remains the default.
+- Identity selection uses a Main-owned native file picker and stores only the
+  path. Password input is write-only, is stored only in host-core's secret
+  backend, and is absent from connection JSON, export/import, diagnostics,
+  renderer reads, and logs.
+- System OpenSSH remains the authenticator. Password mode uses a secret-free
+  launcher plus a mode-0600 temporary askpass socket, permits one prompt, and
+  deletes both when the SSH process exits. Agent and identity modes retain
+  batch operation.

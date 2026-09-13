@@ -14,6 +14,7 @@ const emptyForm: RemoteConnectionInput = {
   hostname: "",
   user: "",
   port: 22,
+  authMethod: "agent",
   identityFilePath: "",
   enabled: true,
 };
@@ -28,6 +29,7 @@ export function ConnectionsSection() {
   const [connections, setConnections] = useState<RemoteConnectionView[] | null>(null);
   const [providers, setProviders] = useState<ProviderPublic[]>([]);
   const [form, setForm] = useState<RemoteConnectionInput>(emptyForm);
+  const [password, setPassword] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [providerByConnection, setProviderByConnection] = useState<Record<string, string>>({});
@@ -60,10 +62,17 @@ export function ConnectionsSection() {
   );
 
   const submit = async () => {
+    const requiresNewPassword = form.authMethod === "password" && !editingId;
+    if (requiresNewPassword && !password) return;
     try {
-      if (editingId) await api.updateRemoteConnection(editingId, form);
-      else await api.addRemoteConnection(form);
+      const input: RemoteConnectionInput = {
+        ...form,
+        ...(form.authMethod === "password" && password ? { password } : {}),
+      };
+      if (editingId) await api.updateRemoteConnection(editingId, input);
+      else await api.addRemoteConnection(input);
       setForm(emptyForm);
+      setPassword("");
       setEditingId(null);
       await load();
     } catch (error) {
@@ -92,9 +101,16 @@ export function ConnectionsSection() {
       ...(connection.hostname ? { hostname: connection.hostname } : {}),
       ...(connection.user ? { user: connection.user } : {}),
       ...(connection.port ? { port: connection.port } : {}),
+      authMethod: connection.authMethod ?? (connection.identityFilePath ? "identity" : "agent"),
       ...(connection.identityFilePath ? { identityFilePath: connection.identityFilePath } : {}),
       enabled: connection.enabled,
     });
+    setPassword("");
+  };
+
+  const selectIdentityFile = async () => {
+    const path = await api.selectRemoteIdentityFile();
+    if (path) setForm((current) => ({ ...current, identityFilePath: path }));
   };
 
   const copyDiagnostics = async (id: string) => {
@@ -352,7 +368,11 @@ export function ConnectionsSection() {
                 role="radio"
                 aria-checked={form.source === source}
                 className={cx("settings-segment-item", form.source === source && "active")}
-                onClick={() => setForm((current) => ({ ...current, source }))}
+                onClick={() => setForm((current) => ({
+                  ...current,
+                  source,
+                  ...(source === "ssh-config" ? { authMethod: "agent" as const, identityFilePath: "" } : {}),
+                }))}
               >
                 {t(source === "ssh-config" ? "remote.sourceConfig" : "remote.sourceManaged")}
               </button>
@@ -385,17 +405,73 @@ export function ConnectionsSection() {
                   <span>{t("remote.port")}</span>
                   <Input type="number" min={1} max={65535} value={form.port ?? 22} onChange={(event) => setForm((current) => ({ ...current, port: Number(event.target.value) }))} />
                 </label>
-                <label>
-                  <span>{t("remote.identityFile")}</span>
-                  <Input value={form.identityFilePath ?? ""} onChange={(event) => setForm((current) => ({ ...current, identityFilePath: event.target.value }))} />
-                </label>
               </>
             ) : null}
           </div>
+          {form.source === "managed" ? (
+            <div className="remote-auth-field">
+              <span className="remote-auth-label">{t("remote.authentication")}</span>
+              <div className="settings-segment remote-auth-segment" role="radiogroup" aria-label={t("remote.authentication")}>
+                {(["agent", "password", "identity"] as const).map((method) => (
+                  <button
+                    key={method}
+                    type="button"
+                    role="radio"
+                    aria-checked={form.authMethod === method}
+                    className={cx("settings-segment-item", form.authMethod === method && "active")}
+                    onClick={() => {
+                      setPassword((current) => method === "password" ? current : "");
+                      setForm((current) => ({
+                        ...current,
+                        authMethod: method,
+                        ...(method === "identity" ? {} : { identityFilePath: "" }),
+                      }));
+                    }}
+                  >
+                    {t(`remote.auth.${method}`)}
+                  </button>
+                ))}
+              </div>
+              {form.authMethod === "password" ? (
+                <label>
+                  <span>{t("remote.password")}</span>
+                  <Input
+                    type="password"
+                    value={password}
+                    autoComplete="new-password"
+                    placeholder={editingId ? t("remote.savedPassword") : undefined}
+                    aria-required={!editingId}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              {form.authMethod === "identity" ? (
+                <label>
+                  <span>{t("remote.identityFile")}</span>
+                  <span className="remote-identity-row">
+                    <Input
+                      value={form.identityFilePath ?? ""}
+                      aria-required
+                      onChange={(event) => setForm((current) => ({ ...current, identityFilePath: event.target.value }))}
+                    />
+                    <Button variant="secondary" onClick={() => void selectIdentityFile().catch(() => undefined)}>
+                      <IconFolderOpen size={14} />
+                      {t("remote.chooseFile")}
+                    </Button>
+                  </span>
+                </label>
+              ) : null}
+            </div>
+          ) : null}
           <div className="settings-panel-actions">
             <Button
               variant="primary"
-              disabled={!form.displayName.trim() || (form.source === "ssh-config" ? !form.sshConfigAlias?.trim() : !form.hostname?.trim())}
+              disabled={
+                !form.displayName.trim() ||
+                (form.source === "ssh-config" ? !form.sshConfigAlias?.trim() : !form.hostname?.trim()) ||
+                (form.source === "managed" && form.authMethod === "identity" && !form.identityFilePath?.trim()) ||
+                (form.source === "managed" && form.authMethod === "password" && !editingId && !password)
+              }
               onClick={() => void submit()}
             >
               <IconPlus size={14} />
@@ -405,6 +481,7 @@ export function ConnectionsSection() {
               <Button variant="secondary" onClick={() => {
                 setEditingId(null);
                 setForm(emptyForm);
+                setPassword("");
               }}>
                 {t("common.cancel")}
               </Button>

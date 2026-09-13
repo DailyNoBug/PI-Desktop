@@ -622,6 +622,16 @@ export const tr = {
     user: "Kullanıcı",
     port: "Port",
     identityFile: "Kimlik dosyası",
+    authentication: "Kimlik doğrulama",
+    auth: {
+      agent: "SSH aracısı",
+      password: "Parola",
+      identity: "Kimlik dosyası",
+    },
+    password: "Parola",
+    savedPassword: "Kayıtlı parola",
+    chooseFile: "Dosya seç",
+    selectIdentityFile: "SSH kimlik dosyasını seç",
     state: {
       disconnected: "Bağlantı kesildi",
       resolving: "Çözülüyor",

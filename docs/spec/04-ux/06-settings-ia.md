@@ -433,8 +433,11 @@ system while preserving their different data ownership:
   and Copy diagnostics.
 - **Add/edit connection** uses a segmented source control (OpenSSH config or
   Manual). OpenSSH entries require an alias; manual entries require hostname and
-  optionally user, port, and identity-file path. The form never accepts or
-  displays private-key bytes.
+  optionally user and port. Manual authentication is a second segmented control
+  for SSH agent, password, or identity file; the user supplies exactly one.
+  Password is a write-only field that indicates an existing value without
+  revealing it, while identity uses a Main-owned native file picker and stores
+  only the path. The form never accepts or displays private-key bytes.
 - **Open remote project** opens a modal with connection selector, Home action,
   editable absolute path, bounded remote directory list, and Git-repository
   marker. Directory browsing is Host-owned; no native local folder picker is

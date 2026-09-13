@@ -7478,6 +7478,20 @@ function registerIpc() {
       ...(input.path ? { path: input.path } : {}),
     });
   });
+  handle(IPC.invoke.remoteSelectIdentityFile, async () => {
+    const options: Electron.OpenDialogOptions = {
+      title: remoteDialogs().selectIdentityFile,
+      properties: ["openFile"],
+      filters: [
+        { name: "SSH identity files", extensions: ["pem", "key", "id_rsa", "id_ed25519"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
   handle(IPC.invoke.remoteRelayCatalog, async (input: { connectionId?: string }) => {
     if (!remoteManager) throw new Error("remote manager unavailable");
     return remoteManager.relayCatalog(requiredId(input.connectionId, "connectionId"));

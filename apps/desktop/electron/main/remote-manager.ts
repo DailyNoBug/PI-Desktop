@@ -141,6 +141,10 @@ function tokenRef(hostId: string): string {
   return `remote-host:${hostId}:device-token`;
 }
 
+function connectionPasswordRef(connectionId: string): string {
+  return `remote-connection:${connectionId}:password`;
+}
+
 function publicError(error: unknown, stage: RemoteConnectionState): RemoteConnectionView["lastError"] {
   const code = (error as { errorCode?: string; code?: string }).errorCode ?? (error as { code?: string }).code ?? ErrorCodes.REMOTE_BOOTSTRAP_FAILED;
   return {
@@ -304,6 +308,7 @@ export class RemoteManager {
       ...(connection.hostname ? { hostname: connection.hostname } : {}),
       ...(connection.user ? { user: connection.user } : {}),
       ...(connection.port ? { port: connection.port } : {}),
+      ...(connection.authMethod ? { authMethod: connection.authMethod } : {}),
       ...(connection.identityFilePath ? { identityFilePath: connection.identityFilePath } : {}),
       enabled: connection.enabled,
     }));
@@ -323,7 +328,8 @@ export class RemoteManager {
     let imported = 0;
     let skipped = 0;
     for (const raw of parsed.connections.slice(0, 256)) {
-      const validated = validateRemoteConnectionInput(raw as Partial<RemoteConnectionInput>);
+      const incoming = raw as Partial<RemoteConnectionInput>;
+      const validated = validateRemoteConnectionInput({ ...incoming, password: undefined });
       if (!validated.ok) {
         skipped += 1;
         continue;
@@ -339,7 +345,7 @@ export class RemoteManager {
       );
       if (existing) await this.updateConnection(existing.id, input);
       else if (input.source === "ssh-config") await this.addConfigConnection(input);
-      else await this.addConnection(input);
+      else await this.addConnection(input, { allowMissingPassword: true });
       imported += 1;
     }
     this.events.onAudit("connection.imported", { imported, skipped });
@@ -347,8 +353,25 @@ export class RemoteManager {
     return { imported, skipped };
   }
 
-  async addConnection(input: RemoteConnectionInput): Promise<RemoteConnectionView> {
+  async addConnection(
+    input: RemoteConnectionInput,
+    options: { allowMissingPassword?: boolean } = {},
+  ): Promise<RemoteConnectionView> {
+    if (input.authMethod === "password" && !input.password && !options.allowMissingPassword) {
+      throw Object.assign(new Error("password is required for password authentication"), {
+        errorCode: ErrorCodes.INVALID_ARGUMENT,
+      });
+    }
     const connection = this.store.addManagedConnection(input);
+    try {
+      if (connection.authMethod === "password" && input.password) {
+        await this.writePassword(connection.id, input.password);
+      }
+    } catch (error) {
+      this.store.removeConnection(connection.id);
+      this.events.onConnectionsChanged();
+      throw error;
+    }
     this.events.onAudit("connection.created", { connectionId: connection.id });
     this.events.onConnectionsChanged();
     return this.viewFor(connection.id);
@@ -364,6 +387,21 @@ export class RemoteManager {
 
   async updateConnection(id: string, input: RemoteConnectionInput): Promise<RemoteConnectionView> {
     if (this.runtimes.get(id)?.client) await this.disconnect(id);
+    const validated = validateRemoteConnectionInput(input);
+    if (!validated.ok) {
+      throw Object.assign(new Error(validated.error), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+    }
+    const existing = this.requireConnection(id);
+    if (input.password && input.authMethod !== "password") {
+      throw Object.assign(new Error("password requires password authentication"), {
+        errorCode: ErrorCodes.INVALID_ARGUMENT,
+      });
+    }
+    if (input.authMethod === "password" && input.password) {
+      await this.writePassword(id, input.password);
+    } else if (input.authMethod && input.authMethod !== "password" && existing.authMethod === "password") {
+      await this.deletePassword(id);
+    }
     this.store.updateConnection(id, input);
     this.events.onAudit("connection.updated", { connectionId: id });
     this.events.onConnectionsChanged();
@@ -375,6 +413,7 @@ export class RemoteManager {
     const hostId = this.hostIdFor(id);
     const host = this.getHost();
     if (host) await host.call("secrets.delete", { secretRef: tokenRef(hostId) }).catch(() => undefined);
+    if (host) await host.call("secrets.delete", { secretRef: connectionPasswordRef(id) }).catch(() => undefined);
     this.store.removeConnection(id);
     this.events.onAudit("connection.removed", { connectionId: id });
     this.events.onConnectionsChanged();
@@ -384,7 +423,7 @@ export class RemoteManager {
     const connection = this.requireConnection(id);
     this.setState(id, "connecting");
     try {
-      const probe = await sshProbe(connection);
+      const probe = await sshProbe(connection, await this.readPassword(connection));
       this.events.onAudit("connection.tested", {
         connectionId: id,
         os: probe.os,
@@ -467,7 +506,8 @@ export class RemoteManager {
     await this.closeTransport(runtime);
     this.setState(id, "bootstrapping");
     try {
-      const metadata = await readRemoteRuntimeMetadata(runtime.connection);
+      const password = await this.readPassword(runtime.connection);
+      const metadata = await readRemoteRuntimeMetadata(runtime.connection, password);
       const remoteVersion = typeof metadata?.version === "string" ? metadata.version : "";
       if (remoteVersion && compareApplicationVersions(remoteVersion, APP_VERSION) > 0) {
         throw Object.assign(
@@ -475,7 +515,7 @@ export class RemoteManager {
           { errorCode: ErrorCodes.REMOTE_HOST_VERSION_INCOMPATIBLE },
         );
       }
-      const probe = await sshProbe(runtime.connection);
+      const probe = await sshProbe(runtime.connection, password);
       if (probe.os !== "Linux") {
         throw Object.assign(new Error(`remote OS ${probe.os || "unknown"} is unsupported; Linux is required`), {
           errorCode: ErrorCodes.REMOTE_OS_UNSUPPORTED,
@@ -488,7 +528,7 @@ export class RemoteManager {
         PI_HOST_ARCH: arch,
         PI_HOST_CHECKSUM: checksum,
         PI_HOST_FORCE_RESTART: "1",
-      });
+      }, password);
       const ready = parseBootstrapOutput(bootstrap.stdout).ready;
       const port = Number(ready?.port ?? 0);
       if (!Number.isInteger(port) || port <= 0) {
@@ -1125,7 +1165,7 @@ export class RemoteManager {
       `printf '%s' '${encoded}' | "$NODE" "$HOST" --provider-import --runtime-dir "$RUNTIME"`,
       "",
     ].join("\n");
-    const result = await runSshScript(connection, script, {});
+    const result = await runSshScript(connection, script, {}, await this.readPassword(connection));
     if (result.code !== 0) throw classifySsh(result);
     this.events.onAudit("remote.provider.imported", { connectionId, providerId });
     try {
@@ -1148,7 +1188,7 @@ export class RemoteManager {
       `printf '%s' '${providerId}' | "$NODE" "$HOST" --provider-delete --runtime-dir "$RUNTIME"`,
       "",
     ].join("\n");
-    const result = await runSshScript(connection, script, {});
+    const result = await runSshScript(connection, script, {}, await this.readPassword(connection));
     if (result.code !== 0) throw classifySsh(result);
     this.events.onAudit("remote.provider.deleted", { connectionId, providerId });
     return { deleted: true };
@@ -1166,7 +1206,7 @@ export class RemoteManager {
       `"$NODE" "$HOST" --revoke-device --runtime-dir "$RUNTIME"`,
       "",
     ].join("\n");
-    const result = await runSshScript(connection, script, {});
+    const result = await runSshScript(connection, script, {}, await this.readPassword(connection));
     if (result.code !== 0) throw classifySsh(result);
     const hostId = this.hostIdFor(id);
     const host = this.getHost();
@@ -1396,9 +1436,10 @@ export class RemoteManager {
     runtime.explicitDisconnect = false;
     const id = runtime.connection.id;
     this.setState(id, "resolving");
+    const password = await this.readPassword(runtime.connection);
     const config = await effectiveSshConfig(runtime.connection);
     if (!await knownHostAccepted(config)) {
-      const proposed = await proposeHostKeys(runtime.connection);
+      const proposed = await proposeHostKeys(runtime.connection, password);
       try {
         const accepted = await this.confirmFingerprint({
           connection: runtime.connection,
@@ -1408,7 +1449,7 @@ export class RemoteManager {
           this.events.onAudit("ssh.host_key.canceled", { connectionId: id });
           throw Object.assign(new Error("remote host key was not accepted"), { errorCode: ErrorCodes.SSH_HOST_KEY_FAILED });
         }
-        const keys = await confirmHostKeys(runtime.connection, proposed);
+        const keys = await confirmHostKeys(runtime.connection, proposed, password);
         await acceptHostKeys(config, keys);
         this.events.onAudit("ssh.host_key.accepted", {
           connectionId: id,
@@ -1420,7 +1461,7 @@ export class RemoteManager {
     }
 
     this.setState(id, "connecting");
-    const probe = await sshProbe(runtime.connection);
+    const probe = await sshProbe(runtime.connection, password);
     if (probe.os !== "Linux") {
       throw Object.assign(new Error(`remote OS ${probe.os || "unknown"} is unsupported; Linux is required`), {
         errorCode: ErrorCodes.REMOTE_OS_UNSUPPORTED,
@@ -1432,7 +1473,7 @@ export class RemoteManager {
     const hostId = this.hostIdFor(id);
     let host = this.store.getHost(hostId);
     let token = await this.readToken(hostId);
-    let metadata = await readRemoteRuntimeMetadata(runtime.connection);
+    let metadata = await readRemoteRuntimeMetadata(runtime.connection, password);
     const remoteVersion = typeof metadata?.version === "string" ? metadata.version : "";
     if (remoteVersion && compareApplicationVersions(remoteVersion, APP_VERSION) > 0) {
       this.setState(id, "incompatible");
@@ -1449,7 +1490,7 @@ export class RemoteManager {
         PI_HOST_ARCH: arch,
         PI_HOST_CHECKSUM: checksum,
         ...(token ? {} : { PI_HOST_FORCE_RESTART: "1" }),
-      });
+      }, password);
       this.events.onAudit(token ? "remote.host.upgraded" : "remote.host.installed", {
         connectionId: id,
         version: APP_VERSION,
@@ -1496,7 +1537,7 @@ export class RemoteManager {
 
     this.setState(id, "forwarding");
     const localPort = await freeLoopbackPort();
-    const tunnel = await startSshTunnel(runtime.connection, Number(metadata.port), localPort);
+    const tunnel = await startSshTunnel(runtime.connection, Number(metadata.port), localPort, password);
     runtime.tunnel = tunnel;
     void tunnel.exit.then((result) => {
       if (runtime.tunnel !== tunnel || runtime.explicitDisconnect) return;
@@ -1994,6 +2035,35 @@ export class RemoteManager {
     if (!host) return null;
     const result = await host.call<{ value?: string }>("secrets.getForRuntime", { secretRef: tokenRef(hostId) }).catch(() => ({ value: undefined }));
     return result.value ?? null;
+  }
+
+  private async readPassword(connection: { id: string; authMethod?: string }): Promise<string | undefined> {
+    if (connection.authMethod !== "password") return undefined;
+    const host = this.getHost();
+    if (!host) throw Object.assign(new Error("local host unavailable"), { errorCode: ErrorCodes.INTERNAL });
+    const result = await host.call<{ value?: string }>(
+      "secrets.getForRuntime",
+      { secretRef: connectionPasswordRef(connection.id) },
+    );
+    if (!result.value) {
+      throw Object.assign(new Error("saved SSH password is missing"), { errorCode: ErrorCodes.SSH_AUTH_FAILED });
+    }
+    return result.value;
+  }
+
+  private async writePassword(connectionId: string, password: string): Promise<void> {
+    const host = this.getHost();
+    if (!host) throw Object.assign(new Error("local host unavailable"), { errorCode: ErrorCodes.INTERNAL });
+    await host.call("secrets.set", {
+      secretRef: connectionPasswordRef(connectionId),
+      value: password,
+    });
+  }
+
+  private async deletePassword(connectionId: string): Promise<void> {
+    const host = this.getHost();
+    if (!host) return;
+    await host.call("secrets.delete", { secretRef: connectionPasswordRef(connectionId) }).catch(() => undefined);
   }
 
   private async writeToken(hostId: string, token: string): Promise<void> {

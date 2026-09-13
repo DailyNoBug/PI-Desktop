@@ -62,6 +62,9 @@ Releases 下载与桌面同版本、对应远端平台的 `pi-host` 包，校验
 在 Host 上撤销设备 token 或在桌面移除该 Host 即结束配对，重新配对需要重新
 经 SSH 引导。远端 Host 的 provider 配置由引导步骤经 SSH 通道写入为 Host 本地
 配置，绝不经过 RACP。
+Managed SSH 密码是只写的 Desktop 凭据，保存在 host-core 安全存储中，绝不导出
+或回读给 renderer；连接时只通过不含秘密的临时 launcher 和权限 0600 的临时
+askpass socket 交给 system OpenSSH。
 
 | Operation | Viewer | Controller | Approver | Owner |
 |---|---:|---:|---:|---:|
