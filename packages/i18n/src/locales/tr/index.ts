@@ -573,6 +573,7 @@ export const tr = {
     connectionsCopied: "Bağlantılar kopyalandı",
     connectionsImported: "{{count}} içe aktarıldı, {{skipped}} atlandı",
     home: "Giriş klasörü",
+    recentPaths: "Son yollar",
     path: "Uzak yol",
     emptyDirectory: "Boş klasör",
     gitRepository: "Git deposu",

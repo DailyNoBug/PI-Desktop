@@ -564,6 +564,7 @@ export const de = {
     "connectionsCopied": "Verbindungen kopiert",
     "connectionsImported": "{{count}} importiert, {{skipped}} übersprungen",
     "home": "Startordner",
+    "recentPaths": "Zuletzt verwendet",
     "path": "Remotepfad",
     "emptyDirectory": "Leerer Ordner",
     "gitRepository": "Git-Repository",

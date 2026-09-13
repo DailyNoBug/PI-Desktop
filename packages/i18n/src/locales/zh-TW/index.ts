@@ -569,6 +569,7 @@ export const zhTW = {
     connectionsCopied: "連線已複製",
     connectionsImported: "已匯入 {{count}} 個，跳過 {{skipped}} 個",
     home: "主目錄",
+    recentPaths: "最近路徑",
     path: "遠端路徑",
     emptyDirectory: "空資料夾",
     gitRepository: "Git 儲存庫",

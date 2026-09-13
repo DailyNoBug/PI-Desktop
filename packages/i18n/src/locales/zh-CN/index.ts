@@ -569,6 +569,7 @@ export const zhCN = {
     connectionsCopied: "连接已复制",
     connectionsImported: "已导入 {{count}} 个，跳过 {{skipped}} 个",
     home: "主目录",
+    recentPaths: "最近路径",
     path: "远程路径",
     emptyDirectory: "空文件夹",
     gitRepository: "Git 仓库",

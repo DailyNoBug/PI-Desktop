@@ -564,6 +564,7 @@ export const fr = {
     "connectionsCopied": "Connexions copiées",
     "connectionsImported": "{{count}} importées, {{skipped}} ignorées",
     "home": "Dossier personnel",
+    "recentPaths": "Chemins récents",
     "path": "Chemin distant",
     "emptyDirectory": "Dossier vide",
     "gitRepository": "Dépôt Git",

@@ -9815,7 +9815,8 @@ browser milestones are scheduled.
 - **Steps**: 1) Add the remote machine from the desktop and let the uploaded
   bootstrap script download, verify, and start `pi-host` over SSH.
   2) Observe the pairing exchange and the resulting device token. 3) Create a
-  session under a remote project through `project/list` and
+  session under a remote project through the picker's browse, Home, typed
+  absolute path, and recent-path controls, then through `project/list` and
   `session/create`. 4) Start a turn whose fixture reads, edits, and runs a
   command in the remote project, and approve the command from the desktop
   card. 5) Switch the session to Plan mode and back with `session/configure`

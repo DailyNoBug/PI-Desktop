@@ -573,6 +573,7 @@ export const ko = {
     connectionsCopied: "연결을 복사했습니다",
     connectionsImported: "{{count}}개 가져왔고 {{skipped}}개 건너뛰었습니다",
     home: "홈",
+    recentPaths: "최근 경로",
     path: "원격 경로",
     emptyDirectory: "빈 폴더",
     gitRepository: "Git 저장소",

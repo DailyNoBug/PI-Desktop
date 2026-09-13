@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { RemoteConnectionView, RemoteDirectoryResult } from "@pi-desktop/shared";
+import type { RemoteConnectionView, RemoteDirectoryResult, RemoteProjectRecord } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
 import { Button, Input, Select, cx } from "../ui";
@@ -17,6 +17,7 @@ export function RemoteProjectDialog({ open, initialConnectionId, onClose }: Prop
   const activateProject = useAppStore((state) => state.activateProject);
   const showToast = useAppStore((state) => state.showToast);
   const [connections, setConnections] = useState<RemoteConnectionView[]>([]);
+  const [projects, setProjects] = useState<RemoteProjectRecord[]>([]);
   const [connectionId, setConnectionId] = useState(initialConnectionId ?? "");
   const [directory, setDirectory] = useState<RemoteDirectoryResult | null>(null);
   const [pathDraft, setPathDraft] = useState("");
@@ -44,10 +45,14 @@ export function RemoteProjectDialog({ open, initialConnectionId, onClose }: Prop
   useEffect(() => {
     if (!open) return;
     let canceled = false;
-    void api.listRemoteConnections().then(({ connections: next }) => {
+    void Promise.all([
+      api.listRemoteConnections(),
+      api.listRemoteProjects(),
+    ]).then(([remote, projectResult]) => {
       if (canceled) return;
-      setConnections(next);
-      setConnectionId((current) => current || initialConnectionId || next[0]?.id || "");
+      setConnections(remote.connections);
+      setProjects(projectResult.projects);
+      setConnectionId((current) => current || initialConnectionId || remote.connections[0]?.id || "");
     }).catch(() => undefined);
     return () => {
       canceled = true;
@@ -61,6 +66,14 @@ export function RemoteProjectDialog({ open, initialConnectionId, onClose }: Prop
   const selected = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
     [connections, connectionId],
+  );
+  const recentPaths = useMemo(
+    () => projects
+      .filter((project) => project.connectionId === connectionId)
+      .sort((a, b) => Date.parse(b.lastOpenedAt ?? "") - Date.parse(a.lastOpenedAt ?? ""))
+      .slice(0, 8)
+      .map((project) => project.normalizedRemotePath),
+    [projects, connectionId],
   );
 
   const browse = async (targetPath?: string) => {
@@ -158,6 +171,24 @@ export function RemoteProjectDialog({ open, initialConnectionId, onClose }: Prop
             }
           }}
         />
+
+        {recentPaths.length ? (
+          <div className="remote-recent-paths">
+            <span>{t("remote.recentPaths")}</span>
+            <div>
+              {recentPaths.map((path) => (
+                <button
+                  key={path}
+                  type="button"
+                  onClick={() => void browse(path)}
+                  disabled={loading}
+                >
+                  {path}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="remote-project-list" role="list">
           {(directory?.entries ?? []).map((entry) => (

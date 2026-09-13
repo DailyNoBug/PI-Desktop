@@ -574,6 +574,7 @@ export const en = {
     connectionsCopied: "Connections copied",
     connectionsImported: "Imported {{count}}, skipped {{skipped}}",
     home: "Home",
+    recentPaths: "Recent paths",
     path: "Remote path",
     emptyDirectory: "Empty folder",
     gitRepository: "Git repository",

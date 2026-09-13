@@ -184,3 +184,12 @@ test("local-only agent capabilities identify their remote availability", async (
   assert.match(plugins, /isRemoteProjectPath\(currentProjectPath\)/);
   assert.match(styles, /\.plugins-tag\.is-warning/);
 });
+
+test("remote project picker offers recent paths from durable records", async () => {
+  const renderer = await read("apps/desktop/src/components/settings/RemoteProjectDialog.tsx");
+  assert.match(renderer, /api\.listRemoteProjects\(\)/);
+  assert.match(renderer, /recentPaths/);
+  assert.match(renderer, /normalizedRemotePath/);
+  assert.match(renderer, /lastOpenedAt/);
+  assert.match(renderer, /remote-recent-paths/);
+});

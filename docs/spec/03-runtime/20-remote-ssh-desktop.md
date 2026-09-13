@@ -134,6 +134,9 @@ its own `~/.agents` and `<workspace>/.agents` registries. The model-facing
 catalog contains ids, names, and descriptions only; a `Skill` call is answered
 by the remote Host with `skills.read`, so skill bodies and execution remain on
 that Host. Plan mode rejects the Skill tool exactly as the local runtime does.
+The remote project picker browses through `workspace/browse`, accepts absolute
+remote paths, offers the Host home directory, and lists recent normalized paths
+from that connection's durable `RemoteProject` records.
 Settings routes Skill list, create/edit, delete, enable/scope, read, and local
 Markdown import to those remote registries. Import reads the selected local
 document once in Electron Main and writes its body through RACP; it never

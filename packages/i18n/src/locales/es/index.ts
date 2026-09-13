@@ -564,6 +564,7 @@ export const es = {
     "connectionsCopied": "Conexiones copiadas",
     "connectionsImported": "{{count}} importadas, {{skipped}} omitidas",
     "home": "Carpeta personal",
+    "recentPaths": "Rutas recientes",
     "path": "Ruta remota",
     "emptyDirectory": "Carpeta vacía",
     "gitRepository": "Repositorio Git",
