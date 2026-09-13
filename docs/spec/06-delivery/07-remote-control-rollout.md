@@ -407,8 +407,9 @@ Recorded on the `feat/remote-agent-host` branch, 2026-09-10:
   workspace boundary and checksummed x64/arm64 release bundles, and Electron
   Main's SSH discovery/bootstrap/port-forward/reconnect supervisor plus
   Connections UI and renderer session routing are implemented and source-test
-  covered. Live SSH E2E, reverse tool relay execution, remote terminal, and
-  native remote capability labeling remain open.
+  covered. Live SSH E2E, reverse tool relay execution, and native remote
+  capability labeling remain open; the RACP PTY terminal lifecycle is
+  unit-tested.
 
 ## 8. Amendment history
 

@@ -234,8 +234,9 @@ sidecar/host shutdown sequence runs before the updater replaces the app.
 - Linux x64 and arm64 tag jobs also publish
   `pi-host-<version>-linux-<arch>.tar.gz` plus its SHA-256 sibling. The bundle
   carries `pi-host.js`, the agent sidecar, a native host-core binary, and its
-  Node runtime under the user's home; bootstrap verifies the checksum before
-  extraction and starts an explicit `setsid` daemon with a PID and port record.
+  Node runtime plus the native `node-pty` module under the user's home;
+  bootstrap verifies the checksum before extraction and starts an explicit
+  `setsid` daemon with a PID and port record.
 
 ## 7. Remote target topology (post-MVP)
 

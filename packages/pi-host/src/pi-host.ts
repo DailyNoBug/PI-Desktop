@@ -48,6 +48,7 @@ import {
   type TurnStartRequest,
 } from "@pi-desktop/agent-host";
 import type { RpcProcess } from "./rpc-process.js";
+import { RemoteTerminalManager } from "./terminal.js";
 import {
   browseRemotePath,
   collectSessionDiff,
@@ -108,6 +109,7 @@ export class PiHostService {
   private readonly sessionProjects = new Map<string, string | null>();
   private readonly persistedMessages = new Set<string>();
   private readonly queueStore: QueueStore;
+  private readonly terminals: RemoteTerminalManager;
 
   constructor(
     private readonly host: RpcProcess,
@@ -123,6 +125,22 @@ export class PiHostService {
       allowRemoteSessionGrants: true,
       onQueueChange: () => undefined,
     });
+    this.terminals = new RemoteTerminalManager(
+      (event) => this.agentHost.hub.publish({
+        scope: "session",
+        sessionId: event.sessionId,
+        revision: 0,
+        kind: "terminal.output",
+        payload: event,
+      }),
+      (event) => this.agentHost.hub.publish({
+        scope: "session",
+        sessionId: event.sessionId,
+        revision: 0,
+        kind: "terminal.changed",
+        payload: event,
+      }),
+    );
   }
 
   async start(): Promise<void> {
@@ -211,6 +229,7 @@ export class PiHostService {
         const sessionId = requiredString(params.sessionId, "sessionId");
         await this.host.call("session.delete", { id: sessionId });
         this.sessionProjects.delete(sessionId);
+        this.terminals.closeSession(sessionId);
       },
       compactSession: async (params) => {
         const sessionId = requiredString(params.sessionId, "sessionId");
@@ -239,6 +258,39 @@ export class PiHostService {
           .filter((tool) => tool.requiresWorkspace)
           .map((tool) => ({ name: tool.name, reason: "workspace tools cannot be relayed" }));
         return { accepted: tools.filter((tool) => !tool.requiresWorkspace), rejected };
+      },
+      openTerminal: async (params) => {
+        const sessionId = requiredString(params.sessionId, "sessionId");
+        const session = await this.getSession(sessionId);
+        const catalog = await this.host.call<{ effective?: { available?: boolean } }>(
+          "commandShells.list",
+        );
+        if (!catalog.effective?.available) {
+          throw new RacpError("REMOTE_SHELL_UNAVAILABLE", "no remote shell is available");
+        }
+        return this.terminals.open({
+          sessionId,
+          cwd: requiredRoot(session),
+          shell: "/bin/bash",
+          ...(typeof params.columns === "number" ? { columns: params.columns } : {}),
+          ...(typeof params.rows === "number" ? { rows: params.rows } : {}),
+        });
+      },
+      writeTerminal: async (params) => {
+        this.terminals.write(requiredString(params.terminalId, "terminalId"), {
+          ...(typeof params.data === "string" ? { data: params.data } : {}),
+          ...(typeof params.text === "string" ? { text: params.text } : {}),
+        });
+      },
+      resizeTerminal: async (params) => {
+        this.terminals.resize(
+          requiredString(params.terminalId, "terminalId"),
+          typeof params.columns === "number" ? params.columns : 80,
+          typeof params.rows === "number" ? params.rows : 24,
+        );
+      },
+      closeTerminal: async (params) => {
+        this.terminals.close(requiredString(params.terminalId, "terminalId"));
       },
     };
   }

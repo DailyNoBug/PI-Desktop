@@ -19,6 +19,9 @@ describe("pi-host packaging contract", () => {
   it("writes a SHA-256 sibling beside the tarball", async () => {
     const script = await readFile(join(import.meta.dirname, "../../../scripts/package-pi-host.mjs"), "utf8");
     expect(script).toContain("createHash(\"sha256\")");
+    expect(script).toContain("node_modules/node-pty");
+    expect(script).toContain("spawn-helper");
+    expect(script).toContain("chmodSync(helper, 0o755)");
     expect(script).toMatch(/writeFileSync\([^\n]+\.sha256/);
     expect(script).toContain("\"x64\" && arch !== \"arm64\"");
   });

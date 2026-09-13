@@ -9905,7 +9905,8 @@ browser milestones are scheduled.
 - **Steps**: 1) Run `scripts/package-pi-host.mjs` on each native architecture.
   2) Verify both `.sha256` siblings. 3) Inspect each tarball for exactly one
   `pi-host.js`, one `agent-runtime/sidecar.js`, one executable native
-  host-core, and one executable Node runtime. 4) Run the bootstrap with the
+  host-core, one executable Node runtime, and one executable native PTY helper.
+  4) Run the bootstrap with the
   valid checksum, then repeat with the tampered record.
 - **Expected**: The release lanes publish only the versioned tarball and
   checksum. The valid bootstrap installs under `~/.pi-desktop/host`, records a

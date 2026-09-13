@@ -68,8 +68,8 @@ when macOS `iconutil` is available, without overwriting the canonical source.
   `ELECTRON_RUN_AS_NODE=1` (no separate Node shipped).
 - Remote SSH `pi-host-<version>-linux-<arch>.tar.gz` plus `.sha256` — a
   self-contained remote runtime bundle with `pi-host.js`, the sidecar, native
-  host-core, and Node; it is installed under the remote user's home, never with
-  sudo.
+  host-core, Node, and the native PTY module; it is installed under the remote
+  user's home, never with sudo.
 - `Resources/licenses/` — notices that must remain distributable when the
   corresponding dependency's build-only source tree is pruned.
 - `Resources/app.asar` — Electron Main, preload, renderer output, and only the

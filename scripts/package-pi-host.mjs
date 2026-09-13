@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
 
@@ -41,6 +49,11 @@ run("pnpm", ["--filter", "@pi-desktop/pi-host", "run", "bundle"]);
 run("cargo", ["build", "--release", "--locked", "-p", "host-core"]);
 
 copyFileSync(join(root, "packages/pi-host/dist-bundle/pi-host.js"), join(packageDir, "pi-host.js"));
+const ptyPackageDir = join(packageDir, "node_modules", "node-pty");
+cpSync(join(root, "packages/pi-host/node_modules/node-pty"), ptyPackageDir, {
+  recursive: true,
+  dereference: true,
+});
 copyFileSync(join(root, "packages/agent-runtime/dist-bundle/sidecar.js"), join(packageDir, "agent-runtime-sidecar.js.tmp"));
 mkdirSync(join(packageDir, "agent-runtime"), { recursive: true });
 copyFileSync(join(packageDir, "agent-runtime-sidecar.js.tmp"), join(packageDir, "agent-runtime", "sidecar.js"));
@@ -51,6 +64,12 @@ copyFileSync(process.execPath, join(packageDir, "node"));
 chmodSync(join(packageDir, "host-core", "pi-desktop-host-core"), 0o755);
 chmodSync(join(packageDir, "node"), 0o755);
 chmodSync(join(packageDir, "pi-host.js"), 0o755);
+for (const helper of [
+  join(ptyPackageDir, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
+  join(ptyPackageDir, "build", "Release", "spawn-helper"),
+]) {
+  if (existsSync(helper)) chmodSync(helper, 0o755);
+}
 writeFileSync(join(packageDir, "package.json"), `${JSON.stringify({
   name: "pi-host",
   version,

@@ -9,7 +9,8 @@ import type {
 
 export type RacpTerminalSnapshot = {
   terminalId: string;
-  replay: Uint8Array;
+  /** PTY replay bytes encoded as base64 for the JSON binding. */
+  replay: string;
 };
 
 export type RacpRelayTool = {

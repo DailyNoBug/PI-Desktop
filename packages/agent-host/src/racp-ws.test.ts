@@ -86,6 +86,14 @@ const profile: RacpRemoteProfile = {
   async diffWorkspace() {
     return { repo: false, clean: true, files: [] };
   },
+  async openTerminal() {
+    return { terminalId: "term_1", replay: Buffer.alloc(0).toString("base64") };
+  },
+  async writeTerminal(params) {
+    if (params.terminalId !== "term_1") throw new Error("unknown terminal");
+  },
+  async resizeTerminal() {},
+  async closeTerminal() {},
 };
 
 function createServer() {
@@ -209,5 +217,36 @@ describe("RACP WebSocket binding", () => {
       clientInfo: { name: "replay", version: "0" },
     });
     await expect(replayPairing.connect()).rejects.toThrow();
+  });
+
+  it("exposes the remote terminal lifecycle", async () => {
+    const server = createServer();
+    openServers.push(server);
+    await server.whenReady();
+    const client = new RacpWsClient({
+      url: server.address,
+      token: deviceToken,
+      clientInfo: { name: "terminal-client", version: "0" },
+    });
+    openClients.push(client);
+    await client.connect();
+    const opened = await client.request<{ terminalId: string }>("terminal/open", {
+      sessionId: "s1",
+      columns: 80,
+      rows: 24,
+    });
+    expect(opened.terminalId).toBe("term_1");
+    await expect(client.request("terminal/input", {
+      terminalId: opened.terminalId,
+      text: "pwd\n",
+    })).resolves.toBeUndefined();
+    await expect(client.request("terminal/resize", {
+      terminalId: opened.terminalId,
+      columns: 100,
+      rows: 30,
+    })).resolves.toBeUndefined();
+    await expect(client.request("terminal/close", {
+      terminalId: opened.terminalId,
+    })).resolves.toBeUndefined();
   });
 });

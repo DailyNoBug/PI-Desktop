@@ -104,6 +104,7 @@ export class RacpWsServer {
   private readonly wss: WebSocketServer;
   private readonly clients = new Set<ClientConnection>();
   private readonly authenticatedRequests = new WeakMap<IncomingMessage, RacpAuthenticationResult>();
+  private readonly authenticatedTokens = new Map<string, RacpAuthenticationResult>();
   private closed = false;
 
   constructor(private readonly options: RacpWsServerOptions) {
@@ -172,11 +173,12 @@ export class RacpWsServer {
     }
     const token = bearerToken(info.req);
     const result = token ? this.options.authenticate(token) : null;
-    if (!result) {
+    if (!token || !result) {
       callback(false, 401, "Invalid device token");
       return;
     }
     this.authenticatedRequests.set(info.req, result);
+    this.authenticatedTokens.set(token, result);
     const protocols = String(info.req.headers["sec-websocket-protocol"] ?? "").split(",").map((value) => value.trim());
     if (!protocols.includes(RACP_WS_SUBPROTOCOL)) {
       callback(false, 400, "Required WebSocket subprotocol missing");
@@ -187,11 +189,14 @@ export class RacpWsServer {
 
   private handleConnection = (socket: WebSocket, request: IncomingMessage): void => {
     const token = bearerToken(request);
-    const authenticated = token ? this.authenticatedRequests.get(request) ?? this.options.authenticate(token) : null;
+    const authenticated = token
+      ? this.authenticatedRequests.get(request) ?? this.authenticatedTokens.get(token) ?? this.options.authenticate(token)
+      : null;
     if (!authenticated) {
       socket.close(4401, "Invalid device token");
       return;
     }
+    if (token) this.authenticatedTokens.delete(token);
     const connectionId = `conn_${randomUUID()}`;
     const client: ClientConnection = {
       socket,
