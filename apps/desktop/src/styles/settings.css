@@ -327,6 +327,327 @@
   padding: 0 14px 14px;
 }
 
+.remote-connections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.remote-toolbar,
+.remote-project-controls,
+.remote-project-footer,
+.remote-connection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.remote-toolbar,
+.remote-project-footer {
+  justify-content: space-between;
+}
+
+.remote-connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.remote-connection-row {
+  display: grid;
+  grid-template-columns: 28px minmax(180px, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile);
+  padding: 12px;
+}
+
+.remote-connection-glyph {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--ds-bg-chip);
+  color: var(--ds-text-secondary);
+}
+
+.remote-connection-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.remote-connection-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.remote-connection-copy span {
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+}
+
+.remote-error {
+  color: var(--ds-error);
+}
+
+.remote-provider-select {
+  max-width: 160px;
+}
+
+.remote-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+}
+
+.remote-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.remote-import {
+  gap: 12px;
+}
+
+.remote-import .field-textarea {
+  min-height: 128px;
+  resize: vertical;
+}
+
+.remote-import .settings-panel-actions {
+  padding: 0;
+}
+
+.remote-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.remote-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--text-3xs);
+  color: var(--ds-text-muted);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: color-mix(in oklab, var(--gray-1000) 62%, transparent);
+  padding: 24px;
+}
+
+.remote-project-dialog {
+  display: flex;
+  width: min(640px, 100%);
+  max-height: min(620px, calc(100vh - 48px));
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--ds-border-default);
+  box-shadow: var(--ds-shadow-dialog);
+}
+
+.remote-relay-dialog {
+  display: flex;
+  width: min(600px, 100%);
+  max-height: min(560px, calc(100vh - 48px));
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--ds-border-default);
+  box-shadow: var(--ds-shadow-dialog);
+}
+
+.remote-relay-connection {
+  margin: 0;
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+}
+
+.remote-relay-list {
+  display: flex;
+  min-height: 180px;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile);
+  padding: 8px;
+}
+
+.remote-relay-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  color: var(--ds-text-primary);
+}
+
+.remote-relay-row:hover {
+  background: var(--ds-bg-hover);
+}
+
+.remote-relay-glyph {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background: var(--ds-bg-chip);
+  color: var(--ds-text-secondary);
+}
+
+.remote-relay-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.remote-relay-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+}
+
+.remote-relay-copy span {
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+}
+
+.remote-relay-copy code {
+  color: var(--ds-text-secondary);
+  font-size: var(--text-4xs);
+}
+
+.remote-relay-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--ds-accent);
+}
+
+.remote-relay-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  color: var(--ds-text-muted);
+  font-size: var(--text-xs);
+}
+
+.remote-project-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remote-project-header h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.remote-project-controls {
+  justify-content: flex-start;
+}
+
+.remote-project-controls select,
+.remote-project-controls .select {
+  flex: 1 1 180px;
+}
+
+.remote-recent-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.remote-recent-paths > span {
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+}
+
+.remote-recent-paths > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.remote-recent-paths button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--ds-border-default);
+  border-radius: var(--radius-full);
+  background: var(--ds-bg-chip);
+  color: var(--ds-text-secondary);
+  padding: 3px 8px;
+  font-size: var(--text-3xs);
+}
+
+.remote-project-list {
+  display: grid;
+  min-height: 180px;
+  align-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile);
+  padding: 8px;
+}
+
+.remote-project-entry {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  color: var(--ds-text-primary);
+  text-align: left;
+  font-size: var(--text-xs-plus);
+}
+
+.remote-project-entry:hover,
+.remote-project-entry:focus-visible {
+  background: var(--ds-tile-hover);
+}
+
+.remote-project-entry.is-file {
+  color: var(--ds-text-faint);
+  cursor: default;
+}
+
+.remote-project-entry span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-project-empty,
+.remote-project-footer span {
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+}
+
 .settings-instruction-path {
   margin-top: 6px;
   color: var(--ds-text-muted);

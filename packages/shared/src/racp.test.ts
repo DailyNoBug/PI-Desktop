@@ -70,6 +70,7 @@ const initializeResult: RacpInitializeResult = {
   },
   limits: RACP_DEFAULT_LIMITS,
   policy: RACP_DEFAULT_POLICY,
+  deviceToken: "a".repeat(48),
 };
 
 describe("RACP schemas", () => {

@@ -131,9 +131,10 @@ test("unknown retained tabs are discarded without losing a known selection", () 
   assert.equal(staleSelected.activeTabId, "review");
 });
 
-test("only plugin views are launchable tools", () => {
+test("plugin views and the remote terminal are launchable tools", () => {
   assert.equal(isToolWorkPanelTab(browserPluginTab()), true);
   assert.equal(isToolWorkPanelTab(toolWorkPanelTab("review")), false);
+  assert.equal(isToolWorkPanelTab(toolWorkPanelTab("terminal")), true);
   assert.equal(isToolWorkPanelTab(fileWorkPanelTab("README.md")), false);
   assert.equal(isToolWorkPanelTab(pluginWorkPanelTab("pi.files", "files")), true);
   assert.equal(isKnownWorkPanelTab({ id: "browser", kind: "browser" }), false);

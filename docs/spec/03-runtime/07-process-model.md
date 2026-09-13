@@ -231,6 +231,12 @@ sidecar/host shutdown sequence runs before the updater replaces the app.
 - packaged builds use the Main-owned update controller. macOS, non-AppImage
   Linux, and Windows portable runs are manual-delivery modes; Windows NSIS and
   Linux AppImage use the in-app feeds published by D126 tag releases
+- Linux x64 and arm64 tag jobs also publish
+  `pi-host-<version>-linux-<arch>.tar.gz` plus its SHA-256 sibling. The bundle
+  carries `pi-host.js`, the agent sidecar, a native host-core binary, and its
+  Node runtime plus the native `node-pty` module under the user's home;
+  bootstrap verifies the checksum before extraction and starts an explicit
+  `setsid` daemon with a PID and port record.
 
 ## 7. Remote target topology (post-MVP)
 
@@ -247,8 +253,10 @@ state.
 
 The detailed topology, ownership, and migration boundary are specified in
 [`02-architecture/05-remote-agent-control.md`](../02-architecture/05-remote-agent-control.md).
-The current four-process local topology and shutdown order remain unchanged
-until a post-MVP implementation milestone explicitly amends this section.
+`pi-host` owns the same three-process runtime shape on the remote side: its
+supervisor, host-core, and sidecar. SIGTERM closes RACP first, then the sidecar,
+then host-core. PID and listening port are recorded in `host.json`; a spent
+pairing token never issues a second device token.
 
 ## 8. Acceptance
 

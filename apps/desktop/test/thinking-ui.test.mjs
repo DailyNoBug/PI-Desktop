@@ -183,7 +183,8 @@ test("main resolves reasoning from each session's exact selected model", () => {
   assert.match(mainSource, /function resolveSessionCapabilityTarget/);
   assert.match(mainSource, /defaults\?\.defaultProviderId/);
   assert.match(mainSource, /modelsDevModelFor\(provider, modelId\)/);
-  assert.match(mainSource, /sessions:\s*result\.sessions\.map/);
+  assert.match(mainSource, /sessions:\s*\[/);
+  assert.match(mainSource, /result\.sessions\.map/);
   assert.match(mainSource, /modelConfigFromModelsDev\(modelsDevModel, provider\.baseUrl\)/);
   // models.dev records stamp reasoning capability per exact model id.
   assert.match(mainSource, /capabilitiesFromModelConfig\(modelConfig\)/);

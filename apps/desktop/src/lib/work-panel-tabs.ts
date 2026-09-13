@@ -1,6 +1,7 @@
 export type WorkPanelTabKind =
   | "new"
   | "review"
+  | "terminal"
   | "file"
   | "plugin";
 
@@ -132,7 +133,7 @@ export function parsePluginViewRef(
 export function isKnownWorkPanelTab(tab: WorkPanelTab): boolean {
   return (
     Boolean(tab) &&
-    (tab.kind === "new" || tab.kind === "review" || tab.kind === "file" || tab.kind === "plugin")
+    (tab.kind === "new" || tab.kind === "review" || tab.kind === "terminal" || tab.kind === "file" || tab.kind === "plugin")
   );
 }
 
@@ -159,12 +160,12 @@ export function sanitizeWorkPanelTabsState(
 }
 
 /**
- * Only plugin-contributed views are launchable tools. Review and file tabs
- * are transcript resources even though their tab ids are singleton-shaped, so
- * they remain visible in the opened-resource section.
+ * Plugin-contributed views and the remote-only terminal are launchable tools.
+ * Review and file tabs are transcript resources even though their tab ids are
+ * singleton-shaped, so they remain visible in the opened-resource section.
  */
 export function isToolWorkPanelTab(tab: WorkPanelTab): boolean {
-  return tab.kind === "plugin";
+  return tab.kind === "plugin" || tab.kind === "terminal";
 }
 
 export function normalizeWorkPanelFilePath(path: string): string {

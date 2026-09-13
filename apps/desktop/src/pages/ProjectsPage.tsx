@@ -17,6 +17,7 @@ import {
   IconPin,
   IconPlus,
   IconSearch,
+  IconServer,
   IconStar,
   IconX,
 } from "../components/icons";
@@ -33,6 +34,7 @@ import {
 import { ProjectInstructionsDialog } from "../components/ProjectInstructionsDialog";
 import { ProjectRenameDialog, SessionRenameDialog } from "../components/SessionRenameDialog";
 import { AnchoredMenu } from "../components/settings/AnchoredMenu";
+import { RemoteProjectDialog } from "../components/settings/RemoteProjectDialog";
 
 const INITIAL_VISIBLE_SESSION_COUNT = 8;
 
@@ -51,6 +53,10 @@ const GROUP_LABEL_KEYS: Record<GroupId, string> = {
   projects: "project.groupProjects",
   archived: "project.groupArchived",
 };
+
+function isRemoteProject(path: string): boolean {
+  return path.startsWith("ssh://");
+}
 
 function formatUpdated(ts?: number, locale?: string, neverLabel = "—") {
   if (!ts) return neverLabel;
@@ -126,6 +132,7 @@ export function ProjectsPage() {
     path: string;
     name: string;
   } | null>(null);
+  const [remoteOpen, setRemoteOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [instructionsFor, setInstructionsFor] = useState<{
     name: string;
@@ -436,6 +443,10 @@ export function ProjectsPage() {
           </span>
         ) : null}
         <div className="projects-toolbar-actions">
+          <Button variant="secondary" onClick={() => setRemoteOpen(true)}>
+            <IconServer size={14} />
+            {t("remote.openProject")}
+          </Button>
           <Button variant="primary" onClick={addProject}>
             <IconPlus size={14} />
             {t("project.add")}
@@ -553,7 +564,9 @@ export function ProjectsPage() {
                         title={project.path}
                       >
                         <span className="projects-glyph" style={{ background: color }}>
-                          {project.pinned ? (
+                          {isRemoteProject(project.path) ? (
+                            <IconServer size={15} aria-hidden />
+                          ) : project.pinned ? (
                             <IconStar size={15} fill="currentColor" aria-hidden />
                           ) : (
                             <IconFolder size={15} aria-hidden />
@@ -581,6 +594,11 @@ export function ProjectsPage() {
                             {archived ? (
                               <span className="projects-tag is-archived">
                                 {t("project.archivedTag")}
+                              </span>
+                            ) : null}
+                            {isRemoteProject(project.path) ? (
+                              <span className="projects-tag is-remote">
+                                {t("remote.remoteTag")}
                               </span>
                             ) : null}
                           </span>
@@ -656,20 +674,22 @@ export function ProjectsPage() {
                                 <IconChat size={14} />
                                 {t("project.newTask")}
                               </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setMenuFor(null);
-                                  setInstructionsFor({
-                                    name: project.name,
-                                    path: project.path,
-                                  });
-                                }}
-                              >
-                                <IconFileText size={14} />
-                                {t("project.editInstructions")}
-                              </button>
+                              {!isRemoteProject(project.path) ? (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setMenuFor(null);
+                                    setInstructionsFor({
+                                      name: project.name,
+                                      path: project.path,
+                                    });
+                                  }}
+                                >
+                                  <IconFileText size={14} />
+                                  {t("project.editInstructions")}
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 role="menuitem"
@@ -826,6 +846,9 @@ export function ProjectsPage() {
           ))}
         </div>
       )}
+
+      <RemoteProjectDialog open={remoteOpen} onClose={() => setRemoteOpen(false)} />
+
       {instructionsFor ? (
         <ProjectInstructionsDialog
           project={instructionsFor}

@@ -35,6 +35,9 @@ export type TurnStartRequest = {
   sessionId: string;
   content: string;
   attachments?: AgentPromptAttachment[];
+  truncateFromMessageId?: string;
+  truncateBefore?: number;
+  messageId?: string;
   effectivePermissionMode: RacpPermissionMode;
   idempotencyKey?: string;
   principal: Principal;

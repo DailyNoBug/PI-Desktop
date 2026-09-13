@@ -104,7 +104,9 @@ The Host returns:
     "protocolVersion": "1.0",
     "server": {
       "name": "pi-desktop-agent-host",
-      "version": "0.1.0"
+      "version": "0.1.0",
+      "hostProtocolVersion": 11,
+      "storageSchemaVersion": 15
     },
     "connectionId": "conn_01J...",
     "principal": {
@@ -139,7 +141,8 @@ The Host returns:
       "remoteMaxPermissionMode": "ask",
       "applyCeilingToPairedDevices": false,
       "approvalLifetimeMs": 1800000
-    }
+    },
+    "deviceToken": "issued-only-during-ssh-pairing"
   }
 }
 ```
@@ -151,6 +154,12 @@ fields and the Host does not require an unadvertised capability.
 `policy` is informational. It tells a client which permission ceiling applies
 to turns it starts (§7.3) and how long an approval stays answerable (§12). A
 client cannot change either value through RACP.
+
+`server.hostProtocolVersion` and `server.storageSchemaVersion` are Host release
+negotiation metadata. A direct SSH-paired first connection presents the one-time
+pairing token as the WebSocket bearer token; its successful initialization
+response additionally contains `deviceToken`. The pairing token is then spent,
+and later connections use the issued device token.
 
 ## 4. Message envelopes
 
@@ -584,9 +593,26 @@ session root as working directory and stream through `terminal.output`.
 | `session/rename` | controller | Rename a session |
 | `session/delete` | owner | Delete a session and its transcript on the Host |
 | `session/compact` | controller | Run a manual context checkpoint on the active session |
+| `workspace/browse` | owner | Browse an absolute remote directory before project registration; bounded and permission-checked for the SSH-paired owner |
 | `workspace/list` | viewer | List entries under the session root, bounded, honoring the Host ignore rules |
 | `workspace/read` | viewer | Read one bounded file under the session root; images as data URLs |
 | `workspace/diff` | viewer | Return the working-tree diff of the session root |
+| `mcp/list` | owner | List user-owned MCP definitions and live Host connection statuses |
+| `mcp/upsert` | owner | Create or update a user-owned MCP definition on the Host |
+| `mcp/remove` | owner | Remove a user-owned MCP definition from the Host |
+| `mcp/setEnabled` | owner | Enable or disable a user-owned MCP definition |
+| `mcp/setScope` | owner | Change a user-owned MCP definition's activation scope |
+| `mcp/test` | owner | Force an MCP handshake and return its bounded status |
+| `skills/list` | owner | List user-owned Skill definitions |
+| `skills/create` | owner | Create a user-owned Skill definition |
+| `skills/update` | owner | Update a user-owned Skill definition |
+| `skills/read` | owner | Read a user-owned Skill definition and document body |
+| `skills/remove` | owner | Remove a user-owned Skill definition |
+| `skills/setEnabled` | owner | Enable or disable a user-owned Skill definition |
+| `skills/setScope` | owner | Change a user-owned Skill definition's activation scope |
+| `session/revision/save` | owner | Save or refresh one remote regenerate branch |
+| `session/revision/list` | owner | List remote regenerate branches for a user root |
+| `session/revision/activate` | owner | Replace the live transcript with a stored branch |
 | `terminal/open` | controller | Open a pty on the Host with the session root as cwd; returns a terminal id and the bounded replay ring; policy-gated (security §4.1) |
 | `terminal/input` | controller | Write bytes to an open terminal |
 | `terminal/resize` | controller | Resize an open terminal |
@@ -1247,3 +1273,11 @@ D375 (2026-09-10) re-sequenced the deployments and extended the catalog:
   30-minute default approval lifetime for remote subscribers, and the
   `applyCeilingToPairedDevices` policy.
 
+D408 (2026-09-12) made the SSH runtime concrete:
+
+- initialization results may carry the Host protocol/storage versions and the
+  one-time pairing exchange's device token;
+- `workspace/browse` was added as the owner-only pre-session directory picker
+  operation; and
+- the normative loopback `RACP-WS` server and desktop client are product
+  surfaces rather than development-only stubs.

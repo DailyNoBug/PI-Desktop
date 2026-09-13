@@ -200,7 +200,7 @@ test("work panel header exposes a scrollable tab strip and direct new-page actio
   assert.match(panelSource, /aria-controls=\{`work-panel-surface-\$\{tab\.id\}`\}/);
   assert.match(panelSource, /className="work-panel-tab-close"/);
   assert.match(panelSource, /event\.button !== 1/);
-  assert.match(panelSource, /workPanelTools\(t, pluginViews\)/);
+  assert.match(panelSource, /workPanelTools\(t, pluginViews, isRemoteProjectPath\(workspacePath\)\)/);
   assert.match(panelSource, /toolWorkPanelTab\("review"\)/);
   assert.match(panelSource, /pluginViews\.map\(\(view\) =>/);
   assert.doesNotMatch(panelSource, /HEADER_TOOLS|headerToolTab|HeaderToolKind/);
@@ -384,9 +384,10 @@ test("Electron enforces the responsive shell minimum", () => {
   assert.match(mainSource, /minHeight:\s*WINDOW_MIN_HEIGHT/);
 });
 
-test("built-in terminal is absent while the work panel keeps its other surfaces", () => {
-  assert.doesNotMatch(panelSource, /TerminalTab|terminalOpen|kind: "terminal"/);
-  assert.doesNotMatch(panelSource, /work-panel-surface-terminal|activeTab\?\.kind !== "terminal"/);
+test("the terminal tool is remote-only while the work panel keeps its other surfaces", () => {
+  assert.match(panelSource, /TerminalTab/);
+  assert.match(panelSource, /isRemoteProjectPath\(workspacePath\)/);
+  assert.match(panelSource, /activeTab\?\.kind === "terminal"/);
   assert.match(panelSource, /activeTab\?\.kind === "review"/);
   assert.match(panelSource, /activeTab\?\.kind === "plugin"/);
   assert.match(panelSource, /activeTab\?\.kind === "file"/);

@@ -28,16 +28,17 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   6. **Skills / 技能** — Lucide `BookOpen` (reusable agent instructions)
   7. **MCP** — Lucide `Server` (agent connections)
   8. **Subagents / 子智能体** — Lucide `Bot` (personal parallel agents)
-  9. **Import / 导入** — Lucide `Download` (bring sessions and model configuration in from other tools)
-  10. **Projects / 项目** — Lucide `Archive` (durable project index)
-  11. **Info / 信息** — Lucide `Info` (versions, logs, updates, developer)
+  9. **Connections / 连接** — Lucide `Server` (SSH Hosts and remote projects)
+  10. **Import / 导入** — Lucide `Download` (bring sessions and model configuration in from other tools)
+  11. **Projects / 项目** — Lucide `Archive` (durable project index)
+  12. **Info / 信息** — Lucide `Info` (versions, logs, updates, developer)
   Icons are decorative (`aria-hidden` via the SVG default) and stay monochrome
   with the rail label; do not reuse refresh/rotate glyphs here.
 - The directory remains a flat searchable list in the same exact order. For
   scanability, the destinations are shown in four titled visual clusters:
   `Preferences` / `偏好` (General, AI, Shortcuts), `Agent` / `智能体`
   (Instructions, Models, Skills, MCP, Subagents), `Workspace` / `工作区`
-  (Import, Projects), and `System` / `系统` (Info). Headings are muted,
+  (Connections, Import, Projects), and `System` / `系统` (Info). Headings are muted,
   non-interactive labels and use whitespace for separation; no divider lines are
   rendered. These are visual landmarks only, not a second navigation level.
   When search filters the directory, empty clusters and their headings disappear.
@@ -422,6 +423,24 @@ system while preserving their different data ownership:
 - Show the resolved instruction-file path and save through the host-backed
   instruction API; project instructions remain managed from the active project
   menu and are resolved after the global layer.
+
+### Connections
+
+- **SSH connections** lists discovered OpenSSH aliases and manual connections
+  with display name, target, source, state, reconnect attempt, last error, and
+  remote Host version. Primary actions are Connect/Disconnect, Open remote
+  project, Test, Refresh, Edit, Remove, Sync provider, Delete remote provider,
+  and Copy diagnostics.
+- **Add/edit connection** uses a segmented source control (OpenSSH config or
+  Manual). OpenSSH entries require an alias; manual entries require hostname and
+  optionally user, port, and identity-file path. The form never accepts or
+  displays private-key bytes.
+- **Open remote project** opens a modal with connection selector, Home action,
+  editable absolute path, bounded remote directory list, and Git-repository
+  marker. Directory browsing is Host-owned; no native local folder picker is
+  used.
+- The provider control names the exact remote machine that will receive the
+  credential before sync or deletion.
 
 ### Import
 - Scan supported local agent stores for **sessions** and **model configuration**

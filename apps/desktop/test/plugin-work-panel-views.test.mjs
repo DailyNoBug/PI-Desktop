@@ -60,6 +60,7 @@ test("a plugin view counts as a tool, not a transcript resource", () => {
   assert.equal(isToolWorkPanelTab(pluginWorkPanelTab("pi.browser", "browser")), true);
   assert.equal(isToolWorkPanelTab(pluginWorkPanelTab("acme.git", "changes")), true);
   assert.equal(isToolWorkPanelTab(toolWorkPanelTab("review")), false);
+  assert.equal(isToolWorkPanelTab(toolWorkPanelTab("terminal")), true);
   assert.equal(
     isToolWorkPanelTab({ id: "file:src/a.ts", kind: "file", resource: "src/a.ts" }),
     false,
@@ -67,7 +68,7 @@ test("a plugin view counts as a tool, not a transcript resource", () => {
 });
 
 test("the blank page launcher renders plugin views from the data-driven list", () => {
-  assert.match(panelSource, /workPanelTools\(t, pluginViews\)/);
+  assert.match(panelSource, /workPanelTools\(t, pluginViews, isRemoteProjectPath\(workspacePath\)\)/);
   assert.match(panelSource, /panel\.toolsAndPanels/);
   assert.match(panelSource, /pluginViews\.map\(\(view\) =>/);
   // Rows carry the same affordances as the host-owned Review row, so a plugin

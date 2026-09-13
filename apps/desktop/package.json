@@ -2,6 +2,14 @@
   "name": "@pi-desktop/desktop",
   "version": "0.14.6",
   "desktopName": "pi-desktop.desktop",
+  "protocols": [
+    {
+      "name": "PI Desktop Deep Link",
+      "schemes": [
+        "pi-desktop"
+      ]
+    }
+  ],
   "private": true,
   "description": "PI-Desktop Electron application",
   "homepage": "https://github.com/vastsa/PI-Desktop",
@@ -113,6 +121,10 @@
       {
         "from": "../../packages/agent-runtime/dist-bundle",
         "to": "agent-runtime"
+      },
+      {
+        "from": "../../scripts/pi-host-bootstrap.sh",
+        "to": "pi-host/bootstrap.sh"
       },
       {
         "from": "resources/skills",

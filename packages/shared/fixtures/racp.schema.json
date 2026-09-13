@@ -66,6 +66,19 @@
           }
         ]
       },
+      "providerId": {
+        "type": "string"
+      },
+      "modelId": {
+        "type": "string"
+      },
+      "thinkingLevel": {
+        "type": "string"
+      },
+      "messageCount": {
+        "type": "integer",
+        "minimum": 0
+      },
       "status": {
         "anyOf": [
           {
@@ -557,6 +570,19 @@
                 "const": "goal"
               }
             ]
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "thinkingLevel": {
+            "type": "string"
+          },
+          "messageCount": {
+            "type": "integer",
+            "minimum": 0
           },
           "status": {
             "anyOf": [
@@ -1067,6 +1093,9 @@
               "type": "integer",
               "minimum": 0
             },
+            "toolCallId": {
+              "type": "string"
+            },
             "toolName": {
               "type": "string"
             },
@@ -1314,6 +1343,9 @@
       "revision": {
         "type": "integer",
         "minimum": 0
+      },
+      "toolCallId": {
+        "type": "string"
       },
       "toolName": {
         "type": "string"
@@ -1800,6 +1832,10 @@
       "label": {
         "type": "string"
       },
+      "path": {
+        "type": "string",
+        "minLength": 1
+      },
       "archived": {
         "type": "boolean"
       }
@@ -1918,6 +1954,14 @@
           },
           "version": {
             "type": "string"
+          },
+          "hostProtocolVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "storageSchemaVersion": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       },
@@ -2129,6 +2173,10 @@
             "minimum": 1
           }
         }
+      },
+      "deviceToken": {
+        "type": "string",
+        "minLength": 32
       }
     }
   },

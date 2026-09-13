@@ -1021,6 +1021,13 @@ export class PluginRuntime {
     return [...this.tools.values()];
   }
 
+  /** Whether a plugin can read or write files in a local workspace. */
+  pluginRequiresWorkspace(pluginId: string): boolean {
+    const loaded = this.loaded.get(pluginId);
+    if (!loaded) return true;
+    return [...loaded.permissions].some((permission) => permission.startsWith("fs."));
+  }
+
   /** ExtensionAPI modules from loaded plugins holding `agent.extension`. */
   getAgentExtensions(): RegisteredAgentExtension[] {
     return [...this.agentExtensions.values()].sort((a, b) => a.id.localeCompare(b.id));

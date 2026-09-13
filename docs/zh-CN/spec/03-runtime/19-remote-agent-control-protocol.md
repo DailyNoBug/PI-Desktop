@@ -206,9 +206,26 @@ owner，工作区读取都按会话持久根、Host 忽略规则和 `PATH_OUTSID
 | `session/rename` | controller | 重命名会话 |
 | `session/delete` | owner | 删除会话及其在 Host 上的 transcript |
 | `session/compact` | controller | 对活动会话执行手动上下文检查点 |
+| `workspace/browse` | owner | 在注册项目前浏览远端绝对目录；面向 SSH 配对 owner，有界并做权限检查 |
 | `workspace/list` | viewer | 有界列出会话根下的条目，遵守 Host 忽略规则 |
 | `workspace/read` | viewer | 读取会话根下的一个有界文件，图片以 data URL 返回 |
 | `workspace/diff` | viewer | 返回会话根的工作树 diff |
+| `mcp/list` | owner | 列出用户自有 MCP 定义与 Host 上的实时连接状态 |
+| `mcp/upsert` | owner | 在 Host 上创建或更新用户自有 MCP 定义 |
+| `mcp/remove` | owner | 从 Host 删除用户自有 MCP 定义 |
+| `mcp/setEnabled` | owner | 启用或停用用户自有 MCP 定义 |
+| `mcp/setScope` | owner | 修改用户自有 MCP 定义的激活作用域 |
+| `mcp/test` | owner | 强制 MCP 握手并返回有界状态 |
+| `skills/list` | owner | 列出用户自有 Skill 定义 |
+| `skills/create` | owner | 创建用户自有 Skill 定义 |
+| `skills/update` | owner | 更新用户自有 Skill 定义 |
+| `skills/read` | owner | 读取用户自有 Skill 定义与文档正文 |
+| `skills/remove` | owner | 删除用户自有 Skill 定义 |
+| `skills/setEnabled` | owner | 启用或停用用户自有 Skill 定义 |
+| `skills/setScope` | owner | 修改用户自有 Skill 定义的激活作用域 |
+| `session/revision/save` | owner | 保存或刷新一个远端 regenerate 分支 |
+| `session/revision/list` | owner | 列出某个用户根的远端 regenerate 分支 |
+| `session/revision/activate` | owner | 用已存分支替换实时 transcript |
 | `terminal/open` | controller | 在 Host 上以会话根为 cwd 打开 pty；返回终端 id 与有界回放环；受策略限制 |
 | `terminal/input` | controller | 向已打开终端写入字节 |
 | `terminal/resize` | controller | 调整已打开终端尺寸 |

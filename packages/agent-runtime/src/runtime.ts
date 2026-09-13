@@ -2544,7 +2544,7 @@ Delegation rules:
                     timeoutMs,
                   }
                 : {}),
-              ...(toolName.startsWith("plugin_")
+              ...((toolName.startsWith("plugin_") || toolName.startsWith("mcp_"))
                 ? (() => {
                     const def = this.pluginTools.find(
                       (tool) => tool.name === toolName,

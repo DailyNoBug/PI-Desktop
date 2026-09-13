@@ -1,5 +1,5 @@
 export const PROTOCOL_VERSION = 11 as const;
-export const SCHEMA_VERSION = 14 as const;
+export const SCHEMA_VERSION = 15 as const;
 export const APP_ID = "com.pi-desktop.app";
 export const APP_NAME = "PI-Desktop";
 export const APP_VERSION = "0.14.6";
@@ -111,6 +111,32 @@ export const IPC = {
     projectList: "pi-desktop/project/list",
     projectSet: "pi-desktop/project/set",
     projectClear: "pi-desktop/project/clear",
+    remoteListConnections: "pi-desktop/remote/connections/list",
+    remoteRefreshConnections: "pi-desktop/remote/connections/refresh",
+    remoteExportConnections: "pi-desktop/remote/connections/export",
+    remoteImportConnections: "pi-desktop/remote/connections/import",
+    remoteTestConnection: "pi-desktop/remote/connections/test",
+    remoteAddConnection: "pi-desktop/remote/connections/add",
+    remoteUpdateConnection: "pi-desktop/remote/connections/update",
+    remoteRemoveConnection: "pi-desktop/remote/connections/remove",
+    remoteConnect: "pi-desktop/remote/connections/connect",
+    remoteDisconnect: "pi-desktop/remote/connections/disconnect",
+    remoteUpgradeHost: "pi-desktop/remote/connections/upgradeHost",
+    remoteRevokeDevice: "pi-desktop/remote/connections/revokeDevice",
+    remoteDiagnostics: "pi-desktop/remote/connections/diagnostics",
+    remoteImportProvider: "pi-desktop/remote/connections/importProvider",
+    remoteDeleteProvider: "pi-desktop/remote/connections/deleteProvider",
+    remoteListProjects: "pi-desktop/remote/projects/list",
+    remoteAddProject: "pi-desktop/remote/projects/add",
+    remoteOpenProject: "pi-desktop/remote/projects/open",
+    remoteRemoveProject: "pi-desktop/remote/projects/remove",
+    remoteBrowseDirectory: "pi-desktop/remote/projects/browse",
+    remoteRelayCatalog: "pi-desktop/remote/relay/catalog",
+    remoteRelaySet: "pi-desktop/remote/relay/set",
+    remoteTerminalOpen: "pi-desktop/remote/terminal/open",
+    remoteTerminalWrite: "pi-desktop/remote/terminal/write",
+    remoteTerminalResize: "pi-desktop/remote/terminal/resize",
+    remoteTerminalClose: "pi-desktop/remote/terminal/close",
     pullsList: "pi-desktop/pulls/list",
     scheduledList: "pi-desktop/scheduled/list",
     scheduledCreate: "pi-desktop/scheduled/create",
@@ -234,6 +260,8 @@ export const IPC = {
     pluginLauncherShown: "pi-desktop/pluginLauncher/event/shown",
     agentMessage: "pi-desktop/agent/event/message",
     agentQueueChanged: "pi-desktop/agent/event/queueChanged",
+    remoteChanged: "pi-desktop/remote/event/changed",
+    remoteTerminalEvent: "pi-desktop/remote/event/terminal",
     hostStatus: "pi-desktop/app/event/hostStatus",
     toast: "pi-desktop/app/event/toast",
     browserState: "pi-desktop/browser/event/state",

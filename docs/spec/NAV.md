@@ -41,6 +41,7 @@
 - [17-asktool-questions.md](03-runtime/17-asktool-questions.md)
 - [18-line-anchored-edit-contract.md](03-runtime/18-line-anchored-edit-contract.md)
 - [19-remote-agent-control-protocol.md](03-runtime/19-remote-agent-control-protocol.md)
+- [20-remote-ssh-desktop.md](03-runtime/20-remote-ssh-desktop.md)
 
 ## 4. UX
 - [README.md](04-ux/README.md)

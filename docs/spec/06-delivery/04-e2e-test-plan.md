@@ -9808,32 +9808,37 @@ browser milestones are scheduled.
 
 - **Preconditions**: A Linux test machine runs `sshd` and holds a project
   the desktop can reach with the user's SSH key. A GitHub Releases fixture
-  serves the `pi-host` bundle for that platform at the desktop's version, a
-  bundle at another version, and a tampered bundle with a wrong checksum.
+  serves the `pi-host` bundle for that platform at the desktop's version, an
+  older bundle, a newer bundle, and a tampered bundle with a wrong checksum.
   The desktop has one local session open, one user MCP server configured,
   and one installed plugin whose tool requires workspace access.
 - **Steps**: 1) Add the remote machine from the desktop and let the uploaded
   bootstrap script download, verify, and start `pi-host` over SSH.
   2) Observe the pairing exchange and the resulting device token. 3) Create a
-  session under a remote project through `project/list` and
+  session under a remote project through the picker's browse, Home, typed
+  absolute path, and recent-path controls, then through `project/list` and
   `session/create`. 4) Start a turn whose fixture reads, edits, and runs a
   command in the remote project, and approve the command from the desktop
-  card. 5) Switch the session to Plan mode and back with `session/configure`
-  while idle, then attempt it while a turn runs. 6) Open the files tab and the
-  diff tab for the remote session. 7) Advertise relay from the desktop, run a
+  card. 5) Regenerate the answer, switch between both revisions, and switch
+  back to the latest branch. 6) Switch the session to Plan mode and back with
+  `session/configure` while idle, then attempt it while a turn runs. 7) Open
+  the files tab and the diff tab for the remote session. 8) Advertise relay
+  from the desktop, run a
   turn that calls the desktop MCP tool, then close the desktop during a
-  second call. 8) Open a terminal on the remote session and run a command.
-  9) Kill the SSH session mid-turn with the terminal open, restore it, and
-  let the desktop reconnect. 10) Inspect the remote tool catalog. 11) Attempt
+  second call. 9) Open a terminal on the remote session and run a command.
+  10) Kill the SSH session mid-turn with the terminal open, restore it, and
+  let the desktop reconnect. 11) Inspect the remote tool catalog. 12) Attempt
   to connect from a non-loopback address on the remote machine, then with a
-  reused pairing token. 12) Point the bootstrap at the tampered bundle, then
-  at the other version, and reconnect.
+  reused pairing token. 13) Point the bootstrap at the tampered bundle, then
+  at the older bundle, then at the newer bundle, and reconnect after each.
 - **Expected**: Files change only on the remote machine and the command runs
   there; the approval card appears in the desktop with the local vocabulary;
   the remote host-core binds loopback only; `session/configure` succeeds while
   idle and returns `CONFLICT` while running; files and diff come from the
   remote session root and a path outside it returns
-  `PATH_OUTSIDE_WORKSPACE`; the desktop MCP tool executes on the desktop and
+  `PATH_OUTSIDE_WORKSPACE`; regeneration truncates and archives only on the
+  remote Host and both revision branches remain selectable; the desktop MCP
+  tool executes on the desktop and
   its result reaches the remote transcript, while the second call fails with
   `TOOL_FAILED` and the turn continues; the terminal runs on the remote
   machine inside the session root; the turn continues through the SSH drop,
@@ -9841,8 +9846,9 @@ browser milestones are scheduled.
   resumes from the replay ring; the remote catalog lists the relayed MCP tool
   but not the workspace-requiring plugin tool; the non-loopback peer and the
   reused pairing token are rejected; the tampered bundle is refused before
-  start; the version mismatch returns `PROTOCOL_MISMATCH` and offers the
-  re-download; and the local session is untouched throughout.
+  start; the older Host is upgraded only after checksum and protocol
+  negotiation; the newer Host is never downgraded and enters `incompatible`
+  until the Desktop is upgraded; and the local session is untouched throughout.
 - **Specs linked**: `02-architecture/05-remote-agent-control.md` §§5.2 and
   6.3, `03-runtime/19-remote-agent-control-protocol.md` §§6.2, 9.4, and
   11.1, `05-security/02-remote-control-security.md` §§3.4, 4.3, 5.1, and 7,
@@ -9874,6 +9880,237 @@ browser milestones are scheduled.
 - **Acceptance**: Security, Quality
 - **Milestone**: Post-MVP (rollout R3)
 - **Status**: Draft; integration fixture required
+
+#### E2E-249: RACP-WS pairing and resumable event delivery
+
+- **Preconditions**: A loopback test `pi-host` has one idle Session, a valid
+  one-time pairing token, and a deterministic runtime fixture.
+- **Steps**: 1) Attempt a WebSocket connection without a bearer token. 2)
+  Connect with the pairing token, initialize RACP, and retain the issued device
+  token. 3) Subscribe to the Session and start a turn that emits one durable
+  event. 4) Close the socket, reconnect with the device token and the last
+  `{ epoch, sequence }` cursor, and subscribe again. 5) Attempt to reuse the
+  pairing token.
+- **Expected**: Step 1 is rejected before initialization. The paired desktop
+  receives owner roles and a device token; the live subscription delivers the
+  durable event with a sequence; reconnect resumes without duplicating it; the
+  spent pairing token is rejected. The Host never accepts a non-loopback peer.
+- **Specs linked**: `03-runtime/19-remote-agent-control-protocol.md` §§3, 6.2,
+  7.2, and 11.1, `05-security/02-remote-control-security.md` §§3.4 and 5.1,
+  ADR 0234
+- **Acceptance**: Security, Recovery, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: binding-covered by `packages/agent-host/src/racp-ws.test.ts`;
+  full SSH journey E2E-231 remains draft
+
+#### E2E-256: Release lanes publish verifiable pi-host bundles
+
+- **Preconditions**: Native Linux x64 and arm64 release runners can build the
+  workspace and Rust host-core. A fixture serves a bundle with a tampered
+  SHA-256 record.
+- **Steps**: 1) Run `scripts/package-pi-host.mjs` on each native architecture.
+  2) Verify both `.sha256` siblings. 3) Inspect each tarball for exactly one
+  `pi-host.js`, one `agent-runtime/sidecar.js`, one executable native
+  host-core, one executable Node runtime, and one executable native PTY helper.
+  4) Run the bootstrap with the
+  valid checksum, then repeat with the tampered record.
+- **Expected**: The release lanes publish only the versioned tarball and
+  checksum. The valid bootstrap installs under `~/.pi-desktop/host`, records a
+  PID and port, and starts through `setsid` without sudo. The tampered record
+  fails before extraction and never executes the downloaded bundle.
+- **Specs linked**: `03-runtime/07-process-model.md` §§6–7,
+  `06-delivery/06-release-runbook.md` §§3–4, ADR 0234
+- **Acceptance**: Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by
+  `packages/pi-host/src/packaging.test.ts`; native Linux release journeys
+  remain release qualification
+
+#### E2E-257: Connections manages SSH discovery and host trust
+
+- **Preconditions**: an OpenSSH config contains `Host gpu`, `Host *`, and an
+  `Include`; a manual test host and a local provider are configured. The next
+  host key is not in `known_hosts`.
+- **Steps**: 1) Open Settings → Connections and refresh. 2) Add the manual
+  host with an optional OpenSSH alias and test both alias-resolved and
+  explicit-host modes. 3) Export connections, inspect the clipboard JSON, and
+  re-import it. 4) Test both entries. 5) Connect to the unknown Host and
+  inspect the
+  fingerprint dialog. 6) Cancel once, reconnect, and accept the fingerprint.
+  7) Copy diagnostics. 8) Use the explicit Host upgrade action. 9) Revoke the
+  device token, confirm the old token cannot authenticate, then reconnect and
+  complete the new pairing confirmation. 10) Sync and
+  then delete the selected provider.
+- **Expected**: `gpu` appears exactly once and `Host *` does not appear. Manual
+  fields persist without private-key bytes. Cancellation performs no
+  `known_hosts` write; acceptance writes only the scanned keys. Connection
+  export contains no token or secret material, and re-import is idempotent.
+  state advances through named stages, diagnostics are redacted, explicit
+  upgrade force-restarts the checksummed current version before RACP
+  negotiation, revocation invalidates the old device token and local secret,
+  reconnection requires a new one-time pairing exchange, and provider
+  sync/delete names the remote machine and never
+  returns the secret.
+- **Specs linked**: `04-ux/06-settings-ia.md` §Connections,
+  `03-runtime/20-remote-ssh-desktop.md` §§3–8, ADR 0234
+- **Acceptance**: A, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`;
+  native SSH/fingerprint journey remains E2E-231 harness work
+
+#### E2E-258: Remote projects never fall back to local disk
+
+- **Preconditions**: one remote project is active and a local directory contains
+  files with the same relative names. The remote project has one session.
+- **Steps**: 1) Open the Files tab and a text file. 2) Run the `@` file index.
+  3) Open Review. 4) Press the local add-file, reveal, and open controls if
+  visible. 5) Search renderer source for child-process or SSH APIs.
+- **Expected**: Files, reads, and diff come from the remote session root; the
+  identically named local files remain unchanged. Local-only controls are hidden
+  or return `UNSUPPORTED`; no renderer module imports `child_process` or spawns
+  SSH. Remote prompts and tools continue through `lib/api.ts`.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §6,
+  `02-architecture/03-repo-structure.md`, ADR 0234
+- **Acceptance**: B, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`;
+  live remote filesystem journey remains E2E-231 harness work
+
+#### E2E-259: Remote deep links require explicit confirmation
+
+- **Preconditions**: PI-Desktop is packaged and registered for the
+  `pi-desktop` scheme. `gpu-server` exists in OpenSSH config and
+  `/home/dev/project` exists on that Host.
+- **Steps**: 1) Open an add-connection deep link and cancel. 2) Open it again
+  and confirm. 3) Open a remote-project deep link and cancel. 4) Open it again
+  and confirm. 5) Repeat with a wildcard connection key and a dot-segment path.
+- **Expected**: Cancellation makes no connection or project change. Confirmation
+  creates or reuses the connection, registers the remote project, activates it,
+  and refreshes the renderer project surface. Unsafe links are ignored without
+  a dialog.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §9, ADR 0234
+- **Acceptance**: A, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: parser/source-contract covered by
+  `apps/desktop/test/deep-link.test.mjs`; packaged scheme journey remains
+  release qualification
+
+#### E2E-260: Remote MCP runs on the owning Host
+
+- **Preconditions**: `gpu-server` is connected and remote project
+  `/home/dev/project` is active. The Host can execute a configured stdio MCP
+  command that lists one `echo` tool.
+- **Steps**: 1) Open Settings → Agent capabilities → MCP while the remote
+  project is selected. 2) Add the MCP server. 3) Test the connection.
+  4) Start a remote session and call `mcp_<server>_echo`. 5) Disable and delete
+  the server.
+- **Expected**: Rows are labeled `Remote: gpu-server`. Listing, import, edit,
+  test, enable, scope, and delete operate against the remote Host. Tool
+  discovery and execution occur in the remote MCP process with the remote
+  project path; disabling removes the model-facing tool, and no local MCP
+  process is started as a fallback.
+- **Specs linked**:
+  `03-runtime/19-remote-agent-control-protocol.md` §6.2,
+  `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0234
+- **Acceptance**: A, B, Security
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: remote process contract covered by
+  `packages/pi-host/src/mcp.test.ts`; full Settings journey remains E2E-231
+  harness work
+
+#### E2E-261: Remote Skills manage the owning Host registry
+
+- **Preconditions**: `gpu-server` is connected and remote project
+  `/home/dev/project` is active. A local Markdown skill fixture is available.
+- **Steps**: 1) Open Settings → Agent capabilities → Skills with the remote
+  project selected. 2) Create a global Skill. 3) Import the local Markdown
+  fixture into the project level. 4) Edit, disable, and re-enable it. 5) Read
+  it from the editor. 6) Attempt the reveal action. 7) Delete it.
+- **Expected**: Rows are labeled `Remote: gpu-server`. Every registry mutation
+  and read targets the remote Host. Imported document bytes cross only through
+  the authenticated RACP create operation; reveal is unavailable, and deletion
+  removes the model-facing Skill without touching the local registry.
+- **Specs linked**:
+  `03-runtime/19-remote-agent-control-protocol.md` §6.2,
+  `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0234
+- **Acceptance**: A, B, Security
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by
+  `apps/desktop/test/remote-ssh.test.mjs`; full Settings journey remains
+  E2E-231 harness work
+
+#### E2E-262: Local-only capabilities disclose remote availability
+
+- **Preconditions**: one remote project is active. One plugin contributes a
+  panel only, and one contributes an agent tool or plugin MCP server.
+- **Steps**: 1) Open Settings → Agent capabilities → Subagents. 2) Open
+  Settings → Plugins. 3) Inspect both installed plugin rows. 4) Switch to a
+  local project and inspect the same rows.
+- **Expected**: Subagent registry rows and every plugin row identify as local.
+  In the remote project, the panel-only plugin remains local without an
+  unavailable warning, while the agent-capability plugin is additionally marked
+  unavailable remotely. Switching back to the local project removes only the
+  remote-unavailable markers.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0234
+- **Acceptance**: A, B, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`
+
+#### E2E-263: SSH transport matrices survive real network boundaries
+
+- **Preconditions**: native desktop runners cover macOS arm64/x64, Windows
+  x64, and Linux x64. One target is reachable through a `ProxyJump` bastion,
+  one through `ProxyCommand`, one over VPN, one over LAN with a custom port,
+  one by IPv6 hostname, one through `ControlMaster`, and one WSL sshd. Their
+  OpenSSH configs use `Include`, multiple `IdentityFile` entries, ssh-agent,
+  and an encrypted agent key. A packet-loss fixture and host-reboot fixture
+  are available.
+- **Steps**: 1) Discover and connect through every configuration. 2) Start a
+  remote turn, then induce packet loss long enough for the UI to enter
+  `reconnecting`. 3) Restore the link and verify cursor recovery. 4) Sleep and
+  wake each desktop during a turn. 5) Switch VPN routing during a turn.
+  6) Reboot one remote Host and reconnect after `pi-host` restarts. 7) Restart
+  one Desktop process while its Host stays online. 8) Repeat a minimal remote
+  read/command turn on the WSL target.
+- **Expected**: Effective OpenSSH semantics come from `ssh -G`; no PI-Desktop
+  parser or per-command SSH wrapper replaces them. First-use host keys are
+  proposed and confirmed through the same OpenSSH transport, including proxied
+  targets. Non-retryable auth and host
+  key failures stop immediately. Network sleep/wake, VPN, packet-loss, remote
+  reboot, and Desktop restart recover without duplicate prompts, completed
+  tools, or duplicate Host runtimes. WSL behaves as a Linux remote Host without
+  local-path fallback.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §§3–5 and 10,
+  ADR 0234
+- **Acceptance**: A, Recovery, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: draft; requires explicit E2E authorization and live SSH targets
+
+#### E2E-264: Multiple remote Hosts and projects stay isolated
+
+- **Preconditions**: two reachable remote Hosts (`gpu-a` and `gpu-b`) contain
+  `/project-a`, `/project-b`, and `/project-c` respectively. A local project
+  is also open. Each remote project has one session with a concurrently running
+  turn fixture.
+- **Steps**: 1) Register and connect both Hosts. 2) Open all three remote
+  projects and the local project in the project index. 3) Start or continue
+  one session in each project concurrently. 4) Switch the visible project
+  while the other turns run. 5) In each session, read a same-named fixture file
+  and run `pwd`. 6) Attempt a workspace path escape from Project A. 7) Stop
+  only Project B's turn. 8) Disconnect Host A while its turn runs.
+  9) Reconnect Host A and resume its transcript.
+- **Expected**: Host A serves Projects A and B through one supervised runtime
+  while Host B serves Project C through another. Every `pwd` and file read
+  resolves in that session's originating project root; the identically named
+  files differ by Host/project and the local copy remains untouched. The path
+  escape is refused. Switching projects does not stop or retarget background
+  turns; stopping Project B leaves Host A and Host C turns running, and Host
+  A reconnect resumes without replaying completed work.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §§2, 5–6, and 10,
+  ADR 0234
+- **Acceptance**: A, Recovery, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: draft; requires explicit E2E authorization and live SSH targets
 
 ## Trusted extension scenarios (R7 v1)
 

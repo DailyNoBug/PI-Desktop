@@ -159,12 +159,12 @@ Rules:
    advertises `"a2a"`. A v10 host or client is rejected before the UI becomes
    interactive, so a mixed pair cannot call a missing domain.
 
-Protocol v11 is paired with host-core storage schema v14. Schema v12 had added
+Protocol v11 is paired with host-core storage schema v15. Schema v12 had added
 the A2A tables (`a2a_tasks`, `a2a_messages`, `a2a_artifacts`,
 `a2a_push_configs`) via `migrate_v11_to_v12`; `migrate_v12_to_v13` drops those
-tables, and v14 adds the plugin-session ownership sidecar and soft-delete
-column. A fresh database creates neither A2A tables nor unowned plugin-session
-rows. The schema version is an
+tables, v14 adds the plugin-session ownership sidecar and soft-delete column,
+and v15 persists the Host-owned turn queue. A fresh database creates neither
+A2A tables nor unowned plugin-session rows. The schema version is an
 internal persistence invariant, not an additional JSON-RPC field; the
 checkpoint architecture remains host-owned.
 

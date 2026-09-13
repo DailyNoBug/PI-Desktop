@@ -14,6 +14,7 @@ export type SettingsTabId =
   | "skills"
   | "mcp"
   | "subagents"
+  | "connections"
   | "import"
   | "projects"
   | "about";
@@ -182,6 +183,21 @@ export const SETTINGS_NAV: SettingsNavEntry[] = [
       "extensions.subagents.remove",
       "extensions.subagents.reveal",
       "extensions.subagents.tools",
+    ],
+  },
+  {
+    id: "connections",
+    labelKey: "settings.nav.connections",
+    titleKey: "remote.connections",
+    group: "workspace",
+    keywordKeys: [
+      "remote.connections",
+      "remote.addConnection",
+      "remote.openProject",
+      "remote.sourceConfig",
+      "remote.sourceManaged",
+      "remote.syncProvider",
+      "remote.copyDiagnostics",
     ],
   },
   {

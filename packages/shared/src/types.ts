@@ -431,6 +431,10 @@ export type SessionSummary = {
   title: string;
   /** Number of messages in the current canonical transcript. */
   messageCount: number;
+  /** Owning remote Host; absent means the local desktop Host. */
+  hostId?: string;
+  /** Stable Host-side project binding, when known. */
+  projectId?: string;
   projectPath?: string;
   modelId?: string;
   providerId?: string;
@@ -845,7 +849,8 @@ export type ProjectWorkspace = {
 };
 
 export type ProjectRecord = {
-  id: number;
+  /** Numeric local rows and stable `project:<hash>` remote records. */
+  id: string | number;
   path: string;
   name: string;
   pinned: boolean;

@@ -1,5 +1,6 @@
 import type { RacpRemoteError } from "@pi-desktop/shared";
 import { RACP_ERROR_CODES, type RacpErrorCode } from "@pi-desktop/shared";
+import { randomUUID } from "node:crypto";
 
 /**
  * A failure that crosses the Agent Host boundary. The code is a shared
@@ -10,11 +11,13 @@ export class RacpError extends Error {
   readonly code: string;
   readonly retriable: boolean;
   readonly details?: unknown;
+  readonly traceId: string;
 
   constructor(code: RacpErrorCode | string, message: string, options: { retriable?: boolean; details?: unknown } = {}) {
     super(message);
     this.name = "RacpError";
     this.code = code;
+    this.traceId = randomUUID();
     const registered = (RACP_ERROR_CODES as Record<string, { retriable: boolean | "maybe" }>)[code];
     this.retriable = options.retriable ?? (registered ? registered.retriable === true : false);
     this.details = options.details;

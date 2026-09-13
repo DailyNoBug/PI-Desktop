@@ -738,7 +738,7 @@ for the reserved `Alt+Space` binding. Host-core emits the notification
 keyboard hook detects the chord; the hook consumes that chord so the active
 window system menu does not open. Non-Windows hosts treat the method as a
 no-op. `responseDurationMs` and `responseOutputTokens` are optional transcript
-metadata persisted in message metadata, so protocol v11 and storage schema v14
+metadata persisted in message metadata, so protocol v11 and storage schema v15
 remain unchanged.
 
 The Settings font picker (ADR 0083) reads installed system font families

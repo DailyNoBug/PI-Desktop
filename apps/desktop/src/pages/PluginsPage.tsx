@@ -39,6 +39,7 @@ import type {
   ProjectRecord,
   ProjectWorkspace,
 } from "@pi-desktop/shared";
+import { isRemoteProjectPath } from "@pi-desktop/shared";
 
 /** Plugins has two tabs only; agent capabilities live under Settings > Agent. */
 type TabId = "installed" | "market";
@@ -51,6 +52,7 @@ type TabId = "installed" | "market";
 type GroupId = "attention" | "updates" | "active" | "disabled";
 
 const GROUP_ORDER: GroupId[] = ["attention", "updates", "active", "disabled"];
+const AGENT_PLUGIN_CAPABILITIES: readonly PluginCapability[] = ["tools", "skills", "mcp", "agentExtension"];
 
 const GROUP_LABEL_KEYS: Record<GroupId, string> = {
   attention: "plugins.groupAttention",
@@ -565,6 +567,7 @@ export function PluginsPage() {
    * meaningful relative to it, so the control needs it as its default target.
    */
   const currentProjectPath = useAppStore((s) => s.workspace?.path ?? null);
+  const remoteProject = isRemoteProjectPath(currentProjectPath);
 
   const [tab, setTab] = useState<TabId>("installed");
   const [installedQuery, setInstalledQuery] = useState("");
@@ -1188,6 +1191,10 @@ export function PluginsPage() {
                       const broken = group.id === "attention";
                       const menuOpen = rowMenu === plugin.id;
                       const update = plugin.updateAvailable;
+                      const agentCapabilityUnavailable = remoteProject &&
+                        (plugin.capabilities ?? []).some((capability) =>
+                          AGENT_PLUGIN_CAPABILITIES.includes(capability),
+                        );
                       return (
                         <div
                           key={plugin.id}
@@ -1209,8 +1216,14 @@ export function PluginsPage() {
                           <div className="plugins-row-copy">
                             <div className="plugins-row-title">
                               <span className="plugins-row-name">{plugin.name}</span>
-                              {plugin.source === "dev" ? (
+                              {plugin.source !== "dev" ? (
                                 <span className="plugins-tag">{t("plugins.tagLocal")}</span>
+                              ) : null}
+                              <span className="plugins-tag">{t("plugins.tagLocal")}</span>
+                              {agentCapabilityUnavailable ? (
+                                <span className="plugins-tag is-warning">
+                                  {t("plugins.locationUnavailableRemote")}
+                                </span>
                               ) : null}
                             </div>
                             <div className="plugins-row-meta">

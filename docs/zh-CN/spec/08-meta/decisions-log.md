@@ -25,6 +25,7 @@
 | D010 | 首个发布平台 | **仅限 macOS arm64** | 重点验收及包装 |
 | D373 | 远程 Agent 控制的 Host 边界 | *(由 D374 与 D375 修订)* **远程控制（MVP 之后）经由一个逻辑 Agent Host 运行，它拥有 Sessions、Turns、事件游标、审批、附件、工作区策略与崩溃恢复；生产 Gateway 拥有身份、路由、限流、吊销与审计，Agent Host 向外连接。现有 Electron IPC、`host.proxy` 与 host-core stdio 边界永不暴露。** | 远程表面需要自己的边界，而不是通往本地 IPC 或 host-core stdio 契约的隧道（ADR 0205，E2E-221 至 E2E-230） |
 | D374 | 远程 Agent 控制 v1 目标修订 | **修订 D373 / ADR 0205：`RACP-WS` 是 v1 唯一规范绑定（`RACP-HTTP` 为浏览器 profile，`RACP-GRPC` 保留）；`packages/shared` 中的 typebox 是唯一契约来源；无头的 `packages/agent-host` 模块是首个交付物，桌面 IPC、本地 MCP 与 RACP 共同调用；游标为 `{ epoch, sequence }` 且增量为临时数据；回合队列移入 Host；host-core 暴露 `permissions.pending`；远程审批携带完整本地决策词汇并默认 `ask` 上限；浏览器客户端使用 cookie profile；首个部署为单租户。** | 对照已交付桌面审查 D373 草案发现远程审批词汇比本地契约窄、待处理请求被当作连接状态、逐 token 增量会耗尽重放窗口、绑定数量超过 v1 承载能力（ADR 0205） |
+| D408 | Remote SSH Agent Runtime | **将 Remote SSH 实现为用户 Linux 机器上的 `pi-host` runtime，仅通过系统 OpenSSH 上的 loopback `RACP-WS` 访问；Electron Main 拥有 SSH/配对/bootstrap/重连与 renderer 路由；`ssh://` 项目 URI 区分远端根；远端会话、工具与秘密状态以 Host 为权威。** | 远程编程需要紧邻工作区的单一执行边界；转发单条命令或镜像仓库都会拆分文件系统、Shell、会话与恢复权威（ADR 0234） |
 
 ## B. 辅助实现默认值
 

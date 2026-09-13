@@ -53,6 +53,7 @@ host 和 agent stderr 使用标记进行分类；无法分类的子进程输出�
 - `persistence` — 成绩单和发件箱持久化失败
 - `updater` — 更新器诊断和错误
 - `diagnostics` — 阻止导航、菜单和模板诊断
+- `remote` — SSH 连接阶段、配对、bootstrap、远端 provider 同步与远端项目生命周期；绝不包含秘密或凭据
 - `runtime` — host/sidecar 生命周期及未分类的子进程输出
 
 不存在独立的 `timing` 类别。较早运行生成的 timing 文件保持不变，

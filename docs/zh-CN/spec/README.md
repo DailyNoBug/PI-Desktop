@@ -27,6 +27,7 @@
 | [02-architecture/05-remote-agent-control.md](/zh-CN/spec/02-architecture/05-remote-agent-control) | 远程 Agent Host 和 Gateway 目标架构 |
 | [03-runtime/05-host-core-rust.md](/zh-CN/spec/03-runtime/05-host-core-rust) | Rust 主机核心 |
 | [03-runtime/19-remote-agent-control-protocol.md](/zh-CN/spec/03-runtime/19-remote-agent-control-protocol) | 远程控制协议 |
+| [03-runtime/20-remote-ssh-desktop.md](/zh-CN/spec/03-runtime/20-remote-ssh-desktop) | Remote SSH 桌面客户端 |
 | [05-security/02-remote-control-security.md](/zh-CN/spec/05-security/02-remote-control-security) | 远程控制安全 |
 | [04-ux/02-i18n-english-first.md](/zh-CN/spec/04-ux/02-i18n-english-first) | 国际化政策 |
 | [04-ux/07-ui-design-system.md](/zh-CN/spec/04-ux/07-ui-design-system) | 设计系统（令牌、运动、密度） |

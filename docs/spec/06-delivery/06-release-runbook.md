@@ -1,7 +1,8 @@
 # 06. Desktop Release Runbook
 
 > Scope: D126/D285 tag artifacts for macOS arm64 and Intel x64, Windows x64,
-> and Linux x64, including the Linux system-Electron ASAR asset;
+> and Linux x64, including the Linux system-Electron ASAR asset and checksummed
+> Linux x64/arm64 `pi-host` Remote SSH runtime bundles;
 > macOS signing/notarization remains the detailed qualification lane below.
 > Cross-references: [milestones](01-mvp-milestones.md) · [process model](../03-runtime/07-process-model.md) · [security](../05-security/01-security.md)
 
@@ -65,6 +66,10 @@ when macOS `iconutil` is available, without overwriting the canonical source.
   Redistributable before the local service can start.
 - `Resources/agent-runtime/` — bundled sidecar, executed with
   `ELECTRON_RUN_AS_NODE=1` (no separate Node shipped).
+- Remote SSH `pi-host-<version>-linux-<arch>.tar.gz` plus `.sha256` — a
+  self-contained remote runtime bundle with `pi-host.js`, the sidecar, native
+  host-core, Node, and the native PTY module; it is installed under the remote
+  user's home, never with sudo.
 - `Resources/licenses/` — notices that must remain distributable when the
   corresponding dependency's build-only source tree is pruned.
 - `Resources/app.asar` — Electron Main, preload, renderer output, and only the
@@ -245,6 +250,10 @@ assembles the GitHub Release. The Linux runner also copies
 exact archive used by the Linux installers for downstream repackaging with a
 system Electron.
 
+Two additional native Linux jobs run `scripts/package-pi-host.mjs` for x64 and
+arm64. Each verifies its SHA-256 sibling before upload and publishes only the
+versioned tarball and checksum; the publish job waits for both lanes.
+
 ### 4.4 CNB mirror trigger
 
 After `softprops/action-gh-release` publishes or updates a GitHub Release,
@@ -418,6 +427,8 @@ Native-runner output matrix:
   exe `PI-Desktop-Portable-<version>.exe`
 - Linux x64: AppImage, deb, and rpm
 - Linux x64 system Electron asset: `PI-Desktop-<version>-linux-x64.asar`
+- Linux x64 and arm64 Remote SSH runtime:
+  `pi-host-<version>-linux-<arch>.tar.gz` and `.sha256`
 
 The portable Windows target does not write `latest.yml`. Packaged portable
 runs use notify-and-link delivery (`PORTABLE_EXECUTABLE_FILE`); NSIS keeps

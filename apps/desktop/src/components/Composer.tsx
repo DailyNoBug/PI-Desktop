@@ -615,6 +615,7 @@ export function Composer({
   const sessions = useAppStore((s) => s.sessions);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const workspacePath = useAppStore((s) => s.workspace?.path ?? "");
+  const isRemoteWorkspace = workspacePath.startsWith("ssh://");
   const providers = useAppStore((s) => s.providers);
   const providerModels = useAppStore((s) => s.providerModels);
   const liveMessages = useAppStore((s) => s.messages);
@@ -2425,21 +2426,23 @@ export function Composer({
 
           <div className="composer-toolbar">
             <div className="composer-left">
-              <div className="composer-plus">
-                <TooltipButton
-                  type="button"
-                  className="icon-btn"
-                  tooltip={t("chat.addFiles")}
-                  ariaLabel={t("chat.addFiles")}
-                  disabled={controlsBlocked || pasting}
-                  onClick={() => {
-                    setPermissionOpen(false);
-                    void pickAndAttach();
-                  }}
-                >
-                  <IconPlus size={15} aria-hidden="true" />
-                </TooltipButton>
-              </div>
+              {isRemoteWorkspace ? null : (
+                <div className="composer-plus">
+                  <TooltipButton
+                    type="button"
+                    className="icon-btn"
+                    tooltip={t("chat.addFiles")}
+                    ariaLabel={t("chat.addFiles")}
+                    disabled={controlsBlocked || pasting}
+                    onClick={() => {
+                      setPermissionOpen(false);
+                      void pickAndAttach();
+                    }}
+                  >
+                    <IconPlus size={15} aria-hidden="true" />
+                  </TooltipButton>
+                </div>
+              )}
               <TooltipButton
                 type="button"
                 className="icon-btn mode-chip composer-mode-chip"

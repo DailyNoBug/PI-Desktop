@@ -113,6 +113,10 @@ export const RacpSessionSchema = Type.Object({
   projectId: Type.Optional(Type.String()),
   workspaceLabel: Type.Optional(Type.String()),
   mode: RacpSessionModeSchema,
+  providerId: Type.Optional(Type.String()),
+  modelId: Type.Optional(Type.String()),
+  thinkingLevel: Type.Optional(Type.String()),
+  messageCount: Type.Optional(Type.Integer({ minimum: 0 })),
   status: RacpSessionStatusSchema,
   planningState: RacpPlanningStateSchema,
   permissionMode: RacpPermissionModeSchema,
@@ -266,6 +270,7 @@ export const RacpApprovalRequestSchema = Type.Object({
   summary: Type.String(),
   expiresAt: Type.String(),
   revision: Type.Integer({ minimum: 0 }),
+  toolCallId: Type.Optional(Type.String()),
   toolName: Type.Optional(Type.String()),
   risk: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")])),
   agentName: Type.Optional(Type.String()),
@@ -370,9 +375,47 @@ export type RacpHostSummary = Static<typeof RacpHostSummarySchema>;
 export const RacpProjectSummarySchema = Type.Object({
   id: Type.String({ minLength: 1 }),
   label: Type.String(),
+  /** Host absolute path; visible only to an explicitly scoped owner client. */
+  path: Type.Optional(Type.String({ minLength: 1 })),
   archived: Type.Boolean(),
 });
 export type RacpProjectSummary = Static<typeof RacpProjectSummarySchema>;
+
+export type RacpProjectListResult = {
+  projects: RacpProjectSummary[];
+};
+
+export type RacpSessionListResult = {
+  sessions: RacpSession[];
+};
+
+export type RacpSessionCreateParams = {
+  projectId?: string;
+  projectPath?: string;
+  title?: string;
+  mode?: RacpSessionMode;
+  permissionMode?: RacpPermissionMode;
+  providerId?: string;
+  modelId?: string;
+  thinkingLevel?: string;
+};
+
+export type RacpSessionConfigureParams = {
+  sessionId: string;
+  mode?: string;
+  permissionMode?: RacpPermissionMode;
+  providerId?: string;
+  modelId?: string;
+  thinkingLevel?: string;
+};
+
+export type RacpSessionMutationResult = {
+  session: RacpSession;
+};
+
+export type RacpWorkspaceBrowseParams = {
+  path?: string;
+};
 
 export const RacpSessionSnapshotSchema = Type.Object({
   session: RacpSessionSchema,
@@ -480,7 +523,12 @@ export type RacpInitializeParams = Static<typeof RacpInitializeParamsSchema>;
 
 export const RacpInitializeResultSchema = Type.Object({
   protocolVersion: Type.String({ minLength: 1 }),
-  server: Type.Object({ name: Type.String(), version: Type.String() }),
+  server: Type.Object({
+    name: Type.String(),
+    version: Type.String(),
+    hostProtocolVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+    storageSchemaVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+  }),
   connectionId: Type.String({ minLength: 1 }),
   principal: Type.Object({
     subject: Type.String({ minLength: 1 }),
@@ -489,6 +537,8 @@ export const RacpInitializeResultSchema = Type.Object({
   capabilities: RacpServerCapabilitiesSchema,
   limits: RacpLimitsSchema,
   policy: RacpPolicySchema,
+  /** Present only when a one-time SSH pairing token is exchanged. */
+  deviceToken: Type.Optional(Type.String({ minLength: 32 })),
 });
 export type RacpInitializeResult = Static<typeof RacpInitializeResultSchema>;
 
@@ -546,8 +596,25 @@ export const RACP_OPERATIONS = {
   "session/delete": { role: "owner", profile: "remote-host", mutation: true },
   "session/compact": { role: "controller", profile: "remote-host", mutation: true },
   "workspace/list": { role: "viewer", profile: "remote-host", mutation: false },
+  "workspace/browse": { role: "owner", profile: "remote-host", mutation: false },
   "workspace/read": { role: "viewer", profile: "remote-host", mutation: false },
   "workspace/diff": { role: "viewer", profile: "remote-host", mutation: false },
+  "mcp/list": { role: "owner", profile: "remote-host", mutation: false },
+  "mcp/upsert": { role: "owner", profile: "remote-host", mutation: true },
+  "mcp/remove": { role: "owner", profile: "remote-host", mutation: true },
+  "mcp/setEnabled": { role: "owner", profile: "remote-host", mutation: true },
+  "mcp/setScope": { role: "owner", profile: "remote-host", mutation: true },
+  "mcp/test": { role: "owner", profile: "remote-host", mutation: false },
+  "skills/list": { role: "owner", profile: "remote-host", mutation: false },
+  "skills/create": { role: "owner", profile: "remote-host", mutation: true },
+  "skills/update": { role: "owner", profile: "remote-host", mutation: true },
+  "skills/read": { role: "owner", profile: "remote-host", mutation: false },
+  "skills/remove": { role: "owner", profile: "remote-host", mutation: true },
+  "skills/setEnabled": { role: "owner", profile: "remote-host", mutation: true },
+  "skills/setScope": { role: "owner", profile: "remote-host", mutation: true },
+  "session/revision/save": { role: "owner", profile: "remote-host", mutation: true },
+  "session/revision/list": { role: "owner", profile: "remote-host", mutation: false },
+  "session/revision/activate": { role: "owner", profile: "remote-host", mutation: true },
   "terminal/open": { role: "controller", profile: "remote-host", mutation: true },
   "terminal/input": { role: "controller", profile: "remote-host", mutation: true },
   "terminal/resize": { role: "controller", profile: "remote-host", mutation: true },

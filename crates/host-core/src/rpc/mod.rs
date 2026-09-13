@@ -912,6 +912,7 @@ async fn execute_plugin_tool(
             "toolCallId": p.tool_call_id,
             "toolName": p.tool_name,
             "args": p.args,
+            "timeoutMs": timeout_ms,
             // Durable session mode, not the sidecar-supplied field: ADR 0052
             // forbids a conflicting sidecar mode from authorizing a tool
             // (ADR 0211).

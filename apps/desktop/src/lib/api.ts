@@ -53,6 +53,14 @@ import type {
   PluginInstallResult,
   ProjectRecord,
   ProjectWorkspace,
+  RemoteConnectionInput,
+  RemoteConnectionView,
+  RemoteDiagnostics,
+  RemoteDirectoryResult,
+  RemoteProjectRecord,
+  RemoteTerminalEvent,
+  RemoteTerminalSnapshot,
+  RemoteRelayToolDescriptor,
   PullRequestSummary,
   ScheduledTask,
   ProviderCreateInput,
@@ -488,6 +496,74 @@ export const api = {
   clearProject: () => invoke(IPC.invoke.projectClear),
   setProject: (path: string) =>
     invoke<{ workspace: ProjectWorkspace | null }>(IPC.invoke.projectSet, path),
+  listRemoteConnections: () =>
+    invoke<{ connections: RemoteConnectionView[] }>(IPC.invoke.remoteListConnections),
+  refreshRemoteConnections: () =>
+    invoke<{ connections: RemoteConnectionView[] }>(IPC.invoke.remoteRefreshConnections),
+  exportRemoteConnections: () =>
+    invoke<{ export: string }>(IPC.invoke.remoteExportConnections),
+  importRemoteConnections: (text: string) =>
+    invoke<{ imported: number; skipped: number }>(IPC.invoke.remoteImportConnections, text),
+  testRemoteConnection: (connectionId: string) =>
+    invoke<{ ok: true; os: string; arch: string; home: string; shell: string }>(
+      IPC.invoke.remoteTestConnection,
+      { connectionId },
+    ),
+  addRemoteConnection: (input: RemoteConnectionInput) =>
+    invoke<{ connection: RemoteConnectionView }>(IPC.invoke.remoteAddConnection, input),
+  updateRemoteConnection: (connectionId: string, input: RemoteConnectionInput) =>
+    invoke<{ connection: RemoteConnectionView }>(IPC.invoke.remoteUpdateConnection, {
+      connectionId,
+      input,
+    }),
+  removeRemoteConnection: (connectionId: string) =>
+    invoke(IPC.invoke.remoteRemoveConnection, { connectionId }),
+  connectRemote: (connectionId: string) =>
+    invoke<{ connection: RemoteConnectionView }>(IPC.invoke.remoteConnect, { connectionId }),
+  disconnectRemote: (connectionId: string) =>
+    invoke(IPC.invoke.remoteDisconnect, { connectionId }),
+  upgradeRemoteHost: (connectionId: string) =>
+    invoke<{ connection: RemoteConnectionView }>(IPC.invoke.remoteUpgradeHost, { connectionId }),
+  revokeRemoteDevice: (connectionId: string) =>
+    invoke<{ revoked: boolean }>(IPC.invoke.remoteRevokeDevice, { connectionId }),
+  remoteDiagnostics: (connectionId: string) =>
+    invoke<RemoteDiagnostics>(IPC.invoke.remoteDiagnostics, { connectionId }),
+  importRemoteProvider: (connectionId: string, providerId: string) =>
+    invoke<{ imported: number }>(IPC.invoke.remoteImportProvider, { connectionId, providerId }),
+  deleteRemoteProvider: (connectionId: string, providerId: string) =>
+    invoke<{ deleted: boolean }>(IPC.invoke.remoteDeleteProvider, { connectionId, providerId }),
+  listRemoteProjects: () =>
+    invoke<{ projects: RemoteProjectRecord[] }>(IPC.invoke.remoteListProjects),
+  addRemoteProject: (input: { connectionId: string; remotePath: string; name?: string }) =>
+    invoke<{ workspace: ProjectWorkspace }>(IPC.invoke.remoteAddProject, input),
+  openRemoteProject: (projectId: string) =>
+    invoke<{ workspace: ProjectWorkspace }>(IPC.invoke.remoteOpenProject, { projectId }),
+  removeRemoteProject: (projectId: string) =>
+    invoke(IPC.invoke.remoteRemoveProject, { projectId }),
+  browseRemoteDirectory: (input: { connectionId: string; path?: string }) =>
+    invoke<RemoteDirectoryResult>(IPC.invoke.remoteBrowseDirectory, input),
+  remoteRelayCatalog: (connectionId: string) =>
+    invoke<{ tools: RemoteRelayToolDescriptor[]; selected: string[] }>(
+      IPC.invoke.remoteRelayCatalog,
+      { connectionId },
+    ),
+  setRemoteRelayTools: (connectionId: string, toolNames: string[]) =>
+    invoke<{ selected: string[] }>(IPC.invoke.remoteRelaySet, {
+      connectionId,
+      toolNames,
+    }),
+  openRemoteTerminal: (input: { sessionId: string; columns?: number; rows?: number }) =>
+    invoke<RemoteTerminalSnapshot>(IPC.invoke.remoteTerminalOpen, input),
+  writeRemoteTerminal: (input: { sessionId: string; terminalId: string; text: string }) =>
+    invoke(IPC.invoke.remoteTerminalWrite, input),
+  resizeRemoteTerminal: (input: {
+    sessionId: string;
+    terminalId: string;
+    columns: number;
+    rows: number;
+  }) => invoke(IPC.invoke.remoteTerminalResize, input),
+  closeRemoteTerminal: (input: { sessionId: string; terminalId: string }) =>
+    invoke(IPC.invoke.remoteTerminalClose, input),
   listPullRequests: () =>
     invoke<{ pulls: PullRequestSummary[]; error?: string }>(IPC.invoke.pullsList),
   listScheduled: () =>
@@ -923,6 +999,16 @@ export const api = {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.agentQueueChanged, (payload) =>
       listener(payload as AgentQueueChangedEvent),
+    );
+  },
+  onRemoteChanged: (listener: () => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.remoteChanged, () => listener());
+  },
+  onRemoteTerminalEvent: (listener: (event: RemoteTerminalEvent) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.remoteTerminalEvent, (payload) =>
+      listener(payload as RemoteTerminalEvent),
     );
   },
   onPlansChanged: (listener: (event: PlanningStateEvent) => void) => {
