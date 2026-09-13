@@ -161,6 +161,7 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.doesNotMatch(ssh, /connection\.source === "ssh-config" && connection\.sshConfigAlias/);
   assert.match(ssh, /proposeHostKeys/);
   assert.match(ssh, /confirmHostKeys/);
+  assert.match(ssh, /if \(!error\) \{\s*resolve\(\{ code: 0, stdout: String\(stdout\), stderr: String\(stderr\) \}\);/);
   assert.match(ssh, /UserKnownHostsFile=\$\{knownHostsPath\}/);
   assert.match(ssh, /UserKnownHostsFile=\$\{proposed\.knownHostsPath\}/);
   assert.match(ssh, /StrictHostKeyChecking=yes/);
