@@ -7359,6 +7359,14 @@ function registerIpc() {
     if (!remoteManager) throw new Error("remote manager unavailable");
     return { connections: await remoteManager.refreshConnections() };
   });
+  handle(IPC.invoke.remoteExportConnections, async () => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return { export: remoteManager.exportConnections() };
+  });
+  handle(IPC.invoke.remoteImportConnections, async (text: string) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.importConnections(typeof text === "string" ? text : "");
+  });
   handle(IPC.invoke.remoteTestConnection, async (input: { connectionId?: string }) => {
     if (!remoteManager) throw new Error("remote manager unavailable");
     return remoteManager.testConnection(requiredId(input.connectionId, "connectionId"));

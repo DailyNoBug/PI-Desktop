@@ -61,6 +61,11 @@ Settings owns a **Connections** destination.
 5. An unknown host key is scanned and fingerprinted, displayed for explicit
    acceptance, and only then written to the user's `known_hosts`.
    `StrictHostKeyChecking=no` is never injected.
+6. Connections can be exported and imported as a versioned JSON document. The
+   document contains only non-secret connection metadata; device tokens,
+   provider credentials, private-key bytes, Host records, and projects are
+   never included. Import validates every entry and updates an existing alias
+   or managed endpoint instead of creating duplicates.
 
 Each connection exposes state, source, last connected time, Host version,
 connect/disconnect, test, explicit Host upgrade/restart to the current Desktop

@@ -15,6 +15,8 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
   for (const [channel, fn] of [
     ["remoteListConnections", "listRemoteConnections"],
     ["remoteRefreshConnections", "refreshRemoteConnections"],
+    ["remoteExportConnections", "exportRemoteConnections"],
+    ["remoteImportConnections", "importRemoteConnections"],
     ["remoteTestConnection", "testRemoteConnection"],
     ["remoteAddConnection", "addRemoteConnection"],
     ["remoteUpdateConnection", "updateRemoteConnection"],
@@ -55,6 +57,14 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(manager, /onAudit\("remote\.permission\.decision"/);
   assert.match(manager, /async upgradeHost/);
   assert.match(manager, /PI_HOST_FORCE_RESTART: "1"/);
+  assert.match(manager, /exportConnections\(\): string/);
+  assert.match(manager, /async importConnections\(/);
+  assert.match(manager, /slice\(0, 256\)/);
+  const exportBlock = manager.slice(
+    manager.indexOf("exportConnections(): string"),
+    manager.indexOf("async importConnections("),
+  );
+  assert.doesNotMatch(exportBlock, /deviceToken|providerSecret|privateKey/i);
   assert.doesNotMatch(manager, /from "electron"/);
   assert.doesNotMatch(api, /child_process|node:child_process|ssh-spawn|privateKey/);
   assert.match(ssh, /resolveSshExecutable/);
@@ -64,6 +74,8 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(main, /new RemoteManager|RemoteManager\.open/);
   assert.match(main, /remoteManager\.upgradeHost/);
   assert.match(connections, /upgradeRemoteHost/);
+  assert.match(connections, /exportRemoteConnections/);
+  assert.match(connections, /importRemoteConnections/);
   assert.match(main, /setAsDefaultProtocolClient\("pi-desktop"\)/);
   assert.match(main, /app\.on\("open-url"/);
   assert.match(main, /app\.on\("second-instance"/);

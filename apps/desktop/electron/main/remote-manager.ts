@@ -45,6 +45,7 @@ import {
   parseRemoteProjectUri,
   protocolVersionsCompatible,
   remoteProjectUri,
+  validateRemoteConnectionInput,
 } from "@pi-desktop/shared";
 import { RacpWsClient, type RacpClientEvent } from "@pi-desktop/agent-host";
 import { RemoteStore } from "./remote-store";
@@ -266,6 +267,57 @@ export class RemoteManager {
         ...(runtime?.reconnectAttempt ? { reconnectAttempt: runtime.reconnectAttempt } : {}),
       };
     });
+  }
+
+  exportConnections(): string {
+    const connections = this.store.listConnections().map((connection) => ({
+      displayName: connection.displayName,
+      source: connection.source,
+      ...(connection.sshConfigAlias ? { sshConfigAlias: connection.sshConfigAlias } : {}),
+      ...(connection.hostname ? { hostname: connection.hostname } : {}),
+      ...(connection.user ? { user: connection.user } : {}),
+      ...(connection.port ? { port: connection.port } : {}),
+      ...(connection.identityFilePath ? { identityFilePath: connection.identityFilePath } : {}),
+      enabled: connection.enabled,
+    }));
+    return `${JSON.stringify({ version: 1, connections }, null, 2)}\n`;
+  }
+
+  async importConnections(text: string): Promise<{ imported: number; skipped: number }> {
+    let parsed: { version?: unknown; connections?: unknown };
+    try {
+      parsed = JSON.parse(text) as { version?: unknown; connections?: unknown };
+    } catch {
+      throw Object.assign(new Error("connection export is not valid JSON"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+    }
+    if (parsed.version !== 1 || !Array.isArray(parsed.connections)) {
+      throw Object.assign(new Error("connection export version or shape is invalid"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+    }
+    let imported = 0;
+    let skipped = 0;
+    for (const raw of parsed.connections.slice(0, 256)) {
+      const validated = validateRemoteConnectionInput(raw as Partial<RemoteConnectionInput>);
+      if (!validated.ok) {
+        skipped += 1;
+        continue;
+      }
+      const input = validated.value;
+      const existing = this.store.listConnections().find((connection) =>
+        input.source === "ssh-config"
+          ? connection.source === "ssh-config" && connection.sshConfigAlias === input.sshConfigAlias
+          : connection.source === "managed" &&
+            connection.hostname === input.hostname &&
+            (connection.user ?? "") === (input.user ?? "") &&
+            (connection.port ?? 22) === (input.port ?? 22),
+      );
+      if (existing) await this.updateConnection(existing.id, input);
+      else if (input.source === "ssh-config") await this.addConfigConnection(input);
+      else await this.addConnection(input);
+      imported += 1;
+    }
+    this.events.onAudit("connection.imported", { imported, skipped });
+    this.events.onConnectionsChanged();
+    return { imported, skipped };
   }
 
   async addConnection(input: RemoteConnectionInput): Promise<RemoteConnectionView> {

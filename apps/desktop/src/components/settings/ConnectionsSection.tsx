@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ProviderPublic, RemoteConnectionInput, RemoteConnectionView } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
-import { Button, Input, Select, TooltipButton, cx } from "../ui";
+import { Button, Input, Select, Textarea, TooltipButton, cx } from "../ui";
 import { IconClipboard, IconDownload, IconFolderOpen, IconPencil, IconPlus, IconRefresh, IconServer, IconX } from "../icons";
 import { RemoteProjectDialog } from "./RemoteProjectDialog";
 
@@ -32,6 +32,8 @@ export function ConnectionsSection() {
   const [providerByConnection, setProviderByConnection] = useState<Record<string, string>>({});
   const [projectConnectionId, setProjectConnectionId] = useState<string | undefined>();
   const [projectOpen, setProjectOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
 
   const load = async () => {
     const [remote, providerResult] = await Promise.all([
@@ -96,6 +98,21 @@ export function ConnectionsSection() {
     await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
   };
 
+  const exportConnections = async () => {
+    const result = await api.exportRemoteConnections();
+    await navigator.clipboard.writeText(result.export);
+    showToast(t("remote.connectionsCopied"), { variant: "success" });
+  };
+
+  const importConnections = async () => {
+    if (!importText.trim()) return;
+    const result = await api.importRemoteConnections(importText);
+    setImportOpen(false);
+    setImportText("");
+    await load();
+    showToast(t("remote.connectionsImported", result), { variant: "success" });
+  };
+
   return (
     <div className="settings-stack">
       <section className="settings-card-block">
@@ -105,6 +122,16 @@ export function ConnectionsSection() {
             <Button variant="secondary" onClick={() => void api.refreshRemoteConnections().then(() => load()).catch(() => undefined)}>
               <IconRefresh size={14} />
               {t("remote.refresh")}
+            </Button>
+            <Button variant="secondary" onClick={() => void exportConnections().catch((error) => {
+              showToast(error instanceof Error ? error.message : String(error), { variant: "error" });
+            })}>
+              <IconDownload size={14} />
+              {t("remote.export")}
+            </Button>
+            <Button variant="secondary" onClick={() => setImportOpen((open) => !open)}>
+              <IconPlus size={14} />
+              {t("remote.import")}
             </Button>
             <Button
               variant="primary"
@@ -266,6 +293,24 @@ export function ConnectionsSection() {
             </div>
           )}
         </div>
+        {importOpen ? (
+          <div className="remote-import">
+            <Textarea
+              value={importText}
+              placeholder={t("remote.importPlaceholder")}
+              aria-label={t("remote.import")}
+              onChange={(event) => setImportText(event.target.value)}
+            />
+            <div className="settings-panel-actions">
+              <Button variant="primary" disabled={!importText.trim()} onClick={() => void importConnections().catch((error) => {
+                showToast(error instanceof Error ? error.message : String(error), { variant: "error" });
+              })}>
+                <IconPlus size={14} />
+                {t("remote.import")}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="settings-card-block">

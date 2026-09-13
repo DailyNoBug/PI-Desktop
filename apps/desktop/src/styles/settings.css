@@ -415,6 +415,19 @@
   gap: 14px;
 }
 
+.remote-import {
+  gap: 12px;
+}
+
+.remote-import .field-textarea {
+  min-height: 128px;
+  resize: vertical;
+}
+
+.remote-import .settings-panel-actions {
+  padding: 0;
+}
+
 .remote-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(160px, 1fr));

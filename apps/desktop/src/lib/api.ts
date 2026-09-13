@@ -497,6 +497,10 @@ export const api = {
     invoke<{ connections: RemoteConnectionView[] }>(IPC.invoke.remoteListConnections),
   refreshRemoteConnections: () =>
     invoke<{ connections: RemoteConnectionView[] }>(IPC.invoke.remoteRefreshConnections),
+  exportRemoteConnections: () =>
+    invoke<{ export: string }>(IPC.invoke.remoteExportConnections),
+  importRemoteConnections: (text: string) =>
+    invoke<{ imported: number; skipped: number }>(IPC.invoke.remoteImportConnections, text),
   testRemoteConnection: (connectionId: string) =>
     invoke<{ ok: true; os: string; arch: string; home: string; shell: string }>(
       IPC.invoke.remoteTestConnection,

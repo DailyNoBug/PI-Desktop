@@ -9926,13 +9926,15 @@ browser milestones are scheduled.
   `Include`; a manual test host and a local provider are configured. The next
   host key is not in `known_hosts`.
 - **Steps**: 1) Open Settings → Connections and refresh. 2) Add the manual
-  host. 3) Test both entries. 4) Connect to the unknown Host and inspect the
-  fingerprint dialog. 5) Cancel once, reconnect, and accept the fingerprint.
-  6) Copy diagnostics. 7) Use the explicit Host upgrade action. 8) Sync and
+  host. 3) Export connections, inspect the clipboard JSON, and re-import it.
+  4) Test both entries. 5) Connect to the unknown Host and inspect the
+  fingerprint dialog. 6) Cancel once, reconnect, and accept the fingerprint.
+  7) Copy diagnostics. 8) Use the explicit Host upgrade action. 9) Sync and
   then delete the selected provider.
 - **Expected**: `gpu` appears exactly once and `Host *` does not appear. Manual
   fields persist without private-key bytes. Cancellation performs no
   `known_hosts` write; acceptance writes only the scanned keys. Connection
+  export contains no token or secret material, and re-import is idempotent.
   state advances through named stages, diagnostics are redacted, explicit
   upgrade force-restarts the checksummed current version before RACP
   negotiation, and provider sync/delete names the remote machine and never
