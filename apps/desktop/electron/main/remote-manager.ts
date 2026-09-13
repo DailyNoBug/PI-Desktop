@@ -272,6 +272,14 @@ export class RemoteManager {
     return this.viewFor(connection.id);
   }
 
+  async addConfigConnection(input: RemoteConnectionInput): Promise<RemoteConnectionView | undefined> {
+    const connection = this.store.upsertDiscoveredConnection(input);
+    if (!connection) return undefined;
+    this.events.onAudit("connection.created", { connectionId: connection.id });
+    this.events.onConnectionsChanged();
+    return this.viewFor(connection.id);
+  }
+
   async updateConnection(id: string, input: RemoteConnectionInput): Promise<RemoteConnectionView> {
     if (this.runtimes.get(id)?.client) await this.disconnect(id);
     this.store.updateConnection(id, input);
@@ -399,6 +407,36 @@ export class RemoteManager {
       remotePath: project.normalizedRemotePath,
     });
     return this.workspaceForProject(project);
+  }
+
+  async openProjectForConnection(
+    connectionKey: string,
+    remotePath: string,
+  ): Promise<ProjectWorkspace> {
+    const connection = this.connectionForKey(connectionKey);
+    if (!connection) {
+      throw Object.assign(new Error(`remote connection not found: ${connectionKey}`), {
+        errorCode: ErrorCodes.REMOTE_PROJECT_NOT_FOUND,
+      });
+    }
+    const workspace = await this.addProject({
+      connectionId: connection.id,
+      remotePath,
+    });
+    const normalizedRemotePath = normalizeRemotePath(remotePath);
+    if (!normalizedRemotePath) throw new Error("invalid remote project path");
+    const record = this.store
+      .listProjects()
+      .find((project) => project.connectionId === connection.id && project.normalizedRemotePath === normalizedRemotePath);
+    if (!record) throw new Error("remote project registration failed");
+    this.activeProjectId = record.id;
+    this.store.touchProject(record.id);
+    this.events.onAudit("remote.project.attached", {
+      connectionId: connection.id,
+      hostId: record.hostId,
+      remotePath: record.normalizedRemotePath,
+    });
+    return workspace;
   }
 
   async removeProject(projectId: string): Promise<void> {

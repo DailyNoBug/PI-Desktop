@@ -9959,6 +9959,25 @@ browser milestones are scheduled.
 - **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`;
   live remote filesystem journey remains E2E-231 harness work
 
+#### E2E-259: Remote deep links require explicit confirmation
+
+- **Preconditions**: PI-Desktop is packaged and registered for the
+  `pi-desktop` scheme. `gpu-server` exists in OpenSSH config and
+  `/home/dev/project` exists on that Host.
+- **Steps**: 1) Open an add-connection deep link and cancel. 2) Open it again
+  and confirm. 3) Open a remote-project deep link and cancel. 4) Open it again
+  and confirm. 5) Repeat with a wildcard connection key and a dot-segment path.
+- **Expected**: Cancellation makes no connection or project change. Confirmation
+  creates or reuses the connection, registers the remote project, activates it,
+  and refreshes the renderer project surface. Unsafe links are ignored without
+  a dialog.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §9, ADR 0234
+- **Acceptance**: A, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: parser/source-contract covered by
+  `apps/desktop/test/deep-link.test.mjs`; packaged scheme journey remains
+  release qualification
+
 ## Trusted extension scenarios (R7 v1)
 
 The following scenarios are the acceptance targets of D387 / ADR 0214 and

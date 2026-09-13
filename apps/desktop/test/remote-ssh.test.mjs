@@ -58,7 +58,23 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(ssh, /ExitOnForwardFailure=yes/);
   assert.match(ssh, /127\.0\.0\.1:\$\{localPort\}:127\.0\.0\.1:\$\{remotePort\}/);
   assert.match(main, /new RemoteManager|RemoteManager\.open/);
+  assert.match(main, /setAsDefaultProtocolClient\("pi-desktop"\)/);
+  assert.match(main, /app\.on\("open-url"/);
+  assert.match(main, /app\.on\("second-instance"/);
   assert.doesNotMatch(ssh, /StrictHostKeyChecking=no/);
+});
+
+test("remote deep links are packaged and confirmed in Main", async () => {
+  const [main, parser, desktopPackage] = await Promise.all([
+    read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/electron/main/deep-link.ts"),
+    read("apps/desktop/package.json"),
+  ]);
+  assert.match(main, /runDeepLink/);
+  assert.match(main, /dialog\.showMessageBox/);
+  assert.match(parser, /parsePiDesktopDeepLink/);
+  assert.match(parser, /segment === "\." \|\| segment === "\.\."/);
+  assert.match(desktopPackage, /"schemes": \[\s*"pi-desktop"\s*\]/);
 });
 
 test("connection metadata is durable but token material is not serialized", async () => {

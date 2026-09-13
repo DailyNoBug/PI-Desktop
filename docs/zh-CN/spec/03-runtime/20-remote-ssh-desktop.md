@@ -49,3 +49,10 @@ Renderer 继续调用 `lib/api.ts`，没有 SSH、child process、key 或 token 
 | project get/list/set/clear | 本地远端项目记录与活动 Host |
 
 Remote provider 凭据由 Settings 明确显示目标机器后，经 SSH bootstrap 通道写入远端 Host 的秘密存储，也支持删除；凭据不经过 RACP。
+
+打包应用注册 `pi-desktop` scheme。稳定入口为
+```text
+pi-desktop://connections/ssh/add?name=GPU&alias=gpu-server
+pi-desktop://projects/remote/open?connection=gpu-server&path=/home/dev/project
+```
+`pi-desktop://connections/ssh/add` 与 `pi-desktop://projects/remote/open`。深链会在本地 Host 与 Remote manager 就绪前排队；添加连接和打开项目都必须原生确认，入站 URL 不能静默信任 Host key、添加连接或打开远端路径。解析器拒绝未知路由、通配连接、相对路径、dot-segment逃逸、非法端口和含空格的 SSH alias。

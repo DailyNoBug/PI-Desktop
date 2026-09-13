@@ -274,6 +274,7 @@ import {
 import { createAgentHostBridge, type AgentHostBridge } from "./agent-host-bridge";
 import type { AgentQueuePushRequest } from "@pi-desktop/shared";
 import { RemoteManager } from "./remote-manager";
+import { parsePiDesktopDeepLink, type PiDesktopDeepLink } from "./deep-link";
 
 // The shared error-code union is reconciled in the shared lane. Keep desktop
 // source type-safe while that lane is temporarily staged at main.
@@ -356,6 +357,7 @@ let windowCreationPromise: Promise<void> | null = null;
 let applicationBooted = false;
 const isDevelopmentBuild =
   process.env.PI_DESKTOP_DEV === "1" || !app.isPackaged;
+if (!isDevelopmentBuild) app.setAsDefaultProtocolClient("pi-desktop");
 const pendingApplicationMenuCommands: AppMenuCommand[] = [];
 type MenuRendererReadyGate = {
   window: BrowserWindow;
@@ -388,6 +390,7 @@ let sidecar: AgentSidecar | null = null;
 let mcpControl: McpControlServer | null = null;
 let agentHostBridge: AgentHostBridge | null = null;
 let remoteManager: RemoteManager | null = null;
+const pendingDeepLinks: PiDesktopDeepLink[] = [];
 let desktopControl: ReturnType<typeof createMcpControlController> | null = null;
 let quitting = false;
 let shutdownComplete = false;
@@ -9793,6 +9796,85 @@ app.on("web-contents-created", (_event, contents) => {
   });
 });
 
+async function runDeepLink(link: PiDesktopDeepLink): Promise<void> {
+  if (!remoteManager) throw new Error("remote manager unavailable");
+  await ensureWindow();
+  if (link.kind === "add-ssh-connection") {
+    const result = await dialog.showMessageBox({
+      type: "question",
+      buttons: [remoteDialogs().add, commonDialogs().cancel],
+      defaultId: 0,
+      cancelId: 1,
+      title: remoteDialogs().addConnection,
+      message: remoteDialogs().deepAddMessage.replace("{{name}}", link.name),
+      detail: link.alias ?? link.hostname ?? "",
+      noLink: true,
+    });
+    if (result.response !== 0) return;
+    const connectionInput = {
+      displayName: link.name,
+      source: link.alias ? ("ssh-config" as const) : ("managed" as const),
+      ...(link.alias ? { sshConfigAlias: link.alias } : {}),
+      ...(link.hostname ? { hostname: link.hostname } : {}),
+      ...(link.user ? { user: link.user } : {}),
+      ...(link.port !== undefined ? { port: link.port } : {}),
+      ...(link.identityFilePath ? { identityFilePath: link.identityFilePath } : {}),
+      enabled: true,
+    };
+    if (link.alias) await remoteManager.addConfigConnection(connectionInput);
+    else await remoteManager.addConnection(connectionInput);
+    return;
+  }
+  const result = await dialog.showMessageBox({
+    type: "warning",
+    buttons: [remoteDialogs().openProject, commonDialogs().cancel],
+    defaultId: 0,
+    cancelId: 1,
+    title: remoteDialogs().openProject,
+    message: remoteDialogs().deepOpenMessage.replace("{{path}}", link.remotePath),
+    detail: link.connectionKey,
+    noLink: true,
+  });
+  if (result.response !== 0) return;
+  const workspace = await remoteManager.openProjectForConnection(
+    link.connectionKey,
+    link.remotePath,
+  );
+  sendToRenderer(IPC.event.sessionsChanged, {
+    reason: "remote.deep-link",
+    projectPath: workspace.path,
+  });
+}
+
+function queueDeepLink(input: string): void {
+  const link = parsePiDesktopDeepLink(input);
+  if (!link) return;
+  if (!remoteManager || !applicationBooted) {
+    pendingDeepLinks.push(link);
+    return;
+  }
+  void runDeepLink(link).catch((error) => {
+    logger.app("remote", "warn", "deep link failed", { data: String(error) });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      void dialog.showMessageBox(mainWindow, {
+        type: "error",
+        message: remoteDialogs().deepLinkFailed,
+        detail: error instanceof Error ? error.message : String(error),
+        buttons: ["OK"],
+        noLink: true,
+      });
+    }
+  });
+}
+
+function commonDialogs() {
+  return catalogs[resolveLocale(updaterLocale)].common;
+}
+
+function remoteDialogs() {
+  return catalogs[resolveLocale(updaterLocale)].remote;
+}
+
 app.whenReady().then(async () => {
   // A launch that lost the single-instance lock is already quitting. Never
   // create a window, a tray, or a child process on top of the running app.
@@ -9828,11 +9910,14 @@ app.whenReady().then(async () => {
         mainWindow ?? new BrowserWindow({ show: false }),
         {
           type: "warning",
-          buttons: ["Trust Host", "Cancel"],
+          buttons: [remoteDialogs().verifyHost, commonDialogs().cancel],
           defaultId: 0,
           cancelId: 1,
-          title: "Verify remote host",
-          message: `Trust ${connection.sshConfigAlias ?? connection.hostname ?? connection.displayName}?`,
+          title: remoteDialogs().verifyTitle,
+          message: remoteDialogs().verifyMessage.replace(
+            "{{target}}",
+            connection.sshConfigAlias ?? connection.hostname ?? connection.displayName,
+          ),
           detail: fingerprints.join("\n"),
           noLink: true,
         },
@@ -9850,6 +9935,10 @@ app.whenReady().then(async () => {
   void remoteManager.refreshConnections().catch((error) => {
     logger.app("remote", "warn", "SSH config refresh failed", { data: String(error) });
   });
+  for (const argument of process.argv) {
+    const link = parsePiDesktopDeepLink(argument);
+    if (link) pendingDeepLinks.push(link);
+  }
   agentHostBridge = createAgentHostBridge({
     invoke: invokeIpc,
     channels: IPC.invoke,
@@ -9913,6 +10002,14 @@ app.whenReady().then(async () => {
     applySummonWindowShortcut();
   }
   await ensureWindow();
+  if (!bootError && pendingDeepLinks.length > 0) {
+    const queued = pendingDeepLinks.splice(0);
+    for (const link of queued) {
+      await runDeepLink(link).catch((error) => {
+        logger.app("remote", "warn", "deep link failed", { data: String(error) });
+      });
+    }
+  }
   if (process.env.PI_DESKTOP_MCP_CONTROL === "1") {
     try {
       mcpControl = new McpControlServer({
@@ -10169,8 +10266,14 @@ app.on("activate", () => {
 // boots anything, and Electron hands its launch to the lock holder here, so the
 // visible result is the same as the tray's Show action — including a window
 // that was closed or hidden into the tray, which `restoreMainWindow` recreates.
-app.on("second-instance", () => {
+app.on("second-instance", (_event, argv) => {
   restoreMainWindow();
+  for (const argument of argv) queueDeepLink(argument);
+});
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  queueDeepLink(url);
 });
 
 // macOS only emits `activate` from `applicationShouldHandleReopen:` — a Dock

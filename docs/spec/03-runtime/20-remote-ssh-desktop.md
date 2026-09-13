@@ -136,7 +136,24 @@ architecture, Host version, last error and exit code, forward state, handshake
 state, and whether a project path is configured. User names, IPs, home paths,
 identity paths, tokens, credentials, and environment values are redacted.
 
-## 9. Acceptance
+## 9. Deep links
+
+The packaged app registers the `pi-desktop` scheme. Two routes are stable:
+
+```text
+pi-desktop://connections/ssh/add?name=GPU&alias=gpu-server
+pi-desktop://projects/remote/open?connection=gpu-server&path=/home/dev/project
+```
+
+Deep links are queued until local host-core and the Remote manager are ready.
+Both routes require native confirmation; an inbound URL can never silently
+trust a host key, add a connection, or open a remote path. The parser rejects
+unknown hosts, wildcard connections, relative paths, dot-segment escapes,
+invalid ports, and whitespace in connection aliases. Project links address a
+connection by its stable UI key, resolve through the same durable project
+registration path, and emit the existing renderer project-change event.
+
+## 10. Acceptance
 
 1. SSH-001 through SSH-012 in the product requirement are represented by
    E2E-231 and the Remote SSH source-contract tests.
