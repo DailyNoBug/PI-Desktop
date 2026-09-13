@@ -1,7 +1,7 @@
 # 08. Error Codes
 
 > Source of truth: `packages/shared/src/errors.ts` (`ErrorCodes`). Codes in
-> §3.7 are reserved (documented ahead of emission); everything else is live.
+> §3.8 are reserved (documented ahead of emission); everything else is live.
 
 ## 1. Goal
 
@@ -35,7 +35,7 @@ Rules:
 The desktop test suite (`apps/desktop/test/error-code-registry.test.mjs`) verifies
 that every `ErrorCodes` entry appears in this document and that every
 `errorCode` host-core emits from its RPC dispatcher and native tools is
-registered; reserved codes in §3.7 remain intentionally absent from
+registered; reserved codes in §3.8 remain intentionally absent from
 `ErrorCodes` until an implementation emits them.
 
 ## 3. Code registry
@@ -237,7 +237,38 @@ malformed.
 | `PLUGIN_CRASHED` | yes | plugin runtime crashed (reserved) |
 | `PLUGIN_CONTRACT_MISMATCH` | no | unsupported manifest/api version (reserved) |
 
-### 3.7 Reserved detail codes (not yet emitted)
+### 3.7 Remote SSH
+
+| code | retriable | meaning |
+|---|---|---|
+| `SSH_NOT_AVAILABLE` | no | the system OpenSSH executable is unavailable |
+| `SSH_CONFIG_NOT_FOUND` | no | the default SSH configuration file is absent |
+| `SSH_HOST_NOT_FOUND` | no | the requested SSH host alias is absent |
+| `SSH_RESOLVE_FAILED` | no | OpenSSH could not resolve the effective host configuration |
+| `SSH_AUTH_FAILED` | no | SSH authentication failed |
+| `SSH_HOST_KEY_FAILED` | no | the remote host key was unknown or rejected |
+| `SSH_CONNECTION_TIMEOUT` | yes | the SSH connection timed out |
+| `SSH_CONNECTION_CLOSED` | yes | the SSH connection closed before the operation completed |
+| `SSH_PORT_FORWARD_FAILED` | yes | the local port forward could not be established |
+| `REMOTE_OS_UNSUPPORTED` | no | the remote operating system is not supported |
+| `REMOTE_ARCH_UNSUPPORTED` | no | the remote architecture is not supported |
+| `REMOTE_SHELL_UNAVAILABLE` | no | no usable remote login shell was found |
+| `REMOTE_BOOTSTRAP_FAILED` | no | the remote pi-host bootstrap failed |
+| `REMOTE_DOWNLOAD_FAILED` | yes | the pi-host bundle or checksum could not be downloaded |
+| `REMOTE_CHECKSUM_MISMATCH` | no | the pi-host bundle checksum did not match |
+| `REMOTE_HOST_START_FAILED` | no | the remote pi-host process failed to start |
+| `REMOTE_HOST_UNAVAILABLE` | yes | a previously connected remote host is unavailable |
+| `REMOTE_HOST_VERSION_INCOMPATIBLE` | no | the remote host version is incompatible |
+| `REMOTE_PROTOCOL_MISMATCH` | no | the negotiated protocol version is incompatible |
+| `REMOTE_HANDSHAKE_FAILED` | no | the RACP handshake failed |
+| `REMOTE_PAIRING_FAILED` | no | local Desktop pairing failed |
+| `REMOTE_TOKEN_REVOKED` | no | the paired device token was revoked |
+| `REMOTE_PROJECT_NOT_FOUND` | no | the remote project registration is missing |
+| `REMOTE_PROJECT_PERMISSION_DENIED` | no | the remote project path is not accessible |
+| `REMOTE_PROJECT_INVALID_PATH` | no | the remote project path is invalid |
+| `REMOTE_RECONNECT_EXHAUSTED` | yes | scheduled reconnection attempts were exhausted |
+
+### 3.8 Reserved detail codes (not yet emitted)
 
 Finer-grained provider/tool distinctions documented for future mapping.
 Until emitted, implementations use the canonical parent code shown.

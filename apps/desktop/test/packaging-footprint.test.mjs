@@ -176,6 +176,11 @@ test("packaging keeps only shipped locales and excludes non-runtime artifacts", 
       from: "../../packages/agent-runtime/dist-bundle",
       to: "agent-runtime",
     },
+    // The supervisor uploads this checksum-verifying bootstrap over SSH.
+    {
+      from: "../../scripts/pi-host-bootstrap.sh",
+      to: "pi-host/bootstrap.sh",
+    },
     // Built-in skills stay outside the asar so they read as plain files.
     {
       from: "resources/skills",

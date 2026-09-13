@@ -4,7 +4,7 @@
 
 
 > 事实来源：`packages/shared/src/errors.ts` (`ErrorCodes`)。代码在
-> §3.7 被保留（在发布之前记录）；其他一切都是实时的。
+> §3.8 被保留（在发布之前记录）；其他一切都是实时的。
 
 ## 1. Goal
 
@@ -37,7 +37,7 @@ type AppError = {
 
 桌面测试套件（`apps/desktop/test/error-code-registry.test.mjs`）会验证
 `ErrorCodes` 的每一项都出现在本文档中，并且 host-core 从其 RPC 调度器和原生
-工具发出的每一个 `errorCode` 都已注册；§3.7 中的保留代码在有实现发出它们
+工具发出的每一个 `errorCode` 都已注册；§3.8 中的保留代码在有实现发出它们
 之前，刻意不出现在 `ErrorCodes` 里。
 
 ## 3. 代码注册
@@ -232,7 +232,38 @@ reveal 不并入任何行，必须重新读取。
 | `PLUGIN_CRASHED` | 是的 | 插件运行时崩溃（保留） |
 | `PLUGIN_CONTRACT_MISMATCH` | 不 | 不支持的 manifest/api 版本（保留） |
 
-### 3. 7 保留的详细代码（尚未发布）
+### 3.7 远程 SSH
+
+| 代码 | 可重试 | 意义 |
+|---|---|---|
+| `SSH_NOT_AVAILABLE` | 不 | 系统 OpenSSH 可执行文件不可用 |
+| `SSH_CONFIG_NOT_FOUND` | 不 | 默认 SSH 配置文件不存在 |
+| `SSH_HOST_NOT_FOUND` | 不 | 请求的 SSH Host 别名不存在 |
+| `SSH_RESOLVE_FAILED` | 不 | OpenSSH 无法解析有效主机配置 |
+| `SSH_AUTH_FAILED` | 不 | SSH 认证失败 |
+| `SSH_HOST_KEY_FAILED` | 不 | 远程主机密钥未知或被拒绝 |
+| `SSH_CONNECTION_TIMEOUT` | 是的 | SSH 连接超时 |
+| `SSH_CONNECTION_CLOSED` | 是的 | SSH 连接在操作完成前关闭 |
+| `SSH_PORT_FORWARD_FAILED` | 是的 | 无法建立本地端口转发 |
+| `REMOTE_OS_UNSUPPORTED` | 不 | 远程操作系统不受支持 |
+| `REMOTE_ARCH_UNSUPPORTED` | 不 | 远程架构不受支持 |
+| `REMOTE_SHELL_UNAVAILABLE` | 不 | 未找到可用的远程登录 shell |
+| `REMOTE_BOOTSTRAP_FAILED` | 不 | 远程 pi-host 引导失败 |
+| `REMOTE_DOWNLOAD_FAILED` | 是的 | 无法下载 pi-host 包或校验和 |
+| `REMOTE_CHECKSUM_MISMATCH` | 不 | pi-host 包校验和不匹配 |
+| `REMOTE_HOST_START_FAILED` | 不 | 远程 pi-host 进程启动失败 |
+| `REMOTE_HOST_UNAVAILABLE` | 是的 | 之前已连接的远程主机不可用 |
+| `REMOTE_HOST_VERSION_INCOMPATIBLE` | 不 | 远程主机版本不兼容 |
+| `REMOTE_PROTOCOL_MISMATCH` | 不 | 协商出的协议版本不兼容 |
+| `REMOTE_HANDSHAKE_FAILED` | 不 | RACP 握手失败 |
+| `REMOTE_PAIRING_FAILED` | 不 | 本地 Desktop 配对失败 |
+| `REMOTE_TOKEN_REVOKED` | 不 | 已配对设备令牌被撤销 |
+| `REMOTE_PROJECT_NOT_FOUND` | 不 | 远程项目注册信息缺失 |
+| `REMOTE_PROJECT_PERMISSION_DENIED` | 不 | 远程项目路径不可访问 |
+| `REMOTE_PROJECT_INVALID_PATH` | 不 | 远程项目路径无效 |
+| `REMOTE_RECONNECT_EXHAUSTED` | 是的 | 计划内重连尝试已耗尽 |
+
+### 3.8 保留的详细代码（尚未发布）
 
 记录了更细粒度的 provider/tool 区别，以供将来映射。
 在发布之前，实现使用所示的规范父代码。
