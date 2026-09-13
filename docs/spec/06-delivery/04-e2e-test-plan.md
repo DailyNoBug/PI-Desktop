@@ -10086,6 +10086,32 @@ browser milestones are scheduled.
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: draft; requires explicit E2E authorization and live SSH targets
 
+#### E2E-264: Multiple remote Hosts and projects stay isolated
+
+- **Preconditions**: two reachable remote Hosts (`gpu-a` and `gpu-b`) contain
+  `/project-a`, `/project-b`, and `/project-c` respectively. A local project
+  is also open. Each remote project has one session with a concurrently running
+  turn fixture.
+- **Steps**: 1) Register and connect both Hosts. 2) Open all three remote
+  projects and the local project in the project index. 3) Start or continue
+  one session in each project concurrently. 4) Switch the visible project
+  while the other turns run. 5) In each session, read a same-named fixture file
+  and run `pwd`. 6) Attempt a workspace path escape from Project A. 7) Stop
+  only Project B's turn. 8) Disconnect Host A while its turn runs.
+  9) Reconnect Host A and resume its transcript.
+- **Expected**: Host A serves Projects A and B through one supervised runtime
+  while Host B serves Project C through another. Every `pwd` and file read
+  resolves in that session's originating project root; the identically named
+  files differ by Host/project and the local copy remains untouched. The path
+  escape is refused. Switching projects does not stop or retarget background
+  turns; stopping Project B leaves Host A and Host C turns running, and Host
+  A reconnect resumes without replaying completed work.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §§2, 5–6, and 10,
+  ADR 0234
+- **Acceptance**: A, Recovery, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: draft; requires explicit E2E authorization and live SSH targets
+
 ## Trusted extension scenarios (R7 v1)
 
 The following scenarios are the acceptance targets of D387 / ADR 0214 and
