@@ -131,6 +131,8 @@ export const IPC = {
     remoteOpenProject: "pi-desktop/remote/projects/open",
     remoteRemoveProject: "pi-desktop/remote/projects/remove",
     remoteBrowseDirectory: "pi-desktop/remote/projects/browse",
+    remoteRelayCatalog: "pi-desktop/remote/relay/catalog",
+    remoteRelaySet: "pi-desktop/remote/relay/set",
     remoteTerminalOpen: "pi-desktop/remote/terminal/open",
     remoteTerminalWrite: "pi-desktop/remote/terminal/write",
     remoteTerminalResize: "pi-desktop/remote/terminal/resize",

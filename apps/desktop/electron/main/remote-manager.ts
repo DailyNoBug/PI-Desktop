@@ -27,6 +27,7 @@ import type {
   RemoteDirectoryResult,
   RemoteHostRuntime,
   RemoteProjectRecord,
+  RemoteRelayToolDescriptor,
   RemoteTerminalEvent,
   RemoteTerminalSnapshot,
   SessionDetail,
@@ -74,6 +75,16 @@ import {
 
 type HostLike = {
   call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
+};
+
+export type RemoteRelayExecutor = {
+  catalog(): Promise<RemoteRelayToolDescriptor[]>;
+  execute(input: {
+    toolName: string;
+    args?: unknown;
+    sessionId?: string;
+    mode?: string;
+  }): Promise<unknown>;
 };
 
 export type RemoteManagerEvents = {
@@ -241,10 +252,17 @@ export class RemoteManager {
     private readonly getHost: () => HostLike | null,
     private readonly confirmFingerprint: (input: { connection: RemoteConnection; fingerprints: string[] }) => Promise<boolean>,
     private readonly events: RemoteManagerEvents,
+    private readonly relay?: RemoteRelayExecutor,
   ) {}
 
-  static open(dataDir: string, getHost: () => HostLike | null, confirmFingerprint: RemoteManager["confirmFingerprint"], events: RemoteManagerEvents): RemoteManager {
-    return new RemoteManager(new RemoteStore(dataDir), getHost, confirmFingerprint, events);
+  static open(
+    dataDir: string,
+    getHost: () => HostLike | null,
+    confirmFingerprint: RemoteManager["confirmFingerprint"],
+    events: RemoteManagerEvents,
+    relay?: RemoteRelayExecutor,
+  ): RemoteManager {
+    return new RemoteManager(new RemoteStore(dataDir), getHost, confirmFingerprint, events, relay);
   }
 
   async refreshConnections(): Promise<RemoteConnectionView[]> {
@@ -378,6 +396,38 @@ export class RemoteManager {
       this.failure(id, error);
       throw toIpcError(error);
     }
+  }
+
+  async relayCatalog(id: string): Promise<{
+    tools: RemoteRelayToolDescriptor[];
+    selected: string[];
+  }> {
+    const connection = this.requireConnection(id);
+    const tools = await this.relay?.catalog() ?? [];
+    const available = new Set(tools.map((tool) => tool.name));
+    const selected = (connection.relayTools ?? []).filter((name) => available.has(name));
+    return { tools, selected };
+  }
+
+  async setRelayTools(id: string, toolNames: string[]): Promise<{ selected: string[] }> {
+    const catalog = await this.relay?.catalog() ?? [];
+    const available = new Set(catalog.map((tool) => tool.name));
+    const invalid = toolNames.filter((name) => !available.has(name));
+    if (invalid.length) {
+      throw Object.assign(new Error(`relay tools are unavailable: ${invalid.join(", ")}`), {
+        errorCode: ErrorCodes.INVALID_ARGUMENT,
+      });
+    }
+    const next = this.store.setRelayTools(id, toolNames);
+    const runtime = this.runtimes.get(id);
+    if (runtime) runtime.connection = next;
+    if (runtime?.client) await this.advertiseRelayTools(runtime);
+    this.events.onAudit("remote.relay.tools_set", {
+      connectionId: id,
+      count: next.relayTools?.length ?? 0,
+    });
+    this.events.onConnectionsChanged();
+    return { selected: next.relayTools ?? [] };
   }
 
   async connect(id: string): Promise<RemoteConnectionView> {
@@ -1463,6 +1513,7 @@ export class RemoteManager {
     });
     runtime.client = client;
     client.onEvent((event) => this.handleRacpEvent(runtime, event));
+    client.onRequest((request) => this.handleRelayRequest(runtime, request));
     client.onClose(() => {
       if (runtime.client !== client || runtime.explicitDisconnect) return;
       this.disconnectTerminals(runtime);
@@ -1486,6 +1537,8 @@ export class RemoteManager {
     }
     if (!initialized.deviceToken) await this.writeToken(hostId, token);
 
+    await this.advertiseRelayTools(runtime);
+
     const hostSubscription = await client.request<{ subscriptionId: string }>("events/subscribe", { scope: "host" });
     runtime.hostSubscription = hostSubscription.subscriptionId;
     await this.listSessions();
@@ -1500,6 +1553,70 @@ export class RemoteManager {
     runtime.state = "connected";
     runtime.lastError = undefined;
     this.events.onConnectionsChanged();
+  }
+
+  private async advertiseRelayTools(runtime: RemoteRuntime): Promise<void> {
+    const client = runtime.client;
+    if (!client) return;
+    const selected = new Set(runtime.connection.relayTools ?? []);
+    const catalog = await this.relay?.catalog() ?? [];
+    const tools = catalog
+      .filter((tool) => selected.has(tool.name))
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters ?? { type: "object", properties: {} },
+        source: tool.source,
+        requiresWorkspace: false,
+        ...(tool.risk ? { risk: tool.risk } : {}),
+        ...(tool.planSafeActions?.length ? { planSafeActions: tool.planSafeActions } : {}),
+      }));
+    const result = await client.request<{ accepted?: unknown[]; rejected?: unknown[] }>(
+      "tools/advertise",
+      { tools },
+    );
+    this.events.onAudit("remote.relay.advertised", {
+      connectionId: runtime.connection.id,
+      advertised: tools.length,
+      accepted: result.accepted?.length ?? 0,
+      rejected: result.rejected?.length ?? 0,
+    });
+  }
+
+  private async handleRelayRequest(
+    runtime: RemoteRuntime,
+    request: { id: string; method: string; params: unknown },
+  ): Promise<unknown> {
+    if (request.method !== "tool/execute") {
+      throw Object.assign(new Error(`unsupported RACP server request: ${request.method}`), {
+        errorCode: ErrorCodes.UNSUPPORTED,
+      });
+    }
+    const params = (request.params ?? {}) as {
+      toolName?: string;
+      args?: unknown;
+      sessionId?: string;
+      mode?: string;
+    };
+    const toolName = typeof params.toolName === "string" ? params.toolName : "";
+    if (!toolName || !(runtime.connection.relayTools ?? []).includes(toolName)) {
+      throw Object.assign(new Error(`relay tool is not selected: ${toolName || "(missing)"}`), {
+        errorCode: ErrorCodes.TOOL_NOT_FOUND,
+      });
+    }
+    if (!this.relay) throw new Error("local relay executor unavailable");
+    const result = await this.relay.execute({
+      toolName,
+      args: params.args,
+      sessionId: params.sessionId,
+      mode: params.mode,
+    });
+    this.events.onAudit("remote.relay.executed", {
+      connectionId: runtime.connection.id,
+      toolName,
+      sessionId: params.sessionId,
+    });
+    return result;
   }
 
   private verifyVersions(initialized: RacpInitializeResult): void {

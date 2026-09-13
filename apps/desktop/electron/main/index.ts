@@ -107,6 +107,7 @@ import {
   type UserSubagentRecord,
   type WindowControlAction,
   type RemoteConnectionView,
+  type RemoteRelayToolDescriptor,
   validateNetworkProxy,
   trustedExtensionCommandId,
   trustedExtensionCommandName,
@@ -7477,6 +7478,25 @@ function registerIpc() {
       ...(input.path ? { path: input.path } : {}),
     });
   });
+  handle(IPC.invoke.remoteRelayCatalog, async (input: { connectionId?: string }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    return remoteManager.relayCatalog(requiredId(input.connectionId, "connectionId"));
+  });
+  handle(IPC.invoke.remoteRelaySet, async (input: {
+    connectionId?: string;
+    toolNames?: string[];
+  }) => {
+    if (!remoteManager) throw new Error("remote manager unavailable");
+    if (!Array.isArray(input.toolNames) || input.toolNames.some((name) => typeof name !== "string")) {
+      throw Object.assign(new Error("toolNames must be a string array"), {
+        errorCode: ErrorCodes.INVALID_ARGUMENT,
+      });
+    }
+    return remoteManager.setRelayTools(
+      requiredId(input.connectionId, "connectionId"),
+      input.toolNames,
+    );
+  });
   handle(IPC.invoke.remoteTerminalOpen, async (input: {
     sessionId?: string;
     columns?: number;
@@ -10212,6 +10232,59 @@ app.whenReady().then(async () => {
       onQueueChanged: (event) => sendToRenderer(IPC.event.agentQueueChanged, event),
       onTerminalEvent: (event) => sendToRenderer(IPC.event.remoteTerminalEvent, event),
       onAudit: (event, data) => logger.app("remote", "info", event, { data }),
+    },
+    {
+      catalog: async () => [
+        ...plugins
+          .getTools()
+          .filter((tool) =>
+            pluginActiveInProject(tool.pluginId, null) &&
+            !plugins.pluginRequiresWorkspace(tool.pluginId))
+          .map((tool): RemoteRelayToolDescriptor => ({
+            name: tool.fullName,
+            description: tool.description || `${tool.pluginId} tool ${tool.name}`,
+            parameters: tool.schema ?? { type: "object", properties: {} },
+            source: `plugin:${tool.pluginId}`,
+            ...(tool.risk === "low" || tool.risk === "medium" || tool.risk === "high"
+              ? { risk: tool.risk }
+              : {}),
+            ...(tool.planSafeActions?.length ? { planSafeActions: [...tool.planSafeActions] } : {}),
+          })),
+        ...(await userMcp.toolsForProject(null)).map((tool) => ({
+          name: tool.fullName,
+          description: tool.description,
+          parameters: tool.schema ?? { type: "object", properties: {} },
+          source: `mcp:${tool.serverId}`,
+          risk: "medium" as const,
+        })),
+      ],
+      execute: async (input) => {
+        if (input.toolName.startsWith("mcp_")) {
+          return userMcp.callTool(input.toolName, input.args, null);
+        }
+        const tool = plugins.getTools().find((candidate) => candidate.fullName === input.toolName);
+        if (!tool || !pluginActiveInProject(tool.pluginId, null)) {
+          throw Object.assign(new Error(`local relay tool not found: ${input.toolName}`), {
+            code: ErrorCodes.TOOL_NOT_FOUND,
+          });
+        }
+        if (plugins.pluginRequiresWorkspace(tool.pluginId)) {
+          throw Object.assign(new Error(`local relay tool requires workspace access: ${input.toolName}`), {
+            code: ErrorCodes.UNSUPPORTED,
+          });
+        }
+        const mode = input.mode === "plan" || input.mode === "goal" || input.mode === "agent"
+          ? input.mode
+          : undefined;
+        const result = await tool.execute(input.args, {
+          sessionId: input.sessionId,
+          mode,
+        });
+        logger.app("remote", "info", "local relay tool executed", {
+          data: { toolName: input.toolName, pluginId: tool.pluginId },
+        });
+        return result;
+      },
     },
   );
   void remoteManager.refreshConnections().catch((error) => {

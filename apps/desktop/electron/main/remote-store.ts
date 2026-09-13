@@ -91,6 +91,20 @@ export class RemoteStore {
     return next;
   }
 
+  setRelayTools(id: string, toolNames: string[]): RemoteConnection {
+    const existing = this.getConnection(id);
+    if (!existing) throw new Error("remote connection not found");
+    const unique = [...new Set(toolNames.map((name) => name.trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b));
+    const next: RemoteConnection = {
+      ...existing,
+      relayTools: unique,
+      updatedAt: now(),
+    };
+    this.putConnection(next);
+    return next;
+  }
+
   removeConnection(id: string): boolean {
     const existed = this.shape.connections.some((connection) => connection.id === id);
     this.shape.connections = this.shape.connections.filter((connection) => connection.id !== id);

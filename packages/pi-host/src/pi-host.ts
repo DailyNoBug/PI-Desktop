@@ -118,6 +118,19 @@ export class PiHostService {
   private readonly queueStore: QueueStore;
   private readonly terminals: RemoteTerminalManager;
   private readonly mcp = new RemoteMcpRuntime();
+  private relayTransport?: {
+    tools(): RacpRelayTool[];
+    execute(request: {
+      executionId: string;
+      sessionId: string;
+      turnId?: string;
+      toolCallId?: string;
+      toolName: string;
+      args?: unknown;
+      timeoutMs?: number;
+      mode?: string;
+    }): Promise<unknown>;
+  };
 
   constructor(
     private readonly host: RpcProcess,
@@ -164,6 +177,10 @@ export class PiHostService {
   dispose(): void {
     this.terminals.closeAll();
     this.mcp.disposeAll();
+  }
+
+  setRelayTransport(transport: PiHostService["relayTransport"]): void {
+    this.relayTransport = transport;
   }
 
   async executeSkill(input: {
@@ -347,10 +364,26 @@ export class PiHostService {
         return { messages: result.messages ?? [] };
       },
       advertiseTools: async (tools: RacpRelayTool[]) => {
-        const rejected = tools
-          .filter((tool) => tool.requiresWorkspace)
-          .map((tool) => ({ name: tool.name, reason: "workspace tools cannot be relayed" }));
-        return { accepted: tools.filter((tool) => !tool.requiresWorkspace), rejected };
+        const seen = new Set<string>();
+        const accepted: RacpRelayTool[] = [];
+        const rejected: Array<{ name: string; reason: string }> = [];
+        for (const tool of tools) {
+          if (tool.requiresWorkspace) {
+            rejected.push({ name: tool.name, reason: "workspace tools cannot be relayed" });
+            continue;
+          }
+          if (!/^(plugin|mcp)_[A-Za-z0-9_]+$/.test(tool.name)) {
+            rejected.push({ name: tool.name, reason: "relay tool names must be plugin_ or mcp_ prefixed" });
+            continue;
+          }
+          if (!tool.source.trim() || seen.has(tool.name)) {
+            rejected.push({ name: tool.name, reason: tool.source.trim() ? "duplicate relay tool name" : "tool source is required" });
+            continue;
+          }
+          seen.add(tool.name);
+          accepted.push(tool);
+        }
+        return { accepted, rejected };
       },
       openTerminal: async (params) => {
         const sessionId = requiredString(params.sessionId, "sessionId");
@@ -681,12 +714,23 @@ export class PiHostService {
         name: skill.name,
         ...(skill.description ? { description: skill.description } : {}),
       })) satisfies PluginSkillDef[],
-      pluginTools: mcpTools.map((tool) => ({
-        name: tool.fullName,
-        description: tool.description,
-        parameters: tool.schema ?? { type: "object", properties: {} },
-        risk: "medium" as const,
-      })) satisfies PluginToolDef[],
+      pluginTools: [
+        ...mcpTools.map((tool) => ({
+          name: tool.fullName,
+          description: tool.description,
+          parameters: tool.schema ?? { type: "object", properties: {} },
+          risk: "medium" as const,
+        })),
+        ...(this.relayTransport?.tools() ?? [])
+          .filter((tool) => !mcpTools.some((local) => local.fullName === tool.name))
+          .map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters ?? { type: "object", properties: {} },
+            risk: tool.risk ?? ("medium" as const),
+            ...(tool.planSafeActions?.length ? { planSafeActions: tool.planSafeActions } : {}),
+          })),
+      ] satisfies PluginToolDef[],
       provider: {
           id: provider.id,
           name: provider.name,
@@ -712,6 +756,7 @@ export class PiHostService {
     toolCallId?: string;
     toolName?: string;
     args?: unknown;
+    timeoutMs?: number;
   }): Promise<void> {
     let payload: Record<string, unknown>;
     try {
@@ -719,7 +764,17 @@ export class PiHostService {
         throw new RacpError("INVALID_ARGUMENT", "remote MCP execution is malformed");
       }
       const session = await this.getSession(request.sessionId);
-      const result = await this.mcp.callTool(request.toolName, request.args, session.projectPath ?? null);
+      const relayed = (this.relayTransport?.tools() ?? []).some((tool) => tool.name === request.toolName);
+      const result = relayed && this.relayTransport
+        ? await this.relayTransport.execute({
+            executionId: request.executionId,
+            sessionId: request.sessionId,
+            ...(request.toolCallId ? { toolCallId: request.toolCallId } : {}),
+            toolName: request.toolName,
+            args: request.args,
+            ...(typeof request.timeoutMs === "number" ? { timeoutMs: request.timeoutMs } : {}),
+          })
+        : await this.mcp.callTool(request.toolName, request.args, session.projectPath ?? null);
       payload = {
         executionId: request.executionId,
         ok: true,

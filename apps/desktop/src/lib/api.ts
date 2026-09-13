@@ -60,6 +60,7 @@ import type {
   RemoteProjectRecord,
   RemoteTerminalEvent,
   RemoteTerminalSnapshot,
+  RemoteRelayToolDescriptor,
   PullRequestSummary,
   ScheduledTask,
   ProviderCreateInput,
@@ -541,6 +542,16 @@ export const api = {
     invoke(IPC.invoke.remoteRemoveProject, { projectId }),
   browseRemoteDirectory: (input: { connectionId: string; path?: string }) =>
     invoke<RemoteDirectoryResult>(IPC.invoke.remoteBrowseDirectory, input),
+  remoteRelayCatalog: (connectionId: string) =>
+    invoke<{ tools: RemoteRelayToolDescriptor[]; selected: string[] }>(
+      IPC.invoke.remoteRelayCatalog,
+      { connectionId },
+    ),
+  setRemoteRelayTools: (connectionId: string, toolNames: string[]) =>
+    invoke<{ selected: string[] }>(IPC.invoke.remoteRelaySet, {
+      connectionId,
+      toolNames,
+    }),
   openRemoteTerminal: (input: { sessionId: string; columns?: number; rows?: number }) =>
     invoke<RemoteTerminalSnapshot>(IPC.invoke.remoteTerminalOpen, input),
   writeRemoteTerminal: (input: { sessionId: string; terminalId: string; text: string }) =>

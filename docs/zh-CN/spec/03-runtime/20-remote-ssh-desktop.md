@@ -66,6 +66,14 @@ MCP 列表、创建/编辑、删除、启用/作用域、导入和测试路由�
 远端进程内解析模型调用；Desktop 本地 MCP 进程绝不会静默替代。能力行会标注
 `Remote: <connection-key>` 执行位置。
 
+Connections 还负责反向中继选择。Electron Main 只目录化未请求文件系统权限的
+活跃本地插件工具，以及用户本地 MCP 配置贡献的工具；选中名称按
+`RemoteConnection` 持久化，保存与连接时会按当前目录重新校验，并在 RACP 初始化后
+连同 schema、source 与声明 risk 一起广告。远端 Host 先走正常权限流程，再请求
+Desktop 执行；Electron Main 只执行当前选中且不依赖 workspace 的工具，并拒绝
+过期、未选中、需要文件系统或任意 IPC 的请求。中继描述与请求绝不携带私钥、
+device token、provider 凭据或 Host secret。
+
 本地专用注册表会如实标注而不是伪装成远端。远程项目激活时，Subagents 设置页把
 Desktop 本地全局注册表标为 `Local` 与 `Unavailable remotely`。Plugins 页把每个
 Desktop 插件标为 `Local`；未显式中继的 agent 工具、插件 Skills、插件 MCP 和

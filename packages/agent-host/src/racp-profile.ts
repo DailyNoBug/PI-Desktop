@@ -22,6 +22,8 @@ export type RacpRelayTool = {
   parameters: unknown;
   source: string;
   requiresWorkspace: boolean;
+  risk?: "low" | "medium" | "high";
+  planSafeActions?: string[];
 };
 
 /**

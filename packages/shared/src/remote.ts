@@ -34,6 +34,8 @@ export type RemoteConnectionInput = {
 
 export type RemoteConnection = RemoteConnectionInput & {
   id: string;
+  /** Explicitly selected workspace-free local tools relayed to this Host. */
+  relayTools?: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -72,6 +74,15 @@ export type RemoteConnectionView = RemoteConnection & {
   };
   lastExitCode?: number | null;
   reconnectAttempt?: number;
+};
+
+export type RemoteRelayToolDescriptor = {
+  name: string;
+  description: string;
+  parameters?: unknown;
+  source: string;
+  risk?: "low" | "medium" | "high";
+  planSafeActions?: string[];
 };
 
 export type RemoteDirectoryEntry = {

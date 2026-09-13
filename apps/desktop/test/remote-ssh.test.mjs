@@ -33,6 +33,8 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
     ["remoteOpenProject", "openRemoteProject"],
     ["remoteRemoveProject", "removeRemoteProject"],
     ["remoteBrowseDirectory", "browseRemoteDirectory"],
+    ["remoteRelayCatalog", "remoteRelayCatalog"],
+    ["remoteRelaySet", "setRemoteRelayTools"],
     ["remoteTerminalOpen", "openRemoteTerminal"],
     ["remoteTerminalWrite", "writeRemoteTerminal"],
     ["remoteTerminalResize", "resizeRemoteTerminal"],
@@ -46,6 +48,36 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
   assert.match(api, /onRemoteChanged/);
   assert.match(api, /onRemoteTerminalEvent/);
   assert.match(preload, /IPC_WHITELIST/);
+});
+
+test("reverse relay tools are explicit, permission-gated, and workspace-free", async () => {
+  const [manager, store, shared, main, pluginRuntime, runtime, dialog] = await Promise.all([
+    read("apps/desktop/electron/main/remote-manager.ts"),
+    read("apps/desktop/electron/main/remote-store.ts"),
+    read("packages/shared/src/remote.ts"),
+    read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/electron/main/plugin-runtime.ts"),
+    read("packages/agent-runtime/src/runtime.ts"),
+    read("apps/desktop/src/components/settings/RemoteRelayToolsDialog.tsx"),
+  ]);
+  assert.match(shared, /relayTools\?: string\[\]/);
+  assert.match(manager, /async relayCatalog\(/);
+  assert.match(manager, /async setRelayTools\(/);
+  assert.match(manager, /relay tools are unavailable:/);
+  assert.match(manager, /private async advertiseRelayTools\(/);
+  assert.match(manager, /client\.onRequest\(\(request\) => this\.handleRelayRequest\(runtime, request\)\)/);
+  assert.match(manager, /relay tool is not selected:/);
+  assert.match(manager, /requiresWorkspace: false/);
+  assert.match(store, /setRelayTools\(id: string, toolNames: string\[\]\)/);
+  assert.match(main, /pluginRequiresWorkspace\(tool\.pluginId\)/);
+  assert.match(main, /userMcp\.toolsForProject\(null\)/);
+  assert.match(main, /local relay tool requires workspace access:/);
+  assert.doesNotMatch(main, /relay execute.*IPC\.invoke|IPC\.invoke.*relay execute/s);
+  assert.match(pluginRuntime, /permission\.startsWith\("fs\."\)/);
+  assert.match(runtime, /toolName\.startsWith\("plugin_"\) \|\| toolName\.startsWith\("mcp_"\)/);
+  assert.match(runtime, /declaredRisk: def\?\.risk/);
+  assert.match(dialog, /api\.remoteRelayCatalog\(connectionId\)/);
+  assert.match(dialog, /api\.setRemoteRelayTools\(connectionId, selected\)/);
 });
 
 test("SSH lifecycle stays in Electron Main and never exposes keys to the renderer", async () => {

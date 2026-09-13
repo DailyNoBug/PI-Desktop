@@ -134,6 +134,14 @@ const profile: RacpRemoteProfile = {
   async activateRevision() {
     return { messages: [] };
   },
+  async advertiseTools(tools) {
+    return {
+      accepted: tools.filter((tool) => !tool.requiresWorkspace),
+      rejected: tools
+        .filter((tool) => tool.requiresWorkspace)
+        .map((tool) => ({ name: tool.name, reason: "workspace tools cannot be relayed" })),
+    };
+  },
   async openTerminal() {
     return { terminalId: "term_1", replay: Buffer.alloc(0).toString("base64") };
   },
@@ -296,5 +304,87 @@ describe("RACP WebSocket binding", () => {
     await expect(client.request("terminal/close", {
       terminalId: opened.terminalId,
     })).resolves.toBeUndefined();
+  });
+
+  it("relays a tool execution to the advertising client and fails it on disconnect", async () => {
+    const server = createServer();
+    openServers.push(server);
+    await server.whenReady();
+    const client = new RacpWsClient({
+      url: server.address,
+      token: deviceToken,
+      clientInfo: { name: "relay-client", version: "0" },
+    });
+    openClients.push(client);
+    await client.connect();
+    let release!: (value: unknown) => void;
+    const released = new Promise((resolve) => {
+      release = resolve;
+    });
+    let sawRequest!: (value: void) => void;
+    const requestSeen = new Promise<void>((resolve) => {
+      sawRequest = resolve;
+    });
+    client.onRequest(async (request) => {
+      sawRequest();
+      await released;
+      if (request.method !== "tool/execute") throw new Error(`unexpected request: ${request.method}`);
+      return { echoed: (request.params as { args?: unknown }).args };
+    });
+    const advertised = await client.request<{ accepted: unknown[]; rejected: unknown[] }>(
+      "tools/advertise",
+      {
+        tools: [{
+          name: "mcp_local_search",
+          description: "Search local documents",
+          parameters: { type: "object" },
+          source: "mcp:test",
+          requiresWorkspace: false,
+          risk: "medium",
+        }],
+      },
+    );
+    expect(advertised.accepted).toHaveLength(1);
+    expect(server.relayTools().map((tool) => tool.name)).toEqual(["mcp_local_search"]);
+    const execution = server.executeRelayTool({
+      executionId: "exec_1",
+      sessionId: "s1",
+      toolCallId: "call_1",
+      toolName: "mcp_local_search",
+      args: { query: "release" },
+    });
+    await requestSeen;
+    const outcome = expect(execution).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE" });
+    await client.disconnect();
+    await outcome;
+    release(undefined);
+  });
+
+  it("uses the relay tool timeout from the host execution", async () => {
+    const server = createServer();
+    openServers.push(server);
+    await server.whenReady();
+    const client = new RacpWsClient({
+      url: server.address,
+      token: deviceToken,
+      clientInfo: { name: "relay-client", version: "0" },
+    });
+    openClients.push(client);
+    await client.connect();
+    client.onRequest(() => new Promise(() => undefined));
+    await client.request("tools/advertise", {
+      tools: [{
+        name: "plugin_local_slow",
+        description: "A slow local tool",
+        source: "plugin:test",
+        requiresWorkspace: false,
+      }],
+    });
+    await expect(server.executeRelayTool({
+      executionId: "exec_timeout",
+      sessionId: "s1",
+      toolName: "plugin_local_slow",
+      timeoutMs: 10,
+    })).rejects.toMatchObject({ code: "TOOL_TIMEOUT" });
   });
 });

@@ -4,8 +4,9 @@ import type { ProviderPublic, RemoteConnectionInput, RemoteConnectionView } from
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
 import { Button, Input, Select, Textarea, TooltipButton, cx } from "../ui";
-import { IconClipboard, IconDownload, IconFolderOpen, IconPencil, IconPlus, IconRefresh, IconServer, IconShield, IconX } from "../icons";
+import { IconClipboard, IconDownload, IconFolderOpen, IconPencil, IconPlug, IconPlus, IconRefresh, IconServer, IconShield, IconX } from "../icons";
 import { RemoteProjectDialog } from "./RemoteProjectDialog";
+import { RemoteRelayToolsDialog } from "./RemoteRelayToolsDialog";
 
 const emptyForm: RemoteConnectionInput = {
   displayName: "",
@@ -32,6 +33,8 @@ export function ConnectionsSection() {
   const [providerByConnection, setProviderByConnection] = useState<Record<string, string>>({});
   const [projectConnectionId, setProjectConnectionId] = useState<string | undefined>();
   const [projectOpen, setProjectOpen] = useState(false);
+  const [relayConnectionId, setRelayConnectionId] = useState<string | undefined>();
+  const [relayOpen, setRelayOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
 
@@ -272,6 +275,17 @@ export function ConnectionsSection() {
                       <IconFolderOpen size={14} />
                     </TooltipButton>
                     <TooltipButton
+                      tooltip={t("remote.relayTools")}
+                      ariaLabel={t("remote.relayTools")}
+                      className="icon-button"
+                      onClick={() => {
+                        setRelayConnectionId(connection.id);
+                        setRelayOpen(true);
+                      }}
+                    >
+                      <IconPlug size={14} />
+                    </TooltipButton>
+                    <TooltipButton
                       tooltip={t("remote.edit")}
                       ariaLabel={t("remote.edit")}
                       className="icon-button"
@@ -403,6 +417,12 @@ export function ConnectionsSection() {
         open={projectOpen}
         initialConnectionId={projectConnectionId}
         onClose={() => setProjectOpen(false)}
+      />
+      <RemoteRelayToolsDialog
+        open={relayOpen}
+        connectionId={relayConnectionId}
+        connectionName={connections?.find((connection) => connection.id === relayConnectionId)?.displayName}
+        onClose={() => setRelayOpen(false)}
       />
     </div>
   );

@@ -168,6 +168,17 @@ and resolves model calls locally to the remote process; a Desktop MCP process
 is never a silent substitute. Capability rows label their execution location as
 `Remote: <connection-key>`.
 
+Connections also own reverse relay selection. Electron Main catalogs only
+active local plugin tools that request no filesystem permission and tools from
+the user's local MCP configuration. The selected names persist per
+`RemoteConnection`, are revalidated against the current catalog, and are
+advertised with their schema, source, and declared risk after RACP
+initialization. The remote Host runs its normal permission flow before
+requesting desktop execution; Electron Main executes only a currently selected,
+workspace-free tool and rejects stale, unselected, filesystem-requiring, or
+arbitrary IPC requests. Relayed descriptors and requests never carry private
+keys, device tokens, provider credentials, or Host secrets.
+
 Local-only registries are labeled instead of being misrepresented as remote.
 The Subagents settings page marks its Desktop-local global registry `Local` and
 `Unavailable remotely` while a remote project is active. The Plugins page marks

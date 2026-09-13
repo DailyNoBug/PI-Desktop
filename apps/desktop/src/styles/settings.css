@@ -462,6 +462,95 @@
   box-shadow: var(--ds-shadow-dialog);
 }
 
+.remote-relay-dialog {
+  display: flex;
+  width: min(600px, 100%);
+  max-height: min(560px, calc(100vh - 48px));
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--ds-border-default);
+  box-shadow: var(--ds-shadow-dialog);
+}
+
+.remote-relay-connection {
+  margin: 0;
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+}
+
+.remote-relay-list {
+  display: flex;
+  min-height: 180px;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile);
+  padding: 8px;
+}
+
+.remote-relay-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  color: var(--ds-text-primary);
+}
+
+.remote-relay-row:hover {
+  background: var(--ds-bg-hover);
+}
+
+.remote-relay-glyph {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background: var(--ds-bg-chip);
+  color: var(--ds-text-secondary);
+}
+
+.remote-relay-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.remote-relay-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+}
+
+.remote-relay-copy span {
+  color: var(--ds-text-muted);
+  font-size: var(--text-3xs);
+}
+
+.remote-relay-copy code {
+  color: var(--ds-text-secondary);
+  font-size: var(--text-4xs);
+}
+
+.remote-relay-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--ds-accent);
+}
+
+.remote-relay-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  color: var(--ds-text-muted);
+  font-size: var(--text-xs);
+}
+
 .remote-project-header {
   display: flex;
   align-items: center;

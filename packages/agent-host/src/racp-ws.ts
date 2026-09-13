@@ -59,6 +59,14 @@ type ClientConnection = {
   initializedNotified: boolean;
   connectionId: string;
   subscriptions: Map<string, () => void>;
+  relayTools: Map<string, RacpRelayTool>;
+};
+
+type RelayPending = {
+  client: ClientConnection;
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 };
 
 function isLoopback(request: IncomingMessage): boolean {
@@ -105,6 +113,7 @@ export class RacpWsServer {
   private readonly clients = new Set<ClientConnection>();
   private readonly authenticatedRequests = new WeakMap<IncomingMessage, RacpAuthenticationResult>();
   private readonly authenticatedTokens = new Map<string, RacpAuthenticationResult>();
+  private readonly relayPending = new Map<string, RelayPending>();
   private closed = false;
 
   constructor(private readonly options: RacpWsServerOptions) {
@@ -150,6 +159,51 @@ export class RacpWsServer {
 
   get agentHost(): AgentHost {
     return this.options.agentHost;
+  }
+
+  relayTools(): RacpRelayTool[] {
+    const tools = new Map<string, RacpRelayTool>();
+    for (const client of this.clients) {
+      for (const tool of client.relayTools.values()) {
+        if (!tools.has(tool.name)) tools.set(tool.name, tool);
+      }
+    }
+    return [...tools.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  executeRelayTool(params: {
+    executionId: string;
+    sessionId: string;
+    turnId?: string;
+    toolCallId?: string;
+    toolName: string;
+    args?: unknown;
+    timeoutMs?: number;
+  }): Promise<unknown> {
+    const client = [...this.clients].find((candidate) => candidate.relayTools.has(params.toolName));
+    if (!client) {
+      return Promise.reject(racpError("TOOL_NOT_FOUND", `relay tool is not advertised: ${params.toolName}`));
+    }
+    const id = `relay_${randomUUID()}`;
+    return new Promise((resolve, reject) => {
+      const requestedTimeoutMs = params.timeoutMs;
+      const timeoutMs = typeof requestedTimeoutMs === "number" &&
+          Number.isFinite(requestedTimeoutMs) &&
+          requestedTimeoutMs > 0
+        ? requestedTimeoutMs
+        : 55_000;
+      const timer = setTimeout(() => {
+        this.relayPending.delete(id);
+        reject(racpError("TOOL_TIMEOUT", `relay tool ${params.toolName} timed out`, { retriable: false }));
+      }, timeoutMs);
+      this.relayPending.set(id, { client, resolve, reject, timer });
+      this.reply(client, {
+        jsonrpc: "2.0",
+        id,
+        method: "tool/execute",
+        params,
+      });
+    });
   }
 
   async whenReady(): Promise<this> {
@@ -206,6 +260,7 @@ export class RacpWsServer {
       initializedNotified: false,
       connectionId,
       subscriptions: new Map(),
+      relayTools: new Map(),
     };
     this.clients.add(client);
     socket.on("message", (data, isBinary) => {
@@ -219,6 +274,12 @@ export class RacpWsServer {
     if (!this.clients.delete(client)) return;
     for (const unsubscribe of client.subscriptions.values()) unsubscribe();
     client.subscriptions.clear();
+    for (const [id, pending] of [...this.relayPending]) {
+      if (pending.client !== client) continue;
+      clearTimeout(pending.timer);
+      this.relayPending.delete(id);
+      pending.reject(racpError("AGENT_UNAVAILABLE", "relay client disconnected", { retriable: false }));
+    }
     if (client.socket.readyState === WebSocket.OPEN) client.socket.close(code, reason);
   }
 
@@ -242,7 +303,24 @@ export class RacpWsServer {
       this.tearDown(client, 4400, "Invalid JSON");
       return;
     }
-    if (message.method === undefined) return;
+    if (message.method === undefined) {
+      if (message.id === undefined || message.id === null) return;
+      const pending = this.relayPending.get(String(message.id));
+      if (!pending) return;
+      this.relayPending.delete(String(message.id));
+      clearTimeout(pending.timer);
+      if (message.error) {
+        const raw = message.error as { code?: string; message?: string; details?: unknown };
+        pending.reject(racpError(
+          raw.code ?? "TOOL_FAILED",
+          raw.message ?? "relay tool failed",
+          raw.details === undefined ? {} : { details: raw.details },
+        ));
+      } else {
+        pending.resolve(message.result);
+      }
+      return;
+    }
     const id = message.id ?? null;
     if (id === null) {
       if (message.method === "notifications/initialized") client.initializedNotified = true;
@@ -372,7 +450,13 @@ export class RacpWsServer {
         });
       case "tools/advertise": {
         if (!this.options.profile.advertiseTools) throw racpError("UNSUPPORTED", "tool relay is unavailable");
-        return this.options.profile.advertiseTools(Array.isArray(params.tools) ? (params.tools as RacpRelayTool[]) : []);
+        const result = await this.options.profile.advertiseTools(
+          Array.isArray(params.tools) ? (params.tools as RacpRelayTool[]) : [],
+        );
+        const advertised = new Map(result.accepted.map((tool) => [tool.name, tool]));
+        client.relayTools.clear();
+        for (const tool of advertised.values()) client.relayTools.set(tool.name, tool);
+        return result;
       }
       case "workspace/browse":
         return this.options.profile.browseWorkspace(params);

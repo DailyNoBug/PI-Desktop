@@ -3,9 +3,14 @@ import WebSocket from "ws";
 import type { RacpEventEnvelope, RacpInitializeParams, RacpInitializeResult } from "@pi-desktop/shared";
 import { RACP_WS_SUBPROTOCOL } from "@pi-desktop/shared";
 
-import { racpError } from "./errors.js";
+import { racpError, RacpError } from "./errors.js";
 
 export type RacpClientEvent = RacpEventEnvelope | { kind: "resync.required"; error: unknown };
+export type RacpClientRequest = {
+  id: string;
+  method: string;
+  params: unknown;
+};
 
 export type RacpClientOptions = {
   url: string;
@@ -24,6 +29,7 @@ export class RacpWsClient {
   private socket: WebSocket | null = null;
   private pending = new Map<string, Pending>();
   private listeners = new Set<(event: RacpClientEvent) => void>();
+  private requestListeners = new Set<(request: RacpClientRequest) => Promise<unknown>>();
   private closeListeners = new Set<(error?: Error) => void>();
   private heartbeat?: ReturnType<typeof setInterval>;
   private currentToken: string;
@@ -44,6 +50,11 @@ export class RacpWsClient {
   onEvent(listener: (event: RacpClientEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  onRequest(listener: (request: RacpClientRequest) => Promise<unknown>): () => void {
+    this.requestListeners.add(listener);
+    return () => this.requestListeners.delete(listener);
   }
 
   onClose(listener: (error?: Error) => void): () => void {
@@ -151,6 +162,37 @@ export class RacpWsClient {
       for (const listener of this.listeners) listener(message.params as RacpClientEvent);
       return;
     }
+    const requestId = message.id;
+    if (message.method !== undefined && typeof requestId === "string") {
+      void (async () => {
+        const request = {
+          id: requestId,
+          method: String(message.method),
+          params: message.params ?? {},
+        };
+        try {
+          const listener = [...this.requestListeners][0];
+          if (!listener) throw racpError("METHOD_NOT_FOUND", `RACP server request ${request.method} is unsupported`);
+          const result = await listener(request);
+          this.reply({ jsonrpc: "2.0", id: requestId, result });
+        } catch (error) {
+          const racp = error instanceof RacpError
+            ? error
+            : racpError("INTERNAL", error instanceof Error ? error.message : String(error));
+          this.reply({
+            jsonrpc: "2.0",
+            id: requestId,
+            error: {
+              code: racp.code,
+              message: racp.message,
+              retriable: racp.retriable,
+              ...(racp.details === undefined ? {} : { details: racp.details }),
+            },
+          });
+        }
+      })();
+      return;
+    }
     if (!message.id) return;
     const pending = this.pending.get(message.id);
     if (!pending) return;
@@ -177,6 +219,12 @@ export class RacpWsClient {
     this.pending.clear();
     this.socket = null;
     for (const listener of this.closeListeners) listener();
+  }
+
+  private reply(payload: unknown): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify(payload));
   }
 
   private startHeartbeat(): void {

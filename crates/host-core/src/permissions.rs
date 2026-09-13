@@ -125,7 +125,15 @@ impl PermissionManager {
                 // low-risk grant. Medium preserves the normal approval path.
                 _ => Risk::Medium,
             },
-            name if name.starts_with("mcp_") => Risk::Low,
+            name if name.starts_with("mcp_") => match declared {
+                Some("low") => Risk::Low,
+                Some("high") => Risk::High,
+                Some("medium") => Risk::Medium,
+                // Locally configured MCP servers remain deliberate low-risk
+                // tools; a missing declaration from a newer relay carries the
+                // medium approval path.
+                _ => Risk::Low,
+            },
             _ => Risk::Medium,
         }
     }
@@ -530,6 +538,30 @@ mod tests {
         assert!(matches!(
             PermissionManager::tool_risk_with_declared("plugin_x_run", Some("invalid")),
             Risk::Medium
+        ));
+    }
+
+    #[test]
+    fn mcp_risk_preserves_relay_declarations_and_local_default() {
+        assert!(matches!(
+            PermissionManager::tool_risk_with_declared("mcp_corp_search", Some("low")),
+            Risk::Low
+        ));
+        assert!(matches!(
+            PermissionManager::tool_risk_with_declared("mcp_corp_search", Some("medium")),
+            Risk::Medium
+        ));
+        assert!(matches!(
+            PermissionManager::tool_risk_with_declared("mcp_corp_search", Some("high")),
+            Risk::High
+        ));
+        assert!(matches!(
+            PermissionManager::tool_risk_with_declared("mcp_corp_search", None),
+            Risk::Low
+        ));
+        assert!(matches!(
+            PermissionManager::tool_risk_with_declared("mcp_corp_search", Some("invalid")),
+            Risk::Low
         ));
     }
 

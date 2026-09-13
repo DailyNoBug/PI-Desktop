@@ -279,6 +279,10 @@ async function run(): Promise<void> {
       storageSchemaVersion: SCHEMA_VERSION,
     },
   });
+  service.setRelayTransport({
+    tools: () => server.relayTools(),
+    execute: (request) => server.executeRelayTool(request),
+  });
   await server.whenReady();
   const port = Number(new URL(server.address).port);
   const metadata: RuntimeMetadata = {
