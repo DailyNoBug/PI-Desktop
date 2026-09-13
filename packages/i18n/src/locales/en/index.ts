@@ -584,6 +584,7 @@ export const en = {
     connect: "Connect",
     disconnect: "Disconnect",
     test: "Test",
+    upgradeHost: "Upgrade Host",
     syncProvider: "Sync provider",
     deleteProvider: "Delete remote provider",
     verifyTitle: "Verify remote host",

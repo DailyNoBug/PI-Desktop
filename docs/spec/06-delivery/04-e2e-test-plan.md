@@ -9928,12 +9928,15 @@ browser milestones are scheduled.
 - **Steps**: 1) Open Settings → Connections and refresh. 2) Add the manual
   host. 3) Test both entries. 4) Connect to the unknown Host and inspect the
   fingerprint dialog. 5) Cancel once, reconnect, and accept the fingerprint.
-  6) Copy diagnostics. 7) Sync and then delete the selected provider.
+  6) Copy diagnostics. 7) Use the explicit Host upgrade action. 8) Sync and
+  then delete the selected provider.
 - **Expected**: `gpu` appears exactly once and `Host *` does not appear. Manual
   fields persist without private-key bytes. Cancellation performs no
   `known_hosts` write; acceptance writes only the scanned keys. Connection
-  state advances through named stages, diagnostics are redacted, and provider
-  sync/delete names the remote machine and never returns the secret.
+  state advances through named stages, diagnostics are redacted, explicit
+  upgrade force-restarts the checksummed current version before RACP
+  negotiation, and provider sync/delete names the remote machine and never
+  returns the secret.
 - **Specs linked**: `04-ux/06-settings-ia.md` §Connections,
   `03-runtime/20-remote-ssh-desktop.md` §§3–8, ADR 0234
 - **Acceptance**: A, Security, Quality

@@ -579,6 +579,7 @@ export const zhCN = {
     connect: "连接",
     disconnect: "断开",
     test: "测试",
+    upgradeHost: "升级 Host",
     syncProvider: "同步模型服务",
     deleteProvider: "删除远程模型服务凭据",
     verifyTitle: "验证远程主机",

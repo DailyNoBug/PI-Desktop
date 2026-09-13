@@ -21,6 +21,7 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
     ["remoteRemoveConnection", "removeRemoteConnection"],
     ["remoteConnect", "connectRemote"],
     ["remoteDisconnect", "disconnectRemote"],
+    ["remoteUpgradeHost", "upgradeRemoteHost"],
     ["remoteDiagnostics", "remoteDiagnostics"],
     ["remoteImportProvider", "importRemoteProvider"],
     ["remoteDeleteProvider", "deleteRemoteProvider"],
@@ -39,11 +40,12 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
 });
 
 test("SSH lifecycle stays in Electron Main and never exposes keys to the renderer", async () => {
-  const [manager, ssh, api, main] = await Promise.all([
+  const [manager, ssh, api, main, connections] = await Promise.all([
     read("apps/desktop/electron/main/remote-manager.ts"),
     read("apps/desktop/electron/main/ssh.ts"),
     read("apps/desktop/src/lib/api.ts"),
     read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/src/components/settings/ConnectionsSection.tsx"),
   ]);
   assert.match(manager, /class RemoteManager/);
   assert.match(manager, /secrets\.set/);
@@ -51,6 +53,8 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(manager, /onAudit\("ssh\.host_key\.accepted"/);
   assert.match(manager, /onAudit\("remote\.pairing\.created"/);
   assert.match(manager, /onAudit\("remote\.permission\.decision"/);
+  assert.match(manager, /async upgradeHost/);
+  assert.match(manager, /PI_HOST_FORCE_RESTART: "1"/);
   assert.doesNotMatch(manager, /from "electron"/);
   assert.doesNotMatch(api, /child_process|node:child_process|ssh-spawn|privateKey/);
   assert.match(ssh, /resolveSshExecutable/);
@@ -58,6 +62,8 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(ssh, /ExitOnForwardFailure=yes/);
   assert.match(ssh, /127\.0\.0\.1:\$\{localPort\}:127\.0\.0\.1:\$\{remotePort\}/);
   assert.match(main, /new RemoteManager|RemoteManager\.open/);
+  assert.match(main, /remoteManager\.upgradeHost/);
+  assert.match(connections, /upgradeRemoteHost/);
   assert.match(main, /setAsDefaultProtocolClient\("pi-desktop"\)/);
   assert.match(main, /app\.on\("open-url"/);
   assert.match(main, /app\.on\("second-instance"/);

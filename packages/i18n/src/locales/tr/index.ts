@@ -583,6 +583,7 @@ export const tr = {
     connect: "Bağlan",
     disconnect: "Bağlantıyı kes",
     test: "Sına",
+    upgradeHost: "Host'u güncelle",
     syncProvider: "Servisi eşitle",
     deleteProvider: "Uzak servisi sil",
     verifyTitle: "Uzak sunucuyu doğrula",

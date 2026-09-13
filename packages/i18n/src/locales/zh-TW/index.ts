@@ -579,6 +579,7 @@ export const zhTW = {
     connect: "連線",
     disconnect: "中斷",
     test: "測試",
+    upgradeHost: "升級 Host",
     syncProvider: "同步模型服務",
     deleteProvider: "刪除遠端模型服務憑證",
     verifyTitle: "驗證遠端主機",

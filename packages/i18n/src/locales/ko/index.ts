@@ -583,6 +583,7 @@ export const ko = {
     connect: "연결",
     disconnect: "연결 해제",
     test: "테스트",
+    upgradeHost: "Host 업데이트",
     syncProvider: "프로바이더 동기화",
     deleteProvider: "원격 프로바이더 삭제",
     verifyTitle: "원격 호스트 확인",

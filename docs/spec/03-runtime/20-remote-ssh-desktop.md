@@ -63,8 +63,9 @@ Settings owns a **Connections** destination.
    `StrictHostKeyChecking=no` is never injected.
 
 Each connection exposes state, source, last connected time, Host version,
-connect/disconnect, test, refresh, edit, remove, remote project selection, and
-copyable diagnostics.
+connect/disconnect, test, explicit Host upgrade/restart to the current Desktop
+version, refresh, edit, remove, remote project selection, and copyable
+diagnostics.
 
 ## 4. Bootstrap, pairing, and forwarding
 
@@ -87,6 +88,9 @@ Electron Main performs the ordered bootstrap:
 The Host must report the Desktop's RACP major version, Host protocol version,
 and storage schema version. A mismatch is terminal for that attempt and offers
 an upgrade rather than running Agent work against an incompatible Host.
+The explicit upgrade action closes the local transport, reruns the checksummed
+bootstrap with forced restart, and reconnects through the same pairing path; it
+never installs an unverified bundle or bypasses version negotiation.
 
 ## 5. Reconnect
 

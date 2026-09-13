@@ -32,8 +32,11 @@ RemoteConnection
 - 远端会话携带 `hostId`，没有该字段表示本地 Host。
 - Device token 只保存在本机 host-core secret store；私钥、密码、provider key 和 token 不进入 Renderer、普通 SQLite、URL 或日志。
 - 未知 Host key 必须显示指纹并经用户确认；绝不注入 `StrictHostKeyChecking=no`。
+- 每个连接提供状态、来源、最近连接时间、Host 版本、连接/断开、测试、显式升级/重启到当前 Desktop 版本、刷新、编辑、移除、远程项目选择和诊断复制。
 
 Desktop 通过 SSH 检测 Linux 架构，获取同版本 GitHub Release checksum，上传 bootstrap 脚本，在远端用户目录 SHA-256 验证并安装 `pi-host`，以 `setsid` 显式启动 daemon，再通过 RACP 初始化交换一次性 pairing token。之后建立只绑定 loopback 的本地端口转发。
+
+协议或存储版本不兼容时终止本次连接并提示升级，不能运行 Agent。显式升级会关闭本地传输，用强制重启重新执行带 checksum 的 bootstrap，并沿同一配对路径重连；绝不安装未校验包或绕过版本协商。
 
 重连使用 `0s, 1s, 2s, 4s, 8s, 15s, 30s, 30s…`；认证、Host key、token、checksum 或协议不兼容错误不盲目重试。RACP 订阅保留 `{ epoch, sequence }` cursor，重连后按 cursor 或 snapshot 恢复，不重复执行已完成的工具调用或已准入 prompt。
 

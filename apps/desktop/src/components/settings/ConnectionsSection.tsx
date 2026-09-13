@@ -4,7 +4,7 @@ import type { ProviderPublic, RemoteConnectionInput, RemoteConnectionView } from
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
 import { Button, Input, Select, TooltipButton, cx } from "../ui";
-import { IconClipboard, IconFolderOpen, IconPencil, IconPlus, IconRefresh, IconServer, IconX } from "../icons";
+import { IconClipboard, IconDownload, IconFolderOpen, IconPencil, IconPlus, IconRefresh, IconServer, IconX } from "../icons";
 import { RemoteProjectDialog } from "./RemoteProjectDialog";
 
 const emptyForm: RemoteConnectionInput = {
@@ -190,6 +190,15 @@ export function ConnectionsSection() {
                       onClick={() => void action(connection.id, () => api.testRemoteConnection(connection.id))}
                     >
                       <IconRefresh size={14} />
+                    </TooltipButton>
+                    <TooltipButton
+                      tooltip={t("remote.upgradeHost")}
+                      ariaLabel={t("remote.upgradeHost")}
+                      className="icon-button"
+                      disabled={busyId === connection.id}
+                      onClick={() => void action(connection.id, () => api.upgradeRemoteHost(connection.id))}
+                    >
+                      <IconDownload size={14} />
                     </TooltipButton>
                     <TooltipButton
                       tooltip={t("remote.syncProvider")}

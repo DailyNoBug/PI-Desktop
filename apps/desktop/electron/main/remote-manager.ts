@@ -341,6 +341,54 @@ export class RemoteManager {
     }
   }
 
+  async upgradeHost(id: string): Promise<RemoteConnectionView> {
+    const runtime = this.runtimeFor(id);
+    if (runtime.reconnectTimer) clearTimeout(runtime.reconnectTimer);
+    runtime.reconnectTimer = undefined;
+    runtime.reconnectAttempt = 0;
+    await this.closeTransport(runtime);
+    this.setState(id, "bootstrapping");
+    try {
+      const probe = await sshProbe(runtime.connection);
+      if (probe.os !== "Linux") {
+        throw Object.assign(new Error(`remote OS ${probe.os || "unknown"} is unsupported; Linux is required`), {
+          errorCode: ErrorCodes.REMOTE_OS_UNSUPPORTED,
+        });
+      }
+      const arch = remoteArch(probe.arch);
+      const checksum = await releaseChecksum(APP_VERSION, arch);
+      const bootstrap = await runSshScript(runtime.connection, readFileSync(bootstrapScriptPath(), "utf8"), {
+        PI_HOST_VERSION: APP_VERSION,
+        PI_HOST_ARCH: arch,
+        PI_HOST_CHECKSUM: checksum,
+        PI_HOST_FORCE_RESTART: "1",
+      });
+      const ready = parseBootstrapOutput(bootstrap.stdout).ready;
+      const port = Number(ready?.port ?? 0);
+      if (!Number.isInteger(port) || port <= 0) {
+        throw Object.assign(new Error(bootstrap.stdout.trim() || "pi-host upgrade returned no endpoint"), {
+          errorCode: ErrorCodes.REMOTE_HOST_START_FAILED,
+        });
+      }
+      const pairing = ready?.pairing;
+      if (pairing && typeof pairing === "object") {
+        const token = String((pairing as { token?: unknown }).token ?? "");
+        if (token) await this.writeToken(this.hostIdFor(id), token);
+      }
+      this.events.onAudit("remote.host.upgraded", {
+        connectionId: id,
+        version: APP_VERSION,
+        arch,
+        explicit: true,
+      });
+      return await this.connect(id);
+    } catch (error) {
+      await this.closeTransport(runtime).catch(() => undefined);
+      this.failure(id, error);
+      throw toIpcError(error);
+    }
+  }
+
   async disconnect(id: string): Promise<void> {
     const runtime = this.runtimes.get(id);
     if (!runtime) return;

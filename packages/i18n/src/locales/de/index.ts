@@ -574,6 +574,7 @@ export const de = {
     "connect": "Verbinden",
     "disconnect": "Trennen",
     "test": "Testen",
+    "upgradeHost": "Host aktualisieren",
     "syncProvider": "Anbieter synchronisieren",
     "deleteProvider": "Remote-Anbieter löschen",
     "verifyTitle": "Remote-Host überprüfen",
