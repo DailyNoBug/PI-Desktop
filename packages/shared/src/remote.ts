@@ -129,6 +129,53 @@ export type RemoteDiagnostics = {
 
 export const REMOTE_RECONNECT_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000] as const;
 
+function prereleaseIdentifierCompare(left: string, right: string): number {
+  const leftNumeric = /^\d+$/.test(left);
+  const rightNumeric = /^\d+$/.test(right);
+  if (leftNumeric && rightNumeric) {
+    const difference = Number(left) - Number(right);
+    return difference < 0 ? -1 : difference > 0 ? 1 : 0;
+  }
+  if (leftNumeric) return -1;
+  if (rightNumeric) return 1;
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function prereleaseCompare(left: string[], right: string[]): number {
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (a === undefined) return -1;
+    if (b === undefined) return 1;
+    const result = prereleaseIdentifierCompare(a, b);
+    if (result !== 0) return result;
+  }
+  return 0;
+}
+
+/** Compare Desktop/Host application versions without downgrading a newer Host. */
+export function compareApplicationVersions(left: string, right: string): number {
+  const parse = (value: string) => {
+    const match = value.trim().replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/);
+    if (!match) return null;
+    return {
+      core: match.slice(1, 4).map(Number),
+      prerelease: match[4]?.split(".").filter(Boolean) ?? [],
+    };
+  };
+  const a = parse(left);
+  const b = parse(right);
+  if (!a && !b) return 0;
+  if (!a) return -1;
+  if (!b) return 1;
+  for (let index = 0; index < 3; index += 1) {
+    if (a.core[index]! !== b.core[index]!) return a.core[index]! < b.core[index]! ? -1 : 1;
+  }
+  if (a.prerelease.length === 0 && b.prerelease.length !== 0) return 1;
+  if (a.prerelease.length !== 0 && b.prerelease.length === 0) return -1;
+  return prereleaseCompare(a.prerelease, b.prerelease);
+}
+
 const POSIX_ABSOLUTE_PATH = /^\/(?:[^/\0]+\/?)*$/;
 const CONNECTION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 

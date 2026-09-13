@@ -9808,8 +9808,8 @@ browser milestones are scheduled.
 
 - **Preconditions**: A Linux test machine runs `sshd` and holds a project
   the desktop can reach with the user's SSH key. A GitHub Releases fixture
-  serves the `pi-host` bundle for that platform at the desktop's version, a
-  bundle at another version, and a tampered bundle with a wrong checksum.
+  serves the `pi-host` bundle for that platform at the desktop's version, an
+  older bundle, a newer bundle, and a tampered bundle with a wrong checksum.
   The desktop has one local session open, one user MCP server configured,
   and one installed plugin whose tool requires workspace access.
 - **Steps**: 1) Add the remote machine from the desktop and let the uploaded
@@ -9830,7 +9830,7 @@ browser milestones are scheduled.
   let the desktop reconnect. 11) Inspect the remote tool catalog. 12) Attempt
   to connect from a non-loopback address on the remote machine, then with a
   reused pairing token. 13) Point the bootstrap at the tampered bundle, then
-  at the other version, and reconnect.
+  at the older bundle, then at the newer bundle, and reconnect after each.
 - **Expected**: Files change only on the remote machine and the command runs
   there; the approval card appears in the desktop with the local vocabulary;
   the remote host-core binds loopback only; `session/configure` succeeds while
@@ -9846,8 +9846,9 @@ browser milestones are scheduled.
   resumes from the replay ring; the remote catalog lists the relayed MCP tool
   but not the workspace-requiring plugin tool; the non-loopback peer and the
   reused pairing token are rejected; the tampered bundle is refused before
-  start; the version mismatch returns `PROTOCOL_MISMATCH` and offers the
-  re-download; and the local session is untouched throughout.
+  start; the older Host is upgraded only after checksum and protocol
+  negotiation; the newer Host is never downgraded and enters `incompatible`
+  until the Desktop is upgraded; and the local session is untouched throughout.
 - **Specs linked**: `02-architecture/05-remote-agent-control.md` §§5.2 and
   6.3, `03-runtime/19-remote-agent-control-protocol.md` §§6.2, 9.4, and
   11.1, `05-security/02-remote-control-security.md` §§3.4, 4.3, 5.1, and 7,

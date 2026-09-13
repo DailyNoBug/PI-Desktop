@@ -49,6 +49,7 @@ import {
   parseRemoteProjectUri,
   protocolVersionsCompatible,
   remoteProjectUri,
+  compareApplicationVersions,
   validateRemoteConnectionInput,
 } from "@pi-desktop/shared";
 import { RacpWsClient, type RacpClientEvent } from "@pi-desktop/agent-host";
@@ -392,8 +393,15 @@ export class RemoteManager {
       return this.viewFor(id);
     } catch (error) {
       await this.closeTransport(runtime).catch(() => undefined);
-      this.failure(id, error);
       const code = (error as { errorCode?: string; code?: string }).errorCode ?? (error as { code?: string }).code;
+      if (code === ErrorCodes.REMOTE_HOST_VERSION_INCOMPATIBLE || code === ErrorCodes.REMOTE_PROTOCOL_MISMATCH) {
+        runtime.state = "incompatible";
+        runtime.lastError = publicError(error, "incompatible");
+        runtime.lastExitCode = exitCodeOf(error);
+        this.events.onConnectionsChanged();
+      } else {
+        this.failure(id, error);
+      }
       if (!NON_RETRYABLE_REMOTE_CODES.has(String(code))) this.scheduleReconnect(id);
       throw toIpcError(error);
     } finally {
@@ -409,6 +417,14 @@ export class RemoteManager {
     await this.closeTransport(runtime);
     this.setState(id, "bootstrapping");
     try {
+      const metadata = await readRemoteRuntimeMetadata(runtime.connection);
+      const remoteVersion = typeof metadata?.version === "string" ? metadata.version : "";
+      if (remoteVersion && compareApplicationVersions(remoteVersion, APP_VERSION) > 0) {
+        throw Object.assign(
+          new Error(`remote Host is newer than Desktop: remote ${remoteVersion}, desktop ${APP_VERSION}; upgrade PI-Desktop first`),
+          { errorCode: ErrorCodes.REMOTE_HOST_VERSION_INCOMPATIBLE },
+        );
+      }
       const probe = await sshProbe(runtime.connection);
       if (probe.os !== "Linux") {
         throw Object.assign(new Error(`remote OS ${probe.os || "unknown"} is unsupported; Linux is required`), {
@@ -444,7 +460,15 @@ export class RemoteManager {
       return await this.connect(id);
     } catch (error) {
       await this.closeTransport(runtime).catch(() => undefined);
-      this.failure(id, error);
+      const code = (error as { errorCode?: string; code?: string }).errorCode ?? (error as { code?: string }).code;
+      if (code === ErrorCodes.REMOTE_HOST_VERSION_INCOMPATIBLE || code === ErrorCodes.REMOTE_PROTOCOL_MISMATCH) {
+        runtime.state = "incompatible";
+        runtime.lastError = publicError(error, "incompatible");
+        runtime.lastExitCode = exitCodeOf(error);
+        this.events.onConnectionsChanged();
+      } else {
+        this.failure(id, error);
+      }
       throw toIpcError(error);
     }
   }
@@ -1359,6 +1383,14 @@ export class RemoteManager {
     let host = this.store.getHost(hostId);
     let token = await this.readToken(hostId);
     let metadata = await readRemoteRuntimeMetadata(runtime.connection);
+    const remoteVersion = typeof metadata?.version === "string" ? metadata.version : "";
+    if (remoteVersion && compareApplicationVersions(remoteVersion, APP_VERSION) > 0) {
+      this.setState(id, "incompatible");
+      throw Object.assign(
+        new Error(`remote Host is newer than Desktop: remote ${remoteVersion}, desktop ${APP_VERSION}; upgrade PI-Desktop before continuing`),
+        { errorCode: ErrorCodes.REMOTE_HOST_VERSION_INCOMPATIBLE },
+      );
+    }
     if (!metadata || metadata.version !== APP_VERSION || !token) {
       this.setState(id, "bootstrapping");
       const checksum = await releaseChecksum(APP_VERSION, arch);

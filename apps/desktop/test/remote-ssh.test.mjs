@@ -65,6 +65,8 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(manager, /onAudit\("remote\.permission\.decision"/);
   assert.match(manager, /async upgradeHost/);
   assert.match(manager, /PI_HOST_FORCE_RESTART: "1"/);
+  assert.match(manager, /compareApplicationVersions\(remoteVersion, APP_VERSION\) > 0/);
+  assert.match(manager, /remote Host is newer than Desktop/);
   assert.match(manager, /exportConnections\(\): string/);
   assert.match(manager, /async importConnections\(/);
   assert.match(manager, /slice\(0, 256\)/);

@@ -3,6 +3,7 @@ import { ErrorCodes } from "./errors.js";
 import {
   isRemoteProjectPath,
   normalizeRemotePath,
+  compareApplicationVersions,
   parseRemoteProjectUri,
   remoteProjectUri,
   validateRemoteConnectionInput,
@@ -63,5 +64,12 @@ describe("remote SSH contracts", () => {
     ]) {
       expect(code).toMatch(/^(SSH_|REMOTE_)/);
     }
+  });
+
+  it("orders application versions without treating every mismatch as older", () => {
+    expect(compareApplicationVersions("0.14.6-rc.4", "0.14.6")).toBe(-1);
+    expect(compareApplicationVersions("v0.15.0", "0.14.9")).toBe(1);
+    expect(compareApplicationVersions("1.2.3-rc.2", "1.2.3-rc.10")).toBe(-1);
+    expect(compareApplicationVersions("unknown", "unknown")).toBe(0);
   });
 });

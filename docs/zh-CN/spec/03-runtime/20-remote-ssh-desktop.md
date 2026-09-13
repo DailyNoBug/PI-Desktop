@@ -43,6 +43,8 @@ RemoteConnection
 Desktop 通过 SSH 检测 Linux 架构，获取同版本 GitHub Release checksum，上传 bootstrap 脚本，在远端用户目录 SHA-256 验证并安装 `pi-host`，以 `setsid` 显式启动 daemon，再通过 RACP 初始化交换一次性 pairing token。之后建立只绑定 loopback 的本地端口转发。
 
 协议或存储版本不兼容时终止本次连接并提示升级，不能运行 Agent。显式升级会关闭本地传输，用强制重启重新执行带 checksum 的 bootstrap，并沿同一配对路径重连；绝不安装未校验包或绕过版本协商。
+只有较旧的 Host 才会自动或显式升级到 Desktop 当前版本。较新的 Host 进入
+`incompatible` 并要求升级 Desktop；PI-Desktop 绝不降级它。
 
 撤销 device token 会断开本地 RACP 客户端、停止远端 Host、清除 owner-only
 token 文件、删除本地 secret，并在下次连接前要求重新配对。

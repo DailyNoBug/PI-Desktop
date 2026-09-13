@@ -98,6 +98,9 @@ Electron Main performs the ordered bootstrap:
 The Host must report the Desktop's RACP major version, Host protocol version,
 and storage schema version. A mismatch is terminal for that attempt and offers
 an upgrade rather than running Agent work against an incompatible Host.
+Only an older Host is automatically or explicitly upgraded to the Desktop's
+version. A newer Host enters `incompatible` and requires a Desktop upgrade;
+PI-Desktop never downgrades it.
 The explicit upgrade action closes the local transport, reruns the checksummed
 bootstrap with forced restart, and reconnects through the same pairing path; it
 never installs an unverified bundle or bypasses version negotiation.
