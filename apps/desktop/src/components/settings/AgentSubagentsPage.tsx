@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { UserSubagentRecord } from "@pi-desktop/shared";
+import { isRemoteProjectPath, type UserSubagentRecord } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
 import { useHostCollection } from "../../hooks/use-host-collection";
@@ -44,6 +44,7 @@ const fetchSubagents = async (): Promise<UserSubagentRecord[]> => {
 export function AgentSubagentsPage() {
   const { t } = useTranslation();
   const showToast = useAppStore((state) => state.showToast);
+  const currentProjectPath = useAppStore((state) => state.workspace?.path ?? null);
   const {
     data: subagents,
     setData: setSubagents,
@@ -214,7 +215,17 @@ export function AgentSubagentsPage() {
         name={name}
         off={!subagent.enabled}
         menuOpen={menuFor === subagent.id}
-        badges={<span className="agent-capability-badge">{t("settings.globalOnly")}</span>}
+        badges={
+          <>
+            <span className="agent-capability-badge">{t("settings.globalOnly")}</span>
+            <span className="agent-capability-badge">{t("settings.capabilityLocal")}</span>
+            {isRemoteProjectPath(currentProjectPath) ? (
+              <span className="agent-capability-badge is-failed">
+                {t("settings.capabilityUnavailableRemote")}
+              </span>
+            ) : null}
+          </>
+        }
         description={subagent.description || t("settings.noCapabilityDescription")}
         meta={
           subagent.tools?.length ? (

@@ -10027,6 +10027,23 @@ browser milestones are scheduled.
   `apps/desktop/test/remote-ssh.test.mjs`; full Settings journey remains
   E2E-231 harness work
 
+#### E2E-262: Local-only capabilities disclose remote availability
+
+- **Preconditions**: one remote project is active. One plugin contributes a
+  panel only, and one contributes an agent tool or plugin MCP server.
+- **Steps**: 1) Open Settings → Agent capabilities → Subagents. 2) Open
+  Settings → Plugins. 3) Inspect both installed plugin rows. 4) Switch to a
+  local project and inspect the same rows.
+- **Expected**: Subagent registry rows and every plugin row identify as local.
+  In the remote project, the panel-only plugin remains local without an
+  unavailable warning, while the agent-capability plugin is additionally marked
+  unavailable remotely. Switching back to the local project removes only the
+  remote-unavailable markers.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0234
+- **Acceptance**: A, B, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`
+
 ## Trusted extension scenarios (R7 v1)
 
 The following scenarios are the acceptance targets of D387 / ADR 0214 and

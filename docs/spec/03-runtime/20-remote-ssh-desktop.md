@@ -148,6 +148,14 @@ and resolves model calls locally to the remote process; a Desktop MCP process
 is never a silent substitute. Capability rows label their execution location as
 `Remote: <connection-key>`.
 
+Local-only registries are labeled instead of being misrepresented as remote.
+The Subagents settings page marks its Desktop-local global registry `Local` and
+`Unavailable remotely` while a remote project is active. The Plugins page marks
+every Desktop plugin `Local`; agent tools, plugin Skills, plugin MCP, and
+trusted extensions that have not been explicitly relayed are additionally
+marked `Unavailable remotely`. Panel, view, command, theme, service, and other
+Desktop-shell capabilities remain local without claiming remote availability.
+
 ## 7. Remote providers
 
 Settings shows which selected provider credential will be written to which

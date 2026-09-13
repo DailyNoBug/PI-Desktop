@@ -452,6 +452,11 @@
   color: var(--ds-success);
 }
 
+.plugins-tag.is-warning {
+  background: color-mix(in oklab, var(--ds-warning) 16%, transparent);
+  color: var(--ds-warning);
+}
+
 /* Capabilities, services and permissions are deliberately disclosed on demand. */
 .plugins-row-details {
   margin-top: 2px;

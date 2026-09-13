@@ -169,3 +169,18 @@ test("remote Skills manage the remote registry without local fallback", async ()
   assert.match(renderer, /remoteHost \? \[\] : \[\{/);
   assert.match(main, /revealing remote files locally is unsupported/);
 });
+
+test("local-only agent capabilities identify their remote availability", async () => {
+  const [subagents, plugins, styles] = await Promise.all([
+    read("apps/desktop/src/components/settings/AgentSubagentsPage.tsx"),
+    read("apps/desktop/src/pages/PluginsPage.tsx"),
+    read("apps/desktop/src/styles/plugins.css"),
+  ]);
+  assert.match(subagents, /capabilityLocal/);
+  assert.match(subagents, /capabilityUnavailableRemote/);
+  assert.match(subagents, /isRemoteProjectPath\(currentProjectPath\)/);
+  assert.match(plugins, /AGENT_PLUGIN_CAPABILITIES/);
+  assert.match(plugins, /locationUnavailableRemote/);
+  assert.match(plugins, /isRemoteProjectPath\(currentProjectPath\)/);
+  assert.match(styles, /\.plugins-tag\.is-warning/);
+});

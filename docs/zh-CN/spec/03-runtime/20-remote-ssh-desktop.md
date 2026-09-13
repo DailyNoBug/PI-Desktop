@@ -53,6 +53,12 @@ MCP 列表、创建/编辑、删除、启用/作用域、导入和测试路由�
 远端进程内解析模型调用；Desktop 本地 MCP 进程绝不会静默替代。能力行会标注
 `Remote: <connection-key>` 执行位置。
 
+本地专用注册表会如实标注而不是伪装成远端。远程项目激活时，Subagents 设置页把
+Desktop 本地全局注册表标为 `Local` 与 `Unavailable remotely`。Plugins 页把每个
+Desktop 插件标为 `Local`；未显式中继的 agent 工具、插件 Skills、插件 MCP 和
+trusted extensions 额外标注 `Unavailable remotely`。Panel、view、command、theme、
+service 等 Desktop shell 能力保持本地标注，不声称远端可用。
+
 | 现有 API | 远端路由 |
 |---|---|
 | session list/create/get/fork/configure/rename/delete/compact | 对应 RACP remote-host 操作 |
