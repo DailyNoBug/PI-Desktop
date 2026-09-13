@@ -55,6 +55,7 @@ import { RacpWsClient, type RacpClientEvent } from "@pi-desktop/agent-host";
 import { RemoteStore } from "./remote-store";
 import {
   acceptHostKeys,
+  discardProposedHostKeys,
   disposeTunnel,
   discoverSshAliases,
   effectiveSshConfig,
@@ -62,7 +63,8 @@ import {
   knownHostAccepted,
   readRemoteRuntimeMetadata,
   runSshScript,
-  scanHostKeys,
+  confirmHostKeys,
+  proposeHostKeys,
   sshProbe,
   startSshTunnel,
   SshError,
@@ -1322,20 +1324,25 @@ export class RemoteManager {
     this.setState(id, "resolving");
     const config = await effectiveSshConfig(runtime.connection);
     if (!await knownHostAccepted(config)) {
-      const scanned = await scanHostKeys(config);
-      const accepted = await this.confirmFingerprint({
-        connection: runtime.connection,
-        fingerprints: scanned.fingerprints,
-      });
-      if (!accepted) {
-        this.events.onAudit("ssh.host_key.canceled", { connectionId: id });
-        throw Object.assign(new Error("remote host key was not accepted"), { errorCode: ErrorCodes.SSH_HOST_KEY_FAILED });
+      const proposed = await proposeHostKeys(runtime.connection);
+      try {
+        const accepted = await this.confirmFingerprint({
+          connection: runtime.connection,
+          fingerprints: proposed.fingerprints,
+        });
+        if (!accepted) {
+          this.events.onAudit("ssh.host_key.canceled", { connectionId: id });
+          throw Object.assign(new Error("remote host key was not accepted"), { errorCode: ErrorCodes.SSH_HOST_KEY_FAILED });
+        }
+        const keys = await confirmHostKeys(runtime.connection, proposed);
+        await acceptHostKeys(config, keys);
+        this.events.onAudit("ssh.host_key.accepted", {
+          connectionId: id,
+          fingerprints: proposed.fingerprints,
+        });
+      } finally {
+        discardProposedHostKeys(proposed);
       }
-      await acceptHostKeys(config, scanned.keys);
-      this.events.onAudit("ssh.host_key.accepted", {
-        connectionId: id,
-        fingerprints: scanned.fingerprints,
-      });
     }
 
     this.setState(id, "connecting");

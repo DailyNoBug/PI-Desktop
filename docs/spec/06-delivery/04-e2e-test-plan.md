@@ -10072,7 +10072,9 @@ browser milestones are scheduled.
   one Desktop process while its Host stays online. 8) Repeat a minimal remote
   read/command turn on the WSL target.
 - **Expected**: Effective OpenSSH semantics come from `ssh -G`; no PI-Desktop
-  parser or per-command SSH wrapper replaces them. Non-retryable auth and host
+  parser or per-command SSH wrapper replaces them. First-use host keys are
+  proposed and confirmed through the same OpenSSH transport, including proxied
+  targets. Non-retryable auth and host
   key failures stop immediately. Network sleep/wake, VPN, packet-loss, remote
   reboot, and Desktop restart recover without duplicate prompts, completed
   tools, or duplicate Host runtimes. WSL behaves as a Linux remote Host without

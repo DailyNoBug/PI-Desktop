@@ -60,8 +60,11 @@ Settings owns a **Connections** destination.
    and can be used when the alias is removed.
 4. Authentication is delegated to OpenSSH and the user's agent; PI-Desktop
    stores only paths and non-secret connection fields.
-5. An unknown host key is scanned and fingerprinted, displayed for explicit
-   acceptance, and only then written to the user's `known_hosts`.
+5. An unknown host key is proposed through the same system-OpenSSH connection
+   options (including aliases, `ProxyJump`, and `ProxyCommand`) into a private
+   temporary `known_hosts` file, displayed for explicit acceptance, confirmed
+   with `StrictHostKeyChecking=accept-new`, fingerprint-checked against the
+   proposal, and only then written to the user's real `known_hosts`.
    `StrictHostKeyChecking=no` is never injected.
 6. Connections can be exported and imported as a versioned JSON document. The
    document contains only non-secret connection metadata; device tokens,

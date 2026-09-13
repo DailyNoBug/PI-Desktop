@@ -1,6 +1,6 @@
 import { spawn, execFile } from "node:child_process";
-import { existsSync, appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { createServer } from "node:net";
 import type { ChildProcess } from "node:child_process";
@@ -10,6 +10,7 @@ const SSH_TIMEOUT_MS = 15_000;
 
 export type SshExecutionResult = { code: number; stdout: string; stderr: string };
 export type EffectiveSshConfig = { hostname: string; user?: string; port: number; identityFile?: string };
+export type ProposedHostKeys = { fingerprints: string[]; knownHostsPath: string };
 
 export class SshError extends Error {
   constructor(
@@ -257,20 +258,57 @@ export async function knownHostAccepted(config: EffectiveSshConfig): Promise<boo
   return false;
 }
 
-export async function scanHostKeys(config: EffectiveSshConfig): Promise<{ keys: string[]; fingerprints: string[] }> {
-  const result = await run("ssh-keyscan", ["-T", "5", "-p", String(config.port), config.hostname], { timeoutMs: 10_000 });
-  const keys = result.stdout.split(/\r?\n/).filter((line) => line.trim() && !line.startsWith("#"));
-  if (result.code !== 0 || keys.length === 0) {
-    throw new SshError("SSH_HOST_KEY_FAILED", "could not obtain the remote host key", "connecting", result.code);
-  }
-  const fingerprintResult = await run("ssh-keygen", ["-lf", "-"], { stdin: `${keys.join("\n")}\n`, timeoutMs: 5_000 });
-  if (fingerprintResult.code !== 0) {
-    throw new SshError("SSH_HOST_KEY_FAILED", "could not fingerprint the remote host key", "connecting", fingerprintResult.code);
+export async function proposeHostKeys(connection: RemoteConnection): Promise<ProposedHostKeys> {
+  const directory = mkdtempSync(join(tmpdir(), "pi-desktop-host-key-"));
+  const knownHostsPath = join(directory, "known_hosts");
+  writeFileSync(knownHostsPath, "", { mode: 0o600 });
+  const result = await run(resolveSshExecutable(), [
+    ...commonArgs(connection),
+    "-o", `UserKnownHostsFile=${knownHostsPath}`,
+    "-o", "StrictHostKeyChecking=yes",
+    "true",
+  ], { timeoutMs: 15_000 });
+  const fingerprints = [...new Set(
+    `${result.stderr}\n${result.stdout}`.match(/SHA256:[A-Za-z0-9+/=]+/g) ?? [],
+  )];
+  if (!fingerprints.length) {
+    rmSync(directory, { recursive: true, force: true });
+    throw new SshError("SSH_HOST_KEY_FAILED", "OpenSSH did not disclose a host key fingerprint", "connecting", result.code);
   }
   return {
-    keys,
-    fingerprints: fingerprintResult.stdout.split(/\r?\n/).filter((line) => line.trim()),
+    fingerprints,
+    knownHostsPath,
   };
+}
+
+export async function confirmHostKeys(connection: RemoteConnection, proposed: ProposedHostKeys): Promise<string[]> {
+  const result = await run(resolveSshExecutable(), [
+    ...commonArgs(connection),
+    "-o", `UserKnownHostsFile=${proposed.knownHostsPath}`,
+    "-o", "StrictHostKeyChecking=accept-new",
+    "true",
+  ], { timeoutMs: 15_000 });
+  if (result.code !== 0) {
+    throw new SshError("SSH_HOST_KEY_FAILED", "could not confirm the remote host key", "connecting", result.code);
+  }
+  const keys = readFileSync(proposed.knownHostsPath, "utf8")
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !line.startsWith("#"));
+  const fingerprintResult = await run("ssh-keygen", ["-lf", proposed.knownHostsPath], { timeoutMs: 5_000 });
+  const actual = new Set(fingerprintResult.stdout.match(/SHA256:[A-Za-z0-9+/=]+/g) ?? []);
+  const proposedSet = new Set(proposed.fingerprints);
+  try {
+    if (!keys.length || ![...actual].every((fingerprint) => proposedSet.has(fingerprint))) {
+      throw new SshError("SSH_HOST_KEY_FAILED", "the confirmed host key fingerprint changed", "connecting", result.code);
+    }
+    return keys;
+  } finally {
+    rmSync(dirname(proposed.knownHostsPath), { recursive: true, force: true });
+  }
+}
+
+export function discardProposedHostKeys(proposed: ProposedHostKeys): void {
+  rmSync(dirname(proposed.knownHostsPath), { recursive: true, force: true });
 }
 
 export async function acceptHostKeys(config: EffectiveSshConfig, keys: string[]): Promise<void> {
