@@ -10049,6 +10049,34 @@ browser milestones are scheduled.
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`
 
+#### E2E-263: SSH transport matrices survive real network boundaries
+
+- **Preconditions**: native desktop runners cover macOS arm64/x64, Windows
+  x64, and Linux x64. One target is reachable through a `ProxyJump` bastion,
+  one through `ProxyCommand`, one over VPN, one over LAN with a custom port,
+  one by IPv6 hostname, one through `ControlMaster`, and one WSL sshd. Their
+  OpenSSH configs use `Include`, multiple `IdentityFile` entries, ssh-agent,
+  and an encrypted agent key. A packet-loss fixture and host-reboot fixture
+  are available.
+- **Steps**: 1) Discover and connect through every configuration. 2) Start a
+  remote turn, then induce packet loss long enough for the UI to enter
+  `reconnecting`. 3) Restore the link and verify cursor recovery. 4) Sleep and
+  wake each desktop during a turn. 5) Switch VPN routing during a turn.
+  6) Reboot one remote Host and reconnect after `pi-host` restarts. 7) Restart
+  one Desktop process while its Host stays online. 8) Repeat a minimal remote
+  read/command turn on the WSL target.
+- **Expected**: Effective OpenSSH semantics come from `ssh -G`; no PI-Desktop
+  parser or per-command SSH wrapper replaces them. Non-retryable auth and host
+  key failures stop immediately. Network sleep/wake, VPN, packet-loss, remote
+  reboot, and Desktop restart recover without duplicate prompts, completed
+  tools, or duplicate Host runtimes. WSL behaves as a Linux remote Host without
+  local-path fallback.
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §§3–5 and 10,
+  ADR 0234
+- **Acceptance**: A, Recovery, Security, Quality
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: draft; requires explicit E2E authorization and live SSH targets
+
 ## Trusted extension scenarios (R7 v1)
 
 The following scenarios are the acceptance targets of D387 / ADR 0214 and
