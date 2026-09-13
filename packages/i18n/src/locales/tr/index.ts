@@ -722,6 +722,7 @@ export const tr = {
     subagentsGlobalPath: "Genel alt ajan yolu",
     subagentsOnlyGlobal: "Alt ajanlar yalnızca geneldir. Proje tanımları desteklenmez.",
     capabilityPriority: "Aynı adlı proje yetenekleri, genel yeteneklerden önce gelir.",
+    capabilityRemote: "Uzak: {{host}}",
     capabilityCount: "{{count}} yetenek",
     globalLevel: "Genel",
     globalScopeDescription: "Her projede kullanılabilir",

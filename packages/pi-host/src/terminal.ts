@@ -142,6 +142,12 @@ export class RemoteTerminalManager {
     }
   }
 
+  closeAll(): void {
+    for (const terminal of this.terminals.values()) {
+      if (!terminal.exited) terminal.process.kill();
+    }
+  }
+
   private require(terminalId: string): TerminalRecord {
     const terminal = this.terminals.get(terminalId);
     if (!terminal) {

@@ -597,6 +597,12 @@ session root as working directory and stream through `terminal.output`.
 | `workspace/list` | viewer | List entries under the session root, bounded, honoring the Host ignore rules |
 | `workspace/read` | viewer | Read one bounded file under the session root; images as data URLs |
 | `workspace/diff` | viewer | Return the working-tree diff of the session root |
+| `mcp/list` | owner | List user-owned MCP definitions and live Host connection statuses |
+| `mcp/upsert` | owner | Create or update a user-owned MCP definition on the Host |
+| `mcp/remove` | owner | Remove a user-owned MCP definition from the Host |
+| `mcp/setEnabled` | owner | Enable or disable a user-owned MCP definition |
+| `mcp/setScope` | owner | Change a user-owned MCP definition's activation scope |
+| `mcp/test` | owner | Force an MCP handshake and return its bounded status |
 | `terminal/open` | controller | Open a pty on the Host with the session root as cwd; returns a terminal id and the bounded replay ring; policy-gated (security §4.1) |
 | `terminal/input` | controller | Write bytes to an open terminal |
 | `terminal/resize` | controller | Resize an open terminal |

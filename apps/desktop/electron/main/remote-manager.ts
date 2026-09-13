@@ -8,6 +8,9 @@ import type {
   AskToolResolution,
   FsEntry,
   FsReadResult,
+  McpServerInput,
+  McpServerRecord,
+  McpServerStatus,
   PlanProposal,
   ProjectWorkspace,
   QueuedTurnSummary,
@@ -867,6 +870,111 @@ export class RemoteManager {
     if (result.code !== 0) throw classifySsh(result);
     this.events.onAudit("remote.provider.deleted", { connectionId, providerId });
     return { deleted: true };
+  }
+
+  remoteProjectContext(projectPath: string | null | undefined): {
+    connectionId: string;
+    connectionKey: string;
+    remotePath: string;
+  } | null {
+    if (!projectPath || !isRemoteProjectPath(projectPath)) return null;
+    const parsed = parseRemoteProjectUri(projectPath);
+    const connection = parsed ? this.connectionForKey(parsed.connectionKey) : undefined;
+    if (!connection || !parsed) return null;
+    return {
+      connectionId: connection.id,
+      connectionKey: parsed.connectionKey,
+      remotePath: parsed.remotePath,
+    };
+  }
+
+  async listMcp(query: {
+    level: "global" | "project";
+    projectPath?: string;
+  }): Promise<{ servers: McpServerRecord[]; statuses: McpServerStatus[] }> {
+    const target = this.remoteProjectContext(query.projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    return this.request(runtime, "mcp/list", {
+      level: query.level,
+      ...(query.level === "project" || target.remotePath ? { projectPath: target.remotePath } : {}),
+    });
+  }
+
+  async upsertMcp(server: McpServerInput, projectPath?: string): Promise<{ server: McpServerRecord }> {
+    const target = this.remoteProjectContext(projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    const result = await this.request<{ server: McpServerRecord }>(runtime, "mcp/upsert", {
+      server: {
+        ...server,
+        ...(server.projectPath ? { projectPath: target.remotePath } : {}),
+      },
+      ...(server.level === "project" || projectPath ? { projectPath: target.remotePath } : {}),
+    });
+    this.events.onAudit("remote.mcp.upserted", { connectionId: target.connectionId, serverId: server.id });
+    return result;
+  }
+
+  async removeMcp(
+    id: string,
+    query: { level: "global" | "project"; projectPath?: string },
+  ): Promise<{ ok?: boolean }> {
+    const target = this.remoteProjectContext(query.projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    const result = await this.request<{ ok?: boolean }>(runtime, "mcp/remove", {
+      id,
+      level: query.level,
+      ...(query.level === "project" || target.remotePath ? { projectPath: target.remotePath } : {}),
+    });
+    this.events.onAudit("remote.mcp.removed", { connectionId: target.connectionId, serverId: id });
+    return result;
+  }
+
+  async setMcpEnabled(
+    id: string,
+    enabled: boolean,
+    query: { level: "global" | "project"; projectPath?: string },
+  ): Promise<{ server: McpServerRecord }> {
+    const target = this.remoteProjectContext(query.projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    return this.request(runtime, "mcp/setEnabled", {
+      id,
+      enabled,
+      level: query.level,
+      ...(query.level === "project" || target.remotePath ? { projectPath: target.remotePath } : {}),
+    });
+  }
+
+  async setMcpScope(
+    id: string,
+    scope: Record<string, unknown>,
+    query: { level: "global" | "project"; projectPath?: string },
+  ): Promise<{ server: McpServerRecord }> {
+    const target = this.remoteProjectContext(query.projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    return this.request(runtime, "mcp/setScope", {
+      id,
+      scope,
+      ...(target.remotePath ? { projectPath: target.remotePath } : {}),
+    });
+  }
+
+  async testMcp(
+    id: string,
+    query: { level: "global" | "project"; projectPath?: string },
+  ): Promise<{ status: McpServerStatus }> {
+    const target = this.remoteProjectContext(query.projectPath);
+    if (!target) throw Object.assign(new Error("a remote project is required"), { errorCode: ErrorCodes.UNSUPPORTED });
+    const runtime = await this.requireConnected(target.connectionId);
+    return this.request(runtime, "mcp/test", {
+      id,
+      level: query.level,
+      ...(query.level === "project" || target.remotePath ? { projectPath: target.remotePath } : {}),
+    });
   }
 
   private async connectInternal(runtime: RemoteRuntime): Promise<void> {

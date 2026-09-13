@@ -9978,6 +9978,29 @@ browser milestones are scheduled.
   `apps/desktop/test/deep-link.test.mjs`; packaged scheme journey remains
   release qualification
 
+#### E2E-260: Remote MCP runs on the owning Host
+
+- **Preconditions**: `gpu-server` is connected and remote project
+  `/home/dev/project` is active. The Host can execute a configured stdio MCP
+  command that lists one `echo` tool.
+- **Steps**: 1) Open Settings → Agent capabilities → MCP while the remote
+  project is selected. 2) Add the MCP server. 3) Test the connection.
+  4) Start a remote session and call `mcp_<server>_echo`. 5) Disable and delete
+  the server.
+- **Expected**: Rows are labeled `Remote: gpu-server`. Listing, import, edit,
+  test, enable, scope, and delete operate against the remote Host. Tool
+  discovery and execution occur in the remote MCP process with the remote
+  project path; disabling removes the model-facing tool, and no local MCP
+  process is started as a fallback.
+- **Specs linked**:
+  `03-runtime/19-remote-agent-control-protocol.md` §6.2,
+  `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0234
+- **Acceptance**: A, B, Security
+- **Milestone**: Post-MVP (rollout R2)
+- **Status**: remote process contract covered by
+  `packages/pi-host/src/mcp.test.ts`; full Settings journey remains E2E-231
+  harness work
+
 ## Trusted extension scenarios (R7 v1)
 
 The following scenarios are the acceptance targets of D387 / ADR 0214 and

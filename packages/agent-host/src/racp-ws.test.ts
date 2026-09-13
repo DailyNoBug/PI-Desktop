@@ -86,6 +86,24 @@ const profile: RacpRemoteProfile = {
   async diffWorkspace() {
     return { repo: false, clean: true, files: [] };
   },
+  async listMcp() {
+    return { servers: [], statuses: [] };
+  },
+  async upsertMcp() {
+    throw new Error("unused");
+  },
+  async removeMcp() {
+    return { ok: false };
+  },
+  async setMcpEnabled() {
+    throw new Error("unused");
+  },
+  async setMcpScope() {
+    throw new Error("unused");
+  },
+  async testMcp() {
+    throw new Error("unused");
+  },
   async openTerminal() {
     return { terminalId: "term_1", replay: Buffer.alloc(0).toString("base64") };
   },

@@ -85,3 +85,31 @@ test("connection metadata is durable but token material is not serialized", asyn
   assert.match(store, /RemoteProjectRecord/);
   assert.doesNotMatch(store, /deviceToken|pairingToken/);
 });
+
+test("remote MCP management and execution stay on the remote Host", async () => {
+  const [manager, main, piHost, renderer] = await Promise.all([
+    read("apps/desktop/electron/main/remote-manager.ts"),
+    read("apps/desktop/electron/main/index.ts"),
+    read("packages/pi-host/src/pi-host.ts"),
+    read("apps/desktop/src/components/settings/AgentMcpPage.tsx"),
+  ]);
+  for (const operation of [
+    "mcp/list",
+    "mcp/upsert",
+    "mcp/remove",
+    "mcp/setEnabled",
+    "mcp/setScope",
+    "mcp/test",
+  ]) {
+    assert.match(manager, new RegExp(`"${operation}"`));
+  }
+  assert.match(main, /function remoteMcpContext/);
+  for (const method of ["listMcp", "upsertMcp", "removeMcp", "testMcp"]) {
+    assert.match(main, new RegExp(`remoteManager\\.${method}\\(`));
+  }
+  assert.match(piHost, /new RemoteMcpRuntime/);
+  assert.match(piHost, /this\.mcp\.toolsForProject\(projectPath\)/);
+  assert.match(piHost, /this\.mcp\.callTool\(request\.toolName/);
+  assert.match(piHost, /plugins\.resolveExecution/);
+  assert.match(renderer, /capabilityRemote/);
+});

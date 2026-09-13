@@ -41,6 +41,12 @@ Renderer 继续调用 `lib/api.ts`，没有 SSH、child process、key 或 token 
 
 远程项目 prompt 从远端 Host 自己的 `~/.agents` 与 `<workspace>/.agents` 注册表解析启用的全局/项目 Skills。模型目录只含 id、名称和描述；`Skill` 调用由远端 Host 通过 `skills.read` 应答，因此技能文档与执行都留在该 Host。Plan 模式与本地 runtime 一样拒绝 Skill 工具。
 
+用户自有 MCP server 遵循同一规则。Settings 会通过 owner-only RACP 操作，把
+MCP 列表、创建/编辑、删除、启用/作用域、导入和测试路由到选中的远程项目。
+`pi-host` 在该 Host 上启动 stdio 进程（或访问其 HTTP endpoint）、发现工具，并在
+远端进程内解析模型调用；Desktop 本地 MCP 进程绝不会静默替代。能力行会标注
+`Remote: <connection-key>` 执行位置。
+
 | 现有 API | 远端路由 |
 |---|---|
 | session list/create/get/fork/configure/rename/delete/compact | 对应 RACP remote-host 操作 |

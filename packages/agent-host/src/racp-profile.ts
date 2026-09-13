@@ -1,6 +1,8 @@
 import type {
   FsEntry,
   FsReadResult,
+  McpServerRecord,
+  McpServerStatus,
   RacpProjectSummary,
   RacpSession,
   RemoteDirectoryResult,
@@ -38,6 +40,12 @@ export interface RacpRemoteProfile {
   listWorkspace(params: Record<string, unknown>): Promise<{ entries: FsEntry[] }>;
   readWorkspace(params: Record<string, unknown>): Promise<FsReadResult>;
   diffWorkspace(params: Record<string, unknown>): Promise<WorkspaceDiff>;
+  listMcp(params: Record<string, unknown>): Promise<{ servers: McpServerRecord[]; statuses: McpServerStatus[] }>;
+  upsertMcp(params: Record<string, unknown>): Promise<{ server: McpServerRecord }>;
+  removeMcp(params: Record<string, unknown>): Promise<{ ok?: boolean }>;
+  setMcpEnabled(params: Record<string, unknown>): Promise<{ server: McpServerRecord }>;
+  setMcpScope(params: Record<string, unknown>): Promise<{ server: McpServerRecord }>;
+  testMcp(params: Record<string, unknown>): Promise<{ status: McpServerStatus }>;
   advertiseTools?(tools: RacpRelayTool[]): Promise<{ accepted: RacpRelayTool[]; rejected: Array<{ name: string; reason: string }> }>;
   openTerminal?(params: Record<string, unknown>): Promise<RacpTerminalSnapshot>;
   writeTerminal?(params: Record<string, unknown>): Promise<void>;

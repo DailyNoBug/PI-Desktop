@@ -307,6 +307,7 @@ async function run(): Promise<void> {
       await server.close();
       unsubscribeHost();
       unsubscribeSidecar();
+      service.dispose();
       await sidecar.dispose();
       await host.dispose();
       process.exit(0);

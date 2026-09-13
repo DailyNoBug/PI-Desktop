@@ -5,6 +5,8 @@ import {
   type AgentCapabilityLevel,
   type McpServerRecord,
   type McpServerStatus,
+  isRemoteProjectPath,
+  parseRemoteProjectUri,
 } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
@@ -279,6 +281,10 @@ export function AgentMcpPage() {
       (selectedProjectPath ? projectDisplayName(selectedProjectPath) : undefined),
     [options, selectedProjectPath],
   );
+  const remoteHost = useMemo(
+    () => (isRemoteProjectPath(selectedProjectPath) ? parseRemoteProjectUri(selectedProjectPath)?.connectionKey : undefined),
+    [selectedProjectPath],
+  );
 
   const renderRow = (server: McpServerRecord, level: AgentCapabilityLevel) => {
     const key = rowKey(level, server.id);
@@ -334,6 +340,11 @@ export function AgentMcpPage() {
                 ? t("settings.transportHttp")
                 : t("settings.transportStdio")}
             </span>
+            {remoteHost ? (
+              <span className="agent-capability-badge is-status">
+                {t("settings.capabilityRemote", { host: remoteHost })}
+              </span>
+            ) : null}
             {status && status.state !== "idle" ? (
               <span className={cx("agent-capability-badge", "is-status", `is-${status.state}`)}>
                 <span className="agent-capability-status-dot" aria-hidden="true" />

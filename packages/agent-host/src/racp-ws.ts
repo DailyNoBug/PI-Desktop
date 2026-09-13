@@ -382,6 +382,18 @@ export class RacpWsServer {
         return this.options.profile.readWorkspace(params);
       case "workspace/diff":
         return this.options.profile.diffWorkspace(params);
+      case "mcp/list":
+        return this.options.profile.listMcp(params);
+      case "mcp/upsert":
+        return this.options.profile.upsertMcp(params);
+      case "mcp/remove":
+        return this.options.profile.removeMcp(params);
+      case "mcp/setEnabled":
+        return this.options.profile.setMcpEnabled(params);
+      case "mcp/setScope":
+        return this.options.profile.setMcpScope(params);
+      case "mcp/test":
+        return this.options.profile.testMcp(params);
       case "terminal/open":
       case "terminal/input":
       case "terminal/resize":

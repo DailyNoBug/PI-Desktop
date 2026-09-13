@@ -722,6 +722,7 @@ export const ko = {
     subagentsGlobalPath: "전역 서브에이전트 경로",
     subagentsOnlyGlobal: "서브에이전트는 전역 전용입니다. 프로젝트 정의는 지원되지 않습니다.",
     capabilityPriority: "같은 이름의 경우 프로젝트 기능이 전역 기능보다 우선합니다.",
+    capabilityRemote: "원격: {{host}}",
     capabilityCount: "기능 {{count}}개",
     globalLevel: "전역",
     globalScopeDescription: "모든 프로젝트에서 사용 가능",

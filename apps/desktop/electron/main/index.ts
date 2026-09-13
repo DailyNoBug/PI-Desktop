@@ -1388,6 +1388,17 @@ function currentWorkspacePath(): string | null {
   return (globalThis as { __piWorkspacePath?: string | null }).__piWorkspacePath ?? null;
 }
 
+function remoteMcpContext(query: { projectPath?: string } = {}): {
+  connectionId: string;
+  connectionKey: string;
+  remotePath: string;
+  canonicalProjectPath: string;
+} | null {
+  const projectPath = query.projectPath ?? currentWorkspacePath();
+  const context = remoteManager?.remoteProjectContext(projectPath);
+  return context && projectPath ? { ...context, canonicalProjectPath: projectPath } : null;
+}
+
 function requiredId(value: unknown, field: string): string {
   const id = typeof value === "string" ? value.trim() : "";
   if (!id) throw Object.assign(new Error(`${field} is required`), { errorCode: ErrorCodes.INVALID_ARGUMENT });
@@ -9167,6 +9178,17 @@ function registerIpc() {
   // mutation is followed by a refresh that drops stale ones.
 
   handle(IPC.invoke.mcpList, async (query: Partial<AgentCapabilityQuery> = {}) => {
+    const remoteTarget = remoteMcpContext(query);
+    if (remoteTarget) {
+      if (!remoteManager) throw new Error("remote manager unavailable");
+      if (query.level !== "global" && query.level !== "project") {
+        throw Object.assign(new Error("capability level is required"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+      }
+      return remoteManager.listMcp({
+        level: query.level,
+        projectPath: remoteTarget.canonicalProjectPath,
+      });
+    }
     if (!host) throw new Error("host unavailable");
     const result = await host.call<{ servers: McpServerRecord[]; statuses?: McpServerStatus[] }>(
       "mcp.list",
@@ -9179,6 +9201,16 @@ function registerIpc() {
   });
 
   handle(IPC.invoke.mcpUpsert, async (server: McpServerInput) => {
+    const requestedProjectPath = server.projectPath ?? currentWorkspacePath() ?? undefined;
+    const remoteTarget = remoteMcpContext({
+      projectPath: requestedProjectPath,
+    });
+    if (remoteTarget) {
+      if (!remoteManager) throw new Error("remote manager unavailable");
+      const res = await remoteManager.upsertMcp(server, requestedProjectPath);
+      sendToRenderer(IPC.event.pluginChanged, { reason: "mcp", pluginId: res.server?.id });
+      return res;
+    }
     if (!host) throw new Error("host unavailable");
     const res = await host.call<{ server: McpServerRecord }>("mcp.upsert", { server });
     await refreshUserMcp(currentWorkspacePath());
@@ -9189,6 +9221,19 @@ function registerIpc() {
   handle(
     IPC.invoke.mcpRemove,
     async (payload: { id: string } & Partial<AgentCapabilityQuery>) => {
+      const remoteTarget = remoteMcpContext(payload);
+      if (remoteTarget) {
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        if (payload.level !== "global" && payload.level !== "project") {
+          throw Object.assign(new Error("capability level is required"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+        }
+        const res = await remoteManager.removeMcp(payload.id, {
+          level: payload.level,
+          projectPath: remoteTarget.canonicalProjectPath,
+        });
+        sendToRenderer(IPC.event.pluginChanged, { reason: "mcp", pluginId: payload.id });
+        return res;
+      }
       if (!host) throw new Error("host unavailable");
       const res = await host.call("mcp.remove", payload);
       await refreshUserMcp(currentWorkspacePath());
@@ -9200,6 +9245,19 @@ function registerIpc() {
   handle(
     IPC.invoke.mcpSetEnabled,
     async (payload: { id: string; enabled: boolean } & Partial<AgentCapabilityQuery>) => {
+      const remoteTarget = remoteMcpContext(payload);
+      if (remoteTarget) {
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        if (payload.level !== "global" && payload.level !== "project") {
+          throw Object.assign(new Error("capability level is required"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+        }
+        const res = await remoteManager.setMcpEnabled(payload.id, payload.enabled, {
+          level: payload.level,
+          projectPath: remoteTarget.canonicalProjectPath,
+        });
+        sendToRenderer(IPC.event.pluginChanged, { reason: "mcp", pluginId: payload.id });
+        return res;
+      }
       if (!host) throw new Error("host unavailable");
       const res = await host.call("mcp.setEnabled", payload);
       await refreshUserMcp(currentWorkspacePath());
@@ -9211,6 +9269,17 @@ function registerIpc() {
   handle(
     IPC.invoke.mcpSetScope,
     async (payload: { id: string; scope: ActivationScope }) => {
+      const remoteTarget = remoteMcpContext();
+      if (remoteTarget) {
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        const res = await remoteManager.setMcpScope(
+          payload.id,
+          payload.scope as unknown as Record<string, unknown>,
+          { level: "global", projectPath: currentWorkspacePath() ?? undefined },
+        );
+        sendToRenderer(IPC.event.pluginChanged, { reason: "mcp", pluginId: payload.id });
+        return res;
+      }
       if (!host) throw new Error("host unavailable");
       const res = await host.call("mcp.setScope", payload);
       await refreshUserMcp(currentWorkspacePath());
@@ -9222,6 +9291,17 @@ function registerIpc() {
   handle(
     IPC.invoke.mcpTest,
     async (payload: { id: string } & Partial<AgentCapabilityQuery>) => {
+      const remoteTarget = remoteMcpContext(payload);
+      if (remoteTarget) {
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        if (payload.level !== "global" && payload.level !== "project") {
+          throw Object.assign(new Error("capability level is required"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+        }
+        return remoteManager.testMcp(payload.id, {
+          level: payload.level,
+          projectPath: remoteTarget.canonicalProjectPath,
+        });
+      }
       if (!host) throw new Error("host unavailable");
       const query = {
         ...(payload.level ? { level: payload.level } : {}),
@@ -9247,6 +9327,26 @@ function registerIpc() {
    * single bad entry costs that entry rather than the whole paste.
    */
   handle(IPC.invoke.mcpImport, async (payload: { text: string }) => {
+    const remoteTarget = remoteMcpContext();
+    if (remoteTarget) {
+      if (!remoteManager) throw new Error("remote manager unavailable");
+      const parsed = parseMcpImport(String(payload?.text ?? ""));
+      const imported: McpServerRecord[] = [];
+      const failed = [...parsed.skipped];
+      const projectPath = currentWorkspacePath() ?? undefined;
+      for (const server of parsed.servers) {
+        try {
+          const res = await remoteManager.upsertMcp(server, projectPath);
+          imported.push(res.server);
+        } catch (error) {
+          failed.push({ id: server.id, reason: describeError(error) });
+        }
+      }
+      if (imported.length) {
+        sendToRenderer(IPC.event.pluginChanged, { reason: "mcp" });
+      }
+      return { imported, failed };
+    }
     if (!host) throw new Error("host unavailable");
     const parsed = parseMcpImport(String(payload?.text ?? ""));
     const imported: McpServerRecord[] = [];

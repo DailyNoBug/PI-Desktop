@@ -718,6 +718,7 @@ export const zhTW = {
     subagentsGlobalPath: "全域性子智慧體路徑",
     subagentsOnlyGlobal: "子智慧體僅支援全域性級，暫不支援專案級定義。",
     capabilityPriority: "同名能力遵循專案級優先於全域性級。",
+    capabilityRemote: "遠端：{{host}}",
     capabilityCount: "{{count}} 項能力",
     globalLevel: "全域性級",
     globalScopeDescription: "所有專案均可用",

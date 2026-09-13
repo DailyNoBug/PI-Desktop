@@ -712,6 +712,7 @@ export const de = {
     "subagentsGlobalPath": "Globaler Subagentenpfad",
     "subagentsOnlyGlobal": "Subagenten sind nur global. Projektdefinitionen werden nicht unterstützt.",
     "capabilityPriority": "Projektfunktionen haben Vorrang vor globalen Funktionen mit demselben Namen.",
+    "capabilityRemote": "Remote: {{host}}",
     "capabilityCount": "{{count}} Funktionen",
     "globalLevel": "Global",
     "globalScopeDescription": "Verfügbar in jedem Projekt",

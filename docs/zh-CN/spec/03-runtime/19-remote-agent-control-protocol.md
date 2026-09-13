@@ -210,6 +210,12 @@ owner，工作区读取都按会话持久根、Host 忽略规则和 `PATH_OUTSID
 | `workspace/list` | viewer | 有界列出会话根下的条目，遵守 Host 忽略规则 |
 | `workspace/read` | viewer | 读取会话根下的一个有界文件，图片以 data URL 返回 |
 | `workspace/diff` | viewer | 返回会话根的工作树 diff |
+| `mcp/list` | owner | 列出用户自有 MCP 定义与 Host 上的实时连接状态 |
+| `mcp/upsert` | owner | 在 Host 上创建或更新用户自有 MCP 定义 |
+| `mcp/remove` | owner | 从 Host 删除用户自有 MCP 定义 |
+| `mcp/setEnabled` | owner | 启用或停用用户自有 MCP 定义 |
+| `mcp/setScope` | owner | 修改用户自有 MCP 定义的激活作用域 |
+| `mcp/test` | owner | 强制 MCP 握手并返回有界状态 |
 | `terminal/open` | controller | 在 Host 上以会话根为 cwd 打开 pty；返回终端 id 与有界回放环；受策略限制 |
 | `terminal/input` | controller | 向已打开终端写入字节 |
 | `terminal/resize` | controller | 调整已打开终端尺寸 |

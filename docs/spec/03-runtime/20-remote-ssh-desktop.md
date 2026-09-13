@@ -126,6 +126,14 @@ catalog contains ids, names, and descriptions only; a `Skill` call is answered
 by the remote Host with `skills.read`, so skill bodies and execution remain on
 that Host. Plan mode rejects the Skill tool exactly as the local runtime does.
 
+The same rule applies to user-owned MCP servers. Settings routes MCP list,
+create/edit, delete, enable/scope, import, and test calls to the selected
+remote project through owner-only RACP operations. `pi-host` starts stdio
+processes on that Host (or opens its HTTP endpoints), discovers their tools,
+and resolves model calls locally to the remote process; a Desktop MCP process
+is never a silent substitute. Capability rows label their execution location as
+`Remote: <connection-key>`.
+
 ## 7. Remote providers
 
 Settings shows which selected provider credential will be written to which

@@ -6,6 +6,9 @@ import type {
   PlanProposal,
   PlanningStateEvent,
   FsReadResult,
+  McpServerInput,
+  McpServerRecord,
+  McpServerStatus,
   RacpProjectSummary,
   RacpSession,
   RacpSessionMode,
@@ -31,6 +34,7 @@ import {
   modelConfigWithBinding,
   optionalProviderHeaders,
   visionFromModelConfig,
+  type PluginToolDef,
   type PluginSkillDef,
 } from "@pi-desktop/agent-runtime";
 import {
@@ -49,6 +53,7 @@ import {
   type TurnStartRequest,
 } from "@pi-desktop/agent-host";
 import type { RpcProcess } from "./rpc-process.js";
+import { RemoteMcpRuntime } from "./mcp.js";
 import { RemoteTerminalManager } from "./terminal.js";
 import {
   browseRemotePath,
@@ -111,6 +116,7 @@ export class PiHostService {
   private readonly persistedMessages = new Set<string>();
   private readonly queueStore: QueueStore;
   private readonly terminals: RemoteTerminalManager;
+  private readonly mcp = new RemoteMcpRuntime();
 
   constructor(
     private readonly host: RpcProcess,
@@ -151,6 +157,12 @@ export class PiHostService {
       dataDir: this.dataDir,
     });
     await this.agentHost.start();
+    await this.refreshMcpRecords();
+  }
+
+  dispose(): void {
+    this.terminals.closeAll();
+    this.mcp.disposeAll();
   }
 
   async executeSkill(input: {
@@ -279,6 +291,42 @@ export class PiHostService {
         const session = await this.getSession(requiredString(params.sessionId, "sessionId"));
         return collectSessionDiff(requiredRoot(session));
       },
+      listMcp: async (params) => {
+        const result = await this.host.call<{ servers?: McpServerRecord[] }>("mcp.list", params);
+        const servers = result.servers ?? [];
+        this.mcp.mergeRecords(servers);
+        return {
+          servers,
+          statuses: servers.map((server) => this.mcp.statusFor(server.id)),
+        };
+      },
+      upsertMcp: async (params) => {
+        const result = await this.host.call<{ server: McpServerRecord }>("mcp.upsert", params);
+        await this.refreshMcpRecords();
+        return result;
+      },
+      removeMcp: async (params) => {
+        const result = await this.host.call<{ ok?: boolean }>("mcp.remove", params);
+        await this.refreshMcpRecords();
+        return result;
+      },
+      setMcpEnabled: async (params) => {
+        const result = await this.host.call<{ server: McpServerRecord }>("mcp.setEnabled", params);
+        await this.refreshMcpRecords();
+        return result;
+      },
+      setMcpScope: async (params) => {
+        const result = await this.host.call<{ server: McpServerRecord }>("mcp.setScope", params);
+        await this.refreshMcpRecords();
+        return result;
+      },
+      testMcp: async (params) => {
+        const listed = await this.host.call<{ servers?: McpServerRecord[] }>("mcp.list", params);
+        const server = (listed.servers ?? []).find((entry) => entry.id === params.id);
+        if (!server) throw new RacpError("NOT_FOUND", "remote MCP server not found");
+        this.mcp.mergeRecords([server]);
+        return { status: await this.mcp.test(server.id) };
+      },
       advertiseTools: async (tools: RacpRelayTool[]) => {
         const rejected = tools
           .filter((tool) => tool.requiresWorkspace)
@@ -334,6 +382,15 @@ export class PiHostService {
     }
     if (method === "plans.changed") {
       await this.syncPlanningState(String((params as { sessionId?: unknown }).sessionId ?? ""));
+    }
+    if (method === "plugins.execute") {
+      await this.executeMcpTool(params as {
+        executionId: string;
+        sessionId?: string;
+        toolCallId?: string;
+        toolName?: string;
+        args?: unknown;
+      });
     }
   }
 
@@ -541,14 +598,19 @@ export class PiHostService {
     if (!shell?.available) throw new RacpError("REMOTE_SHELL_UNAVAILABLE", "no remote command shell is available");
     const projectPath = session.projectPath?.trim() || undefined;
     this.sessionProjects.set(session.id, projectPath ?? null);
-    const [projectInstructions, subagents, activeSkills] = await Promise.all([
+    const [projectInstructions, subagents, activeSkills, activeMcp] = await Promise.all([
       loadInstructionChain(projectPath ?? null),
       loadSubagentDefinitions(projectPath ?? null),
       this.host.call<{ skills?: Array<{ id: string; name: string; description?: string }> }>(
         "skills.active",
         { ...(projectPath ? { projectPath } : {}) },
       ),
+      this.host.call<{ servers?: McpServerRecord[] }>("mcp.active", {
+        projectPath: projectPath ?? null,
+      }),
     ]);
+    this.mcp.mergeRecords(activeMcp.servers ?? []);
+    const mcpTools = await this.mcp.toolsForProject(projectPath);
     const effectivePermission = permissionOverride ?? permissionMode(
       isGlobalPermissionMode(session.permissionMode) ? session.permissionMode : settings.defaultPermissionMode,
     );
@@ -572,6 +634,12 @@ export class PiHostService {
         name: skill.name,
         ...(skill.description ? { description: skill.description } : {}),
       })) satisfies PluginSkillDef[],
+      pluginTools: mcpTools.map((tool) => ({
+        name: tool.fullName,
+        description: tool.description,
+        parameters: tool.schema ?? { type: "object", properties: {} },
+        risk: "medium" as const,
+      })) satisfies PluginToolDef[],
       provider: {
           id: provider.id,
           name: provider.name,
@@ -589,6 +657,56 @@ export class PiHostService {
         },
       },
     };
+  }
+
+  private async executeMcpTool(request: {
+    executionId: string;
+    sessionId?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: unknown;
+  }): Promise<void> {
+    let payload: Record<string, unknown>;
+    try {
+      if (!request.sessionId || typeof request.toolName !== "string") {
+        throw new RacpError("INVALID_ARGUMENT", "remote MCP execution is malformed");
+      }
+      const session = await this.getSession(request.sessionId);
+      const result = await this.mcp.callTool(request.toolName, request.args, session.projectPath ?? null);
+      payload = {
+        executionId: request.executionId,
+        ok: true,
+        content: result ?? null,
+      };
+    } catch (error) {
+      payload = {
+        executionId: request.executionId,
+        ok: false,
+        errorCode: (error as { code?: string; errorCode?: string }).errorCode ??
+          (error as { code?: string }).code ?? "TOOL_FAILED",
+        content: { error: error instanceof Error ? error.message : String(error) },
+      };
+    }
+    await this.host.call("plugins.resolveExecution", payload).catch(() => undefined);
+  }
+
+  private async refreshMcpRecords(): Promise<void> {
+    const [global, projects] = await Promise.all([
+      this.host.call<{ servers?: McpServerRecord[] }>("mcp.list", { level: "global" }),
+      this.projectIndex(),
+    ]);
+    const projectLists = await Promise.all(
+      [...projects.values()].map((projectPath) =>
+        this.host.call<{ servers?: McpServerRecord[] }>("mcp.list", {
+          level: "project",
+          projectPath,
+        }).catch(() => ({ servers: [] as McpServerRecord[] })),
+      ),
+    );
+    this.mcp.setRecords([
+      ...(global.servers ?? []),
+      ...projectLists.flatMap((result) => result.servers ?? []),
+    ]);
   }
 
   private async handleAgentEvent(envelope: AgentEventEnvelope): Promise<void> {
