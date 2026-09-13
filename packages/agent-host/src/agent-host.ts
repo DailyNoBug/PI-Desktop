@@ -85,7 +85,13 @@ export type StartTurnParams = {
   sessionId: string;
   idempotencyKey?: string;
   admission?: RacpTurnAdmission;
-  input: { text: string; attachments?: AgentPromptAttachment[] };
+  input: {
+    text: string;
+    attachments?: AgentPromptAttachment[];
+    truncateFromMessageId?: string;
+    truncateBefore?: number;
+    messageId?: string;
+  };
   context: RacpRequestContext;
 };
 
@@ -475,6 +481,9 @@ export class AgentHost {
         sessionId: state.id,
         content: params.input.text,
         ...(params.input.attachments ? { attachments: params.input.attachments } : {}),
+        ...(params.input.truncateFromMessageId ? { truncateFromMessageId: params.input.truncateFromMessageId } : {}),
+        ...(params.input.truncateBefore !== undefined ? { truncateBefore: params.input.truncateBefore } : {}),
+        ...(params.input.messageId ? { messageId: params.input.messageId } : {}),
         effectivePermissionMode,
         ...(idempotencyKey ? { idempotencyKey } : {}),
         principal,

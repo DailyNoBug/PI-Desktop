@@ -703,7 +703,57 @@ export class RemoteManager {
     return this.request(runtime, "session/compact", { sessionId });
   }
 
-  async prompt(sessionId: string, content: string, attachments?: AgentPromptAttachment[]): Promise<{ accepted: boolean; turnId: string }> {
+  async saveRevision(input: {
+    sessionId: string;
+    rootUserId: string;
+    messages: unknown[];
+    makeActive?: boolean;
+  }): Promise<{ revision: unknown }> {
+    const runtime = this.runtimeForSession(input.sessionId);
+    if (!runtime) throw new Error("session is not remote");
+    return this.request(runtime, "session/revision/save", {
+      sessionId: input.sessionId,
+      rootUserId: input.rootUserId,
+      messages: input.messages,
+      makeActive: input.makeActive === true,
+    });
+  }
+
+  async listRevisions(sessionId: string, rootUserId: string): Promise<{ revisions: unknown[] }> {
+    const runtime = this.runtimeForSession(sessionId);
+    if (!runtime) throw new Error("session is not remote");
+    return this.request(runtime, "session/revision/list", {
+      sessionId,
+      rootUserId,
+    });
+  }
+
+  async activateRevision(input: {
+    sessionId: string;
+    rootUserId: string;
+    revisionIndex: number;
+    prefix?: unknown[];
+  }): Promise<{ messages: unknown[] }> {
+    const runtime = this.runtimeForSession(input.sessionId);
+    if (!runtime) throw new Error("session is not remote");
+    return this.request(runtime, "session/revision/activate", {
+      sessionId: input.sessionId,
+      rootUserId: input.rootUserId,
+      revisionIndex: input.revisionIndex,
+      prefix: input.prefix ?? [],
+    });
+  }
+
+  async prompt(
+    sessionId: string,
+    content: string,
+    attachments?: AgentPromptAttachment[],
+    regenerate?: {
+      truncateFromMessageId?: string;
+      truncateBefore?: number;
+      messageId?: string;
+    },
+  ): Promise<{ accepted: boolean; turnId: string }> {
     const runtime = this.runtimeForSession(sessionId);
     if (!runtime) throw new Error("session is not remote");
     const result = await this.request<{ accepted: boolean; turn: { id: string } }>(runtime, "turn/start", {
@@ -711,6 +761,9 @@ export class RemoteManager {
       input: {
         text: content,
         ...(attachments?.length ? { attachments } : {}),
+        ...(regenerate?.truncateFromMessageId ? { truncateFromMessageId: regenerate.truncateFromMessageId } : {}),
+        ...(regenerate?.truncateBefore !== undefined ? { truncateBefore: regenerate.truncateBefore } : {}),
+        ...(regenerate?.messageId ? { messageId: regenerate.messageId } : {}),
       },
       context: {
         requestId: `desktop-${sessionId}-${Date.now().toString(36)}`,

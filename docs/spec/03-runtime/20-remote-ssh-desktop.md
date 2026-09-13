@@ -117,7 +117,7 @@ project path:
 | Existing API | Remote route |
 |---|---|
 | session list/create/get/fork/configure/rename/delete/compact | corresponding RACP remote-host operation |
-| prompt, stop, abort, status, queue | `turn/start`, `turn/stop`, `turn/interrupt`, snapshot, queue operations |
+| prompt, regenerate, stop, abort, status, queue | `turn/start` (including host-owned truncation), `turn/stop`, `turn/interrupt`, revision operations, snapshot, queue operations |
 | tool permission and AskTool resolution | `approval/respond`, `input/respond` |
 | Plan/Goal pending and resolve | remote approval request and response |
 | Files list/read/index and Review diff | `workspace/list`, `workspace/read`, `workspace/diff` |

@@ -193,3 +193,25 @@ test("remote project picker offers recent paths from durable records", async () 
   assert.match(renderer, /lastOpenedAt/);
   assert.match(renderer, /remote-recent-paths/);
 });
+
+test("remote regenerate branches stay on the remote Host", async () => {
+  const [main, manager, piHost, racp] = await Promise.all([
+    read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/electron/main/remote-manager.ts"),
+    read("packages/pi-host/src/pi-host.ts"),
+    read("packages/shared/src/racp.ts"),
+  ]);
+  assert.doesNotMatch(main, /Remote regenerate branches are not available yet/);
+  assert.match(manager, /input: \{\s*text: content[\s\S]*?truncateFromMessageId: regenerate\.truncateFromMessageId/);
+  for (const operation of [
+    "session/revision/save",
+    "session/revision/list",
+    "session/revision/activate",
+  ]) {
+    assert.match(racp, new RegExp(`"${operation}"`));
+    assert.match(manager, new RegExp(`"${operation}"`));
+  }
+  assert.match(piHost, /"session\.truncateFrom"/);
+  assert.match(piHost, /"session\.saveActiveRevision"/);
+  assert.match(piHost, /revisionRootId: revisionMeta\.rootUserId/);
+});

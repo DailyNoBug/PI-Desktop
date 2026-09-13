@@ -54,6 +54,9 @@ export interface RacpRemoteProfile {
   removeSkill(params: Record<string, unknown>): Promise<{ ok?: boolean }>;
   setSkillEnabled(params: Record<string, unknown>): Promise<{ skill: UserSkillRecord }>;
   setSkillScope(params: Record<string, unknown>): Promise<{ skill: UserSkillRecord }>;
+  saveRevision(params: Record<string, unknown>): Promise<{ revision: unknown }>;
+  listRevisions(params: Record<string, unknown>): Promise<{ revisions: unknown[] }>;
+  activateRevision(params: Record<string, unknown>): Promise<{ messages: unknown[] }>;
   advertiseTools?(tools: RacpRelayTool[]): Promise<{ accepted: RacpRelayTool[]; rejected: Array<{ name: string; reason: string }> }>;
   openTerminal?(params: Record<string, unknown>): Promise<RacpTerminalSnapshot>;
   writeTerminal?(params: Record<string, unknown>): Promise<void>;

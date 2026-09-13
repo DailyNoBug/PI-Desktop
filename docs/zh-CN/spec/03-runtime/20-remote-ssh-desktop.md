@@ -65,7 +65,7 @@ service 等 Desktop shell 能力保持本地标注，不声称远端可用。
 | 现有 API | 远端路由 |
 |---|---|
 | session list/create/get/fork/configure/rename/delete/compact | 对应 RACP remote-host 操作 |
-| prompt、stop、abort、status、queue | `turn/start`、`turn/stop`、`turn/interrupt`、snapshot 与队列操作 |
+| prompt、regenerate、stop、abort、status、queue | `turn/start`（含 Host 内截断）、`turn/stop`、`turn/interrupt`、revision 操作、snapshot 与队列操作 |
 | 工具权限与 AskTool 决议 | `approval/respond`、`input/respond` |
 | Plan/Goal pending 与 resolve | 远端审批请求和响应 |
 | Files list/read/index 与 Review diff | `workspace/list`、`workspace/read`、`workspace/diff` |

@@ -610,6 +610,9 @@ session root as working directory and stream through `terminal.output`.
 | `skills/remove` | owner | Remove a user-owned Skill definition |
 | `skills/setEnabled` | owner | Enable or disable a user-owned Skill definition |
 | `skills/setScope` | owner | Change a user-owned Skill definition's activation scope |
+| `session/revision/save` | owner | Save or refresh one remote regenerate branch |
+| `session/revision/list` | owner | List remote regenerate branches for a user root |
+| `session/revision/activate` | owner | Replace the live transcript with a stored branch |
 | `terminal/open` | controller | Open a pty on the Host with the session root as cwd; returns a terminal id and the bounded replay ring; policy-gated (security §4.1) |
 | `terminal/input` | controller | Write bytes to an open terminal |
 | `terminal/resize` | controller | Resize an open terminal |

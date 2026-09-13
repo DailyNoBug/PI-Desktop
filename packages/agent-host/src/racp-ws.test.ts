@@ -125,6 +125,15 @@ const profile: RacpRemoteProfile = {
   async setSkillScope() {
     throw new Error("unused");
   },
+  async saveRevision() {
+    return { revision: null };
+  },
+  async listRevisions() {
+    return { revisions: [] };
+  },
+  async activateRevision() {
+    return { messages: [] };
+  },
   async openTerminal() {
     return { terminalId: "term_1", replay: Buffer.alloc(0).toString("base64") };
   },

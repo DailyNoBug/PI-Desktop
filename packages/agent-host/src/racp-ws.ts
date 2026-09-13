@@ -408,6 +408,12 @@ export class RacpWsServer {
         return this.options.profile.setSkillEnabled(params);
       case "skills/setScope":
         return this.options.profile.setSkillScope(params);
+      case "session/revision/save":
+        return this.options.profile.saveRevision(params);
+      case "session/revision/list":
+        return this.options.profile.listRevisions(params);
+      case "session/revision/activate":
+        return this.options.profile.activateRevision(params);
       case "terminal/open":
       case "terminal/input":
       case "terminal/resize":
@@ -512,12 +518,36 @@ function requiredNumber(value: unknown, field: string): number {
   return value;
 }
 
-function requiredInput(value: unknown): { text: string; attachments?: AgentPromptAttachment[] } {
-  const raw = (value ?? {}) as { text?: unknown; attachments?: unknown };
+function requiredInput(
+  value: unknown,
+): {
+  text: string;
+  attachments?: AgentPromptAttachment[];
+  truncateFromMessageId?: string;
+  truncateBefore?: number;
+  messageId?: string;
+} {
+  const raw = (value ?? {}) as {
+    text?: unknown;
+    attachments?: unknown;
+    truncateFromMessageId?: unknown;
+    truncateBefore?: unknown;
+    messageId?: unknown;
+  };
   if (typeof raw.text !== "string") throw racpError("INVALID_ARGUMENT", "input.text is required");
+  const truncateFromMessageId = typeof raw.truncateFromMessageId === "string" && raw.truncateFromMessageId.trim()
+    ? raw.truncateFromMessageId
+    : undefined;
+  const truncateBefore = typeof raw.truncateBefore === "number" && Number.isSafeInteger(raw.truncateBefore) && raw.truncateBefore >= 0
+    ? raw.truncateBefore
+    : undefined;
+  const messageId = typeof raw.messageId === "string" && raw.messageId.trim() ? raw.messageId : undefined;
   return {
     text: raw.text,
     ...(Array.isArray(raw.attachments) ? { attachments: raw.attachments as AgentPromptAttachment[] } : {}),
+    ...(truncateFromMessageId ? { truncateFromMessageId } : {}),
+    ...(truncateBefore !== undefined ? { truncateBefore } : {}),
+    ...(messageId ? { messageId } : {}),
   };
 }
 

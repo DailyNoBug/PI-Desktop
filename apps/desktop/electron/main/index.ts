@@ -6599,6 +6599,14 @@ function registerIpc() {
       messages: unknown[];
       makeActive?: boolean;
     }) => {
+      if (remoteManager?.knowsSession(input.sessionId)) {
+        return remoteManager.saveRevision({
+          sessionId: input.sessionId,
+          rootUserId: input.rootUserId,
+          messages: input.messages,
+          makeActive: input.makeActive,
+        });
+      }
       if (!host) throw new Error("host unavailable");
       return host.call("session.saveRevision", {
         sessionId: String(input?.sessionId || ""),
@@ -6611,6 +6619,9 @@ function registerIpc() {
   handle(
     IPC.invoke.sessionListRevisions,
     async (input: { sessionId: string; rootUserId: string }) => {
+      if (remoteManager?.knowsSession(input.sessionId)) {
+        return remoteManager.listRevisions(input.sessionId, input.rootUserId);
+      }
       if (!host) throw new Error("host unavailable");
       return host.call("session.listRevisions", {
         sessionId: String(input?.sessionId || ""),
@@ -6626,6 +6637,14 @@ function registerIpc() {
       revisionIndex: number;
       prefix?: unknown[];
     }) => {
+      if (remoteManager?.knowsSession(input.sessionId)) {
+        return remoteManager.activateRevision({
+          sessionId: input.sessionId,
+          rootUserId: input.rootUserId,
+          revisionIndex: input.revisionIndex,
+          prefix: input.prefix,
+        });
+      }
       if (!host) throw new Error("host unavailable");
       const sessionId = String(input?.sessionId || "");
       if (sidecar) {
@@ -8395,12 +8414,16 @@ function registerIpc() {
 
   handle(IPC.invoke.agentPrompt, async (req: AgentPromptRequest) => {
     if (remoteManager?.knowsSession(req.sessionId)) {
-      if (req.truncateBefore !== undefined || req.truncateFromMessageId !== undefined) {
-        throw Object.assign(new Error("Remote regenerate branches are not available yet"), {
-          errorCode: ErrorCodes.UNSUPPORTED,
-        });
-      }
-      const result = await remoteManager.prompt(req.sessionId, req.content, req.attachments);
+      const result = await remoteManager.prompt(
+        req.sessionId,
+        req.content,
+        req.attachments,
+        {
+          ...(req.truncateFromMessageId ? { truncateFromMessageId: req.truncateFromMessageId } : {}),
+          ...(req.truncateBefore !== undefined ? { truncateBefore: req.truncateBefore } : {}),
+          ...(req.messageId ? { messageId: req.messageId } : {}),
+        },
+      );
       logger.app("remote", "info", "remote prompt accepted", {
         sessionId: req.sessionId,
         turnId: result.turnId,

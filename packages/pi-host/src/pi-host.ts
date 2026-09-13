@@ -337,6 +337,15 @@ export class PiHostService {
       removeSkill: async (params) => this.host.call<{ ok?: boolean }>("skills.remove", params),
       setSkillEnabled: async (params) => this.host.call<{ skill: UserSkillRecord }>("skills.setEnabled", params),
       setSkillScope: async (params) => this.host.call<{ skill: UserSkillRecord }>("skills.setScope", params),
+      saveRevision: async (params) => this.host.call<{ revision: unknown }>("session.saveRevision", params),
+      listRevisions: async (params) => this.host.call<{ revisions?: unknown[] }>("session.listRevisions", params)
+        .then((result) => ({ revisions: result.revisions ?? [] })),
+      activateRevision: async (params) => {
+        const sessionId = requiredString(params.sessionId, "sessionId");
+        await this.sidecar.call("agent.disposeSession", { sessionId }).catch(() => undefined);
+        const result = await this.host.call<{ messages?: unknown[] }>("session.activateRevision", params);
+        return { messages: result.messages ?? [] };
+      },
       advertiseTools: async (tools: RacpRelayTool[]) => {
         const rejected = tools
           .filter((tool) => tool.requiresWorkspace)
@@ -522,7 +531,30 @@ export class PiHostService {
   }
 
   private async prompt(request: TurnStartRequest): Promise<{ turnId: string }> {
-    const session = await this.getSession(request.sessionId);
+    let session = await this.getSession(request.sessionId);
+    let revisionMeta: {
+      rootUserId?: string;
+      revisionCount?: number;
+      activeRevision?: number;
+    } | undefined;
+    if (request.truncateFromMessageId || request.truncateBefore !== undefined) {
+      await this.sidecar.call("agent.abort", { sessionId: request.sessionId }).catch(() => undefined);
+      await this.finishTurn(request.sessionId, "aborted", "TURN_ABORTED");
+      const truncated = await this.host.call<{
+        revision?: {
+          rootUserId?: string;
+          revisionCount?: number;
+          activeRevision?: number;
+        } | null;
+      }>("session.truncateFrom", {
+        sessionId: request.sessionId,
+        ...(request.truncateFromMessageId ? { fromMessageId: request.truncateFromMessageId } : {}),
+        ...(request.truncateBefore !== undefined ? { truncateBefore: request.truncateBefore } : {}),
+      });
+      revisionMeta = truncated.revision ?? undefined;
+      await this.sidecar.call("agent.disposeSession", { sessionId: request.sessionId }).catch(() => undefined);
+      session = await this.getSession(request.sessionId);
+    }
     const launch = await this.resolveLaunch(session, request.effectivePermissionMode);
     const turn = await this.host.call<{ turnId?: string }>("session.beginTurn", {
       sessionId: request.sessionId,
@@ -534,7 +566,7 @@ export class PiHostService {
     this.activeTurns.set(request.sessionId, turnId);
 
     const userMessage: UiMessage = {
-      id: `user_${turnId}`,
+      id: request.messageId?.trim() || `user_${turnId}`,
       role: "user",
       content: request.content,
       createdAt: new Date().toISOString(),
@@ -546,6 +578,11 @@ export class PiHostService {
         ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
         ...(attachment.size !== undefined ? { size: attachment.size } : {}),
       })) } : {}),
+      ...(revisionMeta?.revisionCount ? {
+        revisionRootId: revisionMeta.rootUserId,
+        revisionCount: revisionMeta.revisionCount,
+        activeRevision: revisionMeta.activeRevision,
+      } : {}),
     };
     await this.host.call("session.appendMessage", {
       sessionId: request.sessionId,
@@ -768,6 +805,20 @@ export class PiHostService {
         event.type === "error" ? "error" : "completed",
         event.type === "error" ? event.error.code : undefined,
       );
+      if (event.type === "agent_end") {
+        const saved = await this.host.call<{
+          saved?: { root?: UiMessage } | null;
+        }>("session.saveActiveRevision", { sessionId: envelope.sessionId }).catch(() => undefined);
+        const root = saved?.saved?.root;
+        if (root) {
+          await this.emit({
+            sessionId: envelope.sessionId,
+            turnId,
+            ts: Date.now(),
+            event: { type: "message_end", message: root },
+          });
+        }
+      }
     }
     await this.emit(envelope);
   }
@@ -783,7 +834,7 @@ export class PiHostService {
     await this.host.call("session.appendMessage", { sessionId, message, turnId: owner });
   }
 
-  private async finishTurn(sessionId: string, status: "completed" | "error", errorCode?: string): Promise<void> {
+  private async finishTurn(sessionId: string, status: "completed" | "error" | "aborted", errorCode?: string): Promise<void> {
     const turnId = this.activeTurns.get(sessionId);
     if (!turnId) return;
     this.activeTurns.delete(sessionId);

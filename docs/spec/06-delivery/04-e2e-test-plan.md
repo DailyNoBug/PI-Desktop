@@ -9819,22 +9819,26 @@ browser milestones are scheduled.
   absolute path, and recent-path controls, then through `project/list` and
   `session/create`. 4) Start a turn whose fixture reads, edits, and runs a
   command in the remote project, and approve the command from the desktop
-  card. 5) Switch the session to Plan mode and back with `session/configure`
-  while idle, then attempt it while a turn runs. 6) Open the files tab and the
-  diff tab for the remote session. 7) Advertise relay from the desktop, run a
+  card. 5) Regenerate the answer, switch between both revisions, and switch
+  back to the latest branch. 6) Switch the session to Plan mode and back with
+  `session/configure` while idle, then attempt it while a turn runs. 7) Open
+  the files tab and the diff tab for the remote session. 8) Advertise relay
+  from the desktop, run a
   turn that calls the desktop MCP tool, then close the desktop during a
-  second call. 8) Open a terminal on the remote session and run a command.
-  9) Kill the SSH session mid-turn with the terminal open, restore it, and
-  let the desktop reconnect. 10) Inspect the remote tool catalog. 11) Attempt
+  second call. 9) Open a terminal on the remote session and run a command.
+  10) Kill the SSH session mid-turn with the terminal open, restore it, and
+  let the desktop reconnect. 11) Inspect the remote tool catalog. 12) Attempt
   to connect from a non-loopback address on the remote machine, then with a
-  reused pairing token. 12) Point the bootstrap at the tampered bundle, then
+  reused pairing token. 13) Point the bootstrap at the tampered bundle, then
   at the other version, and reconnect.
 - **Expected**: Files change only on the remote machine and the command runs
   there; the approval card appears in the desktop with the local vocabulary;
   the remote host-core binds loopback only; `session/configure` succeeds while
   idle and returns `CONFLICT` while running; files and diff come from the
   remote session root and a path outside it returns
-  `PATH_OUTSIDE_WORKSPACE`; the desktop MCP tool executes on the desktop and
+  `PATH_OUTSIDE_WORKSPACE`; regeneration truncates and archives only on the
+  remote Host and both revision branches remain selectable; the desktop MCP
+  tool executes on the desktop and
   its result reaches the remote transcript, while the second call fails with
   `TOOL_FAILED` and the turn continues; the terminal runs on the remote
   machine inside the session root; the turn continues through the SSH drop,
