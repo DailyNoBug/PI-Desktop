@@ -244,12 +244,14 @@ reveal 不并入任何行，必须重新读取。
 | `SSH_HOST_KEY_FAILED` | 不 | 远程主机密钥未知或被拒绝 |
 | `SSH_CONNECTION_TIMEOUT` | 是的 | SSH 连接超时 |
 | `SSH_CONNECTION_CLOSED` | 是的 | SSH 连接在操作完成前关闭 |
+| `SSH_CANCELED` | 不 | 操作在完成前被取消 |
 | `SSH_PORT_FORWARD_FAILED` | 是的 | 无法建立本地端口转发 |
 | `REMOTE_OS_UNSUPPORTED` | 不 | 远程操作系统不受支持 |
 | `REMOTE_ARCH_UNSUPPORTED` | 不 | 远程架构不受支持 |
 | `REMOTE_SHELL_UNAVAILABLE` | 不 | 未找到可用的远程登录 shell |
 | `REMOTE_BOOTSTRAP_FAILED` | 不 | 远程 pi-host 引导失败 |
 | `REMOTE_DOWNLOAD_FAILED` | 是的 | 无法下载 pi-host 包或校验和 |
+| `REMOTE_BUNDLE_MISSING` | 不 | 此桌面版本没有已发布的 pi-host 包 |
 | `REMOTE_CHECKSUM_MISMATCH` | 不 | pi-host 包校验和不匹配 |
 | `REMOTE_HOST_START_FAILED` | 不 | 远程 pi-host 进程启动失败 |
 | `REMOTE_HOST_UNAVAILABLE` | 是的 | 之前已连接的远程主机不可用 |
