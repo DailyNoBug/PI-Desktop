@@ -333,20 +333,28 @@
   gap: 12px;
 }
 
-.remote-page-actions {
+.remote-heading-row {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.remote-section-heading {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--ds-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-normal);
 }
 
 .remote-empty-card {
   display: grid;
-  min-height: 220px;
+  min-height: 180px;
   place-items: center;
   align-content: center;
-  gap: 14px;
-  border: 1px solid var(--ds-border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 28px;
+  gap: 10px;
   text-align: center;
 }
 
