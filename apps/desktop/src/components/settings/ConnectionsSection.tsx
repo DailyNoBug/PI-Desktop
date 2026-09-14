@@ -95,6 +95,7 @@ export function ConnectionsSection() {
                       {" · "}
                       {t(stateLabel(connection.state))}
                       {connection.reconnectAttempt ? ` · ${t("remote.attempt", { count: connection.reconnectAttempt })}` : ""}
+                      {connection.sshOnly ? ` · ${t("remote.sshOnly")}` : ""}
                     </span>
                     {connection.lastError ? (
                       <span className="remote-error">{connection.lastError.code}: {connection.lastError.message}</span>

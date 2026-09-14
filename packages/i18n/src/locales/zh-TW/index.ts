@@ -587,6 +587,7 @@ export const zhTW = {
     connect: "連線",
     disconnect: "中斷",
     cancelConnect: "取消連線",
+    sshOnly: "純 SSH",
     test: "測試",
     upgradeHost: "升級 Host",
     syncProvider: "同步模型服務",

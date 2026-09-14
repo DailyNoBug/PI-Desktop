@@ -592,6 +592,7 @@ export const en = {
     connect: "Connect",
     disconnect: "Disconnect",
     cancelConnect: "Cancel connection",
+    sshOnly: "SSH only",
     test: "Test",
     upgradeHost: "Upgrade Host",
     syncProvider: "Sync provider",

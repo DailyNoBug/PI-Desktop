@@ -582,6 +582,7 @@ export const de = {
     "connect": "Verbinden",
     "disconnect": "Trennen",
     "cancelConnect": "Verbindung abbrechen",
+    "sshOnly": "Nur SSH",
     "test": "Testen",
     "upgradeHost": "Host aktualisieren",
     "syncProvider": "Anbieter synchronisieren",

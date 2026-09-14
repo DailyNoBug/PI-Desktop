@@ -591,6 +591,7 @@ export const tr = {
     connect: "Bağlan",
     disconnect: "Bağlantıyı kes",
     cancelConnect: "Bağlantıyı iptal et",
+    sshOnly: "Yalnızca SSH",
     test: "Sına",
     upgradeHost: "Host'u güncelle",
     syncProvider: "Servisi eşitle",

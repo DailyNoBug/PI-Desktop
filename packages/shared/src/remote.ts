@@ -78,6 +78,8 @@ export type RemoteConnectionView = RemoteConnection & {
   };
   lastExitCode?: number | null;
   reconnectAttempt?: number;
+  /** Host install failed; only the desktop SSH exec tool is available. */
+  sshOnly?: boolean;
 };
 
 export type RemoteRelayToolDescriptor = {

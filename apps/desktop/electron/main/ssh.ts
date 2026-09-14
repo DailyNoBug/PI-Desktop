@@ -342,6 +342,21 @@ export async function runSshScript(
   return result;
 }
 
+/**
+ * Run one ad-hoc command over the connection (the agent SSH exec tool path).
+ * Secrets travel only through the askpass helper; they never appear in argv.
+ */
+export async function sshRunCommand(
+  connection: RemoteConnection,
+  command: string,
+  options: { password?: string; timeoutMs?: number } = {},
+): Promise<SshExecutionResult> {
+  return run(resolveSshExecutable(), [...commonArgs(connection, options.password), command], {
+    timeoutMs: options.timeoutMs ?? 60_000,
+    password: options.password,
+  });
+}
+
 export async function readRemoteRuntimeMetadata(
   connection: RemoteConnection,
   password?: string,

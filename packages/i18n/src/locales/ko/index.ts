@@ -591,6 +591,7 @@ export const ko = {
     connect: "연결",
     disconnect: "연결 해제",
     cancelConnect: "연결 취소",
+    sshOnly: "SSH 전용",
     test: "테스트",
     upgradeHost: "Host 업데이트",
     syncProvider: "프로바이더 동기화",

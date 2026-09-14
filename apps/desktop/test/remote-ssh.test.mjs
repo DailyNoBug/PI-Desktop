@@ -213,6 +213,32 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.doesNotMatch(ssh, /StrictHostKeyChecking=no/);
 });
 
+test("pure-SSH degradation and the agent SSH tool keep credentials in Main", async () => {
+  const [manager, ssh, shared, main] = await Promise.all([
+    read("apps/desktop/electron/main/remote-manager.ts"),
+    read("apps/desktop/electron/main/ssh.ts"),
+    read("packages/shared/src/remote.ts"),
+    read("apps/desktop/electron/main/index.ts"),
+  ]);
+  assert.match(shared, /sshOnly\?: boolean/);
+  // Install-stage failures degrade instead of failing the attempt.
+  assert.match(manager, /connection\.degraded_ssh/);
+  assert.match(manager, /async sshExec\(/);
+  assert.match(manager, /sshRunCommand\(/);
+  assert.match(ssh, /export async function sshRunCommand\(/);
+  // host-core dispatches only plugin_/mcp_ names to the desktop runner, so
+  // the first-party tool keeps the prefix and is intercepted in Main.
+  assert.match(main, /REMOTE_SSH_TOOL_NAME = "plugin_desktop_ssh"/);
+  assert.match(main, /remoteManager\?\.sshExec\(/);
+  assert.match(main, /hasSshExecTargets\(\)/);
+  // The tool schema carries no credential material.
+  const toolBlock = main.slice(
+    main.indexOf('REMOTE_SSH_TOOL_NAME = "'),
+    main.indexOf("const pendingDeepLinks"),
+  );
+  assert.doesNotMatch(toolBlock, /password|secret/i);
+});
+
 test("SSH add uses a discovery modal and explicit target users override aliases", async () => {
   const [connections, dialog, ssh, shared] = await Promise.all([
     read("apps/desktop/src/components/settings/ConnectionsSection.tsx"),

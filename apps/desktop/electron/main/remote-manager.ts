@@ -68,6 +68,7 @@ import {
   confirmHostKeys,
   proposeHostKeys,
   sshProbe,
+  sshRunCommand,
   startSshTunnel,
   SshError,
   type SshTunnel,
@@ -108,6 +109,8 @@ type RemoteRuntime = {
   explicitDisconnect: boolean;
   connecting?: Promise<void>;
   connectAbort?: AbortController;
+  /** Host install failed; the connection only supports desktop SSH exec. */
+  sshOnly?: boolean;
   reconnectTimer?: ReturnType<typeof setTimeout>;
   reconnectAttempt: number;
   lastError?: RemoteConnectionView["lastError"];
@@ -324,6 +327,7 @@ export class RemoteManager {
         ...(runtime?.lastError ? { lastError: runtime.lastError } : {}),
         ...(runtime?.lastExitCode !== undefined ? { lastExitCode: runtime.lastExitCode } : {}),
         ...(runtime?.reconnectAttempt ? { reconnectAttempt: runtime.reconnectAttempt } : {}),
+        ...(runtime?.sshOnly && runtime.state === "connected" ? { sshOnly: true } : {}),
       };
     });
   }
@@ -463,6 +467,78 @@ export class RemoteManager {
       this.failure(id, error);
       throw toIpcError(error);
     }
+  }
+
+  /** Connections the desktop SSH exec tool may target right now. */
+  hasSshExecTargets(): boolean {
+    return this.listConnections().some((view) => view.state === "connected");
+  }
+
+  /**
+   * Agent-facing SSH command execution for pure-SSH (degraded) connections.
+   * Runs entirely in Main: the password is read from the secret store and fed
+   * to the askpass helper, so it never enters tool arguments, output, or logs.
+   */
+  async sshExec(input: {
+    action?: string;
+    connection?: string;
+    command?: string;
+    timeoutMs?: number;
+  }): Promise<Record<string, unknown>> {
+    const action = input.action === "exec" || input.action === "list" ? input.action : "";
+    if (!action) {
+      throw Object.assign(new Error('action must be "list" or "exec"'), {
+        errorCode: ErrorCodes.INVALID_ARGUMENT,
+      });
+    }
+    const targets = this.listConnections().filter((view) => view.state === "connected");
+    if (action === "list") {
+      return {
+        connections: targets.map((view) => ({
+          name: view.displayName,
+          source: view.source,
+          sshOnly: view.sshOnly === true,
+        })),
+      };
+    }
+    const wanted = input.connection?.trim() ?? "";
+    const command = input.command?.trim() ?? "";
+    if (!wanted || !command) {
+      throw Object.assign(new Error("connection and command are required for exec"), {
+        errorCode: ErrorCodes.INVALID_ARGUMENT,
+      });
+    }
+    const matches = targets.filter((view) =>
+      [view.displayName, view.sshConfigAlias, view.hostname]
+        .some((value) => value?.toLowerCase() === wanted.toLowerCase()),
+    );
+    // Names only: matching failures expose the connection list, never secrets.
+    if (matches.length !== 1) {
+      return {
+        connections: targets.map((view) => ({ name: view.displayName })),
+        error: matches.length === 0
+          ? `no connected SSH connection named "${wanted}"`
+          : `"${wanted}" matches several connections; pick one name exactly`,
+      };
+    }
+    const connection = matches[0];
+    const timeoutMs = Math.min(Math.max(Math.floor(input.timeoutMs ?? 60_000), 5_000), 300_000);
+    const password = await this.readPassword(connection);
+    const result = await sshRunCommand(connection, command, { password, timeoutMs }).catch((error) => {
+      throw Object.assign(
+        new Error(error instanceof Error ? error.message : String(error)),
+        { errorCode: ErrorCodes.REMOTE_HOST_UNAVAILABLE },
+      );
+    });
+    // Tool results land in model context; keep oversized output bounded.
+    const clip = (value: string) =>
+      value.length > 32_000 ? `${value.slice(0, 32_000)}\n…[truncated]` : value;
+    return {
+      connection: connection.displayName,
+      code: result.code,
+      ...(result.stdout ? { stdout: clip(result.stdout) } : {}),
+      ...(result.stderr ? { stderr: clip(result.stderr) } : {}),
+    };
   }
 
   async relayCatalog(id: string): Promise<{
@@ -1476,6 +1552,7 @@ export class RemoteManager {
 
   private async connectInternal(runtime: RemoteRuntime, signal: AbortSignal): Promise<void> {
     runtime.explicitDisconnect = false;
+    runtime.sshOnly = false;
     const id = runtime.connection.id;
     this.setState(id, "resolving");
     const password = await this.readPassword(runtime.connection);
@@ -1526,39 +1603,56 @@ export class RemoteManager {
     }
     if (!metadata || metadata.version !== APP_VERSION || !token) {
       this.setState(id, "bootstrapping");
-      const checksum = await releaseChecksum(APP_VERSION, arch);
-      const bootstrap = await runSshScript(runtime.connection, readFileSync(bootstrapScriptPath(), "utf8"), {
-        PI_HOST_VERSION: APP_VERSION,
-        PI_HOST_ARCH: arch,
-        PI_HOST_CHECKSUM: checksum,
-        PI_HOST_BASE_URL: releaseBaseUrl(),
-        ...(token ? {} : { PI_HOST_FORCE_RESTART: "1" }),
-      }, password, signal);
-      this.events.onAudit(token ? "remote.host.upgraded" : "remote.host.installed", {
-        connectionId: id,
-        version: APP_VERSION,
-        arch,
-      });
-      const parsed = parseBootstrapOutput(bootstrap.stdout);
-      const ready = parsed.ready;
-      const port = Number(ready?.port ?? metadata?.port ?? 0);
-      if (!Number.isInteger(port) || port <= 0) {
-        throw Object.assign(new Error(bootstrap.stdout.trim() || "pi-host bootstrap returned no endpoint"), {
-          errorCode: ErrorCodes.REMOTE_HOST_START_FAILED,
+      try {
+        const checksum = await releaseChecksum(APP_VERSION, arch);
+        const bootstrap = await runSshScript(runtime.connection, readFileSync(bootstrapScriptPath(), "utf8"), {
+          PI_HOST_VERSION: APP_VERSION,
+          PI_HOST_ARCH: arch,
+          PI_HOST_CHECKSUM: checksum,
+          PI_HOST_BASE_URL: releaseBaseUrl(),
+          ...(token ? {} : { PI_HOST_FORCE_RESTART: "1" }),
+        }, password, signal);
+        this.events.onAudit(token ? "remote.host.upgraded" : "remote.host.installed", {
+          connectionId: id,
+          version: APP_VERSION,
+          arch,
         });
+        const parsed = parseBootstrapOutput(bootstrap.stdout);
+        const ready = parsed.ready;
+        const port = Number(ready?.port ?? metadata?.port ?? 0);
+        if (!Number.isInteger(port) || port <= 0) {
+          throw Object.assign(new Error(bootstrap.stdout.trim() || "pi-host bootstrap returned no endpoint"), {
+            errorCode: ErrorCodes.REMOTE_HOST_START_FAILED,
+          });
+        }
+        const pairing = ready?.pairing;
+        if (!token && pairing && typeof pairing === "object") {
+          token = String((pairing as { token?: unknown }).token ?? "");
+        }
+        metadata = {
+          pid: Number(ready?.pid ?? metadata?.pid ?? 0),
+          port,
+          version: APP_VERSION,
+          protocolVersion: PROTOCOL_VERSION,
+          storageSchemaVersion: SCHEMA_VERSION,
+          startedAt: new Date().toISOString(),
+        };
+      } catch (error) {
+        const code = (error as { errorCode?: string; code?: string }).errorCode ?? (error as { code?: string }).code;
+        // Cancellation still aborts; every other install-stage failure
+        // degrades to a pure SSH connection. The desktop SSH exec tool stays
+        // available, and a later connect() retries the full Host path.
+        if (runtime.explicitDisconnect || code === ErrorCodes.SSH_CANCELED) throw error;
+        runtime.sshOnly = true;
+        runtime.lastError = undefined;
+        runtime.lastExitCode = undefined;
+        this.events.onAudit("connection.degraded_ssh", {
+          connectionId: id,
+          code: String(code ?? ErrorCodes.REMOTE_BOOTSTRAP_FAILED),
+        });
+        this.setState(id, "connected");
+        return;
       }
-      const pairing = ready?.pairing;
-      if (!token && pairing && typeof pairing === "object") {
-        token = String((pairing as { token?: unknown }).token ?? "");
-      }
-      metadata = {
-        pid: Number(ready?.pid ?? metadata?.pid ?? 0),
-        port,
-        version: APP_VERSION,
-        protocolVersion: PROTOCOL_VERSION,
-        storageSchemaVersion: SCHEMA_VERSION,
-        startedAt: new Date().toISOString(),
-      };
     }
     if (!token) {
       throw Object.assign(new Error("pi-host did not return a pairing token"), { errorCode: ErrorCodes.REMOTE_PAIRING_FAILED });

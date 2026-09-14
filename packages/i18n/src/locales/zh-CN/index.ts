@@ -587,6 +587,7 @@ export const zhCN = {
     connect: "连接",
     disconnect: "断开",
     cancelConnect: "取消连接",
+    sshOnly: "纯 SSH",
     test: "测试",
     upgradeHost: "升级 Host",
     syncProvider: "同步模型服务",

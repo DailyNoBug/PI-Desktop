@@ -102,6 +102,11 @@ Electron Main performs the ordered bootstrap:
 The Host must report the Desktop's RACP major version, Host protocol version,
 and storage schema version. A mismatch is terminal for that attempt and offers
 an upgrade rather than running Agent work against an incompatible Host.
+The Host install stage is best-effort: a failure inside it (checksum download,
+bootstrap script, or Host start) degrades the connection to pure SSH — state
+`connected` with `sshOnly` set, nothing installed — leaving the desktop SSH
+exec tool as the only remote capability; a later connect retries the full
+Host path, and cancellation still aborts the attempt.
 Only an older Host is automatically or explicitly upgraded to the Desktop's
 version. A newer Host enters `incompatible` and requires a Desktop upgrade;
 PI-Desktop never downgrades it.
