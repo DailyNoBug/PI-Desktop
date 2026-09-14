@@ -203,10 +203,10 @@ jobs:
         run: |
           set -euo pipefail
           # Artifact names are defined in apps/desktop/package.json: the mac
-          # pattern labels ZIPs, and the dmg target pattern labels DMGs.
-          # identity="-" re-seals ad hoc: packaging rewrites Info.plist, which
-          # invalidates Electron's factory signature and makes arm64 Gatekeeper
-          # report the app as damaged.
+          # pattern labels ZIPs, and the dmg target pattern labels DMGs. The
+          # after-pack hook re-seals the app ad hoc: packing rewrites
+          # Info.plist, which invalidates Electron's factory signature and
+          # makes arm64 Gatekeeper report the app as damaged.
           pnpm --filter @pi-desktop/desktop run dist:mac -- --${{ matrix.arch }} -c.mac.identity=-
 
       - name: Package signed and notarized macOS installer

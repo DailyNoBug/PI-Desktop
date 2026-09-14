@@ -81,6 +81,7 @@
   "build": {
     "appId": "com.pi-desktop.app",
     "productName": "PI-Desktop",
+    "afterPack": "./scripts/after-pack.cjs",
     "directories": {
       "output": "release"
     },
