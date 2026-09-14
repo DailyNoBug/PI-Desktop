@@ -249,12 +249,14 @@ malformed.
 | `SSH_HOST_KEY_FAILED` | no | the remote host key was unknown or rejected |
 | `SSH_CONNECTION_TIMEOUT` | yes | the SSH connection timed out |
 | `SSH_CONNECTION_CLOSED` | yes | the SSH connection closed before the operation completed |
+| `SSH_CANCELED` | no | the operation was canceled before it completed |
 | `SSH_PORT_FORWARD_FAILED` | yes | the local port forward could not be established |
 | `REMOTE_OS_UNSUPPORTED` | no | the remote operating system is not supported |
 | `REMOTE_ARCH_UNSUPPORTED` | no | the remote architecture is not supported |
 | `REMOTE_SHELL_UNAVAILABLE` | no | no usable remote login shell was found |
 | `REMOTE_BOOTSTRAP_FAILED` | no | the remote pi-host bootstrap failed |
 | `REMOTE_DOWNLOAD_FAILED` | yes | the pi-host bundle or checksum could not be downloaded |
+| `REMOTE_BUNDLE_MISSING` | no | no pi-host bundle is published for this Desktop version |
 | `REMOTE_CHECKSUM_MISMATCH` | no | the pi-host bundle checksum did not match |
 | `REMOTE_HOST_START_FAILED` | no | the remote pi-host process failed to start |
 | `REMOTE_HOST_UNAVAILABLE` | yes | a previously connected remote host is unavailable |

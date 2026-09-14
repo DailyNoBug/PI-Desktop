@@ -1,6 +1,7 @@
 import { spawn, execFile } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { lookup } from "node:dns/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { createServer } from "node:net";
@@ -25,16 +26,19 @@ export class SshError extends Error {
   }
 }
 
-export function resolveSshExecutable(): string {
-  const explicit = process.env.PI_DESKTOP_SSH_BIN;
-  if (explicit && existsSync(explicit)) return explicit;
-  const name = process.platform === "win32" ? "ssh.exe" : "ssh";
+function openSshTool(name: string): string {
   for (const directory of (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":")) {
     if (!directory) continue;
     const candidate = join(directory, name);
     if (existsSync(candidate)) return candidate;
   }
-  throw new SshError("SSH_NOT_AVAILABLE", "system OpenSSH executable not found", "resolving");
+  throw new SshError("SSH_NOT_AVAILABLE", `system OpenSSH executable not found: ${name}`, "resolving");
+}
+
+export function resolveSshExecutable(): string {
+  const explicit = process.env.PI_DESKTOP_SSH_BIN;
+  if (explicit && existsSync(explicit)) return explicit;
+  return openSshTool(process.platform === "win32" ? "ssh.exe" : "ssh");
 }
 
 function configFile(): string {
@@ -190,10 +194,17 @@ async function askpassContext(password: string): Promise<AskpassContext> {
 async function run(
   command: string,
   args: string[],
-  options: { stdin?: string; timeoutMs?: number; password?: string } = {},
+  options: { stdin?: string; timeoutMs?: number; password?: string; signal?: AbortSignal } = {},
 ): Promise<SshExecutionResult> {
   const askpass = options.password === undefined ? undefined : await askpassContext(options.password);
   return new Promise((resolveRun, rejectRun) => {
+    const signal = options.signal;
+    const canceled = () => new SshError("SSH_CANCELED", "connection canceled", "connecting");
+    if (signal?.aborted) {
+      askpass?.cleanup();
+      rejectRun(canceled());
+      return;
+    }
     const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       ...(askpass ? { env: { ...process.env, ...askpass.env } } : {}),
@@ -201,13 +212,20 @@ async function run(
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let aborted = false;
     const timer = setTimeout(() => {
       child.kill();
     }, options.timeoutMs ?? SSH_TIMEOUT_MS);
+    const onAbort = () => {
+      aborted = true;
+      child.kill();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     const finish = (result: SshExecutionResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       askpass?.cleanup();
       resolveRun(result);
     };
@@ -215,6 +233,7 @@ async function run(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       askpass?.cleanup();
       rejectRun(error);
     };
@@ -227,8 +246,10 @@ async function run(
       stderr = (stderr + chunk).slice(0, 512 * 1024);
     });
     child.on("error", (error) => fail(error));
-    child.on("close", (code, signal) => {
-      if (signal) {
+    child.on("close", (code, closeSignal) => {
+      if (aborted) {
+        fail(canceled());
+      } else if (closeSignal) {
         finish({ code: 124, stdout, stderr: `${stderr}\nconnection timed out`.trim() });
       } else {
         finish({ code: code ?? 1, stdout, stderr });
@@ -258,12 +279,12 @@ function classify(result: SshExecutionResult, stage: string): SshError {
   return new SshError(code, result.stderr.trim() || result.stdout.trim() || `SSH failed (${result.code})`, stage, result.code);
 }
 
-export async function effectiveSshConfig(connection: RemoteConnection): Promise<EffectiveSshConfig> {
+export async function effectiveSshConfig(connection: RemoteConnection, signal?: AbortSignal): Promise<EffectiveSshConfig> {
   const config = configFile();
   const args = existsSync(config)
     ? ["-G", "-F", config, connection.sshConfigAlias ?? connection.hostname ?? ""]
     : ["-G", connection.sshConfigAlias ?? connection.hostname ?? ""];
-  const result = await run(resolveSshExecutable(), args, { timeoutMs: 5_000 });
+  const result = await run(resolveSshExecutable(), args, { timeoutMs: 5_000, signal });
   if (result.code !== 0) throw classify(result, "resolving");
   const values = new Map<string, string>();
   for (const line of result.stdout.split(/\r?\n/)) {
@@ -287,11 +308,12 @@ export async function effectiveSshConfig(connection: RemoteConnection): Promise<
 export async function sshProbe(
   connection: RemoteConnection,
   password?: string,
+  signal?: AbortSignal,
 ): Promise<{ os: string; arch: string; home: string; shell: string }> {
   const result = await run(resolveSshExecutable(), [
     ...commonArgs(connection, password),
     "printf 'PI_HOST_PROBE_OS=%s\\nARCH=%s\\nHOME=%s\\nSHELL=%s\\n' \"$(uname -s)\" \"$(uname -m)\" \"$HOME\" \"$SHELL\"",
-  ], { password });
+  ], { password, signal });
   if (result.code !== 0) throw classify(result, "connecting");
   const values = Object.fromEntries(result.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split("=", 2) as [string, string]));
   return {
@@ -307,12 +329,14 @@ export async function runSshScript(
   script: string,
   environment: Record<string, string>,
   password?: string,
+  signal?: AbortSignal,
 ): Promise<SshExecutionResult> {
   const envArgs = Object.entries(environment).map(([key, value]) => `${key}=${value}`);
   const result = await run(resolveSshExecutable(), [...commonArgs(connection, password), "env", ...envArgs, "sh", "-s"], {
     stdin: script,
     timeoutMs: 120_000,
     password,
+    signal,
   });
   if (result.code !== 0) throw classify(result, "bootstrapping");
   return result;
@@ -321,12 +345,17 @@ export async function runSshScript(
 export async function readRemoteRuntimeMetadata(
   connection: RemoteConnection,
   password?: string,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown> | null> {
   const result = await run(resolveSshExecutable(), [
     ...commonArgs(connection, password),
     `sh -c 'METADATA="$HOME/.pi-desktop/host/runtime/host.json"; [ -f "$METADATA" ] || exit 1; PID=$(tr "," "\n" < "$METADATA" | grep ".pid." | tr -cd "0-9"); [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null || exit 1; cat "$METADATA"'`,
-  ], { password });
-  if (result.code !== 0) throw classify(result, "connecting");
+  ], { password, signal });
+  // The probe script exits 1 (silently) when the metadata file is absent or
+  // its Host process is gone; that means "not installed", not a transport
+  // failure. Only 255 is OpenSSH's own exit code.
+  if (result.code === 255) throw classify(result, "connecting");
+  if (result.code !== 0) return null;
   try {
     const value = JSON.parse(result.stdout.trim());
     return value && typeof value === "object" ? value as Record<string, unknown> : null;
@@ -365,45 +394,74 @@ export async function knownHostAccepted(config: EffectiveSshConfig): Promise<boo
   return false;
 }
 
+/**
+ * Collect the remote's host keys for user confirmation without trusting or
+ * persisting them. BatchMode ssh under strict host key checking refuses before
+ * OpenSSH prints any fingerprint, so the keys are scanned out of band instead.
+ */
 export async function proposeHostKeys(
-  connection: RemoteConnection,
-  password?: string,
+  config: EffectiveSshConfig,
+  signal?: AbortSignal,
 ): Promise<ProposedHostKeys> {
   const directory = mkdtempSync(join(tmpdir(), "pi-desktop-host-key-"));
   const knownHostsPath = join(directory, "known_hosts");
   writeFileSync(knownHostsPath, "", { mode: 0o600 });
-  const result = await run(resolveSshExecutable(), [
-    ...commonArgs(connection, password),
-    "-o", `UserKnownHostsFile=${knownHostsPath}`,
-    "-o", "StrictHostKeyChecking=yes",
-    "true",
-  ], { timeoutMs: 15_000, password });
-  const fingerprints = [...new Set(
-    `${result.stderr}\n${result.stdout}`.match(/SHA256:[A-Za-z0-9+/=]+/g) ?? [],
-  )];
-  if (!fingerprints.length) {
+  try {
+    // ssh-keyscan reports DNS failures as an opaque "connection closed";
+    // resolve the host through the system resolver first for a clear error.
+    await lookup(config.hostname, { verbatim: true }).catch(() => {
+      throw new SshError("SSH_RESOLVE_FAILED", `could not resolve hostname: ${config.hostname}`, "connecting");
+    });
+    const result = await run(openSshTool(process.platform === "win32" ? "ssh-keyscan.exe" : "ssh-keyscan"), [
+      "-t", "rsa,ecdsa,ed25519,sk-ecdsa-sha2-nistp256@openssh.com,sk-ssh-ed25519@openssh.com",
+      "-T", "10",
+      "-p", String(config.port),
+      config.hostname,
+    ], { timeoutMs: 15_000, signal });
+    const keys = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"));
+    if (!keys.length) {
+      const text = `${result.stderr}\n${result.stdout}`.toLowerCase();
+      throw /could not resolve|not resolve|getaddrinfo|name or service not known|no address associated/.test(text)
+        ? new SshError("SSH_RESOLVE_FAILED", result.stderr.trim() || `could not resolve ${config.hostname}`, "connecting", result.code)
+        : /timed out/.test(text)
+          ? new SshError("SSH_CONNECTION_TIMEOUT", result.stderr.trim() || "connection timed out", "connecting", result.code)
+          : new SshError("SSH_HOST_KEY_FAILED", result.stderr.trim() || "the remote host did not present a host key", "connecting", result.code);
+    }
+    appendFileSync(knownHostsPath, `${keys.join("\n")}\n`, { mode: 0o600 });
+    const fingerprintResult = await run("ssh-keygen", ["-lf", knownHostsPath], { timeoutMs: 5_000, signal });
+    const fingerprints = [...new Set(fingerprintResult.stdout.match(/SHA256:[A-Za-z0-9+/=]+/g) ?? [])];
+    if (!fingerprints.length) {
+      throw new SshError("SSH_HOST_KEY_FAILED", "could not fingerprint the remote host keys", "connecting", result.code);
+    }
+    return {
+      fingerprints,
+      knownHostsPath,
+    };
+  } catch (error) {
     rmSync(directory, { recursive: true, force: true });
-    throw new SshError("SSH_HOST_KEY_FAILED", "OpenSSH did not disclose a host key fingerprint", "connecting", result.code);
+    throw error;
   }
-  return {
-    fingerprints,
-    knownHostsPath,
-  };
 }
 
 export async function confirmHostKeys(
   connection: RemoteConnection,
   proposed: ProposedHostKeys,
   password?: string,
+  signal?: AbortSignal,
 ): Promise<string[]> {
   const result = await run(resolveSshExecutable(), [
     ...commonArgs(connection, password),
     "-o", `UserKnownHostsFile=${proposed.knownHostsPath}`,
     "-o", "StrictHostKeyChecking=accept-new",
     "true",
-  ], { timeoutMs: 15_000, password });
+  ], { timeoutMs: 15_000, password, signal });
+  // An auth failure here is easy to mistake for a host-key problem now that
+  // the scanned keys already satisfy StrictHostKeyChecking, so classify.
   if (result.code !== 0) {
-    throw new SshError("SSH_HOST_KEY_FAILED", "could not confirm the remote host key", "connecting", result.code);
+    throw classify(result, "connecting");
   }
   const keys = readFileSync(proposed.knownHostsPath, "utf8")
     .split(/\r?\n/)

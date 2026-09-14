@@ -77,6 +77,9 @@ type HostLike = {
   call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
 };
 
+/** Baked into packaged builds by electron.vite.config.ts; unset in dev. */
+declare const __PI_DESKTOP_RELEASE_BASE__: string | undefined;
+
 export type RemoteRelayExecutor = {
   catalog(): Promise<RemoteRelayToolDescriptor[]>;
   execute(input: {
@@ -104,6 +107,7 @@ type RemoteRuntime = {
   tunnel?: SshTunnel;
   explicitDisconnect: boolean;
   connecting?: Promise<void>;
+  connectAbort?: AbortController;
   reconnectTimer?: ReturnType<typeof setTimeout>;
   reconnectAttempt: number;
   lastError?: RemoteConnectionView["lastError"];
@@ -124,6 +128,7 @@ const NON_RETRYABLE_REMOTE_CODES = new Set<string>([
   ErrorCodes.SSH_HOST_KEY_FAILED,
   ErrorCodes.REMOTE_OS_UNSUPPORTED,
   ErrorCodes.REMOTE_ARCH_UNSUPPORTED,
+  ErrorCodes.REMOTE_BUNDLE_MISSING,
   ErrorCodes.REMOTE_CHECKSUM_MISMATCH,
   ErrorCodes.REMOTE_HOST_VERSION_INCOMPATIBLE,
   ErrorCodes.REMOTE_PROTOCOL_MISMATCH,
@@ -182,11 +187,37 @@ function bootstrapScriptPath(): string {
   throw Object.assign(new Error("pi-host bootstrap script not found"), { errorCode: ErrorCodes.REMOTE_BOOTSTRAP_FAILED });
 }
 
+/** Releases carry the pi-host bundle; a fork or mirror can override the base. */
+function releaseBaseUrl(): string {
+  // Baked at package time by release.yml; unset in dev builds (hence the
+  // typeof guard rather than a bare read).
+  const baked = typeof __PI_DESKTOP_RELEASE_BASE__ === "string" ? __PI_DESKTOP_RELEASE_BASE__.trim() : "";
+  const override = process.env.PI_DESKTOP_PI_HOST_RELEASE_BASE?.trim();
+  return (override || baked || "https://github.com/vastsa/PI-Desktop/releases/download").replace(/\/+$/, "");
+}
+
 async function releaseChecksum(version: string, arch: "x64" | "arm64"): Promise<string> {
   const name = `pi-host-${version}-linux-${arch}.tar.gz.sha256`;
-  const url = `https://github.com/vastsa/PI-Desktop/releases/download/v${version}/${name}`;
+  const url = `${releaseBaseUrl()}/v${version}/${name}`;
+  let response: Response;
   try {
-    const response = await fetch(url);
+    response = await fetch(url);
+  } catch (error) {
+    throw Object.assign(new Error(`could not fetch pi-host checksum: ${error instanceof Error ? error.message : String(error)}`), {
+      errorCode: ErrorCodes.REMOTE_DOWNLOAD_FAILED,
+    });
+  }
+  // Bundles ship with the Desktop release (D408). A missing asset is a
+  // publishing gap for this exact version; retrying cannot heal it.
+  if (response.status === 404) {
+    throw Object.assign(
+      new Error(
+        `no pi-host bundle is published for Desktop ${version}: ${name} is missing from the release; publish a release that includes the pi-host assets or point PI_DESKTOP_PI_HOST_RELEASE_BASE at one`,
+      ),
+      { errorCode: ErrorCodes.REMOTE_BUNDLE_MISSING },
+    );
+  }
+  try {
     if (!response.ok) throw new Error(`GitHub Releases returned ${response.status}`);
     const body = await response.text();
     const match = body.match(/\b[0-9a-f]{64}\b/);
@@ -473,13 +504,24 @@ export class RemoteManager {
       await runtime.connecting;
       return this.viewFor(id);
     }
-    runtime.connecting = this.connectInternal(runtime);
+    const abort = new AbortController();
+    runtime.connectAbort = abort;
+    runtime.connecting = this.connectInternal(runtime, abort.signal);
     try {
       await runtime.connecting;
       return this.viewFor(id);
     } catch (error) {
       await this.closeTransport(runtime).catch(() => undefined);
       const code = (error as { errorCode?: string; code?: string }).errorCode ?? (error as { code?: string }).code;
+      // A user-initiated disconnect while the attempt was in flight resolves
+      // quietly: the row is back to "disconnected", not "error".
+      if (runtime.explicitDisconnect || code === ErrorCodes.SSH_CANCELED) {
+        runtime.state = "disconnected";
+        runtime.lastError = undefined;
+        runtime.lastExitCode = undefined;
+        this.events.onConnectionsChanged();
+        return this.viewFor(id);
+      }
       if (code === ErrorCodes.REMOTE_HOST_VERSION_INCOMPATIBLE || code === ErrorCodes.REMOTE_PROTOCOL_MISMATCH) {
         runtime.state = "incompatible";
         runtime.lastError = publicError(error, "incompatible");
@@ -491,6 +533,7 @@ export class RemoteManager {
       if (!NON_RETRYABLE_REMOTE_CODES.has(String(code))) this.scheduleReconnect(id);
       throw toIpcError(error);
     } finally {
+      if (runtime.connectAbort === abort) runtime.connectAbort = undefined;
       runtime.connecting = undefined;
     }
   }
@@ -524,6 +567,7 @@ export class RemoteManager {
         PI_HOST_VERSION: APP_VERSION,
         PI_HOST_ARCH: arch,
         PI_HOST_CHECKSUM: checksum,
+        PI_HOST_BASE_URL: releaseBaseUrl(),
         PI_HOST_FORCE_RESTART: "1",
       }, password);
       const ready = parseBootstrapOutput(bootstrap.stdout).ready;
@@ -564,6 +608,7 @@ export class RemoteManager {
     const runtime = this.runtimes.get(id);
     if (!runtime) return;
     runtime.explicitDisconnect = true;
+    runtime.connectAbort?.abort();
     if (runtime.reconnectTimer) clearTimeout(runtime.reconnectTimer);
     runtime.reconnectTimer = undefined;
     runtime.reconnectAttempt = 0;
@@ -1429,14 +1474,14 @@ export class RemoteManager {
     });
   }
 
-  private async connectInternal(runtime: RemoteRuntime): Promise<void> {
+  private async connectInternal(runtime: RemoteRuntime, signal: AbortSignal): Promise<void> {
     runtime.explicitDisconnect = false;
     const id = runtime.connection.id;
     this.setState(id, "resolving");
     const password = await this.readPassword(runtime.connection);
-    const config = await effectiveSshConfig(runtime.connection);
+    const config = await effectiveSshConfig(runtime.connection, signal);
     if (!await knownHostAccepted(config)) {
-      const proposed = await proposeHostKeys(runtime.connection, password);
+      const proposed = await proposeHostKeys(config, signal);
       try {
         const accepted = await this.confirmFingerprint({
           connection: runtime.connection,
@@ -1446,7 +1491,7 @@ export class RemoteManager {
           this.events.onAudit("ssh.host_key.canceled", { connectionId: id });
           throw Object.assign(new Error("remote host key was not accepted"), { errorCode: ErrorCodes.SSH_HOST_KEY_FAILED });
         }
-        const keys = await confirmHostKeys(runtime.connection, proposed, password);
+        const keys = await confirmHostKeys(runtime.connection, proposed, password, signal);
         await acceptHostKeys(config, keys);
         this.events.onAudit("ssh.host_key.accepted", {
           connectionId: id,
@@ -1458,7 +1503,7 @@ export class RemoteManager {
     }
 
     this.setState(id, "connecting");
-    const probe = await sshProbe(runtime.connection, password);
+    const probe = await sshProbe(runtime.connection, password, signal);
     if (probe.os !== "Linux") {
       throw Object.assign(new Error(`remote OS ${probe.os || "unknown"} is unsupported; Linux is required`), {
         errorCode: ErrorCodes.REMOTE_OS_UNSUPPORTED,
@@ -1470,7 +1515,7 @@ export class RemoteManager {
     const hostId = this.hostIdFor(id);
     let host = this.store.getHost(hostId);
     let token = await this.readToken(hostId);
-    let metadata = await readRemoteRuntimeMetadata(runtime.connection, password);
+    let metadata = await readRemoteRuntimeMetadata(runtime.connection, password, signal);
     const remoteVersion = typeof metadata?.version === "string" ? metadata.version : "";
     if (remoteVersion && compareApplicationVersions(remoteVersion, APP_VERSION) > 0) {
       this.setState(id, "incompatible");
@@ -1486,8 +1531,9 @@ export class RemoteManager {
         PI_HOST_VERSION: APP_VERSION,
         PI_HOST_ARCH: arch,
         PI_HOST_CHECKSUM: checksum,
+        PI_HOST_BASE_URL: releaseBaseUrl(),
         ...(token ? {} : { PI_HOST_FORCE_RESTART: "1" }),
-      }, password);
+      }, password, signal);
       this.events.onAudit(token ? "remote.host.upgraded" : "remote.host.installed", {
         connectionId: id,
         version: APP_VERSION,

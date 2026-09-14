@@ -185,6 +185,10 @@ jobs:
         # must not self-publish on tag builds (no token; softprops owns it).
         # The explicit architecture keeps the package and native Rust sidecar
         # aligned with the runner selected by this matrix entry.
+        env:
+          # Baked into the build so the installed app reaches its own release
+          # for pi-host bundles — a fork release included.
+          PI_DESKTOP_RELEASE_BASE: ${{ github.server_url }}/${{ github.repository }}/releases/download
         run: pnpm --filter @pi-desktop/desktop run ${{ matrix.dist }} -- --${{ matrix.arch }}
 
       - name: Package unsigned macOS installer
@@ -193,6 +197,9 @@ jobs:
           # Default release lane: macOS artifacts stay unsigned unless a
           # workflow_dispatch run explicitly sets sign_macos=true.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Baked into the build so the installed app reaches its own release
+          # for pi-host bundles — a fork release included.
+          PI_DESKTOP_RELEASE_BASE: ${{ github.server_url }}/${{ github.repository }}/releases/download
         run: |
           set -euo pipefail
           # Artifact names are defined in apps/desktop/package.json: the mac
@@ -207,6 +214,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PI_DESKTOP_RELEASE_BASE: ${{ github.server_url }}/${{ github.repository }}/releases/download
         run: |
           set -euo pipefail
           # Artifact names are defined in apps/desktop/package.json: the mac

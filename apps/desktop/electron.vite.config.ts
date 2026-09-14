@@ -77,9 +77,28 @@ function preserveWsOptionalNativePeers(): Plugin {
   };
 }
 
+// release.yml sets PI_DESKTOP_RELEASE_BASE so an installed app fetches
+// pi-host bundles from the release it came from — a fork release included —
+// without any runtime configuration. The main build bypasses Vite's define
+// replacement, so the value is baked with a plain identifier rewrite.
+function bakeReleaseBase(): Plugin {
+  const value = process.env.PI_DESKTOP_RELEASE_BASE?.trim().replace(/\/+$/, "");
+  return {
+    name: "pi-bake-release-base",
+    apply: "build",
+    transform(code) {
+      if (!value || !code.includes("__PI_DESKTOP_RELEASE_BASE__")) return null;
+      return {
+        code: code.replaceAll("__PI_DESKTOP_RELEASE_BASE__", JSON.stringify(value)),
+        map: null,
+      };
+    },
+  };
+}
+
 export default defineConfig({
   main: {
-    plugins: [preserveWsOptionalNativePeers()],
+    plugins: [preserveWsOptionalNativePeers(), bakeReleaseBase()],
     build: {
       rollupOptions: {
         // Bundle JS workspace packages into Main. Only runtime modules that

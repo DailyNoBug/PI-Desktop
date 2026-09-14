@@ -1,15 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { RemoteConnectionView } from "@pi-desktop/shared";
+import type { RemoteConnectionState, RemoteConnectionView } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
 import { Button } from "../ui";
-import { IconPlus, IconServer } from "../icons";
+import { IconPlus, IconServer, IconTrash } from "../icons";
 import { RemoteConnectionDialog } from "./RemoteConnectionDialog";
 
 function stateLabel(state: RemoteConnectionView["state"]): string {
   return `remote.state.${state}`;
 }
+
+/** Stages with an attempt in flight; the row offers cancel instead of connect. */
+const CONNECTING_STATES = new Set<RemoteConnectionState>([
+  "resolving",
+  "connecting",
+  "authenticating",
+  "bootstrapping",
+  "starting_host",
+  "forwarding",
+  "handshaking",
+  "reconnecting",
+]);
 
 export function ConnectionsSection() {
   const { t } = useTranslation();
@@ -44,6 +56,11 @@ export function ConnectionsSection() {
     } finally {
       setBusyId(null);
     }
+  };
+
+  const removeConnection = (connection: RemoteConnectionView) => {
+    if (!window.confirm(t("remote.removeConfirm", { name: connection.displayName }))) return;
+    void action(connection.id, () => api.removeRemoteConnection(connection.id));
   };
 
   return (
@@ -83,23 +100,41 @@ export function ConnectionsSection() {
                       <span className="remote-error">{connection.lastError.code}: {connection.lastError.message}</span>
                     ) : null}
                   </div>
-                  {connection.state === "connected" ? (
+                  <div className="remote-connection-actions">
+                    {connection.state === "connected" ? (
+                      <Button
+                        variant="secondary"
+                        disabled={busyId === connection.id}
+                        onClick={() => void action(connection.id, () => api.disconnectRemote(connection.id))}
+                      >
+                        {t("remote.disconnect")}
+                      </Button>
+                    ) : CONNECTING_STATES.has(connection.state) ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => void action(connection.id, () => api.disconnectRemote(connection.id))}
+                      >
+                        {t("remote.cancelConnect")}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        disabled={busyId === connection.id}
+                        onClick={() => void action(connection.id, () => api.connectRemote(connection.id))}
+                      >
+                        {t("remote.connect")}
+                      </Button>
+                    )}
                     <Button
-                      variant="secondary"
-                      disabled={busyId === connection.id}
-                      onClick={() => void action(connection.id, () => api.disconnectRemote(connection.id))}
+                      variant="ghost"
+                      className="remote-connection-remove"
+                      aria-label={t("remote.remove")}
+                      title={t("remote.remove")}
+                      onClick={() => removeConnection(connection)}
                     >
-                      {t("remote.disconnect")}
+                      <IconTrash size={14} />
                     </Button>
-                  ) : (
-                    <Button
-                      variant="primary"
-                      disabled={busyId === connection.id}
-                      onClick={() => void action(connection.id, () => api.connectRemote(connection.id))}
-                    >
-                      {t("remote.connect")}
-                    </Button>
-                  )}
+                  </div>
                 </article>
               ))}
             </div>

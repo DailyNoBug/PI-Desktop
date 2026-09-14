@@ -147,6 +147,15 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(manager, /onAudit\("remote\.permission\.decision"/);
   assert.match(manager, /async upgradeHost/);
   assert.match(manager, /PI_HOST_FORCE_RESTART: "1"/);
+  // The bundle is version-matched to the Desktop release; a missing asset is
+  // terminal for the attempt instead of a retry loop, and a fork can point at
+  // its own release.
+  assert.match(manager, /PI_DESKTOP_PI_HOST_RELEASE_BASE/);
+  // Packaged builds bake the base of the release they came from.
+  assert.match(manager, /__PI_DESKTOP_RELEASE_BASE__/);
+  assert.match(manager, /PI_HOST_BASE_URL: releaseBaseUrl\(\)/);
+  assert.match(manager, /REMOTE_BUNDLE_MISSING/);
+  assert.match(manager, /ErrorCodes\.REMOTE_BUNDLE_MISSING,/);
   assert.match(manager, /compareApplicationVersions\(remoteVersion, APP_VERSION\) > 0/);
   assert.match(manager, /remote Host is newer than Desktop/);
   assert.match(manager, /exportConnections\(\): string/);
@@ -165,19 +174,21 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(ssh, /proposeHostKeys/);
   assert.match(ssh, /confirmHostKeys/);
   assert.match(ssh, /if \(!error\) \{\s*resolve\(\{ code: 0, stdout: String\(stdout\), stderr: String\(stderr\) \}\);/);
-  assert.match(ssh, /UserKnownHostsFile=\$\{knownHostsPath\}/);
+  // Host keys are scanned out of band: BatchMode ssh with strict checking
+  // refuses before OpenSSH discloses any fingerprint to parse.
+  assert.match(ssh, /ssh-keyscan/);
   assert.match(ssh, /UserKnownHostsFile=\$\{proposed\.knownHostsPath\}/);
-  assert.match(ssh, /StrictHostKeyChecking=yes/);
   assert.match(ssh, /StrictHostKeyChecking=accept-new/);
-  assert.doesNotMatch(ssh, /ssh-keyscan/);
-  assert.doesNotMatch(ssh, /StrictHostKeyChecking=no/);
+  assert.doesNotMatch(ssh, /StrictHostKeyChecking=(yes|no)/);
+  assert.match(ssh, /SSH_CANCELED/);
   assert.match(ssh, /BatchMode=yes/);
   assert.match(ssh, /ExitOnForwardFailure=yes/);
   assert.match(ssh, /127\.0\.0\.1:\$\{localPort\}:127\.0\.0\.1:\$\{remotePort\}/);
   assert.match(main, /new RemoteManager|RemoteManager\.open/);
-  assert.match(manager, /proposeHostKeys\(runtime\.connection, password\)/);
-  assert.match(manager, /confirmHostKeys\(runtime\.connection, proposed, password\)/);
+  assert.match(manager, /proposeHostKeys\(config, signal\)/);
+  assert.match(manager, /confirmHostKeys\(runtime\.connection, proposed, password, signal\)/);
   assert.match(manager, /discardProposedHostKeys\(proposed\)/);
+  assert.match(manager, /connectAbort\?\.abort\(\)/);
   assert.match(main, /remoteManager\.upgradeHost/);
   assert.match(main, /remoteManager\.revokeDevice/);
   const managerSource = manager.slice(
@@ -189,7 +200,13 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(managerSource, /secrets\.delete/);
   assert.match(connections, /api\.connectRemote/);
   assert.match(connections, /api\.disconnectRemote/);
-  assert.doesNotMatch(connections, /TooltipButton|remote-connection-actions/);
+  // While a connect attempt is in flight the row offers cancel; each row has
+  // a hover-revealed remove action.
+  assert.match(connections, /CONNECTING_STATES/);
+  assert.match(connections, /remote\.cancelConnect/);
+  assert.match(connections, /api\.removeRemoteConnection/);
+  assert.match(connections, /remote-connection-remove/);
+  assert.doesNotMatch(connections, /TooltipButton/);
   assert.match(main, /setAsDefaultProtocolClient\("pi-desktop"\)/);
   assert.match(main, /app\.on\("open-url"/);
   assert.match(main, /app\.on\("second-instance"/);

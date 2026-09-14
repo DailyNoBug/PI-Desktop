@@ -437,6 +437,28 @@
   color: var(--ds-error);
 }
 
+.remote-connection-remove {
+  color: var(--ds-text-secondary);
+  opacity: 0;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-out),
+    color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.remote-connection-row:hover .remote-connection-remove,
+.remote-connection-row:focus-within .remote-connection-remove {
+  opacity: 1;
+}
+
+.remote-connection-remove:hover {
+  color: var(--ds-error);
+}
+
+@media (hover: none) {
+  .remote-connection-row .remote-connection-remove {
+    opacity: 1;
+  }
+}
+
 .remote-connection-dialog {
   display: flex;
   width: min(580px, 100%);
