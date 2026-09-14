@@ -426,6 +426,9 @@ system while preserving their different data ownership:
 
 ### Connections
 
+- The page title names the destination once. The Connections panel uses a
+  quiet "Connect to a remote device over SSH" section heading with Add aligned
+  to its trailing edge; list rows keep only Connect/Disconnect.
 - **SSH connections** lists selected OpenSSH aliases and manual connections
   with display name, target, source, state, reconnect attempt, and last error.
   Connect/Disconnect is the only row action.

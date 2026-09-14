@@ -204,6 +204,9 @@ test("SSH add uses a discovery modal and explicit target users override aliases"
     read("packages/shared/src/remote.ts"),
   ]);
   assert.match(connections, /<RemoteConnectionDialog/);
+  assert.match(connections, /remote-heading-row/);
+  assert.match(connections, /remote\.connectRemoteDevice/);
+  assert.doesNotMatch(connections, /settings-card-heading/);
   assert.match(connections, /remote-empty-card/);
   assert.doesNotMatch(connections, /api\.testRemoteConnection|api\.upgradeRemoteHost|api\.revokeRemoteDevice|api\.remoteDiagnostics/);
   assert.match(dialog, /mode === "discover"/);

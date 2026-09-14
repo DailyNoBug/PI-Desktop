@@ -13,6 +13,12 @@
     justify-self: start;
   }
 
+  .remote-heading-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
   .remote-connection-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
