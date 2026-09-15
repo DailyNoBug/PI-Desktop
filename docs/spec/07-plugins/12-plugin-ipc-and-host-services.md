@@ -74,9 +74,18 @@ PluginManager
 
 The shipped `pluginChanged` event carries a `reason` so the renderer can decide
 what to refetch: `install`, `loadDev`, `enable`, `disable`, `uninstall`, `crash`,
-`service`, `market.install`, `market.applyUpdates`. `service` fires on every
+`service`, `market.install`, `market.applyUpdates`, `themes` (runtime
+`themes.upsert` / `themes.remove`). `service` fires on every
 supervision transition and is the cheapest of them — only the service list needs
 a reload.
+
+`settingsChanged` (`pi-desktop/app/event/settingsChanged`) carries a settings
+patch when the **host** writes app settings outside the renderer path — today
+only plugin `app.setTheme` (`{ theme }`). The renderer merges the patch into
+its store so the shell paints the new preference.
+
+Panel bridge fixed channels also include `app.setTheme`, `themes.upsert`,
+`themes.remove`, and `themes.list` (all require `ui.theme`).
 
 ## 4.1 Events (host → plugin process)
 
@@ -122,6 +131,44 @@ plugin runtime
  → audit log
  → response
 ```
+
+### 6.1 Allowlist names and audit operations for the real-time capabilities
+
+The broker's `HOST_API_ALLOWLIST` gains three implemented entries, all gated on
+`keyboard.globalShortcut`:
+
+- `keyboard.registerGlobalShortcut`
+- `keyboard.unregisterGlobalShortcut`
+- `keyboard.listGlobalShortcuts`
+
+Their audit operations are `keyboard.globalShortcut.register`,
+`keyboard.globalShortcut.unregister`, and `keyboard.globalShortcut.trigger` (a
+shortcut that fired). Register and trigger entries record the accelerator and
+command; no key events and no input text are ever recorded.
+
+The socket capability is implemented: `net.websocket.connect` /
+`net.websocket.send` / `net.websocket.close` are registered in the same
+allowlist, gated on `net.websocket`. Its audit operations are
+`net.websocket.connect` and `net.websocket.close` (plugin id and result, never
+payloads, headers, or keys), plus a refused `net.websocket.send`; a successful
+send is not audited. Frames travel back to the owning plugin only, as the host
+events `net:websocket:open`, `net:websocket:message`, `net:websocket:close`,
+and `net:websocket:error`.
+
+The audio names are registered in the same allowlist:
+`audio.getInputDevices`, `audio.openInput`, `audio.closeInput`,
+`audio.getCaptureState`, `audio.onInputFrame`, `audio.offInputFrame`,
+`audio.openOutput`, `audio.writeOutput`, `audio.stopOutput`, and
+`audio.closeOutput`. The permission gate runs first, so an ungranted call is
+refused with `PERMISSION_DENIED` under `audio.capture.background` /
+`audio.playback.background`, exactly like any other gated API. This host has no
+device backend yet, so every call that passes the gate is audited as an
+`UNSUPPORTED` refusal — `{ api: "audio.<method>", ok: false, errorCode: "UNSUPPORTED" }` —
+and rejected with that code; the two synchronous registration helpers
+`audio.onInputFrame` / `audio.offInputFrame` throw it synchronously. Reserved
+audit-operation names for the device service: `audio.input.open` /
+`audio.input.close`, `audio.output.open` / `audio.output.stop` /
+`audio.output.close` (ADR 0257).
 
 ## 7. PanelHost interaction
 
@@ -175,7 +222,9 @@ permission gate and result envelope stay in host-core:
 2. host-core resolves the durable operating mode first. In Agent it runs the
    normal permission flow (risk, session grants, 120s timeout), then emits
    notification `plugins.execute`
-   `{ executionId, sessionId, toolCallId, toolName, args }`.
+   `{ executionId, sessionId, toolCallId, toolName, args, turnId }`. `turnId` is
+   the runtime turn identity, forwarded unchanged so the plugin tool context can
+   be matched against the `session:turnEnded` event.
 3. Plan calls fail at the host policy step with `PLUGIN_DISABLED_IN_PLAN`; they
    never reach Electron or the plugin runtime. Agent calls continue with
    Electron main executing the registered plugin tool JS and answering via RPC

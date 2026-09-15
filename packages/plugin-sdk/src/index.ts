@@ -7,6 +7,16 @@ import {
 } from "./fs-policy.js";
 import { validateMcpServer } from "./mcp-config.js";
 import { parseNetDomains, type PluginNetDomain } from "./net-policy.js";
+import {
+  isExternalThemeAssetPath,
+  isThemeAssetPath,
+  normalizeThemeAssetPath,
+  THEME_ASSET_EXTENSIONS,
+} from "./theme-css.js";
+import {
+  validatePluginThemeVariableDeclaration,
+  type PluginThemeVariableContrib,
+} from "./theme-variables.js";
 
 /**
  * Manifest id shape frozen by docs/spec/07-plugins/02-plugin-manifest-schema.md:
@@ -72,8 +82,18 @@ export type PluginManifest = {
      * the plugin directory (spec 07-plugins/16).
      */
     agentExtensions?: string[];
+    /**
+     * Providers this plugin adds to Settings' provider list. Requires the
+     * `provider.register` permission; each row is read-only for the user and
+     * refreshed from this manifest on every load.
+     */
+    providers?: PluginProviderContrib[];
     settings?: PluginSettingContrib[];
     themes?: PluginThemeContrib[];
+    /** Sandboxed pages placed exclusively in Settings' host-owned Extensions group. */
+    settingsDestinations?: PluginSettingsDestinationContrib[];
+    /** Native window background for this plugin's themes (ADR 0248). */
+    windowAppearance?: PluginWindowAppearanceContrib;
     mcpServers?: PluginMcpServerContrib[];
     services?: PluginServiceContrib[];
     bus?: PluginBusContrib;
@@ -81,6 +101,12 @@ export type PluginManifest = {
     views?: PluginViewContrib[];
     /** External session namespaces this plugin may import and own. */
     sessionSources?: PluginSessionSourceContrib[];
+    /**
+     * System-wide accelerators this plugin may own (`keyboard.globalShortcut`).
+     * Each entry maps one accelerator to one of the plugin's own commands; the
+     * host registers, conflict-checks, and releases it with the plugin.
+     */
+    globalShortcuts?: PluginGlobalShortcutContrib[];
   };
   permissions?: string[];
   /**
@@ -302,7 +328,104 @@ export type PluginThemeContrib = {
   path: string;
   /** Base palette the overrides are layered on. Defaults to `dark`. */
   base?: "light" | "dark";
+  /**
+   * Relative paths (extension whitelist, 4 MB summed) this theme's CSS may
+   * reference with `url()`. The host rewrites each matching reference to its own
+   * `plugin-asset://` scheme; anything not declared here is still refused.
+   */
+  assets?: string[];
+  /** Values accepted by the typed `pi.themes.setVariables` API. */
+  variables?: PluginThemeVariableContrib[];
 };
+
+export type PluginSettingsDestinationContrib = {
+  id: string;
+  label: PluginLocalizedString | string;
+  icon: "sliders" | "sparkles" | "palette" | "plug" | "settings";
+  keywords?: Array<PluginLocalizedString | string>;
+  entry: string;
+};
+
+/** Wire format a contributed provider may declare. Absent means `chat_completions`. */
+export const PLUGIN_PROVIDER_API_STYLES = [
+  "chat_completions",
+  "opencode_go",
+  "responses",
+  "anthropic_messages",
+  "google_generative_ai",
+  "openai_codex_responses",
+  "pi_messages",
+] as const;
+
+export type PluginProviderApiStyle = (typeof PLUGIN_PROVIDER_API_STYLES)[number];
+
+/**
+ * Credential a contributed provider accepts. Absent means `api_key`. `oauth`
+ * is deliberately absent: a plugin OAuth provider needs a Host-owned login
+ * flow that does not exist yet, so a declaration asking for one is refused
+ * instead of materializing a row nobody can sign in to.
+ */
+export const PLUGIN_PROVIDER_AUTH_KINDS = ["api_key", "none"] as const;
+
+export type PluginProviderAuthKind = (typeof PLUGIN_PROVIDER_AUTH_KINDS)[number];
+
+/** Upper bound on `contributes.providers` entries one plugin may declare. */
+export const MAX_PLUGIN_PROVIDERS_PER_PLUGIN = 8;
+
+/** Upper bound on the model list of one contributed provider. */
+export const MAX_PLUGIN_PROVIDER_MODELS = 64;
+
+/** One model a contributed provider exposes to the model picker. */
+export type PluginProviderModelContrib = {
+  /** Model id sent on the wire, 1..256 characters. */
+  id: string;
+  /** Label shown in the picker; the id when omitted. */
+  name?: string;
+  /** Context window in tokens; the runtime default when omitted. */
+  contextWindow?: number;
+  /** Max output tokens; the runtime default when omitted. */
+  maxTokens?: number;
+  /** Whether the model accepts image input. */
+  supportsImages?: boolean;
+};
+
+/**
+ * One provider a plugin adds to Settings' provider list. The plugin supplies
+ * the endpoint and model catalog; the user's API key stays in the host and is
+ * never handed to the plugin. The row appears as `plugin:<pluginId>:<id>` and
+ * is read-only in Settings.
+ */
+export type PluginProviderContrib = {
+  /** Plugin-local id matching [a-zA-Z][a-zA-Z0-9_-]{0,63}, unique per plugin. */
+  id: string;
+  /** Display name for the provider row; required and non-empty. */
+  name: string;
+  /** Vendor the row is attributed to; `custom` when omitted. */
+  vendorKey?: string;
+  /** Endpoint the runtime reaches; must be an absolute http(s) URL. */
+  baseUrl?: string;
+  apiStyle?: PluginProviderApiStyle;
+  authKind?: PluginProviderAuthKind;
+  /** 1..64 models with unique ids. */
+  models: PluginProviderModelContrib[];
+};
+
+/**
+ * Native window chrome a theme may ask for. Only honoured while one of this
+ * plugin's themes is the selected theme, and only with the
+ * `ui.window.appearance` grant.
+ */
+export type PluginWindowAppearanceContrib = {
+  /** `#rrggbb` or `#rrggbbaa`, applied per resolved palette. */
+  backgroundColor?: { light?: string; dark?: string };
+};
+
+/** The only colour form a contributed window background may take. */
+export const WINDOW_BACKGROUND_COLOR_PATTERN = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
+
+export function isWindowBackgroundColor(value: unknown): value is string {
+  return typeof value === "string" && WINDOW_BACKGROUND_COLOR_PATTERN.test(value);
+}
 
 export type PluginMcpServerContrib = {
   id: string;
@@ -330,6 +453,33 @@ export type PluginBusContrib = {
   publish?: string[];
   /** Topic patterns this plugin may subscribe to. */
   subscribe?: string[];
+};
+/** One system-wide accelerator a plugin declares (`keyboard.globalShortcut`). */
+export type PluginGlobalShortcutContrib = {
+  /** Local id, unique inside the plugin; also the handle later handed back. */
+  id: string;
+  /**
+   * Command to run, which must be declared in `contributes.commands`. A
+   * shortcut carries no payload and can only reach this plugin's own commands.
+   */
+  command: string;
+  /**
+   * Accelerator the host registers until the user overrides it. The host
+   * reports an OS-reserved or already-claimed accelerator as a registration
+   * error rather than silently replacing the other owner.
+   */
+  default?: string;
+};
+
+/** One accelerator the host currently holds for this plugin. */
+export type PluginGlobalShortcut = {
+  id: string;
+  accelerator: string;
+  command: string;
+  /** False when the OS or another owner holds the accelerator instead. */
+  registered: boolean;
+  /** Why registration failed, when it did. */
+  error?: string;
 };
 
 /**
@@ -434,7 +584,11 @@ export type PluginModelInfo = {
   providerName: string;
   modelId: string;
   label: string;
-  /** True for the application's current default model, when it is ready. */
+  /** User-configured display alias; the key remains the model identity. */
+  alias?: string;
+  /** Whether the user enabled this binding for AI-driven delegation. */
+  availableForSubagents?: boolean;
+  /** The host's default launch model, when it is present in this ready catalog. */
   isDefault?: boolean;
   supportsReasoning: boolean;
   thinkingLevels: string[];
@@ -558,6 +712,104 @@ export type PluginDesktopInvokeInput = {
   args?: unknown[];
   confirm?: boolean;
 };
+/** One capturable audio endpoint (`audio.capture.background`). */
+export type PluginAudioInputDevice = {
+  /** Opaque host id; `""` names the system default input. */
+  deviceId: string;
+  label: string;
+  /** The entry the host picks when `deviceId` is omitted. */
+  isDefault: boolean;
+};
+
+/** A capture the host is holding for this plugin. */
+export type PluginAudioCaptureState = {
+  active: boolean;
+  streamId?: string;
+  deviceId?: string;
+  label?: string;
+  sampleRate?: number;
+  channels?: number;
+  startedAtMs?: number;
+  /** Frames the host dropped because the plugin did not drain its queue in time. */
+  droppedFrames: number;
+};
+
+/** One PCM frame delivered through `pi.audio.onInputFrame`. */
+export type PluginAudioInputFrame = {
+  streamId: string;
+  /** Monotonic per stream; a gap means dropped frames, not reordered ones. */
+  sequence: number;
+  timestampMs: number;
+  sampleRate: number;
+  channels: number;
+  format: "pcm16";
+  /** Little-endian signed 16-bit samples, interleaved when `channels` is 2. */
+  data: Uint8Array;
+};
+
+export type PluginAudioOpenInputOptions = {
+  /** From `pi.audio.getInputDevices`; omitted means the system default. */
+  deviceId?: string;
+  sampleRate?: number;
+  channels?: number;
+  echoCancellation?: boolean;
+  noiseSuppression?: boolean;
+  autoGainControl?: boolean;
+};
+
+/** An open capture (`pi.audio.openInput`). */
+export type PluginAudioInputSession = {
+  streamId: string;
+  sampleRate: number;
+  channels: number;
+  deviceId?: string;
+  label?: string;
+};
+
+export type PluginAudioOpenOutputOptions = {
+  sampleRate: number;
+  channels?: number;
+  format?: "pcm16";
+};
+
+/** An open playback queue (`pi.audio.openOutput`). */
+export type PluginAudioOutputSession = {
+  streamId: string;
+  sampleRate: number;
+  channels: number;
+  format: "pcm16";
+};
+
+/** Input for `pi.net.websocket.connect` (`net.websocket`). */
+export type PluginWebSocketConnectInput = {
+  /** Absolute `ws://` / `wss://` URL; its host must be in `manifest.net.domains`. */
+  url: string;
+  headers?: Record<string, string>;
+  protocols?: string[];
+  timeoutMs?: number;
+};
+
+export type PluginWebSocketOpenEvent = { socketId: string; protocol: string };
+
+export type PluginWebSocketMessageEvent = {
+  socketId: string;
+  /** Text frames arrive as `string`; binary frames arrive as bytes. */
+  data: string | Uint8Array;
+};
+
+export type PluginWebSocketCloseEvent = {
+  socketId: string;
+  code: number;
+  reason: string;
+  /** False when the connection failed rather than closed cleanly. */
+  wasClean: boolean;
+};
+
+export type PluginWebSocketErrorEvent = {
+  socketId: string;
+  code: string;
+  message: string;
+};
 
 /** Classified preview returned by `fs.readPreview`. */
 export type PluginFsPreview = {
@@ -647,11 +899,44 @@ export type PluginAppearance = {
   pluginTheme: { id: string; base: "light" | "dark"; css: string } | null;
 };
 
+/** Built-in theme preference, or a registered `plugin:<pluginId>:<themeId>` id. */
+export type AppThemePreferenceId = "system" | "light" | "dark" | `plugin:${string}`;
+
+/** Runtime theme payload for `pi.themes.upsert`. Sanitized with the load-time rules. */
+export type PluginThemeUpsertInput = {
+  /** Local theme id (same rules as `contributes.themes[].id`). */
+  id: string;
+  label: string;
+  base: "light" | "dark";
+  css: string;
+};
+
+/** Lightweight theme row returned by `pi.themes.list`. */
+export type PluginThemeSummary = {
+  /** Full namespaced id: `plugin:<pluginId>:<themeId>`. */
+  id: string;
+  themeId: string;
+  label: string;
+  base: "light" | "dark";
+};
+
 export type PluginHostApi = {
   app: {
     getVersion: () => Promise<string>;
     getLocale: () => Promise<string>;
     getAppearance: () => Promise<PluginAppearance>;
+    /**
+     * Apply the host's app theme preference (`ui.theme`). Accepts a built-in
+     * preference or a currently registered plugin theme id.
+     */
+    setTheme: (themeId: AppThemePreferenceId) => Promise<void>;
+  };
+  /** Runtime theme registry for the calling plugin only (`ui.theme`). */
+  themes: {
+    upsert: (input: PluginThemeUpsertInput) => Promise<void>;
+    remove: (themeId: string) => Promise<void>;
+    list: () => Promise<PluginThemeSummary[]>;
+    setVariables: (themeId: string, values: Record<string, number | string>) => Promise<void>;
   };
   plugin: {
     getId: () => string;
@@ -685,6 +970,37 @@ export type PluginHostApi = {
   desktop: {
     listOperations: () => Promise<PluginDesktopOperation[]>;
     invoke: (input: PluginDesktopInvokeInput) => Promise<unknown>;
+  };
+  /**
+   * Background microphone capture and streaming playback
+   * (`audio.capture.background`, `audio.playback.background`). The host owns
+   * the device: plugins exchange PCM frames and never see a device handle.
+   */
+  audio: {
+    getInputDevices: () => Promise<PluginAudioInputDevice[]>;
+    openInput: (options?: PluginAudioOpenInputOptions) => Promise<PluginAudioInputSession>;
+    closeInput: (streamId: string) => Promise<void>;
+    /** Which plugin currently holds an input, if any. */
+    getCaptureState: () => Promise<PluginAudioCaptureState>;
+    /** Frames arrive at capture pace; a handler that falls behind drops frames. */
+    onInputFrame: (handler: (frame: PluginAudioInputFrame) => void) => void;
+    offInputFrame: (handler: (frame: PluginAudioInputFrame) => void) => void;
+    openOutput: (options: PluginAudioOpenOutputOptions) => Promise<PluginAudioOutputSession>;
+    /** Queues PCM16 for playback; rejects when the queue is full. */
+    writeOutput: (input: { streamId: string; data: Uint8Array }) => Promise<void>;
+    /** Drops queued but unplayed audio — the barge-in primitive. */
+    stopOutput: (streamId: string) => Promise<void>;
+    closeOutput: (streamId: string) => Promise<void>;
+  };
+  /** System-wide accelerators, registered and released by the host (`keyboard.globalShortcut`). */
+  keyboard: {
+    registerGlobalShortcut: (input: {
+      id: string;
+      accelerator: string;
+      command: string;
+    }) => Promise<PluginGlobalShortcut>;
+    unregisterGlobalShortcut: (id: string) => Promise<void>;
+    listGlobalShortcuts: () => Promise<PluginGlobalShortcut[]>;
   };
   /**
    * Paths are relative to the rule's root: the workspace by default, or the
@@ -813,6 +1129,16 @@ export type PluginHostApi = {
       body?: string;
       timeoutMs?: number;
     }) => Promise<{ status: number; headers: Record<string, string>; bodyText: string }>;
+    /**
+     * Real-time bidirectional sockets (`net.websocket`). A connect is confined
+     * to `manifest.net.domains` exactly like `fetch`, and the host closes every
+     * socket the plugin still holds when it unloads.
+     */
+    websocket: {
+      connect: (input: PluginWebSocketConnectInput) => Promise<{ socketId: string }>;
+      send: (input: { socketId: string; data: string | Uint8Array }) => Promise<void>;
+      close: (input: { socketId: string; code?: number; reason?: string }) => Promise<void>;
+    };
   };
   git: {
     status: () => Promise<PluginGitStatus>;
@@ -842,12 +1168,16 @@ export type PluginModule = {
 
 /** Upper bound on ExtensionAPI modules one plugin may contribute. */
 export const MAX_AGENT_EXTENSIONS_PER_PLUGIN = 8;
+/** Upper bound on system-wide accelerators one plugin may declare. */
+export const MAX_GLOBAL_SHORTCUTS_PER_PLUGIN = 8;
 
 export const PLUGIN_PERMISSIONS = [
   "ui.panel",
   "ui.view",
   "ui.microphone",
   "ui.theme",
+  "ui.settings",
+  "ui.window.appearance",
   "clipboard.read",
   "clipboard.write",
   "notify",
@@ -858,6 +1188,7 @@ export const PLUGIN_PERMISSIONS = [
   "agent.prompt.inject",
   "agent.complete",
   "agent.extension",
+  "provider.register",
   "desktop.control",
   "models.list",
   "project.create",
@@ -876,6 +1207,12 @@ export const PLUGIN_PERMISSIONS = [
   "browser.cdp",
   "git.read",
   "git.write",
+  // Background device access. `ui.microphone` stays panel-scoped: these two are
+  // what a service may use with no page open.
+  "audio.capture.background",
+  "audio.playback.background",
+  "keyboard.globalShortcut",
+  "net.websocket",
 ] as const;
 
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];
@@ -943,6 +1280,33 @@ export function validateManifest(raw: unknown): {
   ) {
     return { ok: false, error: "contributes.agentExtensions requires the agent.extension permission" };
   }
+  if (
+    !contributesError &&
+    (m.contributes?.providers?.length ?? 0) > 0 &&
+    !(m.permissions ?? []).includes("provider.register")
+  ) {
+    return { ok: false, error: "contributes.providers requires the provider.register permission" };
+  }
+  if (
+    !contributesError &&
+    m.contributes?.windowAppearance !== undefined &&
+    !(m.permissions ?? []).includes("ui.window.appearance")
+  ) {
+    return {
+      ok: false,
+      error: "contributes.windowAppearance requires the ui.window.appearance permission",
+    };
+  }
+  if (
+    !contributesError &&
+    (m.contributes?.globalShortcuts?.length ?? 0) > 0 &&
+    !(m.permissions ?? []).includes("keyboard.globalShortcut")
+  ) {
+    return {
+      ok: false,
+      error: "contributes.globalShortcuts requires the keyboard.globalShortcut permission",
+    };
+  }
   if (contributesError) {
     return { ok: false, error: contributesError };
   }
@@ -1003,6 +1367,38 @@ export function validateContributions(
     }
     if (commandIds.has(command.id)) return `duplicate command id "${command.id}"`;
     commandIds.add(command.id);
+  }
+  const shortcuts = contributes.globalShortcuts ?? [];
+  if (!Array.isArray(shortcuts)) return "contributes.globalShortcuts must be an array";
+  if (shortcuts.length > MAX_GLOBAL_SHORTCUTS_PER_PLUGIN) {
+    return `contributes.globalShortcuts is limited to ${MAX_GLOBAL_SHORTCUTS_PER_PLUGIN} entries`;
+  }
+  const shortcutIds = new Set<string>();
+  for (const shortcut of shortcuts) {
+    if (!shortcut || typeof shortcut !== "object") {
+      return "contributes.globalShortcuts entries must be objects";
+    }
+    if (
+      typeof shortcut.id !== "string" ||
+      !/^[a-zA-Z][a-zA-Z0-9._-]{0,63}$/.test(shortcut.id)
+    ) {
+      return "contributes.globalShortcuts entries need an id matching [a-zA-Z][a-zA-Z0-9._-]{0,63}";
+    }
+    if (shortcutIds.has(shortcut.id)) {
+      return `duplicate global shortcut id "${shortcut.id}"`;
+    }
+    shortcutIds.add(shortcut.id);
+    if (typeof shortcut.command !== "string" || !shortcut.command.trim()) {
+      return `global shortcut "${shortcut.id}" requires a command`;
+    }
+    // A shortcut may only reach its own plugin's commands, so the command has
+    // to exist here rather than be resolved later against the whole registry.
+    if (!commandIds.has(shortcut.command)) {
+      return `global shortcut "${shortcut.id}" references an undeclared command`;
+    }
+    if (shortcut.default !== undefined && !isValidShortcutShape(shortcut.default)) {
+      return `global shortcut "${shortcut.id}" has an invalid default`;
+    }
   }
   for (const setting of settings) {
     if (!setting || typeof setting !== "object") {
@@ -1090,6 +1486,98 @@ export function validateContributions(
     }
   }
 
+  const declaredProviders = contributes.providers ?? [];
+  if (!Array.isArray(declaredProviders)) return "contributes.providers must be an array";
+  if (declaredProviders.length > MAX_PLUGIN_PROVIDERS_PER_PLUGIN) {
+    return `contributes.providers allows at most ${MAX_PLUGIN_PROVIDERS_PER_PLUGIN} entries`;
+  }
+  const providerIds = new Set<string>();
+  for (const provider of declaredProviders) {
+    if (!provider || typeof provider !== "object" || Array.isArray(provider)) {
+      return "contributes.providers entries must be objects";
+    }
+    if (typeof provider.id !== "string" || !/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(provider.id)) {
+      return "provider declaration id is missing or invalid";
+    }
+    if (providerIds.has(provider.id)) {
+      return `duplicate provider declaration id "${provider.id}"`;
+    }
+    providerIds.add(provider.id);
+    if (typeof provider.name !== "string" || !provider.name.trim()) {
+      return `provider "${provider.id}" requires a name`;
+    }
+    if (
+      provider.vendorKey !== undefined &&
+      (typeof provider.vendorKey !== "string" || !provider.vendorKey.trim())
+    ) {
+      return `provider "${provider.id}" vendorKey must be a non-empty string`;
+    }
+    if (provider.baseUrl !== undefined) {
+      if (typeof provider.baseUrl !== "string") {
+        return `provider "${provider.id}" baseUrl must be a string`;
+      }
+      // The runtime reaches this endpoint, so only an absolute http(s) URL
+      // may be declared.
+      if (!(provider.baseUrl.startsWith("http://") || provider.baseUrl.startsWith("https://"))) {
+        return `provider "${provider.id}" baseUrl must be an http(s) URL`;
+      }
+    }
+    if (provider.apiStyle !== undefined) {
+      if (typeof provider.apiStyle !== "string") {
+        return `provider "${provider.id}" apiStyle must be a string`;
+      }
+      if (!(PLUGIN_PROVIDER_API_STYLES as readonly string[]).includes(provider.apiStyle)) {
+        return `provider "${provider.id}" has unsupported apiStyle ${provider.apiStyle}`;
+      }
+    }
+    if (provider.authKind !== undefined) {
+      if (typeof provider.authKind !== "string") {
+        return `provider "${provider.id}" authKind must be a string`;
+      }
+      if (!(PLUGIN_PROVIDER_AUTH_KINDS as readonly string[]).includes(provider.authKind)) {
+        return `provider "${provider.id}" has unsupported authKind ${provider.authKind}`;
+      }
+    }
+    // A Host-owned plugin login flow does not exist yet, so a declaration that
+    // asks for one is refused rather than turned into a row nobody can sign in
+    // to.
+    if ((provider as { oauth?: unknown }).oauth !== undefined) {
+      return `provider "${provider.id}" declares oauth; plugin OAuth providers are not supported in this release`;
+    }
+    if (!Array.isArray(provider.models)) {
+      return `provider "${provider.id}" requires models`;
+    }
+    if (provider.models.length === 0 || provider.models.length > MAX_PLUGIN_PROVIDER_MODELS) {
+      return `provider "${provider.id}" declares 1 to ${MAX_PLUGIN_PROVIDER_MODELS} models`;
+    }
+    const modelIds = new Set<string>();
+    for (const model of provider.models) {
+      if (!model || typeof model !== "object" || Array.isArray(model)) {
+        return `provider "${provider.id}" model entries must be objects`;
+      }
+      const modelId = typeof model.id === "string" ? model.id.trim() : "";
+      if (!modelId || modelId.length > 256) {
+        return `provider "${provider.id}" has a model without a valid id`;
+      }
+      if (modelIds.has(modelId)) {
+        return `provider "${provider.id}" declares model ${modelId} twice`;
+      }
+      modelIds.add(modelId);
+      if (model.name !== undefined && (typeof model.name !== "string" || !model.name.trim())) {
+        return `provider "${provider.id}" model ${modelId} name must be a non-empty string`;
+      }
+      for (const field of ["contextWindow", "maxTokens"] as const) {
+        const value = model[field];
+        if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
+          return `provider "${provider.id}" model ${modelId} ${field} must be a positive integer`;
+        }
+      }
+      if (model.supportsImages !== undefined && typeof model.supportsImages !== "boolean") {
+        return `provider "${provider.id}" model ${modelId} supportsImages must be a boolean`;
+      }
+    }
+  }
+
   const themeIds = new Set<string>();
   for (const theme of contributes.themes ?? []) {
     if (!theme || typeof theme !== "object") return "contributes.themes entries must be objects";
@@ -1105,6 +1593,77 @@ export function validateContributions(
     if (pathError) return pathError;
     if (theme.base !== undefined && theme.base !== "light" && theme.base !== "dark") {
       return `theme "${theme.id}" base must be "light" or "dark"`;
+    }
+    if (theme.assets !== undefined) {
+      if (!Array.isArray(theme.assets)) {
+        return `theme "${theme.id}" assets must be an array`;
+      }
+      const assetPaths = new Set<string>();
+      for (const asset of theme.assets) {
+        if (typeof asset !== "string" || !isThemeAssetPath(asset)) {
+          return `theme "${theme.id}" asset must be an absolute ${THEME_ASSET_EXTENSIONS.join(
+            "/",
+          )} path`;
+        }
+        // `bg.png` and `./bg.png` are one asset, so compare the normalized form.
+        const normalized = normalizeThemeAssetPath(asset);
+        if (assetPaths.has(normalized)) {
+          return `theme "${theme.id}" declares "${asset}" twice`;
+        }
+        assetPaths.add(normalized);
+      }
+    }
+    if (theme.variables !== undefined) {
+      if (!Array.isArray(theme.variables)) return `theme "${theme.id}" variables must be an array`;
+      const variables = new Set<string>();
+      for (const variable of theme.variables) {
+        if (!validatePluginThemeVariableDeclaration(variable)) {
+          return `theme "${theme.id}" has an invalid variable declaration`;
+        }
+        if (variables.has(variable.name)) return `theme "${theme.id}" declares variable "${variable.name}" twice`;
+        variables.add(variable.name);
+      }
+    }
+  }
+
+  const settingsDestinationIds = new Set<string>();
+  for (const destination of contributes.settingsDestinations ?? []) {
+    if (!destination || typeof destination !== "object") return "contributes.settingsDestinations entries must be objects";
+    if (typeof destination.id !== "string" || !/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(destination.id)) return "contributes.settingsDestinations id must match [a-zA-Z][a-zA-Z0-9_-]{0,63}";
+    if (settingsDestinationIds.has(destination.id)) return `duplicate settings destination id "${destination.id}"`;
+    settingsDestinationIds.add(destination.id);
+    if (typeof destination.entry !== "string" || !destination.entry.endsWith(".html")) return `settings destination "${destination.id}" entry must be an .html file`;
+    const pathError = relativePathError(destination.entry, `settings destination "${destination.id}" entry`);
+    if (pathError) return pathError;
+    if (!destination.label || (typeof destination.label !== "string" && typeof destination.label !== "object")) return `settings destination "${destination.id}" requires a label`;
+    if (!["sliders", "sparkles", "palette", "plug", "settings"].includes(destination.icon)) return `settings destination "${destination.id}" has an unsupported icon`;
+  }
+
+  const windowAppearance = contributes.windowAppearance;
+  if (windowAppearance !== undefined) {
+    if (
+      typeof windowAppearance !== "object" ||
+      windowAppearance === null ||
+      Array.isArray(windowAppearance)
+    ) {
+      return "contributes.windowAppearance must be an object";
+    }
+    const backgroundColor = windowAppearance.backgroundColor;
+    if (backgroundColor !== undefined) {
+      if (
+        typeof backgroundColor !== "object" ||
+        backgroundColor === null ||
+        Array.isArray(backgroundColor)
+      ) {
+        return "contributes.windowAppearance.backgroundColor must be an object";
+      }
+      for (const key of ["light", "dark"] as const) {
+        const value = backgroundColor[key];
+        if (value === undefined) continue;
+        if (typeof value !== "string" || !WINDOW_BACKGROUND_COLOR_PATTERN.test(value)) {
+          return `contributes.windowAppearance.backgroundColor.${key} must be #rrggbb or #rrggbbaa`;
+        }
+      }
     }
   }
 
@@ -1299,10 +1858,30 @@ export {
 } from "./skills.js";
 export {
   decodeCssEscapes,
+  findThemeCssUrlReferences,
+  isExternalThemeAssetPath,
+  isThemeAssetPath,
+  maskNonCodeCss,
+  normalizeThemeAssetPath,
   sanitizeThemeCss,
+  themeAssetUrl,
+  THEME_ASSET_EXTENSIONS,
+  THEME_ASSET_MAX_BYTES,
+  THEME_ASSET_SCHEME,
   THEME_CSS_MAX_BYTES,
+  type ThemeCssAssetResolver,
   type ThemeCssResult,
+  type ThemeCssUrlReference,
 } from "./theme-css.js";
+export {
+  formatPluginThemeVariables,
+  isPluginThemeVariableName,
+  normalizePluginThemeVariableValues,
+  validatePluginThemeVariableDeclaration,
+  validatePluginThemeVariables,
+  type PluginThemeVariableContrib,
+  type PluginThemeVariableValues,
+} from "./theme-variables.js";
 export {
   busTopicAllowed,
   isValidBusTopic,
@@ -1325,6 +1904,7 @@ export {
   isLocalNetDomain,
   isNetHostAllowed,
   isNetUrlAllowed,
+  isNetSocketUrlAllowed,
   parseNetDomains,
   type PluginNetDomain,
 } from "./net-policy.js";

@@ -8,11 +8,11 @@ import {
   statSync,
   rmSync,
 } from "node:fs";
+import type { Stats } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { AsyncLocalStorage } from "node:async_hooks";
 import {
   busTopicAllowed,
   isDeniedFsPath,
@@ -20,6 +20,7 @@ import {
   isValidBusTopic,
   isValidBusTopicPattern,
   isNetUrlAllowed,
+  isNetSocketUrlAllowed,
   matchesBusTopic,
   matchFsGlob,
   normalizeFsPath,
@@ -31,8 +32,17 @@ import {
   pluginToolName,
   resolveFsAccess,
   resolveMcpRefs,
+  isExternalThemeAssetPath,
+  normalizeThemeAssetPath,
   sanitizeThemeCss,
   skillIdFromPath,
+  themeAssetUrl,
+  formatPluginThemeVariables,
+  normalizePluginThemeVariableValues,
+  validatePluginThemeVariables,
+  THEME_ASSET_MAX_BYTES,
+  THEME_CSS_MAX_BYTES,
+  WINDOW_BACKGROUND_COLOR_PATTERN,
   resolvePluginLocalizedString,
   validateManifest,
   validateMcpServer,
@@ -55,6 +65,7 @@ import {
   type PluginServiceContrib,
   type PluginSettingContrib,
   type PluginSkillContrib,
+  type PluginThemeVariableContrib,
 } from "@pi-desktop/plugin-sdk";
 import {
   isAllowedKeybinding,
@@ -62,6 +73,7 @@ import {
   normalizeKeybinding,
   type PluginServiceStatus,
   type PluginSettingDefinition,
+  type PluginWorkspaceInfo,
 } from "@pi-desktop/shared";
 import {
   previewFile,
@@ -70,6 +82,7 @@ import {
   resolveWithinRoot,
 } from "./fs-panel";
 import { McpServerClient, type McpServerClientOptions } from "./plugin-mcp";
+import { PluginToolInvocations, type PluginToolInvocation } from "./plugin-tool-invocations";
 import { DevPluginWatcher, type DevPluginWatcherDeps } from "./plugin-watcher";
 import { parseAllowedExternalUrl } from "./safe-open-external";
 import type { PluginAppearance } from "../shared/plugin-panel-chrome";
@@ -78,6 +91,16 @@ import type {
   PluginViewModalRequest,
 } from "../shared/plugin-view-modal";
 import type { McpControlController, McpControlInvokeInput } from "./mcp-control";
+import {
+  PluginSocketError,
+  type PluginSocketEvent,
+  type PluginWebSocketRegistry,
+} from "./plugin-websocket";
+import {
+  PluginShortcutError,
+  type PluginShortcutEntry,
+  type PluginShortcutRegistry,
+} from "./plugin-shortcut-registry";
 
 export type RegisteredCommand = {
   id: string;
@@ -104,6 +127,13 @@ export type RegisteredPluginTool = {
     args: unknown,
     ctx?: {
       sessionId?: string;
+      /**
+       * Runtime turn identity for this tool call. Matches the `turnId` the host
+       * reports through `session:turnEnded`, so a plugin can scope resources
+       * (overlays, caches, helper sessions) to one host turn.
+       */
+      turnId?: string;
+      signal?: AbortSignal;
       mode?: "agent" | "plan" | "goal";
       modelKey?: string;
       thinkingLevel?: string;
@@ -155,6 +185,14 @@ export type RegisteredPluginTheme = {
   /** Palette the overrides layer on; drives `data-theme` in the renderer. */
   base: "light" | "dark";
   css: string;
+  /** Host-generated declarations from manifest-validated variable values. */
+  variablesCss?: string;
+  /**
+   * Native window background while this theme is selected, per resolved
+   * palette. Absent unless the plugin declared it and holds
+   * `ui.window.appearance` (ADR 0248).
+   */
+  windowBackground?: { light?: string; dark?: string };
 };
 
 export type PluginPanelRequest = {
@@ -237,6 +275,11 @@ export type PluginGitConsentRequest = {
 
 export type PluginHostServices = {
   getWorkspacePath: () => string | null;
+  /**
+   * The workspace plus the project group behind it, when the caller can supply
+   * it. Additive: `workspace.get` falls back to `getWorkspacePath` alone.
+   */
+  getWorkspaceInfo?: () => PluginWorkspaceInfo | null;
   /** The set of `contributes.agentExtensions` modules changed (load/unload). */
   agentExtensionsChanged?: () => void;
   getLocale?: () => string;
@@ -248,6 +291,16 @@ export type PluginHostServices = {
    * when it changes. Workspace switches push `workspace:changed` the same way.
    */
   getAppearance?: () => PluginAppearance;
+  /**
+   * Persist and apply `AppSettings.theme`. Used by `pi.app.setTheme` so a
+   * plugin panel can switch the shell theme without opening Settings.
+   */
+  setThemePreference?: (theme: string) => Promise<void>;
+  /**
+   * Broadcast that this plugin's contributed themes changed (runtime upsert /
+   * remove). Host should notify the renderer and refresh panel appearance.
+   */
+  onPluginThemesChanged?: (pluginId: string) => void;
   showToast: (message: string, level?: "info" | "warn" | "error") => void;
   notify: (input: { title: string; body?: string }) => void;
   getNotificationPermission: () => PluginNotificationPermission | Promise<PluginNotificationPermission>;
@@ -324,11 +377,23 @@ export type PluginHostServices = {
   hostEntry?: string;
   /** Overrides how a plugin host process is created; defaults to Electron utilityProcess. */
   spawnProcess?: PluginProcessSpawner;
+  /**
+   * Real-time sockets. Like the shortcut registry this is host-owned, so the
+   * egress allowlist, the bounds and the release path are all decided in the
+   * runtime rather than by plugin code.
+   */
+  pluginSockets?: PluginWebSocketRegistry;
   /** Transport overrides for plugin-declared MCP servers; tests inject stubs. */
   mcp?: Pick<
     McpServerClientOptions,
     "spawnImpl" | "fetchImpl" | "connectTimeoutMs" | "callTimeoutMs"
   >;
+  /**
+   * System-wide accelerators for plugins. The registry owns the platform's
+   * `globalShortcut`; the runtime only routes plugin calls into it, so plugin
+   * code can never register or fire another plugin's shortcut.
+   */
+  pluginShortcuts?: PluginShortcutRegistry;
   /** Fired when a plugin host process dies on its own (crash, OOM, hard exit). */
   onPluginCrash?: (info: { pluginId: string; name: string; exitCode: number }) => void;
   /** Fired when a resident service changes supervision state. */
@@ -402,6 +467,11 @@ const HOST_API_ALLOWLIST = new Set([
   "app.getVersion",
   "app.getLocale",
   "app.getAppearance",
+  "app.setTheme",
+  "themes.upsert",
+  "themes.remove",
+  "themes.list",
+  "themes.setVariables",
   "plugin.getSettings",
   "plugin.setSettings",
   "plugin.getDataPath",
@@ -446,6 +516,19 @@ const HOST_API_ALLOWLIST = new Set([
   "browser.fill",
   "browser.evaluate",
   "browser.console",
+  "net.websocket.connect",
+  "net.websocket.send",
+  "net.websocket.close",
+  "audio.getInputDevices",
+  "audio.openInput",
+  "audio.closeInput",
+  "audio.getCaptureState",
+  "audio.onInputFrame",
+  "audio.offInputFrame",
+  "audio.openOutput",
+  "audio.writeOutput",
+  "audio.stopOutput",
+  "audio.closeOutput",
   "browser.cdp",
   "git.status",
   "git.branches",
@@ -468,9 +551,10 @@ const HOST_API_ALLOWLIST = new Set([
   "session.rename",
   "session.delete",
   "agent.complete",
+  "keyboard.registerGlobalShortcut",
+  "keyboard.unregisterGlobalShortcut",
+  "keyboard.listGlobalShortcuts",
 ]);
-
-const toolSession = new AsyncLocalStorage<string>();
 
 /** Load must finish (module eval + onLoad) inside this budget. */
 const PLUGIN_LOAD_TIMEOUT_MS = 15_000;
@@ -508,8 +592,12 @@ const NET_FETCH_MAX_REDIRECTS = 5;
 const MAX_SKILL_BYTES = 128 * 1024;
 /** Catalog lines stay short — the body carries the detail. */
 const MAX_SKILL_DESCRIPTION_CHARS = 240;
-/** A plugin may contribute at most this many themes. */
-const MAX_THEMES_PER_PLUGIN = 8;
+/**
+ * Theme ids accepted by `pi.themes.upsert` / `contributes.themes[].id`.
+ * Namespaced form `plugin:<pluginId>:<themeId>` is built by `pluginThemeId`.
+ */
+const THEME_LOCAL_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
+const THEME_VARIABLES_SETTINGS_KEY = "__pi_themeVariables";
 /** A plugin may bring at most this many MCP servers. */
 const MAX_MCP_SERVERS_PER_PLUGIN = 8;
 /** A plugin may keep at most this many resident services alive. */
@@ -879,6 +967,71 @@ export function resolveInsidePlugin(pluginPath: string, relative: string): strin
 }
 
 /**
+ * Resolve one theme's declared assets to files inside the plugin package.
+ *
+ * The manifest validator already checked the shape; here each entry has to
+ * exist, stay out of the dependency directory, and fit the declared total. A
+ * theme that asks for more than the budget gets none of its assets, so a sheet
+ * referencing one is refused instead of served from a half-honoured list.
+ */
+function resolveThemeAssets(
+  _pluginPath: string,
+  declared: readonly string[],
+): { files: Map<string, string>; dropped: number } {
+  const files = new Map<string, string>();
+  if (!declared.length) return { files, dropped: 0 };
+  let total = 0;
+  let dropped = 0;
+  for (const asset of declared) {
+    // A theme asset is an absolute path; `normalizeThemeAssetPath` rejects
+    // package-relative references, so nothing is resolved against the package
+    // root any more. The plugin is the one naming the file.
+    const normalized = normalizeThemeAssetPath(asset);
+    if (!normalized) {
+      dropped += 1;
+      continue;
+    }
+    const absolute = normalized;
+    if (!existsSync(absolute)) {
+      dropped += 1;
+      continue;
+    }
+    try {
+      total += statSync(absolute).size;
+    } catch {
+      dropped += 1;
+      continue;
+    }
+    files.set(normalized, absolute);
+  }
+  if (total > THEME_ASSET_MAX_BYTES) return { files: new Map(), dropped: declared.length };
+  return { files, dropped };
+}
+
+/**
+ * Read `contributes.windowAppearance`.
+ *
+ * Only the two palette slots the host honours survive; the shape is the
+ * manifest validator's job, and anything that slips past it is dropped here
+ * rather than handed to `setBackgroundColor`.
+ */
+function resolveWindowBackground(
+  value: unknown,
+): { light?: string; dark?: string } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const backgroundColor = (value as { backgroundColor?: unknown }).backgroundColor;
+  if (!backgroundColor || typeof backgroundColor !== "object") return undefined;
+  const result: { light?: string; dark?: string } = {};
+  for (const key of ["light", "dark"] as const) {
+    const color = (backgroundColor as Record<string, unknown>)[key];
+    if (typeof color === "string" && WINDOW_BACKGROUND_COLOR_PATTERN.test(color)) {
+      result[key] = color;
+    }
+  }
+  return result.light || result.dark ? result : undefined;
+}
+
+/**
  * Minimal environment for a plugin process: the host's own env may carry
  * provider keys and shell secrets, and plugins have no business seeing them.
  */
@@ -922,17 +1075,18 @@ export class PluginRuntime {
   private skills = new Map<string, RegisteredPluginSkill>();
   private agentExtensions = new Map<string, RegisteredAgentExtension>();
   private themes = new Map<string, RegisteredPluginTheme>();
+  /**
+   * Declared theme assets, keyed by plugin id and then by the package-relative
+   * path the sheet writes. The `plugin-asset:` handler answers only from here,
+   * so a path nobody declared has no URL at all (ADR 0248).
+   */
+  private themeAssets = new Map<string, Map<string, string>>();
   private mcpClients = new Map<string, McpServerClient[]>();
   private serviceStates = new Map<string, PluginServiceStatus>();
   private restarts = new Map<string, RestartRecord>();
   private busSubscriptions = new Map<string, BusSubscription>();
   private busRate = new Map<string, { windowStart: number; count: number }>();
-  /**
-   * Session of an in-flight `tool.execute`. Child `pi.browser.*` calls arrive
-   * on a later `handleChildMessage` turn, so ALS around `sendToChild` is empty
-   * there — this map is the durable identity for that round trip.
-   */
-  private executingToolSessions = new Map<string, Array<{ sessionId: string; toolName: string }>>();
+  private readonly toolInvocations = new PluginToolInvocations();
   private completeRate = new Map<string, { windowStart: number; count: number }>();
   /**
    * File accesses the user allowed for the rest of the run, keyed
@@ -1041,6 +1195,49 @@ export class PluginRuntime {
   /** Themes contributed by loaded plugins, ordered by id for a stable list. */
   getThemes(): RegisteredPluginTheme[] {
     return [...this.themes.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /**
+   * Absolute path of one declared theme asset, or null.
+   *
+   * The `plugin-asset:` handler calls this for every request, so a disabled
+   * plugin, an undeclared path, and a path outside the package all answer null
+   * for the same reason.
+   */
+  /**
+   * Serve an absolute local file to a theme that referenced it by path.
+   *
+   * A runtime-registered theme has no manifest entry to declare assets in, so the
+   * reference itself is the authorization: an absolute path on the extension
+   * whitelist that exists on disk is added to this plugin's asset map for as long
+   * as the plugin stays loaded (unloading a plugin clears the whole map).
+   *
+   * The upsert is a message, not a file write, so a theme can pick up a new image
+   * without the plugin reloading.
+   */
+  private externalThemeAsset(loaded: LoadedPlugin, target: string): string | null {
+    const key = normalizeThemeAssetPath(target);
+    if (!key || !isExternalThemeAssetPath(key)) return null;
+    let stats: Stats;
+    try {
+      stats = statSync(key);
+    } catch {
+      return null;
+    }
+    if (!stats.isFile() || stats.size > THEME_ASSET_MAX_BYTES) return null;
+    let registry = this.themeAssets.get(loaded.manifest.id);
+    if (!registry) {
+      registry = new Map();
+      this.themeAssets.set(loaded.manifest.id, registry);
+    }
+    registry.set(key, key);
+    return themeAssetUrl(loaded.manifest.id, key);
+  }
+
+  resolveThemeAsset(pluginId: string, assetPath: string): string | null {
+    const normalized = normalizeThemeAssetPath(assetPath);
+    if (!normalized) return null;
+    return this.themeAssets.get(pluginId)?.get(normalized) ?? null;
   }
 
   /** Supervision state of every resident service, ordered for a stable list. */
@@ -1206,7 +1403,20 @@ export class PluginRuntime {
    */
   broadcastEvent(event: string, args: unknown[] = []): void {
     for (const loaded of this.loaded.values()) {
-      loaded.child?.postMessage({ t: "event", event, args });
+      try {
+        loaded.child?.postMessage({ t: "event", event, args });
+      } catch (error) {
+        // One unreachable recipient must not starve the rest of the fan-out. The
+        // event is one-way: whoever is live still receives it.
+        this.services.audit?.({
+          pluginId: loaded.manifest.id,
+          api: "plugin.event.error",
+          ok: false,
+          event,
+          message: (error as Error).message,
+          ts: Date.now(),
+        });
+      }
     }
   }
 
@@ -1320,6 +1530,10 @@ export class PluginRuntime {
     this.registerThemes(loaded);
     await this.registerMcpServers(loaded);
     await this.startServices(loaded);
+    // After the child's `onLoad`, so the plugin's commands already exist: a
+    // declared shortcut whose command was never registered is reported and
+    // skipped rather than held against a command that cannot run.
+    this.registerDeclaredShortcuts(loaded);
     this.services.audit?.({
       pluginId: manifest.id,
       api: "plugin.load.success",
@@ -1329,10 +1543,17 @@ export class PluginRuntime {
     return manifest;
   }
 
+  /** Abort this session's invocations without affecting sibling sessions. */
+  cancelSessionTools(sessionId: string, reason = "Session tool execution aborted"): void {
+    this.toolInvocations.cancelSession(sessionId, reason);
+  }
+
   /** Deregister contributions, run `onUnload` in the child, then stop it. */
   async unload(pluginId: string): Promise<void> {
     const loaded = this.loaded.get(pluginId);
     if (loaded) {
+      loaded.disposing = true;
+      this.toolInvocations.cancelOwner(loaded, "Plugin unloaded");
       // An explicit stop ends supervision; a supervisor-driven reload keeps it.
       if (!this.restarting.has(pluginId)) this.cancelRestarts(pluginId);
       await this.stopServices(loaded);
@@ -1416,6 +1637,7 @@ export class PluginRuntime {
     // stopping must already be covered by the guard in `handleChildExit`.
     for (const loaded of loadedPlugins) {
       loaded.disposing = true;
+      this.toolInvocations.cancelOwner(loaded, "Application shutting down");
       this.cancelRestarts(loaded.manifest.id);
     }
     this.disposeWatchers();
@@ -1508,6 +1730,15 @@ export class PluginRuntime {
   }
 
   async invokePanelBridge(
+    pluginId: string,
+    channel: string,
+    payload?: Record<string, unknown>,
+    context?: PluginPanelBridgeContext,
+  ): Promise<unknown> {
+    return this.toolInvocations.withoutContext(() => this.invokePanelWithoutToolContext(pluginId, channel, payload, context));
+  }
+
+  private async invokePanelWithoutToolContext(
     pluginId: string,
     channel: string,
     payload?: Record<string, unknown>,
@@ -1625,6 +1856,28 @@ export class PluginRuntime {
         return api.plugin.getSettings();
       case "app.getAppearance":
         return api.app.getAppearance();
+      case "app.setTheme":
+        await api.app.setTheme(String(payload?.themeId ?? ""));
+        return { ok: true };
+      case "themes.upsert":
+        await api.themes.upsert({
+          id: String(payload?.id ?? ""),
+          label: String(payload?.label ?? ""),
+          base: payload?.base === "light" ? "light" : "dark",
+          css: String(payload?.css ?? ""),
+        });
+        return { ok: true };
+      case "themes.remove":
+        await api.themes.remove(String(payload?.themeId ?? payload?.id ?? ""));
+        return { ok: true };
+      case "themes.list":
+        return api.themes.list();
+      case "themes.setVariables":
+        await api.themes.setVariables(
+          String(payload?.themeId ?? ""),
+          (payload?.values as Record<string, number | string> | undefined) ?? {},
+        );
+        return { ok: true };
       case "workspace.get":
         return api.workspace.get();
       case "agent.complete":
@@ -1703,26 +1956,50 @@ export class PluginRuntime {
     loaded: LoadedPlugin,
     message: Record<string, unknown>,
     timeoutMs: number,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     const child = loaded.child;
     if (!child) {
       return Promise.reject(apiError("NOT_FOUND", `plugin host process gone: ${loaded.manifest.id}`));
     }
+    if (signal?.aborted) return Promise.reject(signal.reason);
     const id = `h${loaded.nextCallId++}`;
     return new Promise((resolvePromise, rejectPromise) => {
-      const timer = setTimeout(() => {
+      const cancelChild = (error: Error) => {
+        if (typeof message.invocationId !== "string") return;
+        try {
+          child.postMessage({ t: "cancel", invocationId: message.invocationId, reason: error.message });
+        } catch {
+          // The process may already be gone; the host still revokes the call.
+        }
+      };
+      const abort = () => {
+        const error = signal?.reason instanceof Error
+          ? signal.reason
+          : apiError("PLUGIN_TOOL_ABORTED", "Plugin tool execution aborted");
+        loaded.pending.get(id)?.reject(error);
+        cancelChild(error);
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
         loaded.pending.delete(id);
-        rejectPromise(
-          apiError("TIMEOUT", `plugin ${loaded.manifest.id} did not answer ${String(message.t)}`),
-        );
+        signal?.removeEventListener("abort", abort);
+      };
+      const timer = setTimeout(() => {
+        const error = apiError("TIMEOUT", `plugin ${loaded.manifest.id} did not answer ${String(message.t)}`);
+        loaded.pending.get(id)?.reject(error);
+        cancelChild(error);
       }, timeoutMs);
-      loaded.pending.set(id, { resolve: resolvePromise, reject: rejectPromise, timer });
+      loaded.pending.set(id, {
+        resolve: (value) => { cleanup(); resolvePromise(value); },
+        reject: (error) => { cleanup(); rejectPromise(error); },
+        timer,
+      });
+      signal?.addEventListener("abort", abort, { once: true });
       try {
         child.postMessage({ ...message, id });
       } catch (error) {
-        clearTimeout(timer);
-        loaded.pending.delete(id);
-        rejectPromise(error instanceof Error ? error : new Error(String(error)));
+        loaded.pending.get(id)?.reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
@@ -1749,7 +2026,12 @@ export class PluginRuntime {
       return;
     }
     if (message.t === "call") {
-      void this.dispatchHostCall(loaded, String(message.api ?? ""), message.args ?? [])
+      void this.toolInvocations.run(loaded, message.invocationId, async () => {
+        if (this.loaded.get(loaded.manifest.id) !== loaded) {
+          throw apiError("PLUGIN_UNLOADED", "Plugin host process is no longer active");
+        }
+        return this.dispatchHostCall(loaded, String(message.api ?? ""), message.args ?? []);
+      })
         .then((value) =>
           loaded.child?.postMessage({ t: "res", id: message.id, ok: true, value: value ?? null }),
         )
@@ -1809,6 +2091,167 @@ export class PluginRuntime {
         this.commands.delete(String(args[0] ?? ""));
         return { ok: true };
       }
+      case "keyboard.registerGlobalShortcut": {
+        this.assertPermission(loaded, "keyboard.globalShortcut");
+        const descriptor = (args[0] ?? {}) as {
+          id?: string;
+          accelerator?: string;
+          command?: string;
+        };
+        return this.registerShortcut(loaded, {
+          id: String(descriptor.id ?? ""),
+          accelerator: String(descriptor.accelerator ?? ""),
+          command: String(descriptor.command ?? ""),
+        });
+      }
+      case "keyboard.unregisterGlobalShortcut": {
+        this.assertPermission(loaded, "keyboard.globalShortcut");
+        const registry = this.services.pluginShortcuts;
+        if (!registry) {
+          throw apiError("UNSUPPORTED", "global shortcuts are unavailable in this host");
+        }
+        const id = String(args[0] ?? "");
+        if (!id) throw apiError("INVALID_ARGUMENT", "shortcut.id is required");
+        const removed = registry.unregister(pluginId, id);
+        this.services.audit?.({
+          pluginId,
+          api: "keyboard.globalShortcut.unregister",
+          ok: removed,
+          ...(removed ? {} : { errorCode: "NOT_FOUND" }),
+          ts: Date.now(),
+        });
+        return { ok: removed };
+      }
+      case "keyboard.listGlobalShortcuts": {
+        this.assertPermission(loaded, "keyboard.globalShortcut");
+        const registry = this.services.pluginShortcuts;
+        if (!registry) return [];
+        return registry.list(pluginId).map((entry) => ({
+          id: entry.id,
+          accelerator: entry.accelerator,
+          command: entry.command,
+          registered: true,
+        }));
+      }
+      case "net.websocket.connect": {
+        this.assertPermission(loaded, "net.websocket");
+        const descriptor = (args[0] ?? {}) as {
+          url?: string;
+          headers?: Record<string, string>;
+          protocols?: string[];
+          timeoutMs?: number;
+        };
+        const url = String(descriptor.url ?? "");
+        const registry = this.services.pluginSockets;
+        if (!registry) {
+          throw apiError("UNSUPPORTED", "real-time connections are unavailable in this host");
+        }
+        // Same allowlist, same chokepoint: a socket to an undeclared host is
+        // refused before the transport is asked to open anything.
+        this.assertSocketEgress(loaded, url);
+        try {
+          const result = await registry.connect({
+            pluginId,
+            url,
+            headers: descriptor.headers,
+            protocols: descriptor.protocols,
+            timeoutMs:
+              typeof descriptor.timeoutMs === "number" ? descriptor.timeoutMs : undefined,
+          });
+          this.services.audit?.({
+            pluginId,
+            api: "net.websocket.connect",
+            ok: true,
+            ts: Date.now(),
+            url,
+            socketId: result.socketId,
+          });
+          return result;
+        } catch (error) {
+          const code =
+            error instanceof PluginSocketError ? error.code : "CONNECT_FAILED";
+          this.services.audit?.({
+            pluginId,
+            api: "net.websocket.connect",
+            ok: false,
+            errorCode: code,
+            ts: Date.now(),
+            url,
+          });
+          throw apiError(code, (error as Error).message);
+        }
+      }
+      case "net.websocket.send": {
+        this.assertPermission(loaded, "net.websocket");
+        const registry = this.services.pluginSockets;
+        if (!registry) {
+          throw apiError("UNSUPPORTED", "real-time connections are unavailable in this host");
+        }
+        const descriptor = (args[0] ?? {}) as {
+          socketId?: string;
+          data?: string | Uint8Array;
+        };
+        try {
+          registry.send({
+            pluginId,
+            socketId: String(descriptor.socketId ?? ""),
+            data: descriptor.data ?? "",
+          });
+          return { ok: true };
+        } catch (error) {
+          // Sends are frequent enough that auditing every one would drown the
+          // log; only refusals are recorded, and they name no payload.
+          if (error instanceof PluginSocketError) {
+            this.services.audit?.({
+              pluginId,
+              api: "net.websocket.send",
+              ok: false,
+              errorCode: error.code,
+              ts: Date.now(),
+            });
+            throw apiError(error.code, error.message);
+          }
+          throw error;
+        }
+      }
+      case "net.websocket.close": {
+        this.assertPermission(loaded, "net.websocket");
+        const registry = this.services.pluginSockets;
+        if (!registry) {
+          throw apiError("UNSUPPORTED", "real-time connections are unavailable in this host");
+        }
+        const descriptor = (args[0] ?? {}) as {
+          socketId?: string;
+          code?: number;
+          reason?: string;
+        };
+        try {
+          registry.close({
+            pluginId,
+            socketId: String(descriptor.socketId ?? ""),
+            code: typeof descriptor.code === "number" ? descriptor.code : undefined,
+            reason: typeof descriptor.reason === "string" ? descriptor.reason : undefined,
+          });
+          this.services.audit?.({
+            pluginId,
+            api: "net.websocket.close",
+            ok: true,
+            ts: Date.now(),
+            socketId: descriptor.socketId,
+          });
+          return { ok: true };
+        } catch (error) {
+          const code = error instanceof PluginSocketError ? error.code : "NOT_FOUND";
+          this.services.audit?.({
+            pluginId,
+            api: "net.websocket.close",
+            ok: false,
+            errorCode: code,
+            ts: Date.now(),
+          });
+          throw apiError(code, (error as Error).message);
+        }
+      }
       case "agent.registerTool": {
         this.assertPermission(loaded, "agent.tool.register");
         const descriptor = (args[0] ?? {}) as {
@@ -1858,32 +2301,42 @@ export class PluginRuntime {
               }
             }
             const target = this.loaded.get(pluginId);
-            if (!target?.child) throw apiError("NOT_FOUND", `plugin not loaded: ${pluginId}`);
+            if (!target?.child || target !== loaded || target.disposing) {
+              throw apiError("NOT_FOUND", `plugin not loaded: ${pluginId}`);
+            }
             const sessionId = String(ctx?.sessionId ?? "");
-            const stack = this.executingToolSessions.get(pluginId) ?? [];
-            stack.push({ sessionId, toolName: name });
-            this.executingToolSessions.set(pluginId, stack);
+            const invocation = this.toolInvocations.begin(target, {
+              pluginId,
+              sessionId,
+              toolName: name,
+              turnId: ctx?.turnId,
+              signal: ctx?.signal,
+            });
             try {
-              return await toolSession.run(sessionId, () =>
-                this.sendToChild(
+              return await this.sendToChild(
                   target,
                   {
                     t: "call",
                     method: "tool.execute",
+                    invocationId: invocation.id,
                     payload: {
                       name,
                       args: toolArgs,
                       sessionId,
+                      turnId: ctx?.turnId,
+                      mode: ctx?.mode,
                       modelKey: ctx?.modelKey,
                       thinkingLevel: ctx?.thinkingLevel,
                     },
                   },
                   PLUGIN_TOOL_TIMEOUT_MS,
-                ),
+                  invocation.signal,
               );
+            } catch (error) {
+              this.toolInvocations.cancel(invocation, error);
+              throw error;
             } finally {
-              stack.pop();
-              if (stack.length === 0) this.executingToolSessions.delete(pluginId);
+              this.toolInvocations.finish(invocation);
             }
           },
         });
@@ -2018,6 +2471,7 @@ export class PluginRuntime {
   }
 
   private handleChildExit(loaded: LoadedPlugin, code: number): void {
+    this.toolInvocations.cancelOwner(loaded, "Plugin host process exited");
     if (loaded.disposing) return;
     if (this.loaded.get(loaded.manifest.id) !== loaded) return;
     const pluginId = loaded.manifest.id;
@@ -2127,6 +2581,161 @@ export class PluginRuntime {
     loaded.pending.clear();
   }
 
+  /**
+   * Index `contributes.globalShortcuts` after load. The declarative path only
+   * takes accelerators whose command the plugin has actually registered in
+   * this session: a shortcut that cannot reach its own command would be dead
+   * weight in the registry, and refusing it keeps `listGlobalShortcuts` from
+   * reporting a binding that does nothing. A refusal never fails the load.
+   */
+  private registerDeclaredShortcuts(loaded: LoadedPlugin): void {
+    const registry = this.services.pluginShortcuts;
+    const declared = loaded.manifest.contributes?.globalShortcuts ?? [];
+    if (!registry || declared.length === 0) return;
+    const pluginId = loaded.manifest.id;
+    if (!loaded.permissions.has("keyboard.globalShortcut")) {
+      this.services.audit?.({
+        pluginId,
+        api: "keyboard.globalShortcut.register",
+        ok: false,
+        errorCode: "PERMISSION_DENIED",
+        ts: Date.now(),
+      });
+      return;
+    }
+    for (const entry of declared) {
+      if (!entry.default) continue;
+      if (this.commands.get(entry.command)?.pluginId !== pluginId) {
+        this.services.audit?.({
+          pluginId,
+          api: "keyboard.globalShortcut.register",
+          ok: false,
+          errorCode: "NOT_FOUND",
+          ts: Date.now(),
+          command: entry.command,
+        });
+        continue;
+      }
+      this.registerShortcut(loaded, {
+        id: entry.id,
+        accelerator: entry.default,
+        command: entry.command,
+      });
+    }
+  }
+
+  /**
+   * The one registration path for both the declarative contribution and
+   * `pi.keyboard.registerGlobalShortcut`. The registry decides conflicts; this
+   * method adds the ownership check, the audit entry, and the result shape.
+   */
+  private registerShortcut(
+    loaded: LoadedPlugin,
+    request: { id: string; accelerator: string; command: string },
+  ): {
+    id: string;
+    accelerator: string;
+    command: string;
+    registered: boolean;
+    error?: string;
+  } {
+    const pluginId = loaded.manifest.id;
+    const registry = this.services.pluginShortcuts;
+    if (!registry) {
+      throw apiError("UNSUPPORTED", "global shortcuts are unavailable in this host");
+    }
+    if (!request.id) throw apiError("INVALID_ARGUMENT", "shortcut.id is required");
+    if (!request.accelerator) {
+      throw apiError("INVALID_ARGUMENT", "shortcut.accelerator is required");
+    }
+    if (!request.command) {
+      throw apiError("INVALID_ARGUMENT", "shortcut.command is required");
+    }
+    // A shortcut is not a way around command ownership: only the plugin's own
+    // commands are reachable, exactly as in the command palette.
+    if (this.commands.get(request.command)?.pluginId !== pluginId) {
+      throw apiError(
+        "INVALID_ARGUMENT",
+        `shortcut command is not registered by this plugin: ${request.command}`,
+      );
+    }
+    try {
+      const entry = registry.register({
+        pluginId,
+        id: request.id,
+        accelerator: request.accelerator,
+        command: request.command,
+      });
+      this.services.audit?.({
+        pluginId,
+        api: "keyboard.globalShortcut.register",
+        ok: true,
+        ts: Date.now(),
+        accelerator: entry.accelerator,
+        command: entry.command,
+      });
+      return {
+        id: entry.id,
+        accelerator: entry.accelerator,
+        command: entry.command,
+        registered: true,
+      };
+    } catch (error) {
+      // A refused registration is an answer, not an exception: the plugin gets
+      // the code so it can fall back to another accelerator.
+      const code =
+        error instanceof PluginShortcutError ? error.code : "SHORTCUT_UNAVAILABLE";
+      this.services.audit?.({
+        pluginId,
+        api: "keyboard.globalShortcut.register",
+        ok: false,
+        errorCode: code,
+        ts: Date.now(),
+        accelerator: request.accelerator,
+        command: request.command,
+      });
+      return {
+        id: request.id,
+        accelerator: request.accelerator,
+        command: request.command,
+        registered: false,
+        error: code,
+      };
+    }
+  }
+
+  /**
+   * Host-called when the operating system reports a registered accelerator.
+   * Only the owner's own command is reachable, and a failure is audited: a
+   * system-wide key that silently does nothing is worse than a logged error.
+   */
+  async triggerPluginShortcut(entry: PluginShortcutEntry): Promise<void> {
+    const command = this.commands.get(entry.command);
+    if (!command || command.pluginId !== entry.pluginId) {
+      this.services.audit?.({
+        pluginId: entry.pluginId,
+        api: "keyboard.globalShortcut.trigger",
+        ok: false,
+        errorCode: "NOT_FOUND",
+        ts: Date.now(),
+        command: entry.command,
+      });
+      return;
+    }
+    try {
+      await command.run();
+    } catch (error) {
+      this.services.audit?.({
+        pluginId: entry.pluginId,
+        api: "keyboard.globalShortcut.trigger",
+        ok: false,
+        errorCode: (error as PluginApiError).code ?? "PLUGIN_ERROR",
+        ts: Date.now(),
+        command: entry.command,
+      });
+    }
+  }
+
   private clearContributions(pluginId: string): void {
     for (const [id, cmd] of this.commands) {
       if (cmd.pluginId === pluginId) this.commands.delete(id);
@@ -2148,6 +2757,9 @@ export class PluginRuntime {
     for (const [id, theme] of this.themes) {
       if (theme.pluginId === pluginId) this.themes.delete(id);
     }
+    // A gone plugin must stop serving its assets; the handler resolves through
+    // this map only, so clearing it revokes every `plugin-asset:` URL at once.
+    this.themeAssets.delete(pluginId);
     // Closing the client kills the stdio child / drops the HTTP session, so a
     // disabled plugin leaves no process behind.
     for (const client of this.mcpClients.get(pluginId) ?? []) {
@@ -2164,6 +2776,12 @@ export class PluginRuntime {
       if (subscription.pluginId === pluginId) this.busSubscriptions.delete(id);
     }
     this.busRate.delete(pluginId);
+    // A system-wide accelerator outlives every renderer, so it is released on
+    // the same path that clears commands — disable, unload, and crash alike.
+    this.services.pluginShortcuts?.releasePlugin(pluginId);
+    // Same for a real-time connection: the host owns the socket, so a plugin
+    // that is gone keeps neither the connection nor the frames still arriving.
+    this.services.pluginSockets?.releasePlugin(pluginId);
   }
 
   /**
@@ -2345,22 +2963,34 @@ export class PluginRuntime {
       return;
     }
 
+    // The native window background is a separate grant: a plugin may contribute
+    // themes and ask for neither, and a plugin that asked without the grant is
+    // audited rather than silently ignored.
+    const windowAppearanceDeclared =
+      loaded.manifest.contributes?.windowAppearance !== undefined;
+    const windowBackground = loaded.permissions.has("ui.window.appearance")
+      ? resolveWindowBackground(loaded.manifest.contributes?.windowAppearance)
+      : undefined;
+    if (windowAppearanceDeclared && !loaded.permissions.has("ui.window.appearance")) {
+      this.services.audit?.({
+        pluginId,
+        api: "plugin.themes.skipped",
+        ok: false,
+        errorCode: "PERMISSION_DENIED",
+        message: "contributes.windowAppearance requires ui.window.appearance",
+        ts: Date.now(),
+      });
+    }
+
     let accepted = 0;
     for (const contrib of declared) {
-      if (accepted >= MAX_THEMES_PER_PLUGIN) {
-        this.services.audit?.({
-          pluginId,
-          api: "plugin.themes.skipped",
-          ok: false,
-          errorCode: "LIMIT_EXCEEDED",
-          count: declared.length - accepted,
-          ts: Date.now(),
-        });
-        break;
-      }
       const themeId = String(contrib?.id ?? "").trim();
       const relative = String(contrib?.path ?? "").trim();
       if (!themeId || !relative) continue;
+      if (!THEME_LOCAL_ID_PATTERN.test(themeId)) {
+        this.skipTheme(pluginId, themeId, "INVALID_ID");
+        continue;
+      }
       const cssPath = resolveInsidePlugin(loaded.path, relative);
       if (!cssPath || !existsSync(cssPath)) {
         this.skipTheme(pluginId, themeId, "NOT_FOUND");
@@ -2373,7 +3003,23 @@ export class PluginRuntime {
         this.skipTheme(pluginId, themeId, "READ_FAILED");
         continue;
       }
-      const sanitized = sanitizeThemeCss(raw);
+      // Declared assets are the only relative references this theme may make;
+      // each one is rewritten to the host scheme so the sheet never carries a
+      // path the renderer would resolve itself.
+      const assets = resolveThemeAssets(loaded.path, contrib.assets ?? []);
+      if (assets.dropped) {
+        this.skipTheme(
+          pluginId,
+          themeId,
+          "INVALID_ASSET",
+          `${assets.dropped} declared asset(s) ignored`,
+        );
+      }
+      const sanitized = sanitizeThemeCss(raw, THEME_CSS_MAX_BYTES, (target) => {
+        const normalized = normalizeThemeAssetPath(target);
+        if (!normalized || !assets.files.has(normalized)) return null;
+        return themeAssetUrl(pluginId, normalized);
+      });
       if (!sanitized.ok) {
         this.skipTheme(pluginId, themeId, "INVALID_CSS", sanitized.error);
         continue;
@@ -2383,6 +3029,15 @@ export class PluginRuntime {
         this.skipTheme(pluginId, themeId, "DUPLICATE");
         continue;
       }
+      // The registry is per plugin and the resolver above is per theme: a sheet
+      // only reaches its own declarations, while the handler can serve any
+      // asset this plugin is allowed to have.
+      let registry = this.themeAssets.get(pluginId);
+      if (!registry) {
+        registry = new Map();
+        this.themeAssets.set(pluginId, registry);
+      }
+      for (const [assetPath, absolute] of assets.files) registry.set(assetPath, absolute);
       this.themes.set(id, {
         id,
         pluginId,
@@ -2390,6 +3045,10 @@ export class PluginRuntime {
         label: String(contrib.label ?? "").trim() || themeId,
         base: contrib.base === "light" ? "light" : "dark",
         css: sanitized.css,
+        ...(contrib.variables?.length
+          ? { variablesCss: this.themeVariablesCss(loaded, id, contrib.variables) }
+          : {}),
+        ...(windowBackground ? { windowBackground } : {}),
       });
       accepted += 1;
     }
@@ -2401,6 +3060,41 @@ export class PluginRuntime {
         count: accepted,
         ts: Date.now(),
       });
+    }
+  }
+
+  private themeVariablesCss(
+    loaded: LoadedPlugin,
+    themeId: string,
+    declarations: readonly PluginThemeVariableContrib[],
+  ): string {
+    const values = this.readThemeVariableValues(loaded, themeId);
+    try {
+      return formatPluginThemeVariables(
+        themeId,
+        declarations,
+        normalizePluginThemeVariableValues(declarations, values),
+      );
+    } catch {
+      // An old/corrupt private record cannot make a declared theme unavailable.
+      return formatPluginThemeVariables(
+        themeId,
+        declarations,
+        normalizePluginThemeVariableValues(declarations, {}),
+      );
+    }
+  }
+
+  private readThemeVariableValues(loaded: LoadedPlugin, themeId: string): Record<string, unknown> {
+    try {
+      const file = join(this.pluginDataDir(loaded.manifest.id), "settings.json");
+      const settings = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+      const all = settings?.[THEME_VARIABLES_SETTINGS_KEY];
+      return all && typeof all === "object" && !Array.isArray(all) && all[themeId] && typeof all[themeId] === "object"
+        ? all[themeId] as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
     }
   }
 
@@ -2869,6 +3563,27 @@ export class PluginRuntime {
   private assertEgress(loaded: LoadedPlugin, url: string, api: string): void {
     const domains = this.netDomains(loaded);
     if (isNetUrlAllowed(url, domains)) return;
+    this.refuseEgress(loaded, url, api, domains);
+  }
+
+  /**
+   * The socket half of the same check: `ws` and `wss` are admissible schemes,
+   * the allowlist and the audit entry are identical, and refusing here means
+   * the transport never opens a connection to an undeclared host.
+   */
+  private assertSocketEgress(loaded: LoadedPlugin, url: string): void {
+    const domains = this.netDomains(loaded);
+    if (isNetSocketUrlAllowed(url, domains)) return;
+    this.refuseEgress(loaded, url, "net.websocket.connect", domains);
+  }
+
+  /** One refusal path for both schemes: same audit shape, same message. */
+  private refuseEgress(
+    loaded: LoadedPlugin,
+    url: string,
+    api: string,
+    domains: readonly string[],
+  ): void {
     let host = url;
     try {
       host = new URL(url).hostname || url;
@@ -2891,8 +3606,37 @@ export class PluginRuntime {
     );
   }
 
-  private inFlightTool(pluginId: string): { sessionId: string; toolName: string } | undefined {
-    return this.executingToolSessions.get(pluginId)?.at(-1);
+  /**
+   * Forward one socket event to the plugin that owns the socket, when it is
+   * still loaded. A frame that arrives after unload is dropped rather than
+   * queued for a process that no longer exists.
+   */
+  deliverSocketEvent(pluginId: string, event: PluginSocketEvent): void {
+    const loaded = this.loaded.get(pluginId);
+    if (!loaded?.child) return;
+    // Addressed to the owner only: frames are one plugin's data and must never
+    // reach another plugin's process, which a fan-out would do.
+    try {
+      loaded.child.postMessage({
+        t: "event",
+        event: `net:websocket:${event.type}`,
+        args: [event],
+      });
+    } catch (error) {
+      this.services.audit?.({
+        pluginId,
+        api: "net.websocket.deliver",
+        ok: false,
+        errorCode: "PLUGIN_UNREACHABLE",
+        message: (error as Error).message,
+        ts: Date.now(),
+      });
+    }
+  }
+
+  private inFlightTool(pluginId: string): PluginToolInvocation | undefined {
+    const loaded = this.loaded.get(pluginId);
+    return loaded ? this.toolInvocations.current(loaded) : undefined;
   }
 
   private completeRateExceeded(pluginId: string): boolean {
@@ -3028,11 +3772,7 @@ export class PluginRuntime {
   }
 
   private browserSessionId(pluginId?: string): string | undefined {
-    const als = toolSession.getStore()?.trim();
-    if (als) return als;
-    if (!pluginId) return undefined;
-    const stack = this.executingToolSessions.get(pluginId);
-    return stack?.at(-1)?.sessionId?.trim() || undefined;
+    return pluginId ? this.inFlightTool(pluginId)?.sessionId.trim() || undefined : undefined;
   }
 
   private async invokeGit(
@@ -3216,6 +3956,7 @@ export class PluginRuntime {
   }
 
   private assertPermission(loaded: LoadedPlugin, perm: string): void {
+    this.toolInvocations.current(loaded);
     if (!loaded.permissions.has(perm)) {
       this.services.audit?.({
         pluginId: loaded.manifest.id,
@@ -3422,6 +4163,67 @@ export class PluginRuntime {
   }
 
   /**
+   * Resolve a request that names a file in another folder of the open project
+   * (ADR 0249, ADR 0263, ADR 0264). A view browsing a sibling folder can only
+   * address that folder's entries absolutely, and the two host-mediated actions
+   * it offers for them (fs.openDefault, fs.reveal) are the only requests that
+   * arrive that way. The widening is narrow: only for a plugin whose declared
+   * root is the workspace, only for an absolute path already inside one of the
+   * project's registered folder roots (resolved through links, so a symlink
+   * cannot carry it out of the folder that contains it), with the declared scope
+   * matched against the path relative to the folder that answered, and with the
+   * same protected-path and credential guards every other request passes. No
+   * file content travels back through this route: it asks the OS to show a file
+   * the user right-clicked. Null means it is not such a request, and the caller
+   * falls back to the ordinary rooted resolution and its refusal.
+   */
+  private async resolveRegisteredFolderRequest(
+    loaded: LoadedPlugin,
+    requestPath: string,
+  ): Promise<{ full: string; rel: string; root: string } | null> {
+    if (!isAbsolute(String(requestPath ?? ""))) return null;
+    const rule: PluginFsRule = loaded.fsPolicy.read ?? { root: "workspace", scope: [] };
+    if (rule.root !== "workspace") return null;
+    const roots = (this.services.getWorkspaceInfo?.()?.roots ?? [])
+      .map((entry) => entry?.path)
+      .filter((path): path is string => Boolean(path));
+    if (roots.length === 0) return null;
+    this.assertPermission(loaded, "fs.read");
+
+    const wanted = resolve(String(requestPath));
+    const matches: Array<{ full: string; rel: string; root: string }> = [];
+    for (const candidate of roots) {
+      const base = resolve(candidate);
+      const lexical = relative(base, wanted);
+      if (!lexical || lexical.startsWith("..") || isAbsolute(lexical)) continue;
+      const resolved = await resolveRealPathWithinRoot(base, lexical);
+      if (!resolved) continue;
+      const rootReal = realpathOrSelf(base);
+      matches.push({
+        full: resolved,
+        rel: normalizeFsPath(relative(rootReal, resolved)),
+        root: rootReal,
+      });
+    }
+    if (matches.length === 0) return null;
+    // Folders may be nested in one another; the innermost is the one the user is
+    // actually looking at.
+    const hit = matches.reduce((best, current) => (current.rel.length < best.rel.length ? current : best));
+    if (this.isProtectedPath(hit.full) || isDeniedFsPath(hit.rel)) {
+      this.auditFs(loaded, "read", requestPath, "PERMISSION_DENIED");
+      throw apiError(
+        "PERMISSION_DENIED",
+        `credentials and repository internals are never readable by plugins: ${hit.rel}`,
+      );
+    }
+    if (!isFsPathInScope(hit.rel, rule.scope)) {
+      this.auditFs(loaded, "read", requestPath, "PERMISSION_DENIED");
+      throw apiError("PERMISSION_DENIED", `outside manifest.fs.read.scope: ${hit.rel}`);
+    }
+    return hit;
+  }
+
+  /**
    * Whether the path lies under something the host keeps for itself. Both
    * sides are resolved through links, or a barrier reached the other way
    * around simply would not match.
@@ -3578,6 +4380,27 @@ export class PluginRuntime {
   }
 
   /** Host-side implementation of the allowlisted APIs; shared with panel bridge. */
+  /**
+   * The audio surface fails closed. The permission gate runs first, so an
+   * ungranted plugin gets the same `PERMISSION_DENIED` as any other API, and a
+   * granted one gets an audited `UNSUPPORTED` instead of a silent success or an
+   * uncoded crash. Nothing here touches a device.
+   */
+  private refuseAudio(loaded: LoadedPlugin, api: string): never {
+    this.assertPermission(
+      loaded,
+      AUDIO_PLAYBACK_APIS.has(api) ? "audio.playback.background" : "audio.capture.background",
+    );
+    this.services.audit?.({
+      pluginId: loaded.manifest.id,
+      api,
+      ok: false,
+      errorCode: "UNSUPPORTED",
+      ts: Date.now(),
+    });
+    throw apiError("UNSUPPORTED", `host api not available: ${api}`);
+  }
+
   private hostApi(loaded: LoadedPlugin) {
     const pluginId = loaded.manifest.id;
     const pluginPath = loaded.path;
@@ -3599,6 +4422,142 @@ export class PluginRuntime {
             locale: this.services.getLocale?.() ?? "en",
             pluginTheme: null,
           },
+        setTheme: async (themeId: string) => {
+          this.assertPermission(loaded, "ui.theme");
+          const raw = String(themeId ?? "").trim();
+          const isBuiltin =
+            raw === "system" || raw === "light" || raw === "dark";
+          if (!isBuiltin && !this.themes.has(raw)) {
+            throw apiError("INVALID_ARGUMENT", `unknown theme id: ${raw || "(empty)"}`);
+          }
+          if (!this.services.setThemePreference) {
+            throw apiError("UNSUPPORTED", "host api not available: app.setTheme");
+          }
+          await this.services.setThemePreference(raw);
+          this.services.audit?.({
+            pluginId,
+            api: "app.setTheme",
+            ok: true,
+            theme: raw,
+            ts: Date.now(),
+          });
+        },
+      },
+      themes: {
+        upsert: async (input: {
+          id: string;
+          label: string;
+          base: "light" | "dark";
+          css: string;
+        }) => {
+          this.assertPermission(loaded, "ui.theme");
+          const themeId = String(input?.id ?? "").trim();
+          if (!THEME_LOCAL_ID_PATTERN.test(themeId)) {
+            throw apiError(
+              "INVALID_ARGUMENT",
+              `theme id must match [a-zA-Z][a-zA-Z0-9_-]{0,63}: ${themeId}`,
+            );
+          }
+          const base = input?.base === "light" ? "light" : "dark";
+          const label = String(input?.label ?? "").trim() || themeId;
+          const rawCss = String(input?.css ?? "");
+          const sanitized = sanitizeThemeCss(rawCss, THEME_CSS_MAX_BYTES, (target) =>
+            this.externalThemeAsset(loaded, target),
+          );
+          if (!sanitized.ok) {
+            throw apiError("INVALID_ARGUMENT", sanitized.error);
+          }
+          const id = pluginThemeId(pluginId, themeId);
+          const previous = this.themes.get(id);
+          this.themes.set(id, {
+            id,
+            pluginId,
+            themeId,
+            label,
+            base,
+            css: sanitized.css,
+            ...(previous?.windowBackground ? { windowBackground: previous.windowBackground } : {}),
+          });
+          this.services.onPluginThemesChanged?.(pluginId);
+          this.services.audit?.({
+            pluginId,
+            api: "themes.upsert",
+            ok: true,
+            themeId,
+            ts: Date.now(),
+          });
+        },
+        remove: async (themeId: string) => {
+          this.assertPermission(loaded, "ui.theme");
+          const local = String(themeId ?? "").trim();
+          const id = local.startsWith("plugin:") ? local : pluginThemeId(pluginId, local);
+          const existing = this.themes.get(id);
+          if (!existing || existing.pluginId !== pluginId) {
+            throw apiError("NOT_FOUND", `theme not found: ${local}`);
+          }
+          this.themes.delete(id);
+          this.services.onPluginThemesChanged?.(pluginId);
+          this.services.audit?.({
+            pluginId,
+            api: "themes.remove",
+            ok: true,
+            themeId: existing.themeId,
+            ts: Date.now(),
+          });
+        },
+        list: async () => {
+          this.assertPermission(loaded, "ui.theme");
+          return this.getThemes()
+            .filter((theme) => theme.pluginId === pluginId)
+            .map((theme) => ({
+              id: theme.id,
+              themeId: theme.themeId,
+              label: theme.label,
+              base: theme.base,
+            }));
+        },
+        setVariables: async (themeId: string, values: Record<string, number | string>) => {
+          this.assertPermission(loaded, "ui.theme");
+          const localThemeId = String(themeId ?? "").replace(`plugin:${pluginId}:`, "");
+          const contribution = (loaded.manifest.contributes?.themes ?? []).find(
+            (theme) => theme.id === localThemeId,
+          );
+          if (!contribution) throw apiError("NOT_FOUND", `theme not found: ${themeId}`);
+          const declarations = contribution.variables ?? [];
+          if (!declarations.length) throw apiError("INVALID_ARGUMENT", "theme declares no runtime variables");
+          let patch: Record<string, number | string>;
+          try {
+            patch = validatePluginThemeVariables(declarations, values);
+          } catch (error) {
+            throw apiError("INVALID_ARGUMENT", error instanceof Error ? error.message : "invalid theme variables");
+          }
+          const id = pluginThemeId(pluginId, localThemeId);
+          // Read the raw private record here. `plugin.getSettings()` intentionally
+          // removes host-reserved state before exposing it to plugin code.
+          const settingsFile = join(this.pluginDataDir(pluginId), "settings.json");
+          let current: Record<string, unknown> = {};
+          try {
+            if (existsSync(settingsFile)) current = JSON.parse(readFileSync(settingsFile, "utf8"));
+          } catch {
+            current = {};
+          }
+          const existing = current[THEME_VARIABLES_SETTINGS_KEY];
+          const stored = existing && typeof existing === "object" && !Array.isArray(existing) ? existing as Record<string, unknown> : {};
+          const previous = stored[id] && typeof stored[id] === "object" && !Array.isArray(stored[id]) ? stored[id] as Record<string, unknown> : {};
+          const next = {
+            ...current,
+            [THEME_VARIABLES_SETTINGS_KEY]: { ...stored, [id]: { ...previous, ...patch } },
+          };
+          const dir = this.pluginDataDir(pluginId);
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(settingsFile, JSON.stringify(next, null, 2), "utf8");
+          const registered = this.themes.get(id);
+          if (registered) {
+            registered.variablesCss = this.themeVariablesCss(loaded, id, declarations);
+            this.services.onPluginThemesChanged?.(pluginId);
+          }
+          this.services.audit?.({ pluginId, api: "themes.setVariables", ok: true, themeId: localThemeId, ts: Date.now() });
+        },
       },
       plugin: {
         getId: () => pluginId,
@@ -3611,7 +4570,9 @@ export class PluginRuntime {
           const file = join(dataPath(), "settings.json");
           if (!existsSync(file)) return defaults;
           try {
-            return { ...defaults, ...JSON.parse(readFileSync(file, "utf8")) };
+            const stored = JSON.parse(readFileSync(file, "utf8"));
+            if (stored && typeof stored === "object") delete stored[THEME_VARIABLES_SETTINGS_KEY];
+            return { ...defaults, ...stored };
           } catch {
             return defaults;
           }
@@ -3683,6 +4644,11 @@ export class PluginRuntime {
       },
       workspace: {
         get: async () => {
+          // The enriched payload carries the project group behind the visible
+          // workspace (ADR 0263); the path-only fallback keeps `get` working for
+          // any caller whose services never bound the richer provider.
+          const info = this.services.getWorkspaceInfo?.();
+          if (info !== undefined) return info;
           const path = this.services.getWorkspacePath();
           if (!path) return null;
           return { path, name: path.split(/[\\/]/).filter(Boolean).at(-1) || path };
@@ -3740,6 +4706,26 @@ export class PluginRuntime {
           if (!this.services.desktopControl) {
             throw apiError("UNSUPPORTED", "host api not available: desktop.invoke");
           }
+          if (operation === "session/create") {
+            const createInput = args[0];
+            const inheritedParent =
+              createInput && typeof createInput === "object" && !Array.isArray(createInput)
+                ? (createInput as Record<string, unknown>).inheritPermissionFromSessionId
+                : undefined;
+            if (inheritedParent !== undefined && inheritedParent !== null) {
+              const callerSessionId = this.inFlightTool(pluginId)?.sessionId?.trim();
+              if (
+                typeof inheritedParent !== "string" ||
+                !callerSessionId ||
+                inheritedParent.trim() !== callerSessionId
+              ) {
+                throw apiError(
+                  "PERMISSION_DENIED",
+                  "permission inheritance must name the current parent session",
+                );
+              }
+            }
+          }
           const operationInfo = this.services.desktopControl.operations.find(
             (candidate) => candidate.id === operation,
           );
@@ -3787,10 +4773,19 @@ export class PluginRuntime {
             }
           }
           try {
+            const invocation = this.inFlightTool(pluginId);
             const result = await this.services.desktopControl.invoke({
               operation,
               args,
               confirm: input.confirm === true,
+              source: "plugin",
+              pluginContext: {
+                pluginId,
+                ...(invocation?.sessionId ? { sessionId: invocation.sessionId } : {}),
+                ...(invocation?.turnId ? { turnId: invocation.turnId } : {}),
+                ...(invocation ? { invocationId: invocation.id } : {}),
+              },
+              ...(invocation ? { signal: invocation.signal } : {}),
             } satisfies McpControlInvokeInput);
             this.services.audit?.({
               pluginId,
@@ -3932,11 +4927,9 @@ export class PluginRuntime {
           return preview;
         },
         openDefault: async (pathFromRoot: string) => {
-          const { full, rel } = await this.resolveFsRequest(
-            loaded,
-            "read",
-            pathFromRoot,
-          );
+          const { full, rel } =
+            (await this.resolveRegisteredFolderRequest(loaded, pathFromRoot)) ??
+            (await this.resolveFsRequest(loaded, "read", pathFromRoot));
           if (!statSync(full).isFile()) {
             this.services.audit?.({
               pluginId,
@@ -3970,11 +4963,9 @@ export class PluginRuntime {
           });
         },
         reveal: async (pathFromRoot: string) => {
-          const { full, rel } = await this.resolveFsRequest(
-            loaded,
-            "read",
-            pathFromRoot,
-          );
+          const { full, rel } =
+            (await this.resolveRegisteredFolderRequest(loaded, pathFromRoot)) ??
+            (await this.resolveFsRequest(loaded, "read", pathFromRoot));
           if (!statSync(full).isFile()) {
             this.services.audit?.({
               pluginId,
@@ -4299,6 +5290,25 @@ export class PluginRuntime {
           });
         },
       },
+      /**
+       * Background audio is declared, gated, and not implemented: the host has
+       * no device backend yet, so every call runs the permission gate and then
+       * answers with a coded `UNSUPPORTED`. That is the contract a plugin can
+       * branch on — without it a call would fail as a bare `TypeError` with no
+       * `code` at all, and nothing would reach the audit log.
+       */
+      audio: {
+        getInputDevices: async () => this.refuseAudio(loaded, "audio.getInputDevices"),
+        openInput: async () => this.refuseAudio(loaded, "audio.openInput"),
+        closeInput: async () => this.refuseAudio(loaded, "audio.closeInput"),
+        getCaptureState: async () => this.refuseAudio(loaded, "audio.getCaptureState"),
+        onInputFrame: async () => this.refuseAudio(loaded, "audio.onInputFrame"),
+        offInputFrame: async () => this.refuseAudio(loaded, "audio.offInputFrame"),
+        openOutput: async () => this.refuseAudio(loaded, "audio.openOutput"),
+        writeOutput: async () => this.refuseAudio(loaded, "audio.writeOutput"),
+        stopOutput: async () => this.refuseAudio(loaded, "audio.stopOutput"),
+        closeOutput: async () => this.refuseAudio(loaded, "audio.closeOutput"),
+      },
       net: {
         fetch: async (input: {
           url: string;
@@ -4523,3 +5533,15 @@ export class PluginRuntime {
     };
   }
 }
+
+/**
+ * Which audio permission each declared method belongs to. Capture and playback
+ * are separate grants, so a playback-only plugin must not be told that a
+ * capture method exists.
+ */
+const AUDIO_PLAYBACK_APIS = new Set([
+  "audio.openOutput",
+  "audio.writeOutput",
+  "audio.stopOutput",
+  "audio.closeOutput",
+]);

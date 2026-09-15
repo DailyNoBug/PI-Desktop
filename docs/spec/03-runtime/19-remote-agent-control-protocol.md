@@ -355,7 +355,7 @@ mapping is fixed:
 | `error` (terminal) | `turn.failed` | yes | Carries the normalized `AppError` |
 | `turn_start`, `turn_end`, `status` | `turn.activity` | no | Model rounds and activity phases such as `waiting-model`, `compacting`, `waiting-subagents` |
 | `message_start` | `item.started` | yes | `itemType: "message"` |
-| `message_update` | `item.delta` | no | Delta text and thinking; content is complete in `item.completed` |
+| `message_update` | `item.delta` | no | `stream: \"delta\"` plus `deltaText`/`deltaThinking`; content is complete in `item.completed` (D412) |
 | `message_end` | `item.completed` | yes | Full `UiMessage` |
 | `tool_start` | `item.started` | yes | `itemType: "tool"` |
 | `tool_update` | `tool.progress` | no | Partial results are complete in `item.completed` |
@@ -1273,7 +1273,7 @@ D375 (2026-09-10) re-sequenced the deployments and extended the catalog:
   30-minute default approval lifetime for remote subscribers, and the
   `applyCeilingToPairedDevices` policy.
 
-D408 (2026-09-12) made the SSH runtime concrete:
+D434 (2026-09-12) made the SSH runtime concrete:
 
 - initialization results may carry the Host protocol/storage versions and the
   one-time pairing exchange's device token;

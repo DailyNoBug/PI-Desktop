@@ -7,10 +7,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  API_STYLES,
   NAMED_ENDPOINT_PRESETS,
   OPENCODE_GO_API_STYLE,
-  matchNamedPreset,
   normalizeApiStyle,
   type CatalogApiStyle,
   type ModelBinding,
@@ -23,6 +21,8 @@ import { ProviderHeadersEditor } from "./ProviderHeadersEditor";
 import { useProviderModels } from "./useProviderModels";
 import { ModelSelectionPanes, useModelSelection } from "./ModelSelectionPanes";
 import { CUSTOM_SERVICE, ServicePicker } from "./ServicePicker";
+import type { ProviderCopyDraft } from "./provider-copy";
+import { CUSTOM_PROVIDER_API_STYLES, isAccountOnlyApiStyle, needsCustomApiStyleChoice, providerSetupPreset } from "./provider-api-style";
 
 const API_STYLE_LABEL_KEYS: Record<CatalogApiStyle, string> = {
   chat_completions: "settings.apiStyleChatCompletions",
@@ -95,37 +95,15 @@ function normalizeBaseUrlInput(value: string, apiStyle: CatalogApiStyle): string
 
 function serviceIdFor(provider?: ProviderPublic | null): string {
   if (!provider) return "";
-  return (
-    matchNamedPreset({
-      vendorKey: provider.vendorKey,
-      baseUrl: provider.baseUrl,
-      apiStyle: provider.apiStyle,
-    })?.id ?? CUSTOM_SERVICE
-  );
+  return providerSetupPreset(provider)?.id ?? CUSTOM_SERVICE;
 }
 
 function initialName(provider?: ProviderPublic | null): string {
-  return (
-    matchNamedPreset({
-      vendorKey: provider?.vendorKey,
-      baseUrl: provider?.baseUrl,
-      apiStyle: provider?.apiStyle,
-    })?.name ??
-    provider?.name ??
-    ""
-  );
+  return providerSetupPreset(provider)?.name ?? provider?.name ?? "";
 }
 
 function initialBaseUrl(provider?: ProviderPublic | null): string {
-  return (
-    matchNamedPreset({
-      vendorKey: provider?.vendorKey,
-      baseUrl: provider?.baseUrl,
-      apiStyle: provider?.apiStyle,
-    })?.baseUrl ??
-    provider?.baseUrl ??
-    ""
-  );
+  return providerSetupPreset(provider)?.baseUrl ?? provider?.baseUrl ?? "";
 }
 
 function endpointHost(url: string): string {
@@ -139,28 +117,34 @@ function endpointHost(url: string): string {
 
 export type ProviderSetupDialogProps = {
   provider?: ProviderPublic | null;
+  initialDraft?: ProviderCopyDraft | null;
   onClose: () => void;
   onSaved: (provider: ProviderPublic, models: ModelBinding[]) => void;
 };
 
 export function ProviderSetupDialog({
   provider,
+  initialDraft,
   onClose,
   onSaved,
 }: ProviderSetupDialogProps) {
   const { t } = useTranslation();
   const editing = !!provider;
   const apiKeyRef = useRef<HTMLInputElement>(null);
-  const [service, setService] = useState(() => serviceIdFor(provider));
-  const [name, setName] = useState(() => initialName(provider));
-  const [baseUrl, setBaseUrl] = useState(() => initialBaseUrl(provider));
+  const [service, setService] = useState(() => initialDraft
+    ? initialDraft.apiStyle === OPENCODE_GO_API_STYLE
+      ? NAMED_ENDPOINT_PRESETS.find((preset) => preset.apiStyle === OPENCODE_GO_API_STYLE)?.id ?? CUSTOM_SERVICE
+      : CUSTOM_SERVICE
+    : serviceIdFor(provider));
+  const [name, setName] = useState(() => initialDraft?.name ?? initialName(provider));
+  const [baseUrl, setBaseUrl] = useState(() => initialDraft?.baseUrl ?? initialBaseUrl(provider));
   const [apiKey, setApiKey] = useState("");
   const [apiStyle, setApiStyle] = useState<CatalogApiStyle>(() =>
-    normalizeApiStyle(provider?.apiStyle),
+    initialDraft?.apiStyle ?? normalizeApiStyle(provider?.apiStyle),
   );
   const [headerPairs, setHeaderPairs] = useState(() => recordToPairs(provider?.headers));
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [models, setModels] = useState<ModelBinding[]>(provider?.models ?? []);
+  const [models, setModels] = useState<ModelBinding[]>(initialDraft?.models ?? provider?.models ?? []);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState("");
@@ -176,11 +160,14 @@ export function ProviderSetupDialog({
   const baseUrlIssue = getBaseUrlIssue(resolvedBaseUrl);
   const baseUrlError =
     baseUrlTouched && baseUrlIssue ? t("settings.baseUrlInvalid") : undefined;
+  const requiresApiStyleChoice = custom && needsCustomApiStyleChoice(apiStyle, provider?.apiStyle);
+  const accountOnlyApiStyle = isAccountOnlyApiStyle(apiStyle);
   const requestBaseUrl = normalizeBaseUrlInput(resolvedBaseUrl, resolvedApiStyle);
   // Named add-path waits for a key so picking a vendor does not 401-probe.
   // Editing reuses the stored secret. Custom still probes a valid URL alone.
   const discoveryActive =
     Boolean(service) &&
+    !requiresApiStyleChoice &&
     !baseUrlIssue &&
     (custom || Boolean(apiKey.trim()) || Boolean(provider));
   const headers = pairsToRecord(headerPairs);
@@ -271,6 +258,7 @@ export function ProviderSetupDialog({
     const providerName = resolvedName.trim();
     const providerBaseUrl = normalizeBaseUrlInput(resolvedBaseUrl, resolvedApiStyle);
     if (
+      requiresApiStyleChoice ||
       !providerName ||
       !providerBaseUrl ||
       getBaseUrlIssue(providerBaseUrl) ||
@@ -321,6 +309,7 @@ export function ProviderSetupDialog({
 
   const canSave =
     !saving &&
+    !requiresApiStyleChoice &&
     !!service &&
     !!resolvedName.trim() &&
     !!resolvedBaseUrl.trim() &&
@@ -345,7 +334,7 @@ export function ProviderSetupDialog({
       >
         <div className="provider-setup-head">
           <h3 id="provider-setup-title" className="provider-setup-title">
-            {editing ? t("settings.editProviderTitle") : t("settings.addProviderTitle")}
+            {initialDraft ? t("settings.copyProviderTitle") : editing ? t("settings.editProviderTitle") : t("settings.addProviderTitle")}
           </h3>
           <div className="provider-setup-head-actions">
             {named || custom ? (
@@ -383,6 +372,7 @@ export function ProviderSetupDialog({
         </div>
 
         <div className="provider-setup-body">
+          {initialDraft ? <p className="settings-hint">{t("settings.copyProviderHint")}</p> : null}
           {error ? <div className="provider-setup-error">{error}</div> : null}
 
           <div className="provider-setup-credentials">
@@ -491,7 +481,12 @@ export function ProviderSetupDialog({
                         onChange={(event) => setApiKey(event.target.value)}
                       />
                     </Field>
-                    <Field label={t("settings.apiStyle")}>
+                    <Field
+                      label={t("settings.apiStyle")}
+                      hint={accountOnlyApiStyle ? t(requiresApiStyleChoice
+                        ? "settings.apiStyleChooseCustom"
+                        : "settings.apiStyleLegacyAccount") : undefined}
+                    >
                       <Select
                         value={apiStyle}
                         disabled={saving}
@@ -499,7 +494,12 @@ export function ProviderSetupDialog({
                           setApiStyle(event.target.value as CatalogApiStyle)
                         }
                       >
-                        {API_STYLES.filter((style) => style !== OPENCODE_GO_API_STYLE).map(
+                        {accountOnlyApiStyle ? (
+                          <option value={apiStyle} disabled>
+                            {t(API_STYLE_LABEL_KEYS[apiStyle])}
+                          </option>
+                        ) : null}
+                        {CUSTOM_PROVIDER_API_STYLES.map(
                           (style) => (
                             <option key={style} value={style}>
                               {t(API_STYLE_LABEL_KEYS[style])}

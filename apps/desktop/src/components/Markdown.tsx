@@ -39,14 +39,21 @@ import {
 import { TooltipButton } from "./ui";
 import { createPortal } from "react-dom";
 import { api } from "../lib/api";
+import {
+  rehypeSourcePositions,
+  sourcePositionProps,
+  type SourcePositionProps,
+} from "../lib/markdown-source";
 import { useAppStore } from "../stores/app-store";
 import { useReferencedImageDataUrl } from "../lib/use-referenced-image-data-url";
+import { useOpenChatFileRef } from "../hooks/use-preview-target";
 import {
   remarkChatFileLinks,
   resolvePreviewTarget,
   safeDecodeUri,
   toWorkspaceRel,
 } from "../lib/chat-links";
+import { annotationMarkerToken, splitAnnotationMarkerTokens } from "../lib/response-annotations";
 import {
   isClosedFencedCodeBlock,
   MAX_MERMAID_SOURCE_LENGTH,
@@ -192,11 +199,11 @@ export function HighlightedCode({
   );
 }
 
-function CodeBlock({ code, lang }: { code: string; lang: string }) {
+function CodeBlock({ code, lang, ...position }: { code: string; lang: string } & SourcePositionProps) {
   const { t } = useTranslation();
   const { copied, copy } = useCopy();
   return (
-    <div className="code-block">
+    <div className="code-block" {...position}>
       <div className="code-block-head">
         <span className="code-block-lang">{lang || "text"}</span>
         <TooltipButton
@@ -240,7 +247,7 @@ function useNearViewport(ref: RefObject<HTMLDivElement | null>): boolean {
   return nearViewport;
 }
 
-function MermaidBlock({ code }: { code: string }) {
+function MermaidBlock({ code, ...position }: { code: string } & SourcePositionProps) {
   const { t } = useTranslation();
   const theme = useThemeMode();
   const reactId = useId();
@@ -303,6 +310,7 @@ function MermaidBlock({ code }: { code: string }) {
   return (
     <div
       ref={rootRef}
+      {...position}
       className={`mermaid-block${error ? " error" : ""}`}
       aria-busy={loading}
     >
@@ -410,7 +418,7 @@ function PreBlock({
   node: _node,
   children,
   ...rest
-}: ComponentProps<"pre"> & { node?: unknown }) {
+}: ComponentProps<"pre"> & SourcePositionProps & { node?: unknown }) {
   const { closedFence, renderDiagrams } = useContext(MarkdownBlockContext);
   const info = extractCode(children);
   if (!info) return <pre {...rest}>{children}</pre>;
@@ -419,9 +427,9 @@ function PreBlock({
     closedFence &&
     info.lang.toLowerCase() === "mermaid"
   ) {
-    return <MermaidBlock code={info.code} />;
+    return <MermaidBlock code={info.code} {...sourcePositionProps(rest)} />;
   }
-  return <CodeBlock code={info.code} lang={info.lang} />;
+  return <CodeBlock code={info.code} lang={info.lang} {...sourcePositionProps(rest)} />;
 }
 
 /** Preview-in-panel tooltip for file and URL chat references. */
@@ -443,8 +451,8 @@ function InlineCode({
 }: ComponentProps<"code"> & { node?: unknown }) {
   const root = useAppStore((s) => s.workspace?.path);
   const baseDir = useContext(MarkdownBaseDirContext);
-  const openFile = useAppStore((s) => s.openFileInWorkPanel);
   const openUrl = useAppStore((s) => s.openUrlInWorkPanel);
+  const openFileRef = useOpenChatFileRef();
   const text = typeof children === "string" ? children : null;
   const target =
     text && !className && !text.includes("\n")
@@ -465,12 +473,49 @@ function InlineCode({
       className="chat-code-link"
       title={target.kind === "file" ? fileTitle : urlTitle}
       onClick={() =>
-        target.kind === "file" ? openFile(target.path) : openUrl(target.url)
+        target.kind === "file"
+          ? openFileRef(text ?? target.path, baseDir)
+          : openUrl(target.url)
       }
     >
       <code className={className} {...rest}>
         {children}
       </code>
+    </button>
+  );
+}
+
+/**
+ * Inline numbered marker for one response annotation (ADR response-annotations / D-LOCAL-response-annotations).
+ *
+ * It mirrors the reference overlay's marker: the number of the annotation in
+ * array order, with the annotated excerpt as its tooltip.
+ */
+function AnnotationMarker({ index }: { index: number }) {
+  const { t } = useTranslation();
+  const annotation = useAppStore((state) =>
+    state.activeSessionId
+      ? (state.responseAnnotations[state.activeSessionId] ?? [])[index - 1]
+      : undefined,
+  );
+  const excerpt = annotation?.text ?? "";
+  const comment = annotation?.annotation?.trim() ?? "";
+  const tooltip = [
+    `${t("chat.annotationSelectedText")} ${excerpt}`,
+    comment ? `${t("chat.annotationComment")} ${comment}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return (
+    <button
+      type="button"
+      className="response-annotation-marker"
+      data-annotation-index={index}
+      aria-label={t("chat.annotationMarker", { index })}
+      title={tooltip || undefined}
+      onClick={() => undefined}
+    >
+      {index}
     </button>
   );
 }
@@ -484,11 +529,12 @@ function Anchor({
   const { t } = useTranslation();
   const root = useAppStore((s) => s.workspace?.path);
   const baseDir = useContext(MarkdownBaseDirContext);
-  const openFile = useAppStore((s) => s.openFileInWorkPanel);
+  const openFileRef = useOpenChatFileRef();
   const openUrl = useAppStore((s) => s.openUrlInWorkPanel);
   const showToast = useAppStore((s) => s.showToast);
   const linkOpenTarget = useAppStore((s) => s.settings?.linkOpenTarget ?? "workpanel");
 
+  const annotationIndex = annotationMarkerIndexFromHref(href);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const anchorRef = useRef<HTMLAnchorElement | null>(null);
@@ -567,6 +613,13 @@ function Anchor({
     }
   };
 
+  // An annotated pass carries its number here instead of a link: the marker is
+  // an inline reference, not a destination (ADR response-annotations / D-LOCAL-response-annotations). Every hook above
+  // still runs, so the marker branch cannot change hook order.
+  if (annotationIndex !== null) {
+    return <AnnotationMarker index={annotationIndex} />;
+  }
+
   // Plain click previews in the work panel (or external browser based on setting).
   // Modified clicks fall through to _blank, which main routes to shell.openExternal.
   const onClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -584,7 +637,7 @@ function Anchor({
     const rel = toWorkspaceRel(safeDecodeUri(href), root, baseDir);
     if (rel) {
       e.preventDefault();
-      openFile(rel);
+      openFileRef(rel, baseDir);
     }
   };
   return (
@@ -661,10 +714,10 @@ function MarkdownImage({
   src,
   alt,
   ...rest
-}: ComponentProps<"img"> & { node?: unknown }) {
+}: ComponentProps<"img"> & SourcePositionProps & { node?: unknown }) {
   const root = useAppStore((s) => s.workspace?.path);
   const baseDir = useContext(MarkdownBaseDirContext);
-  const openFile = useAppStore((s) => s.openFileInWorkPanel);
+  const openFileRef = useOpenChatFileRef();
   const openUrl = useAppStore((s) => s.openUrlInWorkPanel);
   const fileTitle = usePreviewTitle("file");
   const urlTitle = usePreviewTitle("url");
@@ -700,7 +753,7 @@ function MarkdownImage({
         alt={alt ?? ""}
         className="chat-image-local"
         title={rel ? fileTitle : source}
-        onClick={localRef ? () => openFile(localRef) : undefined}
+        onClick={localRef ? () => openFileRef(localRef, baseDir) : undefined}
       />
     );
   }
@@ -709,8 +762,9 @@ function MarkdownImage({
       <button
         type="button"
         className="chat-image-chip"
+        {...sourcePositionProps(rest)}
         title={fileTitle}
-        onClick={() => openFile(localRef)}
+        onClick={() => openFileRef(localRef, baseDir)}
       >
         <IconImage size={14} aria-hidden />
         <span>{alt || localRef.split("/").pop()}</span>
@@ -770,11 +824,84 @@ const markdownComponents: Components = {
   table: Table,
 };
 
-const staticRemarkPlugins = [remarkGfm, remarkMath];
+/** Href scheme the annotation markers travel on through the markdown pipeline. */
+const ANNOTATION_MARKER_SCHEME = "annotation:";
+
+/** Url resolved for one annotation number. */
+export function annotationMarkerHref(index: number): string {
+  return `${ANNOTATION_MARKER_SCHEME}${index}`;
+}
+/** The annotation number one rendered marker element carries, or null. */
+export function annotationMarkerIndexFromHref(href: string | undefined): number | null {
+  if (!href || !href.startsWith(ANNOTATION_MARKER_SCHEME)) return null;
+  const index = Number(href.slice(ANNOTATION_MARKER_SCHEME.length));
+  return Number.isSafeInteger(index) && index > 0 ? index : null;
+}
+
+type MdastLike = {
+  type?: string;
+  value?: string;
+  url?: string;
+  children?: MdastLike[];
+};
+
+/**
+ * Turn `:codex-annotation{index="N"}` tokens into numbered marker elements
+ * (ADR response-annotations / D-LOCAL-response-annotations). The token is the reference implementation's own syntax,
+ * so an answer that echoes one renders as a marker instead of raw text.
+ */
+export function annotationMarkerMdastTree(tree: MdastLike | null | undefined): void {
+  walk(tree);
+
+  function walk(node: MdastLike | null | undefined) {
+    if (!node?.children) return;
+    const next: MdastLike[] = [];
+    for (const child of node.children) {
+      if (child.type === "text" && typeof child.value === "string") {
+        const segments = splitAnnotationMarkerTokens(child.value);
+        if (segments.length === 1 && segments[0].kind === "text") {
+          next.push(child);
+          continue;
+        }
+        for (const segment of segments) {
+          if (segment.kind === "text") {
+            if (segment.value) next.push({ type: "text", value: segment.value });
+            continue;
+          }
+          next.push({
+            type: "link",
+            url: annotationMarkerHref(segment.index),
+            children: [
+              { type: "text", value: annotationMarkerToken(segment.index) },
+            ],
+          });
+        }
+        continue;
+      }
+      walk(child);
+      next.push(child);
+    }
+    node.children = next;
+  }
+}
+
+function remarkAnnotationMarkers() {
+  return (tree: MdastLike) => {
+    annotationMarkerMdastTree(tree);
+  };
+}
+
+const staticRemarkPlugins = [remarkGfm, remarkMath, remarkAnnotationMarkers];
 
 // Extend the default schema only for the media elements rendered above.
 const sanitizeSchema = {
   ...defaultSchema,
+  protocols: {
+    ...defaultSchema.protocols,
+    // The annotation markers travel on their own scheme; without it the
+    // sanitizer drops the href and the raw directive renders as link text.
+    href: [...(defaultSchema.protocols?.href ?? []), ANNOTATION_MARKER_SCHEME.replace(/:$/, "")],
+  },
   attributes: {
     ...defaultSchema.attributes,
     img: [...(defaultSchema.attributes?.img || []), "src", "alt", "title", "className"],
@@ -796,9 +923,21 @@ const rehypePlugins = [rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex]
 
 function parseBlocks(source: string): string[] {
   const blocks: string[] = [];
+  let sourceOffset = 0;
+  const hasWindowsLines = source.includes("\r\n");
   for (const token of lexer(source)) {
-    const raw = token.raw;
-    if (!raw) continue;
+    if (!token.raw) continue;
+    const start = sourceOffset;
+    // Marked normalizes CRLF before tokenizing. Preserve original slices so
+    // parser offsets and incremental block lengths still refer to stored text.
+    if (hasWindowsLines) {
+      for (let i = 0; i < token.raw.length; i++, sourceOffset++) {
+        if (source[sourceOffset] === "\r" && source[sourceOffset + 1] === "\n") sourceOffset++;
+      }
+    } else {
+      sourceOffset += token.raw.length;
+    }
+    const raw = source.slice(start, sourceOffset);
     // Fold blank-line runs into the previous block so joining blocks
     // reconstructs the source and block boundaries stay append-stable.
     if (token.type === "space" && blocks.length > 0) {
@@ -839,11 +978,13 @@ function useBlocks(source: string): string[] {
 
 const Block = memo(function MarkdownBlock({
   raw,
+  sourceOffset,
   renderDiagrams,
   workspaceRoot,
   baseDir,
 }: {
   raw: string;
+  sourceOffset: number;
   renderDiagrams: boolean;
   workspaceRoot?: string | null;
   baseDir?: string;
@@ -862,11 +1003,15 @@ const Block = memo(function MarkdownBlock({
     ],
     [workspaceRoot, baseDir],
   );
+  const positionedRehypePlugins = useMemo(
+    () => [...rehypePlugins!, [rehypeSourcePositions, { offset: sourceOffset }]] as Options["rehypePlugins"],
+    [sourceOffset],
+  );
   return (
     <MarkdownBlockContext.Provider value={context}>
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
+        rehypePlugins={positionedRehypePlugins}
         components={markdownComponents}
       >
         {raw}
@@ -887,17 +1032,23 @@ export const Markdown = memo(function Markdown({
 }) {
   const workspaceRoot = useAppStore((s) => s.workspace?.path);
   const blocks = useBlocks(source);
+  let sourceOffset = 0;
   return (
     <MarkdownBaseDirContext.Provider value={baseDir ?? ""}>
-      {blocks.map((raw, i) => (
-        <Block
-          key={i}
-          raw={raw}
-          renderDiagrams={renderDiagrams}
-          workspaceRoot={workspaceRoot}
-          baseDir={baseDir}
-        />
-      ))}
+      {blocks.map((raw, i) => {
+        const start = sourceOffset;
+        sourceOffset = start + raw.length;
+        return (
+          <Block
+            key={i}
+            raw={raw}
+            sourceOffset={start}
+            renderDiagrams={renderDiagrams}
+            workspaceRoot={workspaceRoot}
+            baseDir={baseDir}
+          />
+        );
+      })}
     </MarkdownBaseDirContext.Provider>
   );
 });

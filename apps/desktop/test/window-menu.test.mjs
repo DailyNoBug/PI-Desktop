@@ -1,10 +1,13 @@
+import { readAppSource } from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { loadStyles } from "./helpers/styles.mjs";
+import { readMainSource } from "./helpers/main-source.mjs";
 
-const mainSource = await readFile(
-  new URL("../electron/main/index.ts", import.meta.url),
+const mainSource = await readMainSource();
+const activationSource = await readFile(
+  new URL("../electron/main/bootstrap/app-activation.ts", import.meta.url),
   "utf8",
 );
 const menuSource = await readFile(
@@ -15,10 +18,7 @@ const shortcutSource = await readFile(
   new URL("../../../packages/shared/src/keyboard-shortcuts.ts", import.meta.url),
   "utf8",
 );
-const appSource = await readFile(
-  new URL("../src/App.tsx", import.meta.url),
-  "utf8",
-);
+const appSource = await readAppSource();
 const stylesSource = await loadStyles();
 const controlsSource = await readFile(
   new URL("../src/components/WindowControls.tsx", import.meta.url),
@@ -120,7 +120,7 @@ test("developer mode gates every devtools entry point in the main process", () =
   );
   assert.match(
     mainSource,
-    /before-input-event[\s\S]*!developerMode[\s\S]*input\.code === "F12"/,
+    /before-input-event[\s\S]*!windowState\.developerMode[\s\S]*input\.code === "F12"/,
   );
   assert.match(
     mainSource,
@@ -311,7 +311,7 @@ test("Windows taskbar minimize keeps the taskbar entry", () => {
   );
   assert.match(
     minimizeHandler,
-    /if \(quitting \|\| !tray \|\| process\.platform !== "darwin"\) return;/,
+    /if \(windowState\.quitting \|\| !windowState\.tray \|\| process\.platform !== "darwin"\) return;/,
   );
   assert.match(
     mainSource,
@@ -324,14 +324,18 @@ test("Windows taskbar minimize keeps the taskbar entry", () => {
 });
 
 test("macOS activation resurfaces a tray-hidden window", () => {
-  assert.match(mainSource, /app\.on\("activate", \(\) => \{\s*restoreMainWindow\(\);/);
   assert.match(
     mainSource,
+    /registerApplicationActivation\(\{[\s\S]*restoreMainWindow,/,
+  );
+  assert.match(activationSource, /app\.on\("activate", restoreMainWindow\)/);
+  assert.match(
+    activationSource,
     /app\.on\("did-become-active", \(\) => \{[\s\S]*restoreMainWindow\(\);/,
   );
   assert.match(
-    mainSource,
-    /if \(quitting \|\| !applicationBooted \|\| hasVisibleWindow\(\)\) return;/,
+    activationSource,
+    /if\s*\(\s*isQuitting\(\)\s*\|\|\s*!isApplicationBooted\(\)\s*\|\|\s*hasVisibleWindow\(\)\s*\)\s*return;/,
   );
   assert.match(
     mainSource,

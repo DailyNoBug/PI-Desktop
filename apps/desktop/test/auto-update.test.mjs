@@ -1,3 +1,9 @@
+import {
+  readAppSource,
+  readSettingsSource,
+  readMainSource,
+  readSharedTypesSource,
+} from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -24,15 +30,15 @@ const [
   changelogSource,
 ] = await Promise.all([
   read("../../../packages/shared/src/protocol.ts"),
-  read("../../../packages/shared/src/types.ts"),
+  readSharedTypesSource(),
   read("../electron/main/updater.ts"),
-  read("../electron/main/index.ts"),
+  readMainSource(),
   read("../electron/main/application-menu.ts"),
   read("../src/lib/api.ts"),
   read("../src/components/UpdateBanner.tsx"),
   read("../src/components/ReleaseNotesDialog.tsx"),
-  read("../src/pages/SettingsPage.tsx"),
-  read("../src/App.tsx"),
+  readSettingsSource(),
+  readAppSource(),
   loadStyles(),
   read("../package.json"),
   read("../../../.github/workflows/release.yml"),
@@ -98,6 +104,21 @@ test("updater gates delivery mode by platform and delivery policy", () => {
     "prerelease installs must still track the stable GitHub latest release",
   );
   assert.match(updaterSource, /quitAndInstall/);
+  assert.match(
+    updaterSource,
+    /private installRequested = false/,
+    "the install request is latched so the shutdown path can see it",
+  );
+  assert.match(
+    updaterSource,
+    /isInstallingUpdate\(\): boolean/,
+    "the shutdown path must be able to ask whether this quit is an update restart",
+  );
+  assert.match(
+    updaterSource,
+    /this\.installRequested = true;[\s\S]*?autoUpdater\.quitAndInstall\(/,
+    "the latch must be set before quitAndInstall spawns the installer",
+  );
   assert.match(
     updaterSource,
     /state\.status === "downloaded"[\s\S]*return this\.state/,

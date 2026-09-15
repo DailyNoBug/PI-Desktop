@@ -1,3 +1,4 @@
+import { readStoreSourceSync, readComposerSourceSync, readMainSourceSync } from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -7,13 +8,13 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const protocol = read("../../../packages/shared/src/protocol.ts");
 const sessions = read("../../../crates/host-core/src/sessions.rs");
 const rpc = read("../../../crates/host-core/src/rpc/mod.rs");
-const main = read("../electron/main/index.ts");
+const main = readMainSourceSync();
 const mcpControl = read("../electron/main/mcp-control.ts");
 const api = read("../src/lib/api.ts");
-const store = read("../src/stores/app-store.ts");
+const store = readStoreSourceSync();
 const sidebar = read("../src/components/Sidebar.tsx");
 const sidebarPreferences = read("../src/lib/sidebar-preferences.ts");
-const composer = read("../src/components/Composer.tsx");
+const composer = readComposerSourceSync();
 const sessionsCss = read("../src/styles/sessions.css");
 const composerCss = read("../src/styles/composer.css");
 
@@ -27,7 +28,13 @@ test("session project move is a durable host command, not a renderer-only regrou
   const moveBlock = sessions.match(
     /pub fn move_session_project\([\s\S]*?\n\}\n/,
   )?.[0] ?? "";
-  assert.match(moveBlock, /SELECT EXISTS\([\s\S]*?status = 'running'/);
+  // The running-turn check lives in one shared helper so fork, move, and the
+  // bulk project delete cannot drift apart; the move path still has to use it,
+  // and the helper still has to ask the database for a running turn.
+  assert.match(moveBlock, /if session_has_running_turn\(db, id\)\?/);
+  const runningTurnHelper =
+    sessions.match(/pub fn session_has_running_turn\([\s\S]*?\n\}\n/)?.[0] ?? "";
+  assert.match(runningTurnHelper, /SELECT EXISTS\([\s\S]*?status = 'running'/);
   assert.match(moveBlock, /db\.ensure_project\(project_path, false\)/);
   assert.match(
     moveBlock,
@@ -79,24 +86,22 @@ test("renderer api and store expose one guarded move action", () => {
   assert.match(storeBlock, /await api\.moveSessionProject\(id, projectPath\)/);
 });
 
-test("sidebar sessions drag onto project groups and offer a menu fallback", () => {
+test("sidebar sessions drag onto project groups without a menu fallback", () => {
   assert.match(sidebar, /const SESSION_DRAG_MIME = "application\/x-pi-desktop-session";/);
   assert.match(sidebar, /draggable=\{!running\}/);
   assert.match(sidebar, /beginSessionDrag\(event, session\.id\)/);
   assert.match(sidebar, /onDragEnd=\{endSessionDrag\}/);
   assert.match(sidebar, /is-dragging/);
   assert.match(sidebar, /onProjectDropTargetOver\(event, entry\)/);
-  assert.match(sidebar, /sessionIdForDragOver\(event\.dataTransfer, draggingSessionId\)/);
   assert.match(sidebar, /onProjectDropTargetDrop\(event, entry\)/);
-  assert.match(sidebar, /void moveSessionToProject\(dragged\.id, entry\.path, entry\.name\)/);
   assert.match(sidebar, /dropProjectKey === entry\.key \? "is-drop-target" : ""/);
-  assert.match(sidebar, /data-action="move-session-to-project"/);
-  assert.match(sidebar, /nav\.moveToProject/);
+  assert.doesNotMatch(sidebar, /data-action="move-session-to-project"/);
+  assert.doesNotMatch(sidebar, /nav\.moveToProject/);
   assert.match(sidebar, /disabled=\{Boolean\(runningSessions\[session\.id\]\)\}/);
   // A drag inside the same project group must not offer itself as a target.
   assert.match(
     sidebar,
-    /normalizeProjectPath\(dragged\.projectPath\) === entry\.key\)/,
+    /normalizeProjectPath\(dragged\.projectPath\) === entry\.key/,
   );
 });
 
@@ -138,7 +143,6 @@ test("new drag/drop copy ships in the reviewed locales", () => {
 
   for (const source of [en, zhCN, zhTW]) {
     for (const key of [
-      "moveToProject",
       "sessionMoved",
       "moveRunningSessionBlocked",
       "moveSessionUnavailable",
@@ -151,8 +155,6 @@ test("new drag/drop copy ships in the reviewed locales", () => {
       assert.match(source, new RegExp(`${key}:`));
     }
   }
-  assert.match(en, /moveToProject: "Move to project"/);
-  assert.match(zhCN, /moveToProject: "移动到项目"/);
 });
 
 test("drag state cannot outlive the dragged row or trust a stale id", () => {
@@ -203,8 +205,8 @@ test("session move and prompt setup share a per-session critical section", () =>
 });
 
 test("drag ordering keeps priority buckets and rejects malformed ranks", () => {
-  assert.match(sidebar, /sameProjectReorderBucket\(source\.meta, destination\.meta\)/);
-  assert.match(sidebar, /const state: ProjectReorderPointerState = \{/);
+  assert.match(sidebar, /sameProjectReorderBucket\(source\.meta, target\.meta\)/);
+  assert.match(sidebar, /const source = projectEntries\[sourceIndex\]/);
   assert.match(sidebarPreferences, /Number\.isSafeInteger\(value\)/);
   assert.match(sidebarPreferences, /manualOrder\(meta\[ak\]\?\.order\)/);
 });

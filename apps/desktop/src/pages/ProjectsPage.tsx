@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ProjectRecord, SessionSummary } from "@pi-desktop/shared";
+import type { ProjectGroupRecord, SessionSummary } from "@pi-desktop/shared";
 import { useAppStore } from "../stores/app-store";
 import { api } from "../lib/api";
 import { Button, Tooltip, TooltipButton, cx } from "../components/ui";
@@ -19,6 +19,8 @@ import {
   IconSearch,
   IconServer,
   IconStar,
+  IconSparkles,
+  IconTrash,
   IconX,
 } from "../components/icons";
 import {
@@ -29,16 +31,35 @@ import {
 import { collectSessionProjects } from "../lib/session-projects";
 import {
   normalizeProjectPath,
-  sessionMatchesProject,
 } from "../lib/sidebar-session-groups";
 import { ProjectInstructionsDialog } from "../components/ProjectInstructionsDialog";
-import { ProjectRenameDialog, SessionRenameDialog } from "../components/SessionRenameDialog";
+import { ProjectMemoryDialog } from "../components/ProjectMemoryDialog";
+import { ProjectEditDialog } from "../components/ProjectEditDialog";
+import { ProjectDeleteDialog } from "../components/ProjectDeleteDialog";
+import { SessionRenameDialog } from "../components/SessionRenameDialog";
 import { AnchoredMenu } from "../components/settings/AnchoredMenu";
 import { RemoteProjectDialog } from "../components/settings/RemoteProjectDialog";
 
 const INITIAL_VISIBLE_SESSION_COUNT = 8;
 
 type SortMode = "recent" | "name";
+
+type ProjectIndexItem = RecentProject & {
+  groupId: string;
+  roots: ProjectGroupRecord["roots"];
+  legacy: boolean;
+};
+
+function sessionMatchesIndexProject(
+  session: SessionSummary,
+  project: Pick<ProjectIndexItem, "roots" | "path">,
+) {
+  const sessionPath = normalizeProjectPath(session.projectPath);
+  return Boolean(
+    sessionPath &&
+      project.roots.some((root) => normalizeProjectPath(root.path) === sessionPath),
+  );
+}
 
 /**
  * Section order for the always-visible index. Archived records are grouped last
@@ -120,31 +141,48 @@ export function ProjectsPage() {
   const renameSession = useAppStore((s) => s.renameSession);
   const showToast = useAppStore((s) => s.showToast);
   const sessions = useAppStore((s) => s.sessions);
+  const runningSessions = useAppStore((s) => s.runningSessions);
   const [recents, setRecents] = useState<RecentProject[]>(() => loadRecentProjects());
-  const [durableProjects, setDurableProjects] = useState<ProjectRecord[]>([]);
+  const [durableProjects, setDurableProjects] = useState<ProjectGroupRecord[]>([]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("recent");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [visibleSessionCounts, setVisibleSessionCounts] = useState<Record<string, number>>({});
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [renameFor, setRenameFor] = useState<SessionSummary | null>(null);
-  const [renameProjectFor, setRenameProjectFor] = useState<{
+  const [editProjectFor, setEditProjectFor] = useState<{
     path: string;
     name: string;
+    groupId?: string;
+    roots?: ProjectGroupRecord["roots"];
+    legacy?: boolean;
+  } | null>(null);
+  const [deleteFor, setDeleteFor] = useState<{
+    name: string;
+    path: string;
+    sessionCount: number;
   } | null>(null);
   const [remoteOpen, setRemoteOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [instructionsFor, setInstructionsFor] = useState<{
     name: string;
     path: string;
+    groupId?: string;
+    legacy?: boolean;
+  } | null>(null);
+  const [memoryFor, setMemoryFor] = useState<{
+    name: string;
+    path: string;
+    groupId?: string;
+    legacy?: boolean;
   } | null>(null);
 
   useEffect(() => {
     let canceled = false;
     void api
-      .listProjects()
-      .then(({ projects }) => {
-        if (!canceled) setDurableProjects(projects);
+      .listProjectGroups()
+      .then(({ groups }) => {
+        if (!canceled) setDurableProjects(groups);
       })
       .catch(() => {
         // Session-derived entries below keep the index useful if host listing fails.
@@ -155,30 +193,58 @@ export function ProjectsPage() {
   }, [sessions]);
 
   const items = useMemo(() => {
-    const byPath = new Map<string, RecentProject>();
-    for (const project of durableProjects) {
-      const key = normalizeProjectPath(project.path);
-      if (!key) continue;
+    const byPath = new Map<string, ProjectIndexItem>();
+    const addGroup = (group: ProjectGroupRecord, openedAt = group.lastOpenedAt) => {
+      const key = normalizeProjectPath(group.primaryPath);
+      if (!key) return;
+      const existing = byPath.get(key);
       byPath.set(key, {
-        path: project.path,
-        name: project.name,
-        openedAt: project.lastOpenedAt,
-        pinned: project.pinned,
-        color: projectColor(project.path),
+        path: group.primaryPath,
+        name: group.name,
+        openedAt: Math.max(existing?.openedAt ?? 0, openedAt),
+        pinned: group.pinned,
+        color: existing?.color ?? projectColor(group.primaryPath),
+        groupId: group.id,
+        roots: group.roots,
+        legacy: group.legacy === true,
       });
-    }
+    };
+    for (const group of durableProjects) addGroup(group);
+
+    const groupForPath = (path: string) => {
+      const key = normalizeProjectPath(path);
+      return durableProjects.find((group) =>
+        group.roots.some((root) => normalizeProjectPath(root.path) === key),
+      );
+    };
+
     for (const project of recents) {
+      const group = groupForPath(project.path);
+      if (group) {
+        addGroup(group, project.openedAt);
+        continue;
+      }
       const key = normalizeProjectPath(project.path);
       if (!key) continue;
       const existing = byPath.get(key);
       byPath.set(key, {
-        ...existing,
-        ...project,
+        path: existing?.path ?? project.path,
+        name: existing?.name ?? project.name,
+        branch: existing?.branch ?? project.branch,
         openedAt: Math.max(existing?.openedAt ?? 0, project.openedAt),
         pinned: project.pinned ?? existing?.pinned,
+        color: existing?.color ?? project.color ?? projectColor(project.path),
+        groupId: existing?.groupId ?? `legacy:${key}`,
+        roots: existing?.roots ?? [{ path: project.path, name: project.name, position: 0 }],
+        legacy: existing?.legacy ?? true,
       });
     }
     for (const project of collectSessionProjects(sessions)) {
+      const group = groupForPath(project.path);
+      if (group) {
+        addGroup(group, project.updatedAt);
+        continue;
+      }
       const key = normalizeProjectPath(project.path);
       if (!key) continue;
       const existing = byPath.get(key);
@@ -189,37 +255,48 @@ export function ProjectsPage() {
         openedAt: Math.max(existing?.openedAt ?? 0, project.updatedAt),
         pinned: existing?.pinned,
         color: existing?.color ?? projectColor(project.path),
+        groupId: existing?.groupId ?? `legacy:${key}`,
+        roots: existing?.roots ?? [{ path: project.path, name: project.name, position: 0 }],
+        legacy: existing?.legacy ?? true,
       });
     }
     if (workspace?.path) {
-      const key = normalizeProjectPath(workspace.path);
-      const existing = key ? byPath.get(key) : undefined;
-      if (key) {
-        byPath.set(key, {
-          path: workspace.path,
-          name: workspace.name || existing?.name || workspace.path,
-          branch: workspace.branch || existing?.branch,
-          openedAt: Math.max(existing?.openedAt ?? 0, Date.now()),
-          pinned: existing?.pinned,
-          color: existing?.color ?? projectColor(workspace.path),
-        });
+      const group = groupForPath(workspace.path);
+      if (group) addGroup(group, Date.now());
+      else {
+        const key = normalizeProjectPath(workspace.path);
+        if (key) {
+          const existing = byPath.get(key);
+          byPath.set(key, {
+            path: workspace.path,
+            name: workspace.name || existing?.name || workspace.path,
+            branch: workspace.branch || existing?.branch,
+            openedAt: Math.max(existing?.openedAt ?? 0, Date.now()),
+            pinned: existing?.pinned,
+            color: existing?.color ?? projectColor(workspace.path),
+            groupId: existing?.groupId ?? `legacy:${key}`,
+            roots: existing?.roots ?? [{ path: workspace.path, name: workspace.name || workspace.path, position: 0 }],
+            legacy: existing?.legacy ?? true,
+          });
+        }
       }
     }
-    const merged = [...byPath.values()].map((project) => {
-      const meta = projectMeta[normalizeProjectPath(project.path) || project.path] ?? {};
-      return {
-        ...project,
-        name: meta.name ?? project.name,
-        pinned: meta.pinned ?? project.pinned,
-        archived: meta.archived === true,
-      };
-    });
-    return merged.sort(
-      (a, b) =>
-        Number(!!b.pinned) - Number(!!a.pinned) ||
-        b.openedAt - a.openedAt ||
-        a.path.localeCompare(b.path),
-    );
+    return [...byPath.values()]
+      .map((project) => {
+        const meta = projectMeta[normalizeProjectPath(project.path) || project.path] ?? {};
+        return {
+          ...project,
+          name: meta.name ?? project.name,
+          pinned: meta.pinned ?? project.pinned,
+          archived: meta.archived === true,
+        };
+      })
+      .sort(
+        (a, b) =>
+          Number(!!b.pinned) - Number(!!a.pinned) ||
+          b.openedAt - a.openedAt ||
+          a.path.localeCompare(b.path),
+      );
   }, [durableProjects, recents, sessions, workspace, projectMeta]);
 
   const filtered = useMemo(() => {
@@ -232,7 +309,7 @@ export function ProjectsPage() {
         (p.branch || "").toLowerCase().includes(q) ||
         sessions.some(
           (session) =>
-            sessionMatchesProject(session, p.path) && sessionMatchesQuery(session, q),
+            sessionMatchesIndexProject(session, p) && sessionMatchesQuery(session, q),
         ),
     );
   }, [items, query, sessions]);
@@ -251,7 +328,7 @@ export function ProjectsPage() {
     for (const project of items) {
       let matched = 0;
       for (const session of sessions) {
-        if (sessionMatchesProject(session, project.path)) matched += 1;
+        if (sessionMatchesIndexProject(session, project)) matched += 1;
       }
       counts.set(project.path, matched);
     }
@@ -507,7 +584,7 @@ export function ProjectsPage() {
                     .toLocaleLowerCase()
                     .includes(query.trim().toLocaleLowerCase());
                 const related = sessions
-                  .filter((session) => sessionMatchesProject(session, project.path))
+                  .filter((session) => sessionMatchesIndexProject(session, project))
                   .sort(
                     (a, b) =>
                       sessionTimestamp(b.updatedAt) - sessionTimestamp(a.updatedAt) ||
@@ -683,6 +760,8 @@ export function ProjectsPage() {
                                     setInstructionsFor({
                                       name: project.name,
                                       path: project.path,
+                                      groupId: project.groupId,
+                                      legacy: project.legacy,
                                     });
                                   }}
                                 >
@@ -693,17 +772,36 @@ export function ProjectsPage() {
                               <button
                                 type="button"
                                 role="menuitem"
-                                data-action="rename-project"
                                 onClick={() => {
                                   setMenuFor(null);
-                                  setRenameProjectFor({
+                                  setMemoryFor({
+                                    name: project.name,
+                                    path: project.path,
+                                    groupId: project.groupId,
+                                    legacy: project.legacy,
+                                  });
+                                }}
+                              >
+                                <IconSparkles size={14} />
+                                {t("project.editMemory")}
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                data-action="edit-project"
+                                onClick={() => {
+                                  setMenuFor(null);
+                                  setEditProjectFor({
                                     path: project.path,
                                     name: project.name,
+                                    groupId: project.groupId,
+                                    roots: project.roots,
+                                    legacy: project.legacy,
                                   });
                                 }}
                               >
                                 <IconPencil size={14} />
-                                {t("project.rename", { defaultValue: "Rename project" })}
+                                {t("project.edit", { defaultValue: "Edit project" })}
                               </button>
                               <div className="projects-menu-sep" role="separator" />
                               <button
@@ -729,6 +827,34 @@ export function ProjectsPage() {
                                 )}
                                 {archived ? t("project.restore") : t("project.archive")}
                               </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="danger"
+                                data-action="delete-project"
+                                onClick={() => {
+                                  setMenuFor(null);
+                                  const runningCount = sessions.filter(
+                                    (session) =>
+                                      sessionMatchesIndexProject(session, project) &&
+                                      runningSessions[session.id] === true,
+                                  ).length;
+                                  if (runningCount > 0) {
+                                    showToast(t("project.deleteRunningBlocked"), {
+                                      variant: "warning",
+                                    });
+                                    return;
+                                  }
+                                  setDeleteFor({
+                                    name: project.name,
+                                    path: project.path,
+                                    sessionCount: totalSessions,
+                                  });
+                                }}
+                              >
+                                <IconTrash size={14} />
+                                {t("project.delete")}
+                              </button>
                               {retained ? (
                                 <button
                                   type="button"
@@ -748,6 +874,17 @@ export function ProjectsPage() {
                     </div>
                     {isOpen ? (
                       <div className="projects-row-detail">
+                        <div
+                          className="projects-detail-roots"
+                          aria-label={t("project.foldersLabel", { defaultValue: "Project folders" })}
+                        >
+                          {project.roots.map((root) => (
+                            <span className="projects-detail-root" key={root.path} title={root.path}>
+                              <IconFolder size={12} aria-hidden />
+                              <span>{shortenPath(root.path)}</span>
+                            </span>
+                          ))}
+                        </div>
                         <div className="projects-detail-header">
                           <div className="projects-detail-label">
                             {t("project.sessionsCount", { count: displayedSessions.length })}
@@ -861,6 +998,18 @@ export function ProjectsPage() {
           }
         />
       ) : null}
+      {memoryFor ? (
+        <ProjectMemoryDialog
+          project={memoryFor}
+          onClose={() => setMemoryFor(null)}
+          onSaved={() => showToast(t("project.memorySaved"), { variant: "success" })}
+          onError={(error) =>
+            showToast(error instanceof Error ? error.message : String(error), {
+              variant: "error",
+            })
+          }
+        />
+      ) : null}
       {renameFor ? (
         <SessionRenameDialog
           session={renameFor}
@@ -873,12 +1022,33 @@ export function ProjectsPage() {
           }
         />
       ) : null}
-      {renameProjectFor ? (
-        <ProjectRenameDialog
-          project={renameProjectFor}
-          onClose={() => setRenameProjectFor(null)}
-          onSave={async (name) => {
-            renameProject(renameProjectFor.path, name);
+      {editProjectFor ? (
+        <ProjectEditDialog
+          project={editProjectFor}
+          onClose={() => setEditProjectFor(null)}
+          onSaved={(group) => {
+            renameProject(group.primaryPath, group.name);
+            setDurableProjects((current) =>
+              current.map((item) =>
+                item.id === group.id || item.id === editProjectFor.groupId ? group : item,
+              ),
+            );
+          }}
+          onError={(error) =>
+            showToast(error instanceof Error ? error.message : String(error), {
+              variant: "error",
+            })
+          }
+        />
+      ) : null}
+      {deleteFor ? (
+        <ProjectDeleteDialog
+          project={deleteFor}
+          onClose={() => setDeleteFor(null)}
+          onDeleted={() => {
+            setDeleteFor(null);
+            setRecents(loadRecentProjects());
+            showToast(t("project.deleted", { name: deleteFor.name }), { variant: "success" });
           }}
           onError={(error) =>
             showToast(error instanceof Error ? error.message : String(error), {

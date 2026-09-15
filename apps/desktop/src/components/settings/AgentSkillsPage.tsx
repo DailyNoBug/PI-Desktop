@@ -37,11 +37,13 @@ import {
 import {
   IconBookOpen,
   IconDownload,
+  IconFileText,
   IconFolderOpen,
   IconPencil,
   IconPlus,
   IconTrash,
 } from "../icons";
+import { SkillMarketPanel } from "./SkillMarketPanel";
 
 import { TooltipButton } from "../ui";
 const GLOBAL_SKILLS_PATH = "~/.agents/skills";
@@ -93,6 +95,7 @@ export function AgentSkillsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [editor, setEditor] = useState<SkillEditorState | null>(null);
+  const [view, setView] = useState<"skills" | "market">("skills");
   const [saving, setSaving] = useState(false);
   const { armed, setArmed } = useArmedDelete();
 
@@ -397,6 +400,32 @@ export function AgentSkillsPage() {
     </CapabilityButton>
   );
 
+  const marketButton = (
+    <CapabilityButton
+      title={t("settings.sklm.subtitle")}
+      onClick={() => setView("market")}
+    >
+      <IconFileText size={14} />
+      {t("settings.sklm.browse")}
+    </CapabilityButton>
+  );
+
+  if (view === "market") {
+    return (
+      <SkillMarketPanel
+        installedIds={[...globalSkills, ...projectSkills].map((skill) => skill.id)}
+        onBack={() => {
+          setView("skills");
+          void load();
+        }}
+        onInstalled={() => {
+          setView("skills");
+          void load();
+        }}
+      />
+    );
+  }
+
   return (
     <AgentCapabilityPage
       description={t("settings.skillsDescription")}
@@ -418,10 +447,13 @@ export function AgentSkillsPage() {
             />
           }
           actions={
-            <CapabilityButton variant="primary" title={newSkillTitle} onClick={openCreate}>
-              <IconPlus size={14} />
-              {t("settings.newSkill")}
-            </CapabilityButton>
+            <>
+              <CapabilityButton variant="primary" title={newSkillTitle} onClick={openCreate}>
+                <IconPlus size={14} />
+                {t("settings.newSkill")}
+              </CapabilityButton>
+              {marketButton}
+            </>
           }
         />
       }

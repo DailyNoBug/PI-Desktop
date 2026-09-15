@@ -4,13 +4,16 @@ import {
   DEFAULT_SUBAGENT_TOOLS,
   GLOBAL_SCOPE,
   MAX_SUBAGENT_MAX_TOKENS,
-  MAX_SUBAGENT_MAX_TURNS,
   SUBAGENT_ASSIGNABLE_TOOLS,
+  SUBAGENT_INHERIT_TOKEN,
   SUBAGENT_PRESETS,
   SUBAGENT_THINKING_LEVELS,
+  findSubagentPreset,
+  isSubagentAssignableTool,
   isSubagentMutatingTool,
   resolveScope,
   type ActivationScope,
+  type SubagentDefinition,
   type SubagentPreset,
   type SubagentThinkingLevel,
   type UserSubagentRecord,
@@ -26,6 +29,7 @@ import {
   subagentModelSelectValue,
 } from "./subagent-models";
 import { SubagentModelPicker } from "./SubagentModelPicker";
+import { SubagentFallbackModels } from "./SubagentFallbackModels";
 
 /** Hard cap host-core enforces on a definition document. */
 export const MAX_SUBAGENT_BYTES = 32 * 1024;
@@ -34,14 +38,15 @@ export type SubagentDraft = {
   id: string;
   name: string;
   description: string;
-  /** Tool grant; never empty, because a delegate with no tools cannot work. */
+  /** Assignable extras. May be empty when `inheritTools` is on. */
   tools: string[];
+  /** Frontmatter `tools: inherit` — union the parent session catalog. */
+  inheritTools: boolean;
   /** `<provider>/<model>`, or empty for "same model as this session". */
   model: string;
+  fallbackModels: string[];
   /** Empty means "whatever the session uses". */
   thinkingLevel: SubagentThinkingLevel | "";
-  /** `0` means no limit, which is what a definition without `maxTurns` gets. */
-  maxTurns: number;
   /**
    * Output-token cap for one delegate response. `0` means "follow the model's
    * published limit", which is what a definition without `maxTokens` gets.
@@ -51,6 +56,30 @@ export type SubagentDraft = {
   enabled: boolean;
   scope: ActivationScope;
 };
+
+/** Split a stored tools list into the inherit flag and assignable extras. */
+export function splitSubagentToolGrant(tools: readonly string[]): {
+  inheritTools: boolean;
+  tools: string[];
+} {
+  const inheritTools = tools.some((name) => name === SUBAGENT_INHERIT_TOKEN);
+  const assignable = tools.filter((name) => isSubagentAssignableTool(name));
+  return {
+    inheritTools,
+    tools:
+      assignable.length > 0 || inheritTools
+        ? assignable
+        : [...DEFAULT_SUBAGENT_TOOLS],
+  };
+}
+
+/** Frontmatter `tools` list written on save. */
+export function mergeSubagentToolGrant(
+  inheritTools: boolean,
+  tools: readonly string[],
+): string[] {
+  return inheritTools ? [SUBAGENT_INHERIT_TOKEN, ...tools] : [...tools];
+}
 
 /**
  * The starter document. A subagent's body is its whole system prompt, so the
@@ -87,6 +116,7 @@ export const SUBAGENT_PRESET_COPY = {
   "code-reviewer": { name: "presetReviewerName", desc: "presetReviewerDesc" },
   "test-runner": { name: "presetTestRunnerName", desc: "presetTestRunnerDesc" },
   fixer: { name: "presetFixerName", desc: "presetFixerDesc" },
+  "ui-designer": { name: "presetUiDesignerName", desc: "presetUiDesignerDesc" },
 } as const satisfies Record<SubagentPreset["id"], { name: string; desc: string }>;
 
 /** Full i18n path for a preset chip, or null when `id` is blank / unknown. */
@@ -105,9 +135,10 @@ export function emptySubagentDraft(): SubagentDraft {
     name: "",
     description: "",
     tools: [...DEFAULT_SUBAGENT_TOOLS],
+    inheritTools: false,
     model: "",
+    fallbackModels: [],
     thinkingLevel: "",
-    maxTurns: 0,
     maxTokens: 0,
     body: "",
     enabled: true,
@@ -116,18 +147,44 @@ export function emptySubagentDraft(): SubagentDraft {
 }
 
 export function draftFromRecord(record: UserSubagentRecord, body: string): SubagentDraft {
+  const grant = splitSubagentToolGrant(record.tools);
   return {
     id: record.id,
     name: record.name,
     description: record.description ?? "",
-    tools: record.tools.length ? [...record.tools] : [...DEFAULT_SUBAGENT_TOOLS],
+    tools: grant.tools,
+    inheritTools: grant.inheritTools,
     model: record.model ?? "",
+    fallbackModels: [...(record.fallbackModels ?? [])],
     thinkingLevel: record.thinkingLevel ?? "",
-    maxTurns: record.maxTurns ?? 0,
     maxTokens: record.maxTokens ?? 0,
     body,
     enabled: record.enabled,
     scope: resolveScope(record.scope),
+  };
+}
+
+/** Prefill the create sheet from a shipped definition (Copy as mine). */
+export function draftFromDefinition(definition: SubagentDefinition): SubagentDraft {
+  const preset = findSubagentPreset(definition.name);
+  const grant = splitSubagentToolGrant(
+    definition.inheritTools
+      ? [SUBAGENT_INHERIT_TOKEN, ...definition.tools]
+      : definition.tools,
+  );
+  return {
+    ...emptySubagentDraft(),
+    name: preset?.name ?? definition.name,
+    description: definition.description,
+    tools: grant.tools,
+    inheritTools: grant.inheritTools,
+    model: definition.model
+      ? `${definition.model.providerId}/${definition.model.modelId}`
+      : "",
+    fallbackModels: (definition.fallbackModels ?? []).map((pin) => `${pin.providerId}/${pin.modelId}`),
+    thinkingLevel: definition.thinkingLevel ?? "",
+    maxTokens: definition.maxTokens ?? 0,
+    body: definition.prompt,
   };
 }
 
@@ -149,9 +206,10 @@ export function subagentSlug(value: string): string {
 
 /**
  * Apply a built-in preset to a draft. Tool grants are replaced wholesale so a
- * preset that drops `Bash` truly drops it; `maxTurns` keeps its "0 means
- * unlimited" convention. Body and description are overwritten — these are the
- * values that make the preset worth picking.
+ * preset that drops `Bash` truly drops it. Body and description are
+ * overwritten — these are the values that make the preset worth picking.
+ * Inherit is cleared: presets are the built-in delegates, not parent-catalog
+ * workers.
  */
 export function applySubagentPreset(draft: SubagentDraft, preset: SubagentPreset): SubagentDraft {
   return {
@@ -159,7 +217,7 @@ export function applySubagentPreset(draft: SubagentDraft, preset: SubagentPreset
     name: preset.name,
     description: preset.description,
     tools: [...preset.tools],
-    maxTurns: preset.maxTurns,
+    inheritTools: false,
     body: preset.body,
   };
 }
@@ -171,7 +229,7 @@ export function resetSubagentTemplate(draft: SubagentDraft): SubagentDraft {
     name: "",
     description: "",
     tools: [...DEFAULT_SUBAGENT_TOOLS],
-    maxTurns: 0,
+    inheritTools: false,
     body: "",
   };
 }
@@ -181,7 +239,9 @@ export function subagentDraftError(draft: SubagentDraft): string | null {
   if (!draft.name.trim()) return "extensions.subagents.errorName";
   if (!subagentSlug(draft.name)) return "extensions.subagents.errorSlug";
   if (!draft.description.trim()) return "extensions.subagents.errorDescription";
-  if (draft.tools.length === 0) return "extensions.subagents.errorTools";
+  if (!draft.inheritTools && draft.tools.length === 0) {
+    return "extensions.subagents.errorTools";
+  }
   // `provider/model` is the only shape the runtime can resolve; a bare model id
   // has no provider to look up, so it would be dropped with a diagnostic nobody
   // reads. Only the slash is structural: the provider half is matched by a
@@ -189,22 +249,13 @@ export function subagentDraftError(draft: SubagentDraft): string | null {
   // the picker offers those, so rejecting them here would make a selectable
   // option impossible to save. This shares the picker's own splitter so the two
   // can never disagree.
-  if (draft.model.trim() && !subagentModelPinParts(draft.model.trim())) {
+  if ([draft.model, ...draft.fallbackModels].some((pin) => pin.trim() && !subagentModelPinParts(pin.trim()))) {
     return "extensions.subagents.errorModel";
   }
-  // 0 is the cleared state, not an invalid one: a definition may leave the turn
-  // limit out entirely, and Settings must be able to express that too.
-  if (
-    !Number.isInteger(draft.maxTurns) ||
-    draft.maxTurns < 0 ||
-    draft.maxTurns > MAX_SUBAGENT_MAX_TURNS
-  ) {
-    return "extensions.subagents.errorMaxTurns";
-  }
-  // Same convention as the turn limit: cleared (`0`) is a valid state that
-  // means "no cap of our own", so only a value outside the accepted range is
-  // an error. The field only produces integers, so a fraction cannot reach
-  // here from the UI — the check keeps the draft honest anyway.
+  // Cleared (`0`) is a valid state that means "no cap of our own", so only a
+  // value outside the accepted range is an error. The field only produces
+  // integers, so a fraction cannot reach here from the UI — the check keeps
+  // the draft honest anyway.
   if (
     !Number.isInteger(draft.maxTokens) ||
     draft.maxTokens < 0 ||
@@ -221,7 +272,7 @@ export function subagentDraftError(draft: SubagentDraft): string | null {
 
 /**
  * One subagent preset shown as a compact name chip. Selecting it replaces the
- * draft's name, description, tools, body and maxTurns; the model and scope
+ * draft's name, description, tools and body; the model and scope
  * are left alone so the user's other choices survive a reroll.
  */
 function PresetChip({
@@ -415,11 +466,17 @@ function ModelField({
           </Select>
         </Field>
       </div>
+      <SubagentFallbackModels
+        primary={draft.model}
+        values={draft.fallbackModels}
+        choices={modelChoices}
+        onChange={(fallbackModels) => setDraft({ ...draft, fallbackModels })}
+      />
     </>
   );
 }
 
-/** Model, thinking, turn limit and scope — secondary on create, open on edit. */
+/** Model, thinking and scope — secondary on create, open on edit. */
 function AdvancedFields({
   open,
   onToggle,
@@ -458,24 +515,6 @@ function AdvancedFields({
           modelGroups={modelGroups}
           orphanModel={orphanModel}
         />
-        <Field
-          label={t("extensions.subagents.maxTurns")}
-          hint={t("extensions.subagents.maxTurnsHint", { max: MAX_SUBAGENT_MAX_TURNS })}
-        >
-          <Input
-            type="number"
-            min={1}
-            max={MAX_SUBAGENT_MAX_TURNS}
-            placeholder={t("extensions.subagents.maxTurnsUnlimited")}
-            value={draft.maxTurns > 0 ? String(draft.maxTurns) : ""}
-            onChange={(event) =>
-              setDraft({
-                ...draft,
-                maxTurns: Number.parseInt(event.target.value, 10) || 0,
-              })
-            }
-          />
-        </Field>
         <Field
           label={t("extensions.subagents.maxTokens")}
           hint={t("extensions.subagents.maxTokensHint", {
@@ -519,6 +558,7 @@ export function SubagentEditorSheet({
   setDraft,
   editing,
   saving,
+  initialPresetId,
   onClose,
   onSave,
   onReveal,
@@ -527,14 +567,19 @@ export function SubagentEditorSheet({
   setDraft: (next: SubagentDraft) => void;
   editing: UserSubagentRecord | null;
   saving: boolean;
+  /** Template chip to select on create, e.g. after Copy as mine. */
+  initialPresetId?: string;
   onClose: () => void;
   onSave: () => void;
   onReveal?: () => void;
 }) {
   const { t } = useTranslation();
   const providers = useAppStore((state) => state.providers);
-  const [nameTouched, setNameTouched] = useState(!!editing);
-  const [presetId, setPresetId] = useState<string | null>(BLANK_SUBAGENT_PRESET_ID);
+  const copiedPreset = Boolean(initialPresetId && findSubagentPreset(initialPresetId));
+  const [nameTouched, setNameTouched] = useState(!!editing || copiedPreset);
+  const [presetId, setPresetId] = useState<string | null>(
+    copiedPreset && initialPresetId ? initialPresetId : BLANK_SUBAGENT_PRESET_ID,
+  );
   const [advancedOpen, setAdvancedOpen] = useState(!!editing);
   const errorKey = subagentDraftError(draft);
   const pristine = !editing && !draft.name.trim() && !draft.description.trim();
@@ -662,6 +707,16 @@ export function SubagentEditorSheet({
               role="group"
               aria-label={t("extensions.subagents.tools")}
             >
+              <label
+                className={cx("ext-tool-opt", draft.inheritTools && "is-on")}
+              >
+                <input
+                  type="checkbox"
+                  checked={draft.inheritTools}
+                  onChange={(event) => set("inheritTools", event.target.checked)}
+                />
+                <span>{t("extensions.subagents.toolsInherit")}</span>
+              </label>
               {SUBAGENT_ASSIGNABLE_TOOLS.map((tool) => (
                 <label
                   key={tool}
@@ -680,7 +735,9 @@ export function SubagentEditorSheet({
                 </label>
               ))}
             </div>
-            {draft.tools.some(isSubagentMutatingTool) ? (
+            {draft.inheritTools ? (
+              <p className="ext-field-hint">{t("extensions.subagents.toolsInheritHint")}</p>
+            ) : draft.tools.some(isSubagentMutatingTool) ? (
               <p className="ext-field-hint">{t("extensions.subagents.mutatingHint")}</p>
             ) : (
               <p className="ext-field-hint">{t("extensions.subagents.toolsHint")}</p>

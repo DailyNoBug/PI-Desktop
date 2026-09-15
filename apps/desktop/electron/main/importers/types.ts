@@ -1,3 +1,5 @@
+import { redactValue } from "../logger";
+
 export type ExternalSource = "claude-code" | "opencode" | "codex" | "pi";
 
 export interface ExternalSessionSummary {
@@ -8,7 +10,12 @@ export interface ExternalSessionSummary {
   model: string | null;
   createdAt: string;
   updatedAt: string;
-  messageCount: number;
+  /**
+   * Exact item count for fully scanned files; null when the file was too
+   * large to scan without sampling (the UI renders an em dash). Transient
+   * scan metadata only — imported sessions always know their real count.
+   */
+  messageCount: number | null;
   filePath: string;
 }
 
@@ -55,6 +62,24 @@ export function toIso(value: string | number | undefined | null, fallback?: stri
   if (value !== undefined && value !== null) {
     const d = new Date(value);
     if (!Number.isNaN(d.getTime())) return d.toISOString();
+    // A provided-but-invalid timestamp is data corruption (truncated jsonl,
+    // out-of-range numbers): surface it instead of silently rewriting the
+    // session's history to the import moment (#265). Absent values stay
+    // silent — those are normal in optional fields.
+    console.warn(
+      `[app/persistence] ${JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "warn",
+        channel: "app",
+        category: "persistence",
+        event: "session.import.invalid_timestamp",
+        message: "session import timestamp invalid",
+        data: redactValue({
+          fallback: fallback ? "provided" : "import-time",
+          value: String(value),
+        }),
+      })}`,
+    );
   }
   return fallback ?? new Date().toISOString();
 }

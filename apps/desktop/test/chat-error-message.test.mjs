@@ -1,3 +1,4 @@
+import { readStoreSource, readTranscriptSource, readMainSource } from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -7,22 +8,27 @@ const read = (path) =>
 const readRoot = (path) =>
   readFile(new URL(`../../../${path}`, import.meta.url), "utf8");
 
+// The message_end projection (including the !event.message.error guard) lives
+// in src/lib/session-transcript.ts since the native side-chat re-keying.
+const readSessionTranscript = () => read("src/lib/session-transcript.ts");
+
 test("provider failures stay in the transcript as structured assistant messages", async () => {
-  const [runtime, store, main] = await Promise.all([
+  const [runtime, store, main, sessionTranscript] = await Promise.all([
     readRoot("packages/agent-runtime/src/runtime.ts"),
-    read("src/stores/app-store.ts"),
-    read("electron/main/index.ts"),
+    readStoreSource(),
+    readMainSource(),
+    readSessionTranscript(),
   ]);
 
   assert.match(runtime, /error:\s*classifiedError,\s*isError:\s*true/);
   assert.match(runtime, /m\.status === "error" \|\| m\.isError \|\| m\.error/);
-  assert.match(store, /!event\.message\.error/);
+  assert.match(sessionTranscript, /!event\.message\.error/);
   assert.match(store, /assistantErrorMessage\(event\.error\)/);
   assert.match(main, /failed && empty && !event\.message\.error/);
 });
 
 test("assistant error messages expose readable provider details and one Continue action", async () => {
-  const transcript = await read("src/components/ChatTranscript.tsx");
+  const transcript = await readTranscriptSource();
   const component = transcript.slice(
     transcript.indexOf("function AssistantErrorMessage"),
     transcript.indexOf("const TOOL_ACTION_KEYS"),

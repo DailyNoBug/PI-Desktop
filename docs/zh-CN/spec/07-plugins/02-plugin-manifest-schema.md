@@ -72,13 +72,16 @@ type PluginContributes = {
  agentTools?: PluginAgentToolContrib[];
  skills?: Array<string | PluginSkillContrib>; // relative paths, or metadata overrides
  agentExtensions?: string[]; // 在 agent sidecar 内运行的 ExtensionAPI 模块；需要 `agent.extension`（规格 16）
+ providers?: PluginProviderContrib[]; // 宿主拥有的 provider 行；需要 `provider.register`（规格 13）
  settings?: PluginSettingContrib[];
  themes?: PluginThemeContrib[];
+ windowAppearance?: PluginWindowAppearanceContrib; // 原生窗口背景；需要 `ui.window.appearance`
  mcpServers?: PluginMcpServerContrib[];
  services?: PluginServiceContrib[];
   bus?: PluginBusContrib;
   views?: PluginViewContrib[];
   sessionSources?: PluginSessionSourceContrib[];
+  globalShortcuts?: PluginGlobalShortcutContrib[]; // 需要 `keyboard.globalShortcut`
 };
 
 type PluginCommandContrib = {
@@ -124,11 +127,24 @@ type PluginSessionSourceContrib = {
  label?: string | { en: string; "zh-CN": string };
 };
 
+/** 插件声明的一个系统级快捷键（`keyboard.globalShortcut`）。 */
+type PluginGlobalShortcutContrib = {
+ id: string; // ^[a-zA-Z][a-zA-Z0-9._-]{0,63}$，插件内唯一
+ command: string; // 必须声明在 contributes.commands 里
+ default?: string; // 宿主在加载后注册的加速键；省略则由 `pi.keyboard` 稍后注册
+};
+
 type PluginThemeContrib = {
  id: string; // ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$
  label: string;
  path: string; // relative `.css` file
  base?: "light" | "dark"; // palette the overrides layer on, default `dark`
+ assets?: string[]; // 绝对路径的 png/jpg/jpeg/webp/avif/svg/woff2，总和上限 4 MB；
+                    // 命中的 `url()` 会被改写为 `plugin-asset://`
+};
+
+type PluginWindowAppearanceContrib = {
+ backgroundColor?: { light?: string; dark?: string }; // #rrggbb | #rrggbbaa
 };
 
 type PluginSkillContrib = {
@@ -161,6 +177,33 @@ type PluginBusContrib = {
  publish?: string[]; // concrete topics, e.g. `build.done`
  subscribe?: string[]; // patterns, e.g. `build.*` / `build.**`
 };
+
+type PluginProviderContrib = {
+ id: string; // ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$，插件内唯一
+ name: string; // 原生 provider 列表中的显示名
+ vendorKey?: string; // models.dev 供应商键，默认 `custom`
+ baseUrl?: string; // 绝对 http(s) URL
+ apiStyle?: PluginProviderApiStyle; // 线路风格，默认 `chat_completions`
+ authKind?: "api_key" | "none"; // 默认 `api_key`；`oauth` 暂被拒绝
+ models: PluginProviderModelContrib[]; // 1..64 条
+};
+
+type PluginProviderApiStyle =
+ | "chat_completions"
+ | "opencode_go"
+ | "responses"
+ | "anthropic_messages"
+ | "google_generative_ai"
+ | "openai_codex_responses"
+ | "pi_messages";
+
+type PluginProviderModelContrib = {
+ id: string; // 1..256 个字符，provider 内唯一
+ name?: string; // 模型绑定的显示标签
+ contextWindow?: number;
+ maxTokens?: number;
+ supportsImages?: boolean;
+};
 ```
 
 ## 5. 权限枚举
@@ -170,6 +213,7 @@ type PluginPermission =
  | "ui.panel"
  | "ui.view"
  | "ui.theme"
+ | "ui.window.appearance"
  | "clipboard.read"
  | "clipboard.write"
  | "notify"
@@ -178,6 +222,7 @@ type PluginPermission =
  | "fs.delete"
  | "agent.tool.register"
  | "agent.prompt.inject"
+ | "provider.register"
  | "net.fetch"
  | "shell.openExternal"
  | "mcp.server.local"
@@ -194,7 +239,11 @@ type PluginPermission =
  | "session.import"
  | "session.read.own"
  | "session.update.own"
- | "session.delete.own";
+ | "session.delete.own"
+ | "audio.capture.background"
+ | "audio.playback.background"
+ | "keyboard.globalShortcut"
+ | "net.websocket";
 ```
 
 未知权限=验证失败。
@@ -251,6 +300,11 @@ type PluginNetDomains = string[]; // "api.example.com" 或 "*.example.com"
 无论 `net.fetch` 怎么声明。条目是裸主机名：没有 scheme、没有端口、没有路径，
 也不允许裸 `*`。前缀 `*.` 同时覆盖该域名及其子域名。
 
+`pi.net.websocket` 听同一份列表（`net.websocket`，
+[03-plugin-api.md](/zh-CN/spec/07-plugins/03-plugin-api) §3）。该权限已实现：
+连接被限定在 `manifest.net.domains` 之内，未被声明的主机会在传输被要求
+打开任何东西之前就被拒绝。
+
 ## 5. 1 总线主题语法
 
 主题最多是与 `[a-zA-Z0-9][a-zA-Z0-9_-]*` 匹配的点分隔段
@@ -267,6 +321,29 @@ type PluginNetDomains = string[]; // "api.example.com" 或 "*.example.com"
 }
 ```
 
+
+## 5.4 providers —— 插件声明的 provider 行
+
+`contributes.providers` 最多声明 8 个 provider，宿主会把每一项落成原生 provider
+列表中的一行，并归该插件所有（[ADR 0259](../../../adr/0259-plugin-declared-providers.md)）：
+
+- 声明的 `id` 匹配 `[a-zA-Z][a-zA-Z0-9_-]{0,63}` 且在插件内唯一；行 id 为
+  `plugin:<pluginId>:<declaredId>`
+- `name` 必填，是设置页显示的名称
+- `baseUrl` 可选，但必须是绝对 `http(s)` URL
+- `apiStyle` 可选，默认 `chat_completions`；可取值是 provider 配置中除 `auto`
+  以外的风格
+- `authKind` 可选，为 `api_key`（默认）或 `none`
+- `models` 要求 1..64 条，id 唯一且长度为 1..256
+
+非空的 `contributes.providers` 需要高风险权限 `provider.register`
+（[13-plugin-permissions-matrix.md](/zh-CN/spec/07-plugins/13-plugin-permissions-matrix)）。
+声明会在每次插件加载时重新读取，并对其自身字段具有权威；禁用插件会保留这些行并
+将其关闭，而删除声明或卸载插件会连同已存凭据一起删除该行。
+
+`oauth` **暂不支持**：宿主还没有插件 OAuth 登录流程，因此 `oauth` 块或
+`authKind: \"oauth\"` 会在清单元数据校验阶段被拒绝。计划中的 `provider.oauth`
+权限与宿主自有的登录流程属于未来工作，当前不可用。
 ## 6. activationEvents（可选）
 
 示例：
@@ -301,8 +378,8 @@ MVP 只能实现：
 11. `bus.publish` 条目必须是具体主题，`bus.subscribe` 条目必须是具体主题
    有效模式（§5.1）
 12. 需要权限的贡献在权限验证时失败
-   缺少：`themes` → `ui.theme`，`views` → `ui.view`，stdio 服务器 →
-   `mcp.server.local`，远程
+   缺少：`themes` → `ui.theme`，`views` → `ui.view`，`providers` →
+   `provider.register`，stdio 服务器 → `mcp.server.local`，远程
    服务器 → `mcp.server.remote`、`services` → `background.service`、
    `bus.publish` → `bus.publish`，`bus.subscribe` → `bus.subscribe`。
 `skills` 是一个例外 - 它早于权限门，因此清单
@@ -322,6 +399,11 @@ MVP 只能实现：
     为一个纯外观细节拒绝插件并不合理。打包检查会改为给出警告
 17. `sessionSources` id 必须匹配 `[a-zA-Z][a-zA-Z0-9._-]{0,63}` 且不能重复；
     本地化 label 必须同时提供 `en` 和 `zh-CN`
+18. `contributes.globalShortcuts` 最多允许 8 条，且需要
+   `keyboard.globalShortcut`。每个 `id` 匹配
+   `[a-zA-Z][a-zA-Z0-9._-]{0,63}` 且唯一；`command` 必须声明在
+   `contributes.commands` 里；`default` 若存在，使用与 `shortcut` 设置相同的
+   修饰键加按键 / F 键语法
 
 ## 8. 示例：最小插件
 

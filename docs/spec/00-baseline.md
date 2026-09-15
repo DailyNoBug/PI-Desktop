@@ -1,8 +1,8 @@
 # PI-Desktop Baseline Freeze
 
-- Baseline Version: `0.4.16`
-- Date: `2026-08-14`
-- Status: `Frozen for implementation details (Plan checkpoint artifact + approval/execution startup fence + protocol v11 + schema v15 + host-owned plugin session import/read/update/delete P0/P1 + selectable shell catalog + icon-free composer prompt row + turn-boundary context checkpoint compaction + session-scoped work panel + edge-specific work-panel/chat resize ownership + models.dev model catalog with a bundled release snapshot + provider/runtime safety + M5 hardening + settings IA + project archive + sidebar organization + app update delivery + three-platform release + Extensions page density and theme-readable actions + custom global UI font)`
+- Baseline Version: `0.4.18`
+- Date: `2026-09-14`
+- Status: `Frozen for implementation details (Plan checkpoint artifact + approval/execution startup fence + protocol v11 + schema v16 + host-owned plugin session import/read/update/delete P0/P1 + selectable shell catalog + icon-free composer prompt row + turn-boundary context checkpoint compaction + session-scoped work panel + edge-specific work-panel/chat resize ownership + models.dev model catalog with a bundled release snapshot + provider/runtime safety + M5 hardening + settings IA + project archive + sidebar organization + app update delivery + three-platform release + Extensions page density and theme-readable actions + custom global UI font + ChatGPT-style logical project groups)`
 - Language policy: **English-first**
 - Backend policy: **Rust host core + pi agent sidecar**
 
@@ -77,11 +77,22 @@
 > families are enumerated by Electron main through the additive allowlisted
 > channel `pi-desktop/app/systemFonts`. No host protocol or storage schema
 > changes.
+> `0.4.17` replaces the renderer-owned multi-folder tab projection with
+> ChatGPT-style host-owned logical project groups through ADR 0249. A group
+> owns its name, ordered local roots, shared instructions, shared memory, and
+> grouped sessions; its first root remains the only visible host workspace.
+> The additive group data uses the existing `kv` extension boundary, so the
+> storage schema and host protocol versions remain unchanged.
+> `0.4.18` renames the project overflow action to Edit project and adds
+> host-backed adjustment of logical project roots. The editor keeps the Primary
+> root fixed, supports adding/removing eligible additional roots, and rejects
+> removal of roots that still own chats.
 
 > The current post-baseline amendments add the P0/P1 host-owned plugin session
 > API through ADR 0200 / D367, explicit project ids plus host-owned session
 > refresh through ADR 0201 / D368, and the opt-in local MCP control plane
-> through ADR 0203 / D370 (catalog and bind tightened by D372). Protocol v11 remains unchanged; schema v15 adds the Host-owned turn queue
+> through ADR 0203 / D370 (catalog and bind tightened by D372). Protocol v11 remains unchanged; schema v16 adds the host-owned session collaboration ledger
+> (D409 / ADR 0239) on top of schema v15. Schema v15 adds the Host-owned turn queue
 > (D386 / ADR 0213) on top of schema v14, which added the
 > plugin origin sidecar and soft-delete marker. Session mutation, arbitrary
 > re-binding, provider/model binding, batch-delete, and tag operations remain
@@ -117,7 +128,9 @@
 16. Agent tools: **Read / Glob / Grep / Write / Edit / Bash**
 17. Permission timeout: **120s → deny**
 18. Session grant scope: **by toolName**
-19. `~/.pi` auto-import: **not in MVP**
+19. `~/.pi` one-shot auto-import: **not in MVP**. ADR 0254 adds read-only
+    native-session discovery and explicit continuation against the canonical Pi
+    v3 JSONL; it does not silently import or copy sessions into Desktop storage.
 20. Not in MVP: **Gateway / remote WebUI control**; local loopback MCP control
     is the post-baseline, opt-in exception recorded by D370
 21. Extension model: **user-installable plugin system**
@@ -146,10 +159,13 @@
     the project archive owns durable project discovery, archive, restore, and
     reopen workflows;
     plugin management remains the app shell's independent **Plugins** destination
-41. Sidebar organization: **retained multi-project tabs with renderer-local
-    project/session pin, archive, collapse, and sort metadata**
+41. Sidebar organization: **retained logical project groups with host-owned
+    ordered local roots and renderer-local project/session pin, archive,
+    collapse, and sort metadata**
 42. Project activation: **one visible host workspace via existing
-    `project.set`; tool roots remain bound to the originating session project**
+    `project.set`; group sessions and context default to the primary root,
+    while explicit absolute paths under registered group roots use host
+    canonical containment**
 43. Context management: **pi-native checkpoint summaries in Codex's shape —
      inline compaction at the deterministic pre-request hard guard, the summary
      plus only the latest active user message while a turn continues (and no

@@ -1,3 +1,4 @@
+import { readTranscriptSource } from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -12,7 +13,7 @@ import {
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
 const [transcript, shell] = await Promise.all([
-  read("../src/components/ChatTranscript.tsx"),
+  readTranscriptSource(),
   read("../src/styles/chat-shell.css"),
 ]);
 
@@ -114,7 +115,7 @@ test("a long transcript mounts under the settle veil and lifts it from measured 
   assert.match(transcript, /TRANSCRIPT_SKELETON_ROWS\.map/);
   assert.match(transcript, /data-transcript-settling=\{veilCovering \? "true" : undefined\}/);
   assert.match(transcript, /\{paneVisible && !veilCovering \? \(\s*<ConversationMinimap/);
-  assert.match(transcript, /\{showJump && !veilCovering \? \(/);
+  assert.match(transcript, /\{\(showJump \|\| readingWindow\) && !veilCovering \? \(/);
   // Stylesheet: opaque cover, fade on leave, no z-index so the composer stays on
   // top, reduced motion honoured.
   const veil = shell.match(/\.transcript-settle-veil \{[\s\S]*?\n\}/)?.[0] ?? "";

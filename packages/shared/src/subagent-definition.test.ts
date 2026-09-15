@@ -5,12 +5,15 @@ import {
   DEFAULT_SUBAGENT_TOOLS,
   MAX_SUBAGENT_DEFINITIONS,
   MAX_SUBAGENT_MAX_TOKENS,
-  MAX_SUBAGENT_MAX_TURNS,
+  SUBAGENT_ASSIGNABLE_TOOLS,
+  SUBAGENT_INHERIT_DENY_TOOLS,
   mergeSubagentDefinitions,
   normalizeSubagentName,
   parseSubagentDefinition,
+  resolveSubagentToolNames,
   subagentCanMutate,
   subagentPinnedProviders,
+  subagentToolsLabel,
   type SubagentDefinition,
 } from "./subagent-definition.js";
 
@@ -39,7 +42,6 @@ description: Reviews changed files for correctness bugs.
 tools: Read, Grep, Glob
 model: anthropic/claude-opus-5
 thinkingLevel: high
-maxTurns: 12
 ---
 
 Review the diff and report only defects you can point at a line for.
@@ -53,7 +55,6 @@ Review the diff and report only defects you can point at a line for.
       tools: ["Read", "Grep", "Glob"],
       model: { providerId: "anthropic", modelId: "claude-opus-5" },
       thinkingLevel: "high",
-      maxTurns: 12,
       idleTimeoutSeconds: DEFAULT_SUBAGENT_IDLE_TIMEOUT_SECONDS,
       maxDurationSeconds: DEFAULT_SUBAGENT_MAX_DURATION_SECONDS,
       prompt:
@@ -87,7 +88,6 @@ Explain it.`);
     expect(result.definition.tools).toEqual([...DEFAULT_SUBAGENT_TOOLS]);
     expect(subagentCanMutate(result.definition)).toBe(false);
     expect(result.definition.name).toBe("reviewer");
-    expect(result.definition.maxTurns).toBeUndefined();
     expect(result.definition.idleTimeoutSeconds).toBe(
       DEFAULT_SUBAGENT_IDLE_TIMEOUT_SECONDS,
     );
@@ -296,33 +296,7 @@ description: Reviews a diff.
     }
   });
 
-  it("clamps timeout overrides and keeps maxTurns optional", () => {
-    const tooMany = parse(`---
-description: Reads code.
-max-turns: 500
----
-Read it.`);
-    expect(tooMany.ok).toBe(true);
-    if (tooMany.ok) {
-      expect(tooMany.definition.maxTurns).toBe(MAX_SUBAGENT_MAX_TURNS);
-      expect(tooMany.warnings).toEqual([
-        `clamping \`maxTurns\` 500 to ${MAX_SUBAGENT_MAX_TURNS}`,
-      ]);
-    }
-
-    const nonsense = parse(`---
-description: Reads code.
-max_turns: soon
----
-Read it.`);
-    expect(nonsense.ok).toBe(true);
-    if (nonsense.ok) {
-      expect(nonsense.definition.maxTurns).toBeUndefined();
-      expect(nonsense.warnings).toContain(
-        'ignoring invalid `maxTurns` "soon" (unlimited)',
-      );
-    }
-
+  it("clamps timeout overrides", () => {
     const timeouts = parse(`---
 description: Reads code.
 idle-timeout: 5
@@ -360,15 +334,23 @@ Read it.`);
     }
   });
 
-  it("accepts none and zero as an unlimited turn cap", () => {
-    for (const value of ["none", "0", "0.0"]) {
+  it("ignores legacy maxTurns frontmatter without failing or warning", () => {
+    // ADR 0253: the turn cap is gone, so `maxTurns` is an unrecognized key
+    // like any other. A document that still declares one keeps loading.
+    for (const key of ["maxTurns", "max-turns", "max_turns"]) {
       const result = parse(`---
 description: Reads code.
-maxTurns: ${value}
+${key}: 12
 ---
 Read it.`);
+
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.definition.maxTurns).toBeUndefined();
+      if (!result.ok) continue;
+      expect("maxTurns" in result.definition).toBe(false);
+      // An unknown key is ignored silently: no warning may mention it.
+      expect(
+        result.warnings.filter((warning) => /maxTurns|turn/i.test(warning)),
+      ).toEqual([]);
     }
   });
 
@@ -463,6 +445,120 @@ Review it.`,
     const result = parse("Just some prose.");
     expect(result.ok).toBe(false);
   });
+
+  it("parses tools: inherit as an opt-in parent-tool union", () => {
+    const result = parse(`---
+description: Works with the parent toolset.
+tools: inherit
+---
+Do the job.`);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.definition.inheritTools).toBe(true);
+    expect(result.definition.tools).toEqual([]);
+    expect(result.warnings).toEqual([]);
+    expect(subagentCanMutate(result.definition)).toBe(true);
+    expect(subagentToolsLabel(result.definition)).toBe("inherit");
+  });
+
+  it("parses tools: inherit with assignable extras", () => {
+    const result = parse(`---
+description: Writes with the parent toolset plus Bash.
+tools: [inherit, Bash]
+---
+Do the job.`);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.definition.inheritTools).toBe(true);
+    expect(result.definition.tools).toEqual(["Bash"]);
+    expect(subagentToolsLabel(result.definition)).toBe("inherit + Bash");
+  });
+
+  it("does not treat inherit as a bare unknown tool", () => {
+    const result = parse(`---
+description: Only inherit.
+tools: inherit, Grep
+---
+Do the job.`);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.warnings).toEqual([]);
+    expect(result.definition.inheritTools).toBe(true);
+    expect(result.definition.tools).toEqual(["Grep"]);
+  });
+});
+
+describe("resolveSubagentToolNames", () => {
+  const parent = [
+    "Read",
+    "Glob",
+    "Grep",
+    "Bash",
+    "Skill",
+    "ToolSearch",
+    "Task",
+    "TaskWait",
+    "asktool",
+    "EnterPlanMode",
+    "new_context",
+    "mcp-foo",
+  ];
+
+  it("returns only the declared list when inherit is off", () => {
+    expect(
+      resolveSubagentToolNames({ tools: ["Read", "Bash"] }, parent),
+    ).toEqual(["Read", "Bash"]);
+  });
+
+  it("unions parent tools minus the deny list", () => {
+    const resolved = resolveSubagentToolNames(
+      { tools: [], inheritTools: true },
+      parent,
+    );
+    expect(resolved).toContain("Read");
+    expect(resolved).toContain("Skill");
+    expect(resolved).toContain("mcp-foo");
+    expect(resolved).not.toContain("ToolSearch");
+    expect(resolved).not.toContain("new_context");
+    for (const denied of SUBAGENT_INHERIT_DENY_TOOLS) {
+      expect(resolved).not.toContain(denied);
+    }
+  });
+
+  it("keeps declared extras and does not duplicate parent names", () => {
+    const resolved = resolveSubagentToolNames(
+      { tools: ["Edit", "Read"], inheritTools: true },
+      parent,
+    );
+    expect(resolved).toContain("Edit");
+    expect(resolved).toContain("Read");
+    expect(resolved.filter((n) => n === "Read")).toHaveLength(1);
+  });
+
+  it("does not hand a delegate nested Task tools", () => {
+    const resolved = resolveSubagentToolNames(
+      { tools: [...SUBAGENT_ASSIGNABLE_TOOLS], inheritTools: true },
+      ["Task", "TaskList", "Read"],
+    );
+    expect(resolved).toEqual([...SUBAGENT_ASSIGNABLE_TOOLS, "Read"].filter(
+      (name, index, all) => all.indexOf(name) === index,
+    ));
+  });
+
+  it("uses a resolved list to decide mutation, not the inherit token", () => {
+    expect(
+      subagentCanMutate(definition({ tools: [], inheritTools: true }), [
+        "Read",
+        "Glob",
+      ]),
+    ).toBe(false);
+    expect(
+      subagentCanMutate(definition({ tools: [], inheritTools: true }), [
+        "Read",
+        "Edit",
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("normalizeSubagentName", () => {
@@ -526,5 +622,28 @@ describe("subagentPinnedProviders", () => {
       definition({ name: "d" }),
     ]);
     expect(providers).toEqual(["p1", "p2"]);
+  });
+});
+
+
+describe("definition fallback models", () => {
+  it("keeps primary pins compatible and reads ordered inline and block alternatives", () => {
+    for (const list of ["fallbackModels: [vendor/first, Other Gateway/org/second, vendor/first]", "fallback-models:\n  - vendor/first\n  - Other Gateway/org/second\n  - vendor/first"]) {
+      const result = parse(`---\nmodel: primary/model\n${list}\ndescription: Fallback fixture.\n---\nFinish.`);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.definition.model).toEqual({ providerId: "primary", modelId: "model" });
+      expect(result.definition.fallbackModels).toEqual([
+        { providerId: "vendor", modelId: "first" },
+        { providerId: "Other Gateway", modelId: "org/second" },
+      ]);
+    }
+    const legacy = parse("---\ndescription: Old document.\n---\nFinish.");
+    expect(legacy.ok && legacy.definition.fallbackModels).toBeUndefined();
+  });
+
+  it("rejects a malformed fallback rather than silently changing the requested chain", () => {
+    const result = parse("---\ndescription: Bad fallback.\nfallbackModels: [vendor/valid, bare-model]\n---\nFinish.");
+    expect(result.ok).toBe(false);
   });
 });

@@ -3,7 +3,13 @@ export type WorkPanelTabKind =
   | "review"
   | "terminal"
   | "file"
-  | "plugin";
+  | "plugin"
+  /**
+   * A follow-up conversation opened from a message. The tab id is
+   * `sidechat:<childSessionId>` and the resource is that child session, so the
+   * panel shows a real session without making it the visible one (D-LOCAL-message-quotes).
+   */
+  | "sidechat";
 
 export type WorkPanelTab = {
   id: string;
@@ -111,6 +117,31 @@ export function browserPluginTab(location?: string): WorkPanelTab {
   };
 }
 
+/**
+ * The bundled file view (ADR 0241). A chat file reference prefers it, because
+ * the file belongs beside the conversation that named it and the view can edit
+ * as well as read.
+ *
+ * Named here exactly as `BROWSER_PLUGIN_TAB` names the side browser. The id is
+ * not privileged: when the plugin is absent its view is simply missing from the
+ * launcher list, and callers fall back to the host file tab.
+ */
+export const FILE_MANAGER_PLUGIN_TAB = {
+  pluginId: "pi.file-manager",
+  viewId: "manager",
+} as const;
+
+/** The file view, asked to show one file. */
+export function fileManagerPluginTab(location: string): WorkPanelTab {
+  return {
+    ...pluginWorkPanelTab(
+      FILE_MANAGER_PLUGIN_TAB.pluginId,
+      FILE_MANAGER_PLUGIN_TAB.viewId,
+    ),
+    location,
+  };
+}
+
 export function parsePluginViewRef(
   resource: string | undefined,
 ): { pluginId: string; viewId: string } | null {
@@ -133,7 +164,8 @@ export function parsePluginViewRef(
 export function isKnownWorkPanelTab(tab: WorkPanelTab): boolean {
   return (
     Boolean(tab) &&
-    (tab.kind === "new" || tab.kind === "review" || tab.kind === "terminal" || tab.kind === "file" || tab.kind === "plugin")
+    (tab.kind === "new" || tab.kind === "review" || tab.kind === "terminal" ||
+      tab.kind === "file" || tab.kind === "plugin" || tab.kind === "sidechat")
   );
 }
 

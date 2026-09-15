@@ -1,5 +1,5 @@
 export const PROTOCOL_VERSION = 11 as const;
-export const SCHEMA_VERSION = 15 as const;
+export const SCHEMA_VERSION = 16 as const;
 export const APP_ID = "com.pi-desktop.app";
 export const APP_NAME = "PI-Desktop";
 export const APP_VERSION = "0.14.6-beta.3";
@@ -68,6 +68,7 @@ export const IPC = {
     notificationShowNative: "pi-desktop/notification/showNative",
     notificationSetViewingSession: "pi-desktop/notification/setViewingSession",
     agentPrompt: "pi-desktop/agent/prompt",
+    agentSteer: "pi-desktop/agent/steer",
     promptEnhance: "pi-desktop/prompt/enhance",
     agentCompact: "pi-desktop/agent/compact",
     agentAbort: "pi-desktop/agent/abort",
@@ -76,6 +77,7 @@ export const IPC = {
     agentQueueList: "pi-desktop/agent/queue/list",
     agentQueueRemove: "pi-desktop/agent/queue/remove",
     agentQueuePrioritize: "pi-desktop/agent/queue/prioritize",
+    agentQueueReorder: "pi-desktop/agent/queue/reorder",
     agentGetStatus: "pi-desktop/agent/getStatus",
     agentInstructionsGet: "pi-desktop/agent/instructions/get",
     agentInstructionsSave: "pi-desktop/agent/instructions/save",
@@ -83,7 +85,12 @@ export const IPC = {
     sessionCreate: "pi-desktop/session/create",
     sessionFork: "pi-desktop/session/fork",
     sessionMoveProject: "pi-desktop/session/moveProject",
+    sessionSearch: "pi-desktop/session/search",
+    sessionSearchContext: "pi-desktop/session/searchContext",
     sessionGet: "pi-desktop/session/get",
+    sessionCollaboration: "pi-desktop/session/collaboration",
+    /** Validate and select a durable session from a reviewed host operation. */
+    sessionOpen: "pi-desktop/session/open",
     sessionDelete: "pi-desktop/session/delete",
     sessionRename: "pi-desktop/session/rename",
     sessionSummarizeTitle: "pi-desktop/session/summarizeTitle",
@@ -107,6 +114,18 @@ export const IPC = {
     secretsDelete: "pi-desktop/secrets/delete",
     secretsHas: "pi-desktop/secrets/has",
     projectOpen: "pi-desktop/project/open",
+    projectPickFolders: "pi-desktop/project/pickFolders",
+    projectMemoryGet: "pi-desktop/project/memory/get",
+    projectMemorySave: "pi-desktop/project/memory/save",
+    projectGroupList: "pi-desktop/project-group/list",
+    projectGroupCreate: "pi-desktop/project-group/create",
+    projectGroupRename: "pi-desktop/project-group/rename",
+    projectGroupUpdate: "pi-desktop/project-group/update",
+    projectGroupMemoryGet: "pi-desktop/project-group/memory/get",
+    projectGroupMemorySave: "pi-desktop/project-group/memory/save",
+    projectGroupInstructionsGet: "pi-desktop/project-group/instructions/get",
+    projectGroupInstructionsSave: "pi-desktop/project-group/instructions/save",
+    projectClone: "pi-desktop/project/clone",
     projectGet: "pi-desktop/project/get",
     projectList: "pi-desktop/project/list",
     projectSet: "pi-desktop/project/set",
@@ -139,6 +158,7 @@ export const IPC = {
     remoteTerminalWrite: "pi-desktop/remote/terminal/write",
     remoteTerminalResize: "pi-desktop/remote/terminal/resize",
     remoteTerminalClose: "pi-desktop/remote/terminal/close",
+    projectRemove: "pi-desktop/project/remove",
     pullsList: "pi-desktop/pulls/list",
     scheduledList: "pi-desktop/scheduled/list",
     scheduledCreate: "pi-desktop/scheduled/create",
@@ -153,6 +173,12 @@ export const IPC = {
     providersCreate: "pi-desktop/providers/create",
     providersUpdate: "pi-desktop/providers/update",
     providersDelete: "pi-desktop/providers/delete",
+    /**
+     * Set or clear one provider's API key. Separate from `providersUpdate`
+     * because a plugin-declared row refuses a generic update while still
+     * needing the credential its declaration asks for.
+     */
+    providersSetSecret: "pi-desktop/providers/setSecret",
     providersTest: "pi-desktop/providers/testConnection",
     providersListModels: "pi-desktop/providers/listModels",
     providersRefreshModelCatalog: "pi-desktop/providers/refreshModelCatalog",
@@ -183,12 +209,16 @@ export const IPC = {
     pluginLauncherToggle: "pi-desktop/pluginLauncher/toggle",
     pluginLauncherDismiss: "pi-desktop/pluginLauncher/dismiss",
     pluginThemes: "pi-desktop/plugin/themes",
+    pluginSettingsDestinations: "pi-desktop/plugin/settings/destinations",
     pluginServices: "pi-desktop/plugin/services",
     pluginViews: "pi-desktop/plugin/views",
     pluginViewOpen: "pi-desktop/plugin/view/open",
     pluginViewClose: "pi-desktop/plugin/view/close",
     pluginViewSetBounds: "pi-desktop/plugin/view/setBounds",
     pluginViewSetVisible: "pi-desktop/plugin/view/setVisible",
+    pluginSettingsViewOpen: "pi-desktop/plugin/settings/view/open",
+    pluginSettingsViewSetBounds: "pi-desktop/plugin/settings/view/setBounds",
+    pluginSettingsViewSetVisible: "pi-desktop/plugin/settings/view/setVisible",
     mcpList: "pi-desktop/mcp/list",
     mcpUpsert: "pi-desktop/mcp/upsert",
     mcpRemove: "pi-desktop/mcp/remove",
@@ -196,9 +226,12 @@ export const IPC = {
     mcpSetScope: "pi-desktop/mcp/setScope",
     mcpTest: "pi-desktop/mcp/test",
     mcpImport: "pi-desktop/mcp/import",
+    mcpMarketSearch: "pi-desktop/mcp/market/search",
     skillList: "pi-desktop/skill/list",
     skillCreate: "pi-desktop/skill/create",
     skillImport: "pi-desktop/skill/import",
+    skillMarketSearch: "pi-desktop/skill/market/search",
+    skillMarketFetch: "pi-desktop/skill/market/fetch",
     skillUpdate: "pi-desktop/skill/update",
     skillRemove: "pi-desktop/skill/remove",
     skillSetEnabled: "pi-desktop/skill/setEnabled",
@@ -245,6 +278,7 @@ export const IPC = {
     fsReveal: "pi-desktop/fs/reveal",
     fsOpen: "pi-desktop/fs/open",
     fsIndex: "pi-desktop/fs/index",
+    fsResolveRef: "pi-desktop/fs/resolveRef",
     windowSetWorkPanelReservation:
       "pi-desktop/window/setWorkPanelReservation",
     windowSetWorkPanelChatWidth: "pi-desktop/window/setWorkPanelChatWidth",
@@ -257,6 +291,8 @@ export const IPC = {
   },
   event: {
     pluginChanged: "pi-desktop/event/pluginChanged",
+    /** Host-originated app settings mutation (e.g. plugin `app.setTheme`). */
+    settingsChanged: "pi-desktop/app/event/settingsChanged",
     extensionsUiPrompt: "pi-desktop/extensions/event/uiPrompt",
     extensionsStatus: "pi-desktop/extensions/event/status",
     pluginLauncherShown: "pi-desktop/pluginLauncher/event/shown",

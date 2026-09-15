@@ -46,9 +46,15 @@ export const SIDEBAR_WIDTH_MIN = 240;
 export const SIDEBAR_WIDTH_DEFAULT = 275;
 export const SIDEBAR_WIDTH_MAX = 520;
 
-export function clampSidebarWidth(value: number): number {
-  if (!Number.isFinite(value)) return SIDEBAR_WIDTH_DEFAULT;
-  return Math.round(Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, value)));
+/**
+ * The sidebar is a fixed-width column: it collapses and opens, but its width is
+ * not resizable. The historical fixed value is 275px, which the design tokens
+ * already use as the preferred value of `--ds-sidebar-width`; a persisted
+ * preference from the resizable era is ignored on purpose.
+ */
+export function clampSidebarWidth(value?: number): number {
+  void value;
+  return SIDEBAR_WIDTH_DEFAULT;
 }
 
 function storage(): Storage | null {
@@ -218,12 +224,11 @@ export function saveSidebarPreferences(value: SidebarPreferences): void {
 }
 
 export function loadSidebarWidth(): number {
-  const value = read(SIDEBAR_WIDTH_KEY);
-  return typeof value === "number" ? clampSidebarWidth(value) : SIDEBAR_WIDTH_DEFAULT;
+  return SIDEBAR_WIDTH_DEFAULT;
 }
 
-export function saveSidebarWidth(value: number): void {
-  write(SIDEBAR_WIDTH_KEY, clampSidebarWidth(value));
+export function saveSidebarWidth(): void {
+  // The width is fixed; nothing to persist.
 }
 
 export function sessionIsPinned(id: string, meta: Record<string, SessionMeta>): boolean {
@@ -352,4 +357,95 @@ export function projectWorkspaceFromPath(path: string): ProjectWorkspace {
   const normalized = normalizeProjectPath(path) || path;
   const parts = normalized.split("/").filter(Boolean);
   return { path, name: parts[parts.length - 1] || path };
+}
+
+export type SwitcherProject = {
+  key: string;
+  path: string;
+  name: string;
+  pinned: boolean;
+  openedAt?: number;
+};
+
+export function switcherProjectName(
+  path: string,
+  fallback?: string | null,
+): string {
+  const named = fallback?.trim();
+  if (named) return named;
+  return projectWorkspaceFromPath(path).name;
+}
+
+/**
+ * Open sidebar projects in the same set the home switcher lists: retained
+ * tabs, the active workspace, minus archived records.
+ */
+export function listSwitcherProjects(input: {
+  openProjectPaths: readonly string[];
+  openProjects: readonly { path: string; name?: string }[];
+  workspace?: { path?: string | null; name?: string | null } | null;
+  projectMeta: Record<string, ProjectMeta>;
+  projectSort: ProjectSort;
+}): SwitcherProject[] {
+  const byKey = new Map<string, SwitcherProject>();
+  const add = (
+    rawPath: string | null | undefined,
+    name?: string | null,
+    openedAt?: number,
+  ) => {
+    const trimmed = rawPath?.trim();
+    const key = normalizeProjectPath(trimmed);
+    if (!trimmed || !key) return;
+    if (projectIsArchived(trimmed, input.projectMeta)) return;
+    const existing = byKey.get(key);
+    const metaName = input.projectMeta[key]?.name;
+    const display = switcherProjectName(
+      trimmed,
+      metaName ?? name ?? existing?.name,
+    );
+    if (existing) {
+      existing.name = display;
+      existing.pinned ||= projectIsPinned(trimmed, input.projectMeta);
+      if (typeof openedAt === "number") {
+        existing.openedAt = Math.max(existing.openedAt ?? 0, openedAt);
+      }
+      return;
+    }
+    byKey.set(key, {
+      key,
+      path: trimmed,
+      name: display,
+      pinned: projectIsPinned(trimmed, input.projectMeta),
+      openedAt,
+    });
+  };
+
+  for (const [index, path] of input.openProjectPaths.entries()) {
+    const record = input.openProjects.find(
+      (project) => normalizeProjectPath(project.path) === normalizeProjectPath(path),
+    );
+    add(path, record?.name, index + 1);
+  }
+  if (input.workspace?.path) {
+    add(
+      input.workspace.path,
+      input.workspace.name,
+      input.openProjectPaths.length + 1,
+    );
+  }
+
+  return sortProjects([...byKey.values()], input.projectMeta, input.projectSort);
+}
+
+export function filterSwitcherProjects(
+  projects: readonly SwitcherProject[],
+  query: string,
+): SwitcherProject[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return [...projects];
+  return projects.filter(
+    (project) =>
+      project.name.toLocaleLowerCase().includes(needle) ||
+      project.path.toLocaleLowerCase().includes(needle),
+  );
 }

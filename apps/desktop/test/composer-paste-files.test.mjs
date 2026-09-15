@@ -3,13 +3,16 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { readComposerSource } from "./helpers/composer-source.mjs";
+import { readMainSource } from "./helpers/main-source.mjs";
 
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
-const [composer, api, main, attachments, saver, protocol, sidecar, picker] = await Promise.all([
-  read("../src/components/Composer.tsx"),
+const [composer, api, main, pasteIpc, attachments, saver, protocol, sidecar, picker] = await Promise.all([
+  readComposerSource(),
   read("../src/lib/api.ts"),
-  read("../electron/main/index.ts"),
+  readMainSource(),
+  read("../electron/main/ipc/composer-ipc.ts"),
   read("../electron/main/prompt-attachments.ts"),
   read("../electron/main/composer-paste.ts"),
   read("../../../packages/shared/src/protocol.ts"),
@@ -51,6 +54,16 @@ test("composer converts oversized text paste and materializes clipboard files", 
   assert.doesNotMatch(composer, /<textarea/);
   assert.doesNotMatch(composer, /setSelectionRange\(/);
   assert.match(composer, /await materializeDraftSession\(\)/);
+});
+
+test("expanding a pasted text chip preserves it when the bounded read fails", () => {
+  assert.match(composer, /if \(result\.kind !== "text" \|\| result\.content === undefined\)/);
+  assert.match(composer, /showToast\(message, \{ variant: "error" \}\)/);
+  assert.match(
+    composer,
+    /if \([\s\S]*?liveReference\.sessionId !== sourceSessionId[\s\S]*?liveReference\.path !== reference\.path[\s\S]*?\) \{\s*return;/,
+  );
+  assert.match(composer, /if \(index === -1\) return;/);
 });
 
 test("chip sentinels stay unique inside the private-use range", () => {
@@ -104,7 +117,9 @@ test("paste IPC is a typed renderer-to-main bridge", () => {
   assert.match(main, /rememberComposerPickerSelection\(result\.filePaths, event\.sender\.id\)/);
   assert.match(main, /consumeComposerPickerSelection\(input\.token, event\.sender\.id\)/);
   assert.match(main, /importComposerFiles\(\s*dataDir,\s*sessionId,\s*paths/);
-  assert.doesNotMatch(main, /input\.paths/);
+  // The paste surface must keep accepting picker tokens, never raw paths.
+  // (git-service's plugin git API legitimately uses `input.paths` elsewhere.)
+  assert.doesNotMatch(pasteIpc, /input\.paths/);
   assert.doesNotMatch(api, /importFiles: \(sessionId: string, paths: string\[\]\)/);
 });
 

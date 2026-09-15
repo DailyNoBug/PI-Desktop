@@ -600,7 +600,13 @@
   }
 }
 
-.provider-models-search-wrap {
+/*
+  One search field, two panes: the discovered list and the chosen list filter
+  with the same control, so the pair reads as one picker rather than as two
+  unrelated boxes. Both sit in their pane header, pushed to the trailing edge.
+*/
+.provider-models-search-wrap,
+.provider-chosen-search-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -614,12 +620,14 @@
   transition: background 120ms ease, box-shadow 120ms ease;
 }
 
-.provider-models-search-wrap:focus-within {
+.provider-models-search-wrap:focus-within,
+.provider-chosen-search-wrap:focus-within {
   background: var(--ds-raised);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--ds-accent) 24%, transparent);
 }
 
-.provider-models-search {
+.provider-models-search,
+.provider-chosen-search {
   flex: 1;
   min-width: 0;
   border: 0;
@@ -630,7 +638,8 @@
   line-height: var(--leading-normal);
 }
 
-.provider-models-search::placeholder {
+.provider-models-search::placeholder,
+.provider-chosen-search::placeholder {
   color: var(--ds-text-faint);
 }
 
@@ -782,6 +791,8 @@
   align-items: center;
   gap: 6px;
   flex: none;
+  /* The trailing search field drops below the title on a narrow pane. */
+  flex-wrap: wrap;
   padding: 9px 8px 4px;
 }
 
@@ -976,6 +987,20 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+/* Preset ladders above the two numeric limit inputs (#202): the same
+   segmented-track language as the thinking chips, five stops per ladder. */
+.provider-limit-presets {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  max-width: 100%;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--ds-bg-chip);
 }
 
 .provider-chosen-thinking {
@@ -1487,6 +1512,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  /* A plugin-declared row's key entry takes a full line of its own; every
+     other row keeps the single-line layout. */
+  flex-wrap: wrap;
   padding: 10px 12px;
   border-radius: var(--radius-md-plus);
   background: var(--ds-tile);
@@ -1534,6 +1562,28 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  flex: none;
+}
+
+   to the plugin, so the user supplies only the key. */
+.model-provider-key-entry {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-basis: 100%;
+  padding-top: 10px;
+  border-top: 1px solid var(--ds-border-subtle);
+}
+
+.model-provider-key-entry > label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-provider-key-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: none;
 }
 
@@ -1588,7 +1638,9 @@
 }
 
 @media (max-width: 720px) {
-  .provider-models-search-wrap {
+  /* Both searches take their own row instead of squeezing their header. */
+  .provider-models-search-wrap,
+  .provider-chosen-search-wrap {
     margin-left: 0;
     width: 100%;
   }

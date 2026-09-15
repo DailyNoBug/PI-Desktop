@@ -114,6 +114,15 @@ vendor key would be ambiguous, the option uses a unique provider display name;
 if the names also collide, it uses the stored provider id so no configured
 provider disappears from the picker.
 
+The sheet also offers an ordered **Fallback models** list using that same
+configured-model picker. Users can add, move up/down, or remove alternatives.
+Already-selected models are excluded from the add menu. Saved pins that become
+unavailable stay visible and removable; reopening or editing another field
+must not drop them. Clearing the list saves `fallbackModels: []`. Inherit-session
+remains a primary-only choice. The hint explains that alternatives run after
+model retries fail, completed tool results are kept, and Stop cancels the whole
+task. See runtime §5f and ADR subagent-model-fallback.
+
 ### Advanced
 - “Use custom model ID”
 - “Refresh catalog”
@@ -177,6 +186,17 @@ is created; application startup does not fetch or write a catalog. Settings
 invokes the Electron-only `providers.refreshModelCatalog` channel to refetch
 `https://models.dev/api.json`; a successful response replaces only the
 current process's in-memory models.dev catalog and never writes user data.
+
+Repeated metadata lookups use a bounded process-local cache keyed by the
+configured vendor key, base URL, and case-insensitive, trimmed model ID. Both
+matches and misses are cached; the original provider preference, alias
+matching, and candidate ranking remain unchanged. Replacing the catalog after
+a successful bundled load or Settings refresh invalidates the cache. A failed
+refresh preserves the previous catalog and its results. Session capability
+enrichment resolves a matching catalog record once per session and then applies
+the current provider/model binding and session defaults, so user overrides are
+never retained as stale cached capabilities. Refreshing a large session list
+must not repeat a full catalog scan for every occurrence of the same lookup.
 
 Provider model loading remains stale-while-revalidate:
 

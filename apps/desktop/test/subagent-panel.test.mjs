@@ -1,3 +1,4 @@
+import { readAppSource, readStoreSource, readTranscriptSource } from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -10,14 +11,8 @@ const workPanelSource = await readFile(
   new URL("../src/components/workpanel/WorkPanel.tsx", import.meta.url),
   "utf8",
 );
-const appSource = await readFile(
-  new URL("../src/App.tsx", import.meta.url),
-  "utf8",
-);
-const transcriptSource = await readFile(
-  new URL("../src/components/ChatTranscript.tsx", import.meta.url),
-  "utf8",
-);
+const appSource = await readAppSource();
+const transcriptSource = await readTranscriptSource();
 const detailSource = transcriptSource.slice(
   transcriptSource.indexOf("export function SubagentDetail"),
   transcriptSource.indexOf("/**\n * A truthful one-level graph", transcriptSource.indexOf("export function SubagentDetail")),
@@ -26,10 +21,7 @@ const failureCardSource = transcriptSource.slice(
   transcriptSource.indexOf("function SubagentFailureCard("),
   transcriptSource.indexOf("export function SubagentDetail"),
 );
-const storeSource = await readFile(
-  new URL("../src/stores/app-store.ts", import.meta.url),
-  "utf8",
-);
+const storeSource = await readStoreSource();
 const workPanelCss = await readFile(
   new URL("../src/styles/work-panel.css", import.meta.url),
   "utf8",
@@ -81,7 +73,7 @@ test("the side panel renders the live conversation process", () => {
 test("the side panel re-finds live rows instead of storing a stale render snapshot", () => {
   assert.match(panelSource, /buildTranscriptEntries\(messages\)/);
   assert.match(panelSource, /selection\.delegationId/);
-  assert.match(panelSource, /retainedTranscripts\[selection\.sessionId\]/);
+  assert.match(panelSource, /useTranscriptView\(selection\.sessionId\)/);
   assert.match(panelSource, /collectDelegationStatuses\(selected\.turnActivityItems/);
   assert.match(panelSource, /collectDelegationTimings\(selected\.turnActivityItems\)/);
   assert.match(panelSource, /<SubagentDetail/);
@@ -115,7 +107,7 @@ test("the task dock keeps one body scroll owner while the process streams", () =
   assert.match(panelSource, /role="log"/);
   assert.match(panelSource, /aria-live="polite"/);
   assert.match(panelSource, /tabIndex=\{0\}/);
-  assert.match(panelSource, /\[jumpToLatest, selection\.delegationId\]/);
+  assert.match(panelSource, /\[jumpToLatest, selection\.delegationId, searchTarget\]/);
 });
 
 test("the subagent dock uses a grouped identity, task card, and process timeline", () => {

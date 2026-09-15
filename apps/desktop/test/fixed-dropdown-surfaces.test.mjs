@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readComposerSource, readPluginsSource } from "./helpers/source-contracts.mjs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { loadStyles } from "./helpers/styles.mjs";
@@ -11,18 +12,24 @@ const anchoredMenuSource = await readFile(
 const anchoredSurfaceSources = await Promise.all(
   [
     "../src/pages/ProjectsPage.tsx",
-    "../src/pages/PluginsPage.tsx",
+    readPluginsSource(),
     "../src/components/settings/AgentCapabilityLayout.tsx",
     "../src/components/extensions/ScopeControl.tsx",
-    "../src/components/Composer.tsx",
+    readComposerSource(),
     "../src/components/ComposerAutocomplete.tsx",
     "../src/components/PlanApprovalBar.tsx",
-  ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+    "../src/components/HomeProjectSwitcher.tsx",
+  ].map((source) =>
+    typeof source === "string" && source.startsWith("../")
+      ? readFile(new URL(source, import.meta.url), "utf8")
+      : source,
+  ),
 );
 
 const dropdownSurfaces = [
   "settings-font-menu",
   "settings-theme-menu",
+  "settings-menu-select-menu",
   "provider-service-menu",
   "model-default-menu",
   "provider-model-multi-menu",
@@ -40,6 +47,7 @@ const dropdownSurfaces = [
   "plan-approval-menu",
   "composer-autocomplete",
   "context-inspector-popover",
+  "home-project-switcher-menu",
 ];
 
 function findSurfaceRule(className) {

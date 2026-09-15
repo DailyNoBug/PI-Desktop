@@ -42,41 +42,6 @@ function dropLegacyFontFallbacks(): Plugin {
   };
 }
 
-// ws probes optional native accelerators inside try/catch. Rollup otherwise
-// hoists those CommonJS requires into unconditional top-level imports, which
-// turns a deliberately absent peer into a startup crash. Preserve ws's own
-// fallback by making each probe throw synchronously inside its original block.
-function preserveWsOptionalNativePeers(): Plugin {
-  return {
-    name: "pi-preserve-ws-optional-native-peers",
-    apply: "build",
-    enforce: "pre",
-    transform(code, id) {
-      const isBufferUtil = /[\\/]node_modules[\\/]ws[\\/]lib[\\/]buffer-util\.js(?:\?.*)?$/.test(id);
-      const isValidation = /[\\/]node_modules[\\/]ws[\\/]lib[\\/]validation\.js(?:\?.*)?$/.test(id);
-      if (isBufferUtil) {
-        return {
-          code: code.replace(
-            "require('bufferutil')",
-            `(() => { throw new Error("bufferutil is intentionally optional"); })()`,
-          ),
-          map: null,
-        };
-      }
-      if (isValidation) {
-        return {
-          code: code.replace(
-            "require('utf-8-validate')",
-            `(() => { throw new Error("utf-8-validate is intentionally optional"); })()`,
-          ),
-          map: null,
-        };
-      }
-      return null;
-    },
-  };
-}
-
 // release.yml sets PI_DESKTOP_RELEASE_BASE so an installed app fetches
 // pi-host bundles from the release it came from — a fork release included —
 // without any runtime configuration. The main build bypasses Vite's define
@@ -98,7 +63,17 @@ function bakeReleaseBase(): Plugin {
 
 export default defineConfig({
   main: {
-    plugins: [preserveWsOptionalNativePeers(), bakeReleaseBase()],
+    plugins: [bakeReleaseBase()],
+    // `ws` loads its optional native accelerators (bufferutil, utf-8-validate)
+    // inside `require` + try/catch and falls back to its own JavaScript
+    // implementation when they are absent. A bundle cannot fail a require, and
+    // Vite turns the unresolved optional peer into a module-level throw that
+    // kills the whole Main bundle before the app starts, so state the documented
+    // "no native accelerator" input to that branch at build time instead.
+    define: {
+      "process.env.WS_NO_BUFFER_UTIL": "\"1\"",
+      "process.env.WS_NO_UTF_8_VALIDATE": "\"1\"",
+    },
     build: {
       rollupOptions: {
         // Bundle JS workspace packages into Main. Only runtime modules that

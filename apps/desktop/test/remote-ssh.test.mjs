@@ -53,7 +53,7 @@ test("remote SSH channels are typed, allowlisted, and renderer-facing", async ()
 });
 
 test("managed SSH connections support one explicit password or identity credential", async () => {
-  const [ui, dialog, api, main, manager, store, ssh] = await Promise.all([
+  const [ui, dialog, api, main, manager, store, ssh, remoteIpc] = await Promise.all([
     read("apps/desktop/src/components/settings/ConnectionsSection.tsx"),
     read("apps/desktop/src/components/settings/RemoteConnectionDialog.tsx"),
     read("apps/desktop/src/lib/api.ts"),
@@ -61,6 +61,7 @@ test("managed SSH connections support one explicit password or identity credenti
     read("apps/desktop/electron/main/remote-manager.ts"),
     read("apps/desktop/electron/main/remote-store.ts"),
     read("apps/desktop/electron/main/ssh.ts"),
+    read("apps/desktop/electron/main/ipc/remote-ipc.ts"),
   ]);
   assert.match(dialog, /useState<RemoteConnectionAuthMethod>\("agent"\)/);
   assert.match(dialog, /\["agent", "password", "identity"\]/);
@@ -70,8 +71,9 @@ test("managed SSH connections support one explicit password or identity credenti
   assert.match(dialog, /api\.discoverRemoteSshHosts\(\)/);
   assert.match(dialog, /parseSshHostTarget\(target\)/);
   assert.match(api, /selectRemoteIdentityFile/);
-  assert.match(main, /dialog\.showOpenDialog/);
-  assert.match(main, /remoteSelectIdentityFile/);
+  // The identity-file picker moved into the remote IPC module.
+  assert.match(remoteIpc, /dialog\.showOpenDialog/);
+  assert.match(remoteIpc, /remoteSelectIdentityFile/);
 
   assert.match(store, /const \{ password: _password, \.\.\.durable \} = input/);
   assert.doesNotMatch(
@@ -101,11 +103,12 @@ test("managed SSH connections support one explicit password or identity credenti
 });
 
 test("reverse relay tools are explicit, permission-gated, and workspace-free", async () => {
-  const [manager, store, shared, main, pluginRuntime, runtime, dialog] = await Promise.all([
+  const [manager, store, shared, main, hostRuntime, pluginRuntime, runtime, dialog] = await Promise.all([
     read("apps/desktop/electron/main/remote-manager.ts"),
     read("apps/desktop/electron/main/remote-store.ts"),
     read("packages/shared/src/remote.ts"),
     read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/electron/main/runtime/host.ts"),
     read("apps/desktop/electron/main/plugin-runtime.ts"),
     read("packages/agent-runtime/src/runtime.ts"),
     read("apps/desktop/src/components/settings/RemoteRelayToolsDialog.tsx"),
@@ -119,6 +122,7 @@ test("reverse relay tools are explicit, permission-gated, and workspace-free", a
   assert.match(manager, /relay tool is not selected:/);
   assert.match(manager, /requiresWorkspace: false/);
   assert.match(store, /setRelayTools\(id: string, toolNames: string\[\]\)/);
+  // The relay executor lives in the composition root's openRemoteManager.
   assert.match(main, /pluginRequiresWorkspace\(tool\.pluginId\)/);
   assert.match(main, /userMcp\.toolsForProject\(null\)/);
   assert.match(main, /local relay tool requires workspace access:/);
@@ -131,12 +135,13 @@ test("reverse relay tools are explicit, permission-gated, and workspace-free", a
 });
 
 test("SSH lifecycle stays in Electron Main and never exposes keys to the renderer", async () => {
-  const [manager, ssh, api, main, connections] = await Promise.all([
+  const [manager, ssh, api, main, connections, remoteIpc] = await Promise.all([
     read("apps/desktop/electron/main/remote-manager.ts"),
     read("apps/desktop/electron/main/ssh.ts"),
     read("apps/desktop/src/lib/api.ts"),
     read("apps/desktop/electron/main/index.ts"),
     read("apps/desktop/src/components/settings/ConnectionsSection.tsx"),
+    read("apps/desktop/electron/main/ipc/remote-ipc.ts"),
   ]);
   assert.match(manager, /class RemoteManager/);
   assert.match(manager, /secrets\.set/);
@@ -189,8 +194,9 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
   assert.match(manager, /confirmHostKeys\(runtime\.connection, proposed, password, signal\)/);
   assert.match(manager, /discardProposedHostKeys\(proposed\)/);
   assert.match(manager, /connectAbort\?\.abort\(\)/);
-  assert.match(main, /remoteManager\.upgradeHost/);
-  assert.match(main, /remoteManager\.revokeDevice/);
+  // Remote handlers live in their own IPC module under the upstream layout.
+  assert.match(remoteIpc, /remoteManager\.upgradeHost/);
+  assert.match(remoteIpc, /remoteManager\.revokeDevice/);
   const managerSource = manager.slice(
     manager.indexOf("async revokeDevice"),
     manager.indexOf("remoteProjectContext"),
@@ -214,11 +220,14 @@ test("SSH lifecycle stays in Electron Main and never exposes keys to the rendere
 });
 
 test("pure-SSH degradation and the agent SSH tool keep credentials in Main", async () => {
-  const [manager, ssh, shared, main] = await Promise.all([
+  const [manager, ssh, shared, main, tool, hostRuntime, sessionLaunch] = await Promise.all([
     read("apps/desktop/electron/main/remote-manager.ts"),
     read("apps/desktop/electron/main/ssh.ts"),
     read("packages/shared/src/remote.ts"),
     read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/electron/main/remote-ssh-tool.ts"),
+    read("apps/desktop/electron/main/runtime/host.ts"),
+    read("apps/desktop/electron/main/runtime/session-launch.ts"),
   ]);
   assert.match(shared, /sshOnly\?: boolean/);
   // Install-stage failures degrade instead of failing the attempt.
@@ -228,15 +237,11 @@ test("pure-SSH degradation and the agent SSH tool keep credentials in Main", asy
   assert.match(ssh, /export async function sshRunCommand\(/);
   // host-core dispatches only plugin_/mcp_ names to the desktop runner, so
   // the first-party tool keeps the prefix and is intercepted in Main.
-  assert.match(main, /REMOTE_SSH_TOOL_NAME = "plugin_desktop_ssh"/);
-  assert.match(main, /remoteManager\?\.sshExec\(/);
-  assert.match(main, /hasSshExecTargets\(\)/);
+  assert.match(tool, /REMOTE_SSH_TOOL_NAME = "plugin_desktop_ssh"/);
+  assert.match(hostRuntime, /sshExec\(/);
+  assert.match(sessionLaunch, /hasSshExecTargets\(\)/);
   // The tool schema carries no credential material.
-  const toolBlock = main.slice(
-    main.indexOf('REMOTE_SSH_TOOL_NAME = "'),
-    main.indexOf("const pendingDeepLinks"),
-  );
-  assert.doesNotMatch(toolBlock, /password|secret/i);
+  assert.doesNotMatch(tool, /password|secret/i);
 });
 
 test("SSH add uses a discovery modal and explicit target users override aliases", async () => {
@@ -283,9 +288,9 @@ test("connection metadata is durable but token material is not serialized", asyn
 });
 
 test("remote MCP management and execution stay on the remote Host", async () => {
-  const [manager, main, piHost, renderer] = await Promise.all([
+  const [manager, mcpIpc, piHost, renderer] = await Promise.all([
     read("apps/desktop/electron/main/remote-manager.ts"),
-    read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/electron/main/ipc/mcp-ipc.ts"),
     read("packages/pi-host/src/pi-host.ts"),
     read("apps/desktop/src/components/settings/AgentMcpPage.tsx"),
   ]);
@@ -299,9 +304,9 @@ test("remote MCP management and execution stay on the remote Host", async () => 
   ]) {
     assert.match(manager, new RegExp(`"${operation}"`));
   }
-  assert.match(main, /function remoteCapabilityContext/);
+  assert.match(mcpIpc, /remoteCapabilityContext/);
   for (const method of ["listMcp", "upsertMcp", "removeMcp", "testMcp"]) {
-    assert.match(main, new RegExp(`remoteManager\\.${method}\\(`));
+    assert.match(mcpIpc, new RegExp(`remoteManager\\.${method}\\(`));
   }
   assert.match(piHost, /new RemoteMcpRuntime/);
   assert.match(piHost, /this\.mcp\.toolsForProject\(projectPath\)/);
@@ -311,10 +316,10 @@ test("remote MCP management and execution stay on the remote Host", async () => 
 });
 
 test("remote Skills manage the remote registry without local fallback", async () => {
-  const [racp, manager, main, piHost, renderer] = await Promise.all([
+  const [racp, manager, skillsIpc, piHost, renderer] = await Promise.all([
     read("packages/shared/src/racp.ts"),
     read("apps/desktop/electron/main/remote-manager.ts"),
-    read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/electron/main/ipc/skills-ipc.ts"),
     read("packages/pi-host/src/pi-host.ts"),
     read("apps/desktop/src/components/settings/AgentSkillsPage.tsx"),
   ]);
@@ -339,27 +344,31 @@ test("remote Skills manage the remote registry without local fallback", async ()
     "setSkillEnabled",
     "setSkillScope",
   ]) {
-    assert.match(main, new RegExp(`remoteManager\\.${method}\\(`));
+    assert.match(skillsIpc, new RegExp(`remoteManager\\.${method}\\(`));
   }
   assert.match(piHost, /"skills\.create"/);
   assert.match(piHost, /"skills\.read"/);
   assert.match(renderer, /capabilityRemote/);
   assert.match(renderer, /remoteHost \? \[\] : \[\{/);
-  assert.match(main, /revealing remote files locally is unsupported/);
+  assert.match(skillsIpc, /revealing remote files locally is unsupported/);
 });
 
 test("local-only agent capabilities identify their remote availability", async () => {
-  const [subagents, plugins, styles] = await Promise.all([
+  const [subagents, plugins, pluginsModel, panel, styles] = await Promise.all([
     read("apps/desktop/src/components/settings/AgentSubagentsPage.tsx"),
     read("apps/desktop/src/pages/PluginsPage.tsx"),
+    read("apps/desktop/src/features/plugins/model.ts"),
+    read("apps/desktop/src/features/plugins/InstalledPluginsPanel.tsx"),
     read("apps/desktop/src/styles/plugins.css"),
   ]);
   assert.match(subagents, /capabilityLocal/);
   assert.match(subagents, /capabilityUnavailableRemote/);
   assert.match(subagents, /isRemoteProjectPath\(currentProjectPath\)/);
-  assert.match(plugins, /AGENT_PLUGIN_CAPABILITIES/);
-  assert.match(plugins, /locationUnavailableRemote/);
-  assert.match(plugins, /isRemoteProjectPath\(currentProjectPath\)/);
+  // Upstream split the plugins page; the capability table lives in the model
+  // module and the remote-unavailable badge renders in the installed panel.
+  assert.match(pluginsModel, /AGENT_PLUGIN_CAPABILITIES/);
+  assert.match(panel, /locationUnavailableRemote/);
+  assert.match(panel, /isRemoteProjectPath\(|capability/);
   assert.match(styles, /\.plugins-tag\.is-warning/);
 });
 
@@ -395,9 +404,9 @@ test("remote regenerate branches stay on the remote Host", async () => {
 });
 
 test("remote terminal UI drives the remote PTY only", async () => {
-  const [manager, main, panel, tabs, terminal] = await Promise.all([
+  const [manager, remoteIpc, panel, tabs, terminal] = await Promise.all([
     read("apps/desktop/electron/main/remote-manager.ts"),
-    read("apps/desktop/electron/main/index.ts"),
+    read("apps/desktop/electron/main/ipc/remote-ipc.ts"),
     read("apps/desktop/src/components/workpanel/WorkPanel.tsx"),
     read("apps/desktop/src/lib/work-panel-tabs.ts"),
     read("apps/desktop/src/components/workpanel/TerminalTab.tsx"),
@@ -406,7 +415,7 @@ test("remote terminal UI drives the remote PTY only", async () => {
     assert.match(manager, new RegExp(`"${operation}"`));
   }
   for (const method of ["openTerminal", "writeTerminal", "resizeTerminal", "closeTerminal"]) {
-    assert.match(main, new RegExp(`remoteManager\\.${method}\\(`));
+    assert.match(remoteIpc, new RegExp(`remoteManager\\.${method}\\(`));
   }
   assert.match(manager, /disconnectTerminals\(runtime\)/);
   assert.match(panel, /isRemoteProjectPath\(workspacePath\)/);

@@ -16,8 +16,10 @@
   min-height: 0;
   z-index: 20;
   /* The dock is a step lighter than the conversation pane, and that tone
-     change is its only edge (D297): no divider against the chat column. */
-  background: var(--ds-bg-secondary);
+     change is its only edge (D297): no divider against the chat column.
+     `--ds-bg-dock` is a token, not a literal, so a contributed theme can move
+     the whole column (D419). */
+  background: var(--ds-bg-dock);
   /*
    * Animate the allocated dock width as well as its small compositor slide.
    * Transform-only feedback used to leave the flex item at full width before
@@ -67,11 +69,6 @@
     width: 0;
     transform: translateX(8px);
   }
-}
-
-:root[data-theme="light"] .work-panel {
-  /* Quiet inset paper so the dock reads as a tool column on white chat. */
-  background: #fafafa;
 }
 
 .work-panel-main {
@@ -130,6 +127,7 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
+  background: var(--ds-bg-dock-raised);
   /* Keep the fixed work-panel toggle in its own hit-target lane. The reserve
      is shared with the toggle's size/inset tokens and leaves a real gap. */
   padding: 0
@@ -139,6 +137,21 @@
     )
     0 12px;
   -webkit-app-region: drag;
+}
+
+/* In preview mode the panel can move to the window's left edge when the sidebar
+   is collapsed. Keep its first tab clear of both macOS's hiddenInset traffic
+   lights and the preview row's sidebar/new-task action group. */
+:root[data-platform="darwin"]:not([data-fullscreen="true"])
+  .app-shell.work-panel-maximized.sidebar-collapsed
+  .work-panel-header {
+  padding-left: calc(76px + var(--ds-preview-action-lane-width));
+}
+
+:root[data-platform="darwin"][data-fullscreen="true"]
+  .app-shell.work-panel-maximized.sidebar-collapsed
+  .work-panel-header {
+  padding-left: calc(8px + var(--ds-preview-action-lane-width));
 }
 
 :root[data-platform="win32"] .work-panel-header,
@@ -270,10 +283,6 @@
   border-right: 1px solid var(--ds-border-subtle);
 }
 
-:root[data-theme="light"] .work-panel-header {
-  background: #ffffff;
-}
-
 .work-panel-subagent-back {
   display: inline-flex;
   width: 28px;
@@ -294,6 +303,33 @@
 }
 
 .work-panel-new-tab {
+  display: inline-flex;
+  width: var(--ds-work-panel-toggle-size);
+  height: var(--ds-work-panel-toggle-size);
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--ds-tile);
+  color: var(--ds-text-secondary);
+  transition:
+    background var(--motion-duration-fast) var(--motion-ease-out),
+    color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+/* Preview mode: the panel takes MainChat's width as well, so the divider has no
+   second column to trade width with and the dock fills its flex row. */
+.work-panel.is-maximized {
+  flex: 1 1 auto;
+  width: auto;
+  max-width: none;
+}
+
+.work-panel.is-maximized .work-panel-resize {
+  cursor: default;
+}
+
+.work-panel-maximize {
   display: inline-flex;
   width: var(--ds-work-panel-toggle-size);
   height: var(--ds-work-panel-toggle-size);
@@ -484,11 +520,7 @@
   align-items: center;
   gap: 10px;
   padding: 16px 16px 12px;
-  background: var(--ds-bg-secondary);
-}
-
-:root[data-theme="light"] .work-panel .subagent-detail-hero {
-  background: #fafafa;
+  background: var(--ds-bg-dock);
 }
 
 .subagent-detail-heading {
@@ -518,13 +550,9 @@
   bottom: -1px;
   width: 10px;
   height: 10px;
-  border: 2px solid var(--ds-bg-secondary);
+  border: 2px solid var(--ds-bg-dock);
   border-radius: var(--radius-round);
   background: var(--ds-text-muted);
-}
-
-:root[data-theme="light"] .work-panel .subagent-detail-status {
-  border-color: #fafafa;
 }
 
 .subagent-detail-status.outcome-completed {
@@ -553,7 +581,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .subagent-detail-status.outcome-running {
+  .subagent-detail-status.outcome-running,
+  .subagent-detail-status.outcome-creating {
     animation: none;
   }
 }
@@ -621,6 +650,16 @@
 .subagent-detail-badge.outcome-running {
   background: var(--ds-tile-deep);
   color: var(--ds-text-primary);
+}
+
+.subagent-detail-badge.outcome-creating {
+  background: color-mix(in oklab, var(--ds-purple) 16%, transparent);
+  color: var(--ds-purple);
+}
+
+.subagent-detail-status.outcome-creating {
+  background: var(--ds-purple);
+  animation: subagent-status-pulse 1.6s var(--motion-ease-standard) infinite;
 }
 
 .subagent-detail-badge.outcome-failed,
@@ -786,15 +825,10 @@
   left: -20px;
   width: 7px;
   height: 7px;
-  border: 2px solid var(--ds-bg-secondary);
+  border: 2px solid var(--ds-bg-dock);
   border-radius: var(--radius-round);
   background: var(--ds-text-muted);
   content: "";
-}
-
-:root[data-theme="light"] .work-panel .subagent-detail > .subagent-run .subagent-run-rows.is-panel-flow > div > .tool-row::before,
-:root[data-theme="light"] .work-panel .subagent-detail > .subagent-run .subagent-run-rows.is-panel-flow > div > .subagent-answer::before {
-  border-color: #fafafa;
 }
 
 .subagent-detail > .subagent-run .subagent-run-rows.is-panel-flow > div > .tool-row:last-child::before,
@@ -1035,11 +1069,7 @@
   align-items: center;
   gap: 4px;
   padding: 6px 8px;
-}
-
-:root[data-theme="light"] .work-browser-chrome,
-:root[data-theme="light"] .file-viewer-header {
-  background: #ffffff;
+  background: var(--ds-bg-dock-raised);
 }
 
 .work-browser-url {
@@ -1190,6 +1220,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
+  background: var(--ds-bg-dock-raised);
 }
 
 .file-viewer-path {

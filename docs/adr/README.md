@@ -20,6 +20,8 @@ Each ADR includes:
 
 | ID | Title | Status |
 |---|---|---|
+| subagent-model-fallback | [Ordered subagent model fallback](subagent-model-fallback.md) | Accepted for implementation |
+| subagent-model-opt-in | [Separate Subagent Model Opt-In from Definition Pins](subagent-model-opt-in.md) | Accepted for implementation |
 | 0001 | Use Electron as the desktop shell | Accepted |
 | 0002 | Use the pi Agent Harness as the kernel | Accepted |
 | 0003 | Hybrid runtime — Rust host core + Node pi agent sidecar | Superseded in part |
@@ -78,11 +80,11 @@ Each ADR includes:
 | 0056 | User-owned MCP servers and skills, with a shared activation scope | Accepted |
 | 0057 | Permission-gated external paths and portable native search | Accepted for implementation |
 | 0058 | Extensions Page Density and Theme-Readable Button Surfaces | Accepted |
-| 0059 | Persist Composer Clipboard Files in Session Scratch | Accepted |
+| 0059 | Persist Composer Clipboard Files in Session Scratch | Accepted (amended 2026-09-14 for #138: prefer editable clipboard text over generated image copies) |
 | 0060 | Archive the Regenerate Branch Under the RPC Lock | Accepted |
 | 0061 | Imperceptible background context compaction | Accepted (amends 0030 / 0049; clauses 2/4/6/7/8 amended by 0064) |
-| 0062 | Bounded Subagents Behind a Task Tool | Accepted for implementation |
-| 0063 | A Managed Surface for Global Subagent Definitions | Accepted for implementation |
+| 0062 | Bounded Subagents Behind a Task Tool | Accepted for implementation (`maxTurns` clause withdrawn by 0253) |
+| 0063 | A Managed Surface for Global Subagent Definitions | Accepted for implementation (`maxTurns` field withdrawn by 0253) |
 | 0064 | Codex-parity context compaction | Accepted (amends 0061 / 0030) |
 | 0065 | Smooth shell layout and stream feedback | Accepted for implementation |
 | 0066 | Empty home direct bottom composer | Accepted for implementation (amends D111) |
@@ -124,7 +126,7 @@ Each ADR includes:
 | 0102 | Publisher-owned plugin source with a Git-hosted artifact store | Accepted for implementation (supersedes 0006) |
 | 0103 | Compact context usage summary | Accepted (amends 0047) |
 | 0104 | Plugin-contributed work panel views | Accepted |
-| 0105 | Ship Files as a bundled plugin; keep Review in the host | Accepted (Terminal clause superseded by 0108) |
+| 0105 | Ship Files as a bundled plugin; keep Review in the host | Superseded by 0241 |
 | 0106 | Keep only five core builtin commands | Accepted |
 | 0107 | Make current-session task notification suppression atomic | Accepted |
 | 0108 | Remove the built-in interactive terminal | Accepted |
@@ -138,14 +140,14 @@ Each ADR includes:
 | 0116 | Add OpenCode Go as a Fixed Provider Preset | Accepted (amended: session routing headers) |
 | 0117 | Preserve the Windows taskbar entry for native minimize | Accepted |
 | 0118 | Keep queued prompts renderer-owned and stop runs at turn boundaries | Accepted |
-| 0119 | Event-Driven Subagent Timeouts | Accepted for implementation |
+| 0119 | Event-Driven Subagent Timeouts | Accepted for implementation (killing policy amended by 0166; `maxTurns` clauses withdrawn by 0253) |
 | 0120 | Bounded Session History Windows | Accepted |
 | 0121 | Keep Composer prompt enhancement one-shot and main-owned | Accepted |
 | 0122 | Reserve native width while the work panel is visible | Superseded by 0151 |
 | 0123 | Use native taskbar minimize for Windows/Linux window controls | Accepted |
 | 0124 | Bind Temporary Sessions to Their Own Scratch Workspace | Accepted |
 | 0125 | Renderer Ships Derived Brand Marks and Minified Output | Accepted |
-| 0126 | Agent Capability Pages Are One Workbench That Can Author | Accepted |
+| 0126 | Agent Capability Pages Are One Workbench That Can Author | Accepted (`maxTurns` clause withdrawn by 0253) |
 | 0127 | Transcript Layout Index and Identity-Based Truncation | Accepted |
 | 0128 | Share one bounded budget for transient provider failures | Accepted |
 | 0129 | The Subagent Idle Watchdog Bounds Silence, Not Slowness | Amended by 0166 (watchdogs no longer kill) |
@@ -184,7 +186,7 @@ Each ADR includes:
 | 0163 | Transcript File References Render as Previewable Chips | Accepted |
 | 0164 | Parent agents collaborate across conversations | Superseded by 0165 |
 | 0165 | Withdraw the A2A / Peer coordination stack | Accepted (supersedes 0147 / 0162 / 0164) |
-| 0166 | Parent-judged subagent lifetime | Accepted (amends 0089 / 0119 / 0129; fatal-error path amended by 0189) |
+| 0166 | Parent-judged subagent lifetime | Accepted (amends 0089 / 0119 / 0129; fatal-error path amended by 0189; `maxTurns` backstop withdrawn by 0253) |
 | 0167 | Agent-chosen Bash timeout | Accepted (amends 0054 / D190 / D273) |
 | 0168 | Main-owned http(s)/mailto allowlist for `openExternal` | Accepted (amends 0109) |
 | 0169 | Classified file preview and live workspace events for plugin views | Accepted (amends 0104 / 0105 / 0109 / 0111) |
@@ -227,7 +229,7 @@ Each ADR includes:
 | 0207 | Allow three same-path mutation recovery failures | Accepted (amends 0087 / D186) |
 | 0208 | Plugin desktop control requires native user consent | Accepted |
 | 0209 | PowerShell 7 as a selectable Windows command shell | Accepted (amends 0054 / D190; issue #151 / PR #191) |
-| 0210 | Subagent output-token cap | Accepted (extends 0062 / 0063; issue #171 / PR #193) |
+| 0210 | Subagent output-token cap | Accepted (extends 0062 / 0063; `maxTurns` clauses withdrawn by 0253; issue #171 / PR #193) |
 | 0211 | Plan-safe plugin actions for read-only inspection | Accepted (amends 0052 / 0053 / 0170; D384) |
 | 0212 | Remove diagnostic timing log streams | Accepted (amends 0046 / D183) |
 | 0213 | Persist the Host-owned turn queue in host-core | Accepted |
@@ -240,6 +242,9 @@ Each ADR includes:
 | 0220 | Keep Windows work-panel chrome single-purpose | Accepted (amends D154 / D357 / ADR 0195) |
 | 0221 | Render canonical thinking-level values without translation | Accepted (amends D369 / ADR 0202) |
 | 0222 | Native file and folder drops in the Composer | Accepted (amends ADR 0101 / D397) |
+| message-quotes-and-side-chats | Message quotes and renderer-owned side chats | Accepted (preserves D097 / D128 / D134 / D154; amended by D-LOCAL-selection-overlay) |
+| response-annotations | Response annotations as prompt attachments | Accepted (amends D-LOCAL-message-quotes decision 3 for assistant turns; presentation amended by floating-annotation-index) |
+| floating-annotation-index | Floating annotation index and source locations | Accepted (amends D-LOCAL-response-annotations / response-annotations) |
 | 0223 | Context Usage Display Preference | Accepted (amends 0184) |
 | 0224 | Right panel tab strip and data-driven add menu | Accepted (issue #229) |
 | 0225 | Restore deferred tools from effective session context | Accepted (issue #225) |
@@ -247,9 +252,53 @@ Each ADR includes:
 | 0227 | Project group manual ordering | Accepted (amended by 0228) |
 | 0228 | Long-press the project title to reorder | Accepted (amended by 0229) |
 | 0229 | Press-and-move project title reorder | Accepted (amends 0228) |
-| 0230 | Sidebar token usage summary | Accepted (amends 0173) |
-| 0231 | Bundled Git work panel | Accepted (D405; amended by 0232 / D406) |
-| 0232 | Tree review and AI commit messages in Git | Accepted (D406) |
-| 0233 | Window-sized plugin view modals | Accepted (D407) |
-| 0234 | Remote SSH Agent Runtime | Accepted for implementation (D408) |
-| 0235 | Managed SSH password authentication | Accepted (D409) |
+| 0230 | Skill ships with the Agent core tool set | Accepted (amends D174 / ADR 0048 / ADR 0219; issue #204) |
+| 0231 | Ideographic comma opens the composer slash menu | Accepted (amends D123 / D139 / ADR 0024; issue #65) |
+| 0232 | Keep macOS DMG opening guidance text-only | Accepted (amends D371 / ADR 0204) |
+| 0233 | Renderer-owned multi-folder project creation | Accepted (amends ADR 0011 / ADR 0016) |
+| 0234 | Keep project memory host-owned and path-scoped | Accepted |
+| 0235 | Preserve domain facades and enforce architecture budgets | Accepted |
+| 0236 | Restore archived projects when session import adds a bound session | Accepted |
+| 0237 | Keep Session Orchestration in an Official Plugin | Accepted |
+| 0238 | Prioritize MainChat in the three-column shell | Accepted (amends ADR 0226) |
+| 0239 | Host-owned session collaboration messages | Accepted (amends ADR 0237 / 0165 / 0213) |
+| 0240 | Independent session discovery and navigable collaboration projections | Accepted (amends ADR 0239) |
+| 0241 | Ship the file view as a vendored, updatable plugin | Accepted (supersedes ADR 0105; issue #304) |
+| 0242 | Delta-only coalesced streaming updates | Accepted (amends 0127 / 0130 / 0149 / 0153; issue #299) |
+| 0243 | Skill market public-HTTPS catalog fetch | Accepted (amends 0009; issue #287 / PR #290) |
+| 0244 | Bound dependency installation for imported extensions | Accepted |
+| 0245 | Harden the MCP market public-network boundary | Accepted |
+| 0246 | Opt-in subagent inheritance of the parent tool catalog | Accepted (amends 0062; issue #215 / PR #319) |
+| 0247 | Git clone accepts only syntactically public hosts | Accepted (amends home git clone; D416) |
+| 0248 | [Package theme assets and contributed window backgrounds](0248-plugin-theme-assets-and-window-background.md) | Accepted (issue #335) |
+| 0249 | ChatGPT-style logical project groups | Accepted (amends ADR 0233 / ADR 0234 / ADR 0016) |
+| 0261 | [Plugin Appearance Extensions](0261-plugin-appearance-extensions.md) | Accepted for implementation |
+| 0251 | [Deleting a project removes its owned sessions](0251-project-delete-with-owned-sessions.md) | Accepted |
+| global-sidebar-pins | [Show pinned conversations in a global sidebar section](global-sidebar-pins.md) | Accepted (amends ADR 0016; issue #306) |
+| 0250 | [Structured, bounded, and redacted process logs](0250-structured-bounded-redacted-process-logs.md) | Accepted for implementation |
+| 0262 | [Chat file references complete in main and open in the file view](0262-chat-file-refs-open-in-the-file-view.md) | Accepted (amends ADR 0163 / ADR 0241) |
+| 0263 | [Expose a project's folder roots and complete references across them](0263-project-folder-roots-for-plugin-views.md) | Accepted (amends ADR 0262; ADR 0249 §5) |
+| 0264 | [Host-mediated file actions follow the folder a view is browsing](0264-host-mediated-actions-follow-the-browsed-folder.md) | Accepted (amends ADR 0263; ADR 0249 §5) |
+| active-turn-steering | Bind Composer steering to the active durable turn | Accepted (active-turn-steering; issue #164) |
+| 0252 | Host turn-end event for plugins | Accepted (D422) |
+| 0253 | [Remove the subagent turn limit](0253-remove-subagent-turn-limit.md) | Accepted (supersedes the `maxTurns` clauses of 0062 / 0063 / 0119 / 0126 / 0166 / 0210) |
+| 0254 | [Continue native Pi sessions in their canonical JSONL](0254-native-pi-session-continuation.md) | Accepted (amends baseline D007; D421) |
+| 0257 | [Host-mediated real-time capabilities for plugins](0257-plugin-real-time-capabilities.md) | Accepted for implementation |
+| 0258 | [Trusted extension custom agents](0258-trusted-extension-custom-agents.md) | Accepted for implementation (D426; issue #401) |
+| 0259 | [Plugin-declared providers are Host-owned rows](0259-plugin-declared-providers.md) | Accepted for implementation (D427) |
+| 0255 | [Theme assets are absolute paths](0255-theme-assets-by-absolute-path.md) | Accepted |
+| 0256 | [Preserve DeepSeek reasoning across context compaction](0256-deepseek-reasoning-across-compaction.md) | Accepted |
+| 0260 | [Plugin runtime theme APIs and sidebar image token](0260-plugin-runtime-theme-apis.md) | Accepted for implementation |
+| 0265 | [Priority block and row actions for the Host-owned turn queue](0265-turn-queue-priority-block-and-row-actions.md) | Accepted for implementation (D429; amends ADR 0213 / 0118) |
+| session-content-search | [Discover sessions by indexed message text](session-content-search.md) | Accepted |
+| transcript-reading-ownership | [Share renderer history and search views](transcript-reading-ownership.md) | Accepted |
+| 0266 | [Sidebar token usage summary](0266-sidebar-token-usage-summary.md) | Accepted (amends 0173) |
+| 0267 | [Bundled Git work panel](0267-bundled-git-work-panel.md) | Accepted (D431; amended by 0268 / D432) |
+| 0268 | [Tree review and AI commit messages in Git](0268-git-ai-commit-messages.md) | Accepted (D432) |
+| 0269 | [Window-sized plugin view modals](0269-window-sized-plugin-view-modals.md) | Accepted (D433) |
+| 0270 | [Remote SSH Agent Runtime](0270-remote-ssh-agent-runtime.md) | Accepted for implementation (D434) |
+| 0271 | [Managed SSH password authentication](0271-managed-ssh-password-auth.md) | Accepted (D435) |
+
+The fork's own decisions originally took the 0230 - 0235 range that merged main
+had already assigned, so they were renumbered to 0266 - 0271 (D430 - D435)
+against merged main.

@@ -136,7 +136,7 @@ test("plugin views and the remote terminal are launchable tools", () => {
   assert.equal(isToolWorkPanelTab(toolWorkPanelTab("review")), false);
   assert.equal(isToolWorkPanelTab(toolWorkPanelTab("terminal")), true);
   assert.equal(isToolWorkPanelTab(fileWorkPanelTab("README.md")), false);
-  assert.equal(isToolWorkPanelTab(pluginWorkPanelTab("pi.files", "files")), true);
+  assert.equal(isToolWorkPanelTab(pluginWorkPanelTab("pi.file-manager", "manager")), true);
   assert.equal(isKnownWorkPanelTab({ id: "browser", kind: "browser" }), false);
   assert.equal(isKnownWorkPanelTab(newWorkPanelTab()), true);
 });

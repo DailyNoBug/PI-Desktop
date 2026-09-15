@@ -159,12 +159,13 @@ Rules:
    advertises `"a2a"`. A v10 host or client is rejected before the UI becomes
    interactive, so a mixed pair cannot call a missing domain.
 
-Protocol v11 is paired with host-core storage schema v15. Schema v12 had added
+Protocol v11 is paired with host-core storage schema v16. Schema v12 had added
 the A2A tables (`a2a_tasks`, `a2a_messages`, `a2a_artifacts`,
 `a2a_push_configs`) via `migrate_v11_to_v12`; `migrate_v12_to_v13` drops those
-tables, v14 adds the plugin-session ownership sidecar and soft-delete column,
-and v15 persists the Host-owned turn queue. A fresh database creates neither
-A2A tables nor unowned plugin-session rows. The schema version is an
+tables, and v14 adds the plugin-session ownership sidecar and soft-delete
+column. Schema v15 adds the Host-owned turn queue, and schema v16 adds the
+session collaboration ledger and its turn-queue binding. A fresh database
+creates neither A2A tables nor unowned plugin-session rows. The schema version is an
 internal persistence invariant, not an additional JSON-RPC field; the
 checkpoint architecture remains host-owned.
 
@@ -205,6 +206,44 @@ type ToolBudgetHealth = {
   by last-opened time; includes records materialized by session imports
 - `projects.create({ path })` — upserts a durable project record without
   changing the active workspace and returns the host-generated project id
+- `projects.remove({ path })` — deletes one durable project row together with
+  every session attached to it, removing those sessions' transcript, scratch,
+  and review files and the project's durable memory, and never touching the
+  project folder on disk. Idempotent: an unknown path returns
+  `{ removed: false, sessionsRemoved: 0 }`. A path that is a root of a stored
+  multi-folder project group is refused so the group keeps a valid primary root,
+  and the call is refused (1008 / `CONFLICT`) while any attached session has a
+  running turn, so a live turn never loses the transcript it is writing.
+- `project.memory.get({ path })` — returns the durable memory for the canonical
+  project path, or an empty record when no memory has been saved
+- `project.memory.set({ path, entries })` — normalizes and stores visual memory
+  entries, derives readable `content`, and validates the 32 KiB limit. The
+  derived value is injected into that project's next runtime context as
+  user-provided context. `{ path, content }` remains supported for legacy
+  callers and returns a memory record without structured entries.
+- `project.groups.list` — returns one host-owned logical group per named
+  project. Existing path-only records are compatibility `legacy` groups.
+- `project.group.create({ name, folders })` — validates the display name and
+  local directories, stores the ordered roots, and returns the new group
+  without changing the active workspace. A non-legacy root cannot belong to a
+  second group.
+- `project.group.rename({ groupId, name })` — persists the group display name.
+- `project.group.update({ groupId, name, folders })` — edits the group name and
+  ordered roots. The primary root must remain first; duplicate roots are
+  removed, roots owned by another non-legacy group are rejected, and a root
+  with existing chats cannot be detached. Removed roots are retained as
+  suppressed historical paths rather than reappearing as standalone legacy
+  groups.
+- `project.group.memory.get/set({ groupId, entries })` — reads or normalizes
+  shared group memory using the existing 32 KiB entry limit.
+- `project.group.instructions.get/set({ groupId, content })` — reads or stores
+  shared group instructions using a bounded host-owned value.
+- `project.group.context({ path })` — resolves the group containing a primary or
+  member root and returns its shared instructions and memory for runtime launch.
+  Legacy groups return no group context so the path-scoped compatibility APIs
+  remain authoritative. Builtin tools default to the primary root; absolute
+  paths under registered additional roots use the same canonical containment
+  resolver and never become arbitrary external access.
 
 ### Secrets
 - `secrets.set`
@@ -234,8 +273,10 @@ to later refresh and inference; the vendor picker does not collect them.
 ### Sessions
 - `session.list` — returns summaries with host-authoritative `messageCount`
   alongside the existing session metadata
-- `session.create` — accepts optional `thinkingLevel`; missing/null defaults
-  to `off`
+- `session.create` — accepts optional `thinkingLevel` and optional
+  `inheritPermissionFromSessionId`; when present, the host copies the existing
+  session's persisted permission mode atomically, while omission preserves the
+  existing `inherit` default. Missing/null thinking level defaults to `off`.
 - `session.fork` — accepts `sessionId`, an optional caller-provided display
   `title`, and optional `throughMessageId`; creates
   one independent session from the source's current active canonical
@@ -257,6 +298,16 @@ to later refresh and inference; the vendor picker does not collect them.
   positions, clamped against the cached transcript layout rather than the
   deduplicated session index counter, and a window is served by seeking to its
   first selected line instead of scanning the history before it.
+  Optional `messageAround` centers that window on a stable message ID resolved
+  against the canonical file, requires `messageLimit`, and excludes
+  `messageBefore`. Missing IDs return no session. The focused user/assistant
+  message retains its complete text; neighboring text and tool fields stay
+  capped. Bounded reads also return exclusive physical `messageEnd` and
+  `hasMoreAfter` to support contiguous forward pages (ADR session-content-search).
+  When the selected message has `parentToolCallId`, optional `navigationParent`
+  contains the latest matching Task tool-call projection from the same canonical
+  transcript. It is capped separately and does not widen the window or alter its
+  cursors. Ordinary and uncapped reads omit this navigation-only field.
 - `session.delete`
 - `session.getScratchPath` — the session's scratch directory (D114), created
   on demand
@@ -340,10 +391,21 @@ to later refresh and inference; the vendor picker does not collect them.
   last archive is lost. When the family is present in the durable transcript,
   the prefix in front of the restored branch is taken from there rather than
   from the caller. Surviving messages keep their owning `turn_id`
-- `session.beginTurn`
-- `session.queuePush` / `session.queueList` / `session.queueRemove` — the
-  Host-owned turn queue (D386 / ADR 0213, schema v15); push is idempotent per
-  principal and key, bounded at eight entries per session
+- `session.beginTurn({ sessionId, providerId?, modelId?, sessionMessageId? })` —
+  starts one durable turn. When `sessionMessageId` is present, host-core
+  atomically verifies that the queued collaboration delivery targets this
+  session, rechecks its permission ceiling, claims the delivery, and binds the
+  new turn to its message id. A collaboration turn cannot be started from
+  caller-supplied replacement text.
+- `session.queuePush` / `session.queueList` / `session.queueRemove` /
+  `session.queuePrioritize` / `session.queueReorder` — the Host-owned turn queue
+  (D386 / ADR 0213 / ADR 0265, schema v18); push is idempotent per principal and
+  key, bounded at eight entries per session. `queuePrioritize` appends an entry
+  to the end of its session's priority block (`priority = MAX + 1`) and refuses
+  an already promoted entry with `CONFLICT`; `queueReorder` swaps one
+  non-promoted entry with its adjacent non-promoted neighbour and reports
+  `{ moved }`. Listing and delivery order is `priority ASC` for promoted entries
+  followed by `position ASC` for the rest
 - `session.endTurn` — atomically moves a running turn to its terminal state and
   conditionally returns the newly created notification for `completed`/`error`;
   returns no notification when `createNotification=false`, for `aborted`, or
@@ -373,6 +435,39 @@ Electron main after plugin permission and manifest-source checks:
 - Successful plugin session mutations cause Electron main to emit one
   `sessionsChanged` renderer event; the renderer refreshes the session list,
   and plugins do not emit this UI synchronization event.
+
+Host-internal session collaboration methods are additive to protocol v11 and
+are called by Electron main only after the reviewed plugin gateway has checked
+the plugin permission and active Agent tool invocation. They are not renderer
+or general MCP operations:
+
+- `session.collaboration.spawn` — create a bounded Agent worker session that
+  inherits the source project's, thinking, and permission configuration, create
+  its first `task` delivery, and return the real target `sessionId` plus the
+  message record. Worker creation is limited per parent and plugin; a worker
+  cannot create another worker.
+- `session.collaboration.send` — enqueue a `task` or `message` delivery to an
+  existing Agent session. The host binds `sourceSessionId` and `sourceTurnId`
+  to the current plugin tool invocation, enforces idempotency, a target inbox
+  bound, the source permission ceiling, and a bounded autonomous hop count.
+- `session.collaboration.message` — read one durable delivery by message id for
+  Electron's dispatch and provenance paths.
+- `session.collaboration.status` / `session.collaboration.result` — return a
+  bounded status/result projection without loading a complete worker
+  transcript. `result` may select a delivery by `messageId` or `turnId`.
+- `session.collaboration.pending` — list queued completion callbacks for the
+  Electron drain; `fail` records a dispatch failure and creates the requested
+  failure callback once; `settle` derives the result from the persisted turn
+  and creates at most one completion callback.
+- `session.collaboration.cancel` — cancel queued deliveries or interrupt their
+  exact currently-bound turns while retaining the target session and history.
+
+The ledger is durable across a host restart. A queued entry with its
+`turn_queue.session_message_id` remains held for a new Agent Host controller;
+an unclaimed or running delivery is marked `interrupted` by the startup fence
+and is never replayed automatically. Transcript provenance is host-derived and
+cannot be forged or removed by `session.appendMessage` or transcript
+replacement.
 
 The host rejects unknown roles, non-RFC3339 or non-monotonic timestamps, and
 oversized/deep payloads. Tool values are sanitized for host-reserved keys. The
@@ -501,6 +596,15 @@ one after the final row would be wrong.
 ### Providers and models
 - `providers.list` / `providers.get` / `providers.create` /
   `providers.update` / `providers.delete`
+- a plugin-owned row (`ownerPluginId`) is refreshed from its manifest on every
+  load, so `providers.update` / `providers.delete` refuse it with a
+  `PROVIDER_OWNED_BY_PLUGIN` error; only the owning plugin's lifecycle changes
+  or removes it (ADR 0259)
+- `providers.setSecret({ id, secretValue })` — stores or clears one provider's
+  API key (`secret:provider:<id>:api_key` and the row's `secret_ref`). It is the
+  write a plugin-owned row accepts: only the credential the declaration asks for
+  changes, never a field the manifest owns. An empty or omitted `secretValue`
+  deletes the stored key. Returns `{ provider }`, or `null` for an unknown id
 - `providers.getSecret` — main/host only, never reachable from the renderer
 - `providers.listModels` / `providers.cacheModels` — discovered model rows
   and their host-side cache (ADR 0027 / ADR 0134)
@@ -522,8 +626,29 @@ one after the final row would be wrong.
 activation-scope filtering (`CAPABILITY_INVALID` for an unknown scope).
 
 ### Search, artifacts, keyboard
-- `search.query` — global search across sessions, projects, and settings
-  destinations (ADR 0034)
+- `search.query` — legacy indexed-message hits; existing response and limit remain compatible
+- `search.sessions({ query, offset? }) -> { hits, nextOffset }` — global session
+  discovery with title/project metadata and indexed user/assistant text. Trimmed
+  literal queries have a 500-character limit (`INVALID_ARGUMENT` above it).
+  Each 30-session page includes `session`, `projectName`, `metadataMatch`, the
+  full matching `messageCount`, and at most two `matches` containing
+  `messageId`, `role`, `createdAt`, and a `snippet` containing the matching
+  sentence or line. Long sentences are capped to a match-centered 180-character
+  window, extended when needed to preserve the complete literal query.
+  `nextOffset: null` marks the last page. Sort by updated time descending and
+  session ID ascending; exclude soft-deleted sessions. Empty queries return no
+  hits because the renderer owns its recent-session presentation.
+- `search.context({ sessionId, messageId, query, direction? })` — resolve a
+  stable message ID in the owning, non-deleted session's JSONL layout. Default
+  `direction: "around"` returns up to 21 nearby message text projections;
+  `"before"` / `"after"` returns up to 20 messages excluding the anchor. Return
+  `messages`, `hasMoreBefore`, `hasMoreAfter`, `previousMatchId`, and
+  `nextMatchId`. Adjacent matching IDs follow transcript sequence order and
+  have no 100-message cutoff. Context comes from canonical JSONL and is capped
+  at 64 Ki characters per message; the target is centered on the query. Tool
+  bodies, thinking, and attachments are omitted. Missing/deleted targets return
+  `NOT_FOUND`; invalid directions or identifiers return `INVALID_ARGUMENT`.
+  See [ADR session-content-search](../../adr/session-content-search.md).
 - `artifacts.list` — Plan/Goal checkpoint artifacts for a session
 - `keyboard.setGlobalShortcut` — host-owned native fallback for the plugin
   launcher chord where Electron cannot register it

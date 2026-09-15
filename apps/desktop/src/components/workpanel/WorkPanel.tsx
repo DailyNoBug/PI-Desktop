@@ -26,8 +26,11 @@ import {
   IconBot,
   IconChevronLeft,
   IconClose,
+  IconChat,
   IconDiff,
   IconFileText,
+  IconPanelMaximize,
+  IconPanelRestore,
   IconPlug,
   IconPlus,
   IconTerminal,
@@ -37,12 +40,16 @@ import { ReviewTab } from "./ReviewTab";
 import { FilesTab } from "./FilesTab";
 import { PluginViewTab } from "./PluginViewTab";
 import { SubagentPanel } from "./SubagentPanel";
+import { SideChatTab } from "./SideChatTab";
 import type { SubagentPanelSelection } from "../../lib/subagent-panel";
 import {
-  WORK_PANEL_MAX_WIDTH,
+  MAIN_PANE_MIN_WIDTH,
+  WORK_PANEL_COMPACT_MIN_WIDTH,
   WORK_PANEL_MIN_WIDTH,
   clampWorkPanelWidth,
+  workPanelLayout,
 } from "../../lib/work-panel-resize";
+import { sideChatTabSessionId } from "../../lib/side-chat";
 
 const TAB_ICONS = {
   new: IconPlus,
@@ -50,12 +57,14 @@ const TAB_ICONS = {
   terminal: IconTerminal,
   file: IconFileText,
   plugin: IconPlug,
+  sidechat: IconChat,
 } as const;
 
 type WorkPanelResizeState = {
   pointerId: number;
   startClientX: number;
   startWidth: number;
+  minimumWidth: number;
   currentWidth: number;
   frame: number;
 };
@@ -81,6 +90,9 @@ function tabLabel(
     // back to its id rather than leaving the tab blank until it closes.
     return view?.title ?? tab.resource ?? t("panel.tabs.plugin");
   }
+  // The side-chat tab shows a conversation, so it reuses the side chat's own
+  // label instead of inventing a second name for the same surface (D-LOCAL-message-quotes).
+  if (tab.kind === "sidechat") return t("sideChat.title");
   if (tab.kind === "new") return t("panel.new.title");
   if (tab.kind !== "file") return t(`panel.tabs.${tab.kind}`);
   const path = tab.resource ?? "";
@@ -136,6 +148,13 @@ export function WorkPanel({
   onExitAnimationEnd,
   subagentPanel = null,
   onCloseSubagentPanel,
+  containerWidth = 0,
+  sidebarCollapsed = false,
+  sidebarExiting = false,
+  sidebarWidth = 0,
+  onAutoCollapseSidebar,
+  maximized = false,
+  onToggleMaximize,
 }: {
   /**
    * Hides every native surface in the panel. Both the preview browser and a
@@ -149,6 +168,19 @@ export function WorkPanel({
   /** Temporarily replaces the resource body with the selected subagent detail. */
   subagentPanel?: SubagentPanelSelection | null;
   onCloseSubagentPanel?: () => void;
+  /** Current renderer shell width used for the three-column budget. */
+  containerWidth?: number;
+  /** Sidebar state is part of the shared shell budget. */
+  sidebarCollapsed?: boolean;
+  /** Keep the dock in the budget while `sidebar-out` still occupies flex space. */
+  sidebarExiting?: boolean;
+  sidebarWidth?: number;
+  /** Called on the first frame where the main pane would hit its hard floor. */
+  onAutoCollapseSidebar?: () => void;
+  /** Preview mode: the panel takes MainChat's width as well. */
+  maximized?: boolean;
+  /** Toggles the preview mode from the panel header. */
+  onToggleMaximize?: () => void;
 }) {
   const { t } = useTranslation();
   const rawTabs = useAppStore((s) => s.workPanelTabs);
@@ -174,8 +206,34 @@ export function WorkPanel({
   const [nativeSurfaceReadyForExit, setNativeSurfaceReadyForExit] =
     useState(false);
 
-  const renderPanelWidth = clampWorkPanelWidth(panelDragWidth ?? width);
+  const requestedPanelWidth = panelDragWidth ?? width;
+  const panelMinimum =
+    requestedPanelWidth < WORK_PANEL_MIN_WIDTH
+      ? WORK_PANEL_COMPACT_MIN_WIDTH
+      : WORK_PANEL_MIN_WIDTH;
+  // The first render can precede ResizeObserver's first notification. Use a
+  // conservative shell estimate for that frame; the measured width takes over
+  // before a user can interact with the divider.
+  const sidebarOccupiesBudget = !sidebarCollapsed || sidebarExiting;
+  const budgetWidth =
+    containerWidth > 0
+      ? containerWidth
+      : requestedPanelWidth +
+        (sidebarOccupiesBudget ? sidebarWidth : 0) +
+        MAIN_PANE_MIN_WIDTH;
+  const layout = workPanelLayout({
+    containerWidth: budgetWidth,
+    sidebarWidth,
+    sidebarCollapsed: !sidebarOccupiesBudget,
+    requestedPanelWidth,
+    maximized,
+  });
+  const renderPanelWidth = layout.panelWidth;
   const isResizing = panelDragWidth !== null;
+
+  useLayoutEffect(() => {
+    if (!exiting && layout.shouldCollapseSidebar) onAutoCollapseSidebar?.();
+  }, [exiting, layout.shouldCollapseSidebar, onAutoCollapseSidebar]);
 
   useEffect(() => {
     if (isResizing) {
@@ -284,22 +342,25 @@ export function WorkPanel({
 
   const onPanelResizeStart = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      // While maximized there is no second column to trade width with.
+      if (maximized) return;
       if (event.button !== 0 || panelResizeState.current) return;
       event.preventDefault();
       event.stopPropagation();
       event.currentTarget.focus({ preventScroll: true });
-      const startWidth = clampWorkPanelWidth(width);
+      const startWidth = clampWorkPanelWidth(renderPanelWidth, panelMinimum);
       panelResizeState.current = {
         pointerId: event.pointerId,
         startClientX: event.clientX,
         startWidth,
+        minimumWidth: panelMinimum,
         currentWidth: startWidth,
         frame: 0,
       };
       setPanelDragWidth(startWidth);
       event.currentTarget.setPointerCapture(event.pointerId);
     },
-    [width],
+    [maximized, panelMinimum, renderPanelWidth],
   );
 
   const onPanelResizeMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -307,6 +368,7 @@ export function WorkPanel({
     if (drag?.pointerId !== event.pointerId) return;
     drag.currentWidth = clampWorkPanelWidth(
       drag.startWidth + drag.startClientX - event.clientX,
+      drag.minimumWidth,
     );
     if (drag.frame) return;
     drag.frame = requestAnimationFrame(() => {
@@ -348,17 +410,21 @@ export function WorkPanel({
         finishPanelResize(event.currentTarget, drag.pointerId, true);
         return;
       }
+      // While maximized there is no second column to trade width with.
+      if (maximized) return;
       const step = event.shiftKey ? 32 : 16;
+      const minimum = Math.min(panelMinimum, layout.maxPanelWidth);
+      const maximum = Math.max(minimum, layout.maxPanelWidth);
       let nextWidth: number | null = null;
-      if (event.key === "ArrowLeft") nextWidth = width + step;
-      else if (event.key === "ArrowRight") nextWidth = width - step;
-      else if (event.key === "Home") nextWidth = WORK_PANEL_MIN_WIDTH;
-      else if (event.key === "End") nextWidth = WORK_PANEL_MAX_WIDTH;
+      if (event.key === "ArrowLeft") nextWidth = renderPanelWidth + step;
+      else if (event.key === "ArrowRight") nextWidth = renderPanelWidth - step;
+      else if (event.key === "Home") nextWidth = minimum;
+      else if (event.key === "End") nextWidth = maximum;
       if (nextWidth === null) return;
       event.preventDefault();
-      setWidth(clampWorkPanelWidth(nextWidth));
+      setWidth(clampWorkPanelWidth(nextWidth, minimum));
     },
-    [finishPanelResize, setWidth, width],
+    [finishPanelResize, layout.maxPanelWidth, maximized, panelMinimum, renderPanelWidth, setWidth],
   );
 
   const activePluginView =
@@ -371,6 +437,7 @@ export function WorkPanel({
   const exitAnimationReady = exiting && nativeSurfaceReadyForExit;
   const panelStyle = {
     width: renderPanelWidth,
+    maxWidth: layout.maxPanelWidth,
     "--work-panel-width": `${renderPanelWidth}px`,
   } as CSSProperties;
 
@@ -378,6 +445,7 @@ export function WorkPanel({
     <aside
       className={cx(
         "work-panel",
+        maximized && "is-maximized",
         exiting && !exitAnimationReady && "is-exit-pending",
         exitAnimationReady && "is-exiting",
       )}
@@ -397,9 +465,17 @@ export function WorkPanel({
         role="separator"
         aria-orientation="vertical"
         aria-label={t("panel.resize")}
-        aria-valuemin={WORK_PANEL_MIN_WIDTH}
-        aria-valuemax={WORK_PANEL_MAX_WIDTH}
+        aria-valuemin={Math.min(
+          panelMinimum,
+          Math.max(WORK_PANEL_COMPACT_MIN_WIDTH, layout.maxPanelWidth),
+        )}
+        aria-valuemax={Math.max(
+          Math.min(panelMinimum, layout.maxPanelWidth),
+          layout.maxPanelWidth,
+        )}
         aria-valuenow={Math.round(panelDragWidth ?? renderPanelWidth)}
+        aria-disabled={maximized || undefined}
+        data-maximized={maximized ? "true" : undefined}
         tabIndex={0}
         onPointerDown={onPanelResizeStart}
         onPointerMove={onPanelResizeMove}
@@ -496,6 +572,20 @@ export function WorkPanel({
                 <IconPlus size={16} />
               </TooltipButton>
             )}
+            <TooltipButton
+              type="button"
+              className="work-panel-maximize"
+              tooltip={t(maximized ? "panel.restore" : "panel.maximize")}
+              ariaLabel={t(maximized ? "panel.restore" : "panel.maximize")}
+              aria-pressed={maximized}
+              onClick={() => onToggleMaximize?.()}
+            >
+              {maximized ? (
+                <IconPanelRestore size={15} />
+              ) : (
+                <IconPanelMaximize size={15} />
+              )}
+            </TooltipButton>
           </div>
         </header>
         <div className="work-panel-body">
@@ -555,6 +645,25 @@ export function WorkPanel({
                     // Native WebContentsViews composite above renderer content.
                     blocked={exiting || panelBlocked}
                   />
+                </div>
+              );
+            })()}
+          {/* A side chat docks the child session's conversation beside the main
+              one. The child retains its renderer-owned transcript while another tab is visible. */}
+          {!subagentPanel &&
+            activeTab?.kind === "sidechat" &&
+            (() => {
+              const sessionId = sideChatTabSessionId(activeTab);
+              if (!sessionId) return null;
+              return (
+                <div
+                  key={activeTab.id}
+                  id={`work-panel-surface-${activeTab.id}`}
+                  className="work-panel-tabpane"
+                  role="tabpanel"
+                  aria-labelledby={`work-panel-tab-${activeTab.id}`}
+                >
+                  <SideChatTab sessionId={sessionId} />
                 </div>
               );
             })()}

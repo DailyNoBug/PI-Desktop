@@ -1,4 +1,4 @@
-# 04. Data Storage (Schema v15)
+# 04. Data Storage (Schema v17)
 
 ## 0. Ownership decision
 
@@ -31,6 +31,16 @@ schema v7, v8, v11, and v14:
 4. **Extensible without migrations** where cheap (block vocabulary, JSONL line
    types, kv namespaces, `config_json` columns), **with migrations** where
    structural (new entities), versioned by `PRAGMA user_version`.
+
+Project groups use the existing `kv` extension boundary rather than a new
+relational schema. The host stores one JSON record per group in the
+`projectGroups` namespace, shared memory in `projectGroupMemory`, and shared
+instructions in `projectGroupInstructions`. The record contains the stable group
+id, display name, ordered canonical roots, primary root, timestamps, and optional
+`detachedPaths`. Removed roots stay in `detachedPaths` so an old path project
+record is not recreated as a standalone legacy group; sessions and files are not
+deleted. Existing path projects are projected as legacy single-root groups at
+read time; their path-scoped memory and filesystem instructions remain readable.
 5. **Plan/Goal checkpoints are immutable host artifacts** with recorded path,
    hash, and size; the existing approval row also carries execution fields.
    Startup interruption is the process-epoch fence and no work is replayed.
@@ -138,7 +148,10 @@ Rules:
   for an active turn; a completed-turn checkpoint has an empty tail. The
   `details.retainedTailMode` value (`active_turn` or `completed_turn`) preserves
   that boundary, while legacy records are normalized to their latest user
-  message. If the active message crossed the retention limit it is stored in
+  message. When the bound model requires DeepSeek-style reasoning replay,
+  `details.retainedReasoning` may hold a bounded list of prior thinking turns
+  (text + thinking only) so post-compaction Completions requests can echo
+  usable reasoning without restoring tool-call pairs (ADR 0256 / #296). If the active message crossed the retention limit it is stored in
   marked, truncated form; the original message lines stay complete and
   authoritative for UI/diagnostics. An automatic compaction failure may store
   `details.fallback = "retained_tail"` and a short recovery summary instead of
@@ -208,6 +221,7 @@ CREATE TABLE kv (
 | `ui` | non-critical UI state the renderer asks the host to keep |
 | `cache` | model-refresh stamps, recent model refs (spec 13 §3) |
 | `plugin:<id>` | per-plugin settings; uninstall = `DELETE WHERE ns = ?` |
+| `projectMemory` | durable user-authored context keyed by canonical project path; structured values contain `format: "entries-v1"`, visual `entries`, derived `content`, and `updatedAt` |
 
 New config domains (e.g. MCP servers) start as a namespace; they graduate to
 tables only when they need relations or indexes.
@@ -287,6 +301,14 @@ CREATE TABLE projects (
 - The *current* visible workspace is `kv(app, currentProjectId)` — no singleton
   table, no partial-unique flag. Retained tabs do not add more current-project
   fields.
+- Project memory is host-owned in `kv(ns='projectMemory', key=<canonical path>)`
+  rather than renderer preferences. It is independent for every project path,
+  capped at 32 KiB, and is loaded by Electron main when a project session
+  starts. Visual entries are normalized and rendered to plain `content` for
+  the runtime; legacy plain-text values remain readable and are shown as one
+  untitled entry when opened in the editor. The runtime labels it as
+  user-provided context so it cannot become a replacement for safety, tool, or
+  collaboration rules.
 
 ### 4.3 providers
 
@@ -308,8 +330,15 @@ CREATE TABLE providers (
   default_model_id TEXT,
   config_json      TEXT NOT NULL DEFAULT '{}',
   created_at       INTEGER NOT NULL,
-  updated_at       INTEGER NOT NULL
+  updated_at       INTEGER NOT NULL,
+  -- Owning plugin id for a row a plugin declared in `contributes.providers`
+  -- (schema v17, ADR 0259). NULL is a user-owned row: the plugin refreshes its
+  -- own fields on every load, while the user path may edit or delete only the
+  -- rows it owns.
+  owner_plugin_id  TEXT
 );
+CREATE INDEX idx_providers_owner ON providers(owner_plugin_id)
+  WHERE owner_plugin_id IS NOT NULL;
 ```
 
 ### 4.4 models — catalog cache
@@ -566,6 +595,7 @@ CREATE TABLE turn_queue (
   attachments_json TEXT,
   permission_mode  TEXT NOT NULL,
   position         INTEGER NOT NULL,
+  priority         INTEGER,
   created_at       INTEGER NOT NULL
 );
 CREATE INDEX idx_turn_queue_session ON turn_queue(session_id, position);
@@ -576,17 +606,96 @@ CREATE UNIQUE INDEX idx_turn_queue_idempotency
 
 - One row per prompt admitted behind an active turn (D375 / ADR 0213). The
   headless Agent Host module is the only writer through `session.queuePush`,
-  `session.queueList`, and `session.queueRemove`; the store never starts a
-  turn.
+  `session.queueList`, `session.queueRemove`, `session.queuePrioritize`, and
+  `session.queueReorder`; the store never starts a turn.
 - `position` is per session and only grows, so a removed entry never
   reorders the rest. `principal` plus `idempotency_key` make a retried push
   return the same row; a reused key with a different `input_hash` fails with
+  `IDEMPOTENCY_CONFLICT`. A session holds at most eight entries.
+- `priority` (schema v18, ADR 0265) is `NULL` until the entry is promoted with
+  "send now"; a promotion writes `MAX(priority) + 1` inside the session, so
+  promoted entries are delivered first in click order and the remaining entries
+  keep their `position` order. `queueReorder` swaps two adjacent non-promoted
+  `position` values and refuses a promoted entry.
   `IDEMPOTENCY_CONFLICT`. A session holds at most eight entries.
 - `attachments_json` keeps the prompt's attachment references; bytes stay in
   the session scratch or project root like any other prompt attachment.
 - After a restart the module lists every entry, holds each session's queue
   until a controller attaches, and drains one entry after the active turn's
   terminal event. Deleting the session cascades to its entries.
+
+### 4.6c session collaboration ledger — Host-owned delivery state (schema v16)
+
+```sql
+CREATE TABLE session_collaboration_links (
+  session_id            TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  created_by_session_id TEXT NOT NULL,
+  plugin_id             TEXT NOT NULL,
+  created_at            INTEGER NOT NULL
+);
+
+CREATE TABLE session_collaboration_messages (
+  id                    TEXT PRIMARY KEY,
+  plugin_id             TEXT NOT NULL,
+  source_session_id     TEXT NOT NULL,
+  source_title          TEXT NOT NULL,
+  target_session_id     TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  target_title          TEXT NOT NULL,
+  kind                  TEXT NOT NULL CHECK(kind IN ('task', 'message', 'completion')),
+  content               TEXT NOT NULL,
+  status                TEXT NOT NULL CHECK(status IN
+    ('queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted')),
+  notify_on_completion  INTEGER NOT NULL DEFAULT 0,
+  turn_id               TEXT REFERENCES turns(id) ON DELETE SET NULL,
+  reply_to_message_id   TEXT,
+  idempotency_key       TEXT NOT NULL,
+  remaining_hops        INTEGER NOT NULL,
+  permission_ceiling    TEXT NOT NULL CHECK(permission_ceiling IN
+    ('ask', 'accept-edits', 'auto')),
+  result                TEXT,
+  error                 TEXT,
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL,
+  UNIQUE(plugin_id, source_session_id, idempotency_key)
+);
+
+CREATE UNIQUE INDEX idx_session_collaboration_turn
+  ON session_collaboration_messages(turn_id) WHERE turn_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_session_collaboration_receipt
+  ON session_collaboration_messages(reply_to_message_id)
+  WHERE kind = 'completion';
+```
+
+- The ledger is the authoritative identity and lifecycle record for a
+  plugin-mediated delivery. `source_session_id` and `target_session_id` are
+  real durable Session IDs; titles are display snapshots only. `turn_id` is
+  assigned when the target actually begins the delivery, not when a plugin
+  creates the record.
+  `source_session_id` deliberately has no foreign key, unlike
+  `target_session_id`, which cascades, so a delivery record and its completion
+  receipt outlive a deleted sender. Read projections therefore report such
+  references with `available: false` instead of dropping the row.
+- `turn_queue.session_message_id` binds a queued Agent Host admission to its
+  ledger row. A retry with the same `(plugin_id, source_session_id,
+  idempotency_key)` returns the original delivery; changing its target, body,
+  kind, or callback flag fails with `IDEMPOTENCY_CONFLICT`.
+- A callback is a `kind = 'completion'` row with
+  `reply_to_message_id` pointing at the original delivery. The partial unique
+  index and the host settlement transaction make callback creation
+  at-most-once. Callback bodies contain a bounded result/error projection; the
+  original target transcript remains the full source of truth.
+- The host snapshots the sender's effective permission ceiling and rejects a
+  target whose current effective mode exceeds it. Autonomous chains decrement
+  `remaining_hops`; completion rows cannot create another automatic callback.
+- On startup, queued work that still has a `turn_queue` row remains held for
+  the Agent Host controller. Running work and queued deliveries without a
+  queue admission are marked `interrupted`; the startup fence never replays a
+  turn without a new controller admission.
+- Collaboration provenance is stored in the transcript line's `meta` as
+  `sessionMessage` and is projected to the UI as `UiMessage.sessionMessage`.
+  Host validation prevents forged, stripped, edited, or regenerated
+  collaboration input from becoming ordinary human input. This metadata is
+  additive and does not require a column in `messages`.
 
 ### 4.7 messages — transcript index
 
@@ -687,9 +796,23 @@ to.
 
 ### 4.8 messages_fts — full-text search
 
-Global search across transcripts (WorkBuddy-benchmark search, command
-palette). Trigram tokenizer covers CJK and substring matches; queries shorter
-than 3 chars fall back to `LIKE` on `messages.text`.
+The legacy `search.query` message search uses a trigram tokenizer for CJK and
+substring matches; queries shorter than 3 chars fall back to `LIKE` on
+`messages.text`. The desktop session search below reuses this index with a
+Unicode-aware literal verification step.
+
+Desktop session discovery (`search.sessions`) counts every matching indexed
+user/assistant message before paginating by session. It excludes sessions with
+`deleted_at` set and treats title/project matches separately from body counts.
+FTS queries are quoted literals and all candidates are verified with a
+host-owned Unicode lowercase literal predicate. Short queries and non-ASCII
+case mappings use that predicate directly, preserving title search behavior
+and keeping message retrieval consistent with renderer highlighting. `%`, `_`, quotes, and
+backslashes are literal text. Snippets surround the match, including short CJK
+queries, rather than always taking the start of the message. Context navigation
+resolves stable IDs against physical JSONL positions, and displays canonical
+JSONL text without modifying SQLite or the live transcript cache. See
+[ADR session-content-search](../../adr/session-content-search.md).
 
 ```sql
 CREATE VIRTUAL TABLE messages_fts USING fts5(
@@ -970,6 +1093,7 @@ is the source of truth, the index is derived and self-healing.
 | revision switch | append a refresh line for the live branch's own variant, read the target branch, atomic transcript rewrite keeping checkpoints whose anchors survive | flip `is_active`, rebuild index rows carrying each surviving message's owning `turn_id`, reset `last_seq` |
 | import | write transcript file | one tx per session: session row + index rows; on failure the file is removed |
 | session delete | remove both session files after row delete | `DELETE FROM sessions` (cascades); Electron main drops that session's outbox entries (D318) |
+| project delete (`projects.remove`) | remove each owned session's files after its row delete | one tx per session (`DELETE FROM sessions`, cascades) plus the project row and its `projectMemory` kv entry; the project folder on disk is never touched |
 | orphaned session restore (boot / `session.appendMessage`, D318) | leave the live JSONL in place | reinsert the missing `sessions` row and rebuild index rows from the file; if the file is also gone, append inserts a stub row under the existing id so the outbox can drain |
 
 Rules: user message durable (fsync'd file line) before the turn starts;
@@ -1002,7 +1126,17 @@ projection. The full transcript remains lossless on disk and the sidecar's
 uncapped `session.get` path is unchanged for model context, edits, revisions,
 and other host-owned mutations. The renderer opens with the newest window and
 requests older windows on demand; the response's `messageStart` and
-`hasMoreBefore` fields are the only pagination state it needs.
+`hasMoreBefore` fields support backward paging. Search navigation additionally
+uses `messageAround` to center a bounded original-message window on a stable ID,
+plus exclusive physical `messageEnd` and `hasMoreAfter` for forward paging. Only
+the explicitly selected user/assistant text bypasses the display cap. The
+retained pane owns that reading window separately from live/model caches;
+missing targets never fall back to a different message (ADR session-content-search).
+A nested target additionally resolves its owning Task by tool-call ID and returns
+that latest capped projection as `navigationParent`, without adding a physical
+line to the bounded page. This is derived read-only context, not a new persisted
+relationship or index. The renderer's unified reading view is shared by ordinary
+history and search; it never becomes canonical mutation or model input.
 
 A bounded window is served through a per-session **transcript layout**: the byte
 offset of every message and compaction line, plus the file length those offsets
@@ -1116,6 +1250,19 @@ truncating at a guessed position.
 - **Schema v15 is additive.** It adds the `turn_queue` table and its two
   indexes (D386 / ADR 0213) so the Host-owned turn queue survives a restart;
   no existing row changes, and a `pi.sqlite.v14.bak` copy precedes the step.
+- **Schema v16 is additive.** It adds the session collaboration link and
+  delivery tables, their lifecycle indexes, and the nullable
+  `turn_queue.session_message_id` binding (D409 / ADR 0239). Existing
+  conversations, turns, queue entries, and plugin data remain valid. A
+  `pi.sqlite.v15.bak` copy precedes the migration; boot recovery retains
+  durable queued deliveries but never replays interrupted work automatically.
+- **Schema v17 is additive.** It adds the nullable `providers.owner_plugin_id`
+  ownership column and its partial index (ADR 0259), so a provider row a plugin
+  declares in `contributes.providers` is distinguishable from a user-created one
+  — every pre-v17 row keeps a NULL owner. A `pi.sqlite.v16.bak` copy precedes the
+  step. The v15→v16 session-collaboration step now stamps `16` (its own version)
+  instead of the latest schema constant, so a v15 file can walk both steps in one
+  launch.
 - **Schema v14 is additive.** It adds nullable `sessions.deleted_at`, the
   partial deletion index, and `session_import_origins`. Existing sessions stay
   active and have no origin rows. The migration runs in the same guarded
@@ -1241,3 +1388,73 @@ columns for anything the host filters, joins, sums, or indexes.
     session, `(pluginId, source, externalId)` idempotency, no project or model
     binding unless an explicit host-created `projectId` is supplied,
     ownership-scoped reads/mutations, and recoverable trash before purge.
+21. Schema v16 collaboration rows preserve source/target Session IDs and
+    idempotency across retries, bind deliveries to their actual target turns,
+    persist transcript provenance, create no duplicate completion callback,
+    enforce permission ceilings and hop limits, retain queued work across a
+    restart without replay, and cancel without deleting the target session.
+
+
+
+## Active-turn steering transcript reservations
+
+An accepted steering input is journaled through Electron's existing message
+outbox with `meta.steering: true`, round-tripped as `UiMessage.steering`. Smart
+Stop preserves that input even after renderer reload loses submission state.
+If an assistant is still streaming, its provisional snapshot is queued
+first to reserve its transcript position before the new user row. The host
+stores the provisional row and an in-flight checkpoint, including an empty
+reservation so crash recovery can settle it. Further stream checkpoints remain
+valid while the indexed assistant has `status: streaming`.
+
+`session.appendMessage` retains idempotent replay for completed messages. Its
+narrow exception lets a terminal assistant replace an indexed streaming
+assistant with the same session/message id. It updates exactly that transcript
+line and search text, retaining sequence, owning turn and every other row.
+Late partial snapshots and duplicate terminal snapshots cannot overwrite the
+settled result. Recovery promotes the latest checkpoint in that same position.
+The outbox likewise keeps a newer snapshot that replaces an append while its
+host call is still pending. No schema migration is required.
+
+## 12. Native Pi session authority (ADR 0254)
+
+Native Pi v3 sessions under the Pi agent session root are a second, explicitly
+source-discriminated transcript authority owned by the Node agent sidecar. They
+are never inserted into SQLite and never copied to the Desktop transcript
+directory. `session.list` merges their projections with Rust-owned
+Desktop summaries, and `session.get` routes by the opaque `native-pi:` id.
+
+Detail reads take an immutable byte snapshot, parse it into an in-memory
+`SessionManager`, and follow the current native branch. They must not call
+persistent `SessionManager.open`, because that API may repair a missing newline
+or rewrite an older format. Unknown/custom entries and unknown fields remain in
+the source bytes; context-bearing custom messages and native compaction/tree
+semantics are resolved by the pinned coding-agent SDK.
+
+A native prompt opens the original file only after exact-v3, newline, cwd,
+trust, saved-provider/auth, canonical-path, identity, and lease checks pass.
+`AgentSession` and `SessionManager` append the native entries. Desktop host turn
+and transcript append APIs are not invoked. Rename, delete, project move,
+revision, Plan/Goal, collaboration, and queue operations remain unsupported
+for native sessions in this slice. Forking and ordinary text-only side-chat
+send/stop are supported as described here and in the runtime spec.
+
+A native fork writes exactly one new v3 JSONL child in the parent's session
+directory. Branch extraction runs against an in-memory manager over the parent
+snapshot, then child title/parent saved model/thinking fallbacks are appended in
+memory. Publication is a full write to an exclusive non-jsonl temporary file in
+the same directory, followed by a same-directory hardlink to the final
+`<timestamp>_<session-id>.jsonl` name. The staged file must still match the
+captured device/inode/size/hash before the link, and the published child must
+match that same identity and hash before the child detail is projected or
+registered; a mismatch fails closed without returning a child. Cleanup removes
+only files whose device/inode and content still match what this fork wrote
+(complete files by size+hash, partial staging writes by byte prefix); foreign
+files after a failed no-clobber link are never removed. The
+parent file, its leaf, and any live runtime are never modified. The child header
+carries `parentSession` with the canonical source path; that path stays inside
+the sidecar.
+
+The first slice has no projection cache or async scan bound; every list still
+reads/parses complete files. Caching by canonical path/file identity/size/mtime
+and bounded asynchronous scanning remain deferred performance work.

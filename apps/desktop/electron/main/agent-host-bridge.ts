@@ -13,6 +13,7 @@ import {
   type SessionPort,
   type SessionSummary,
   type TurnStartRequest,
+  type TurnSteerRequest,
 } from "@pi-desktop/agent-host";
 import type {
   AgentEventEnvelope,
@@ -84,25 +85,70 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
 
   const runtime: RuntimePort = {
     async prompt(request: TurnStartRequest) {
-      const summary = await sessions.get(request.sessionId);
-      if (summary && summary.permissionMode !== request.effectivePermissionMode) {
-        // The local prompt path runs under the session's durable permission
-        // mode. A per-turn ceiling needs runtime support that lands with the
-        // RACP-WS binding; until then a capped turn fails closed.
-        throw new RacpError(
-          "FORBIDDEN",
-          "the local runtime cannot apply a per-turn permission ceiling yet",
-          { details: { effectivePermissionMode: request.effectivePermissionMode } },
-        );
+      try {
+        const summary = await sessions.get(request.sessionId);
+        if (summary && summary.permissionMode !== request.effectivePermissionMode) {
+          // The local prompt path runs under the session's durable permission
+          // mode. A per-turn ceiling needs runtime support that lands with the
+          // RACP-WS binding; until then a capped turn fails closed.
+          throw new RacpError(
+            "FORBIDDEN",
+            "the local runtime cannot apply a per-turn permission ceiling yet",
+            { details: { effectivePermissionMode: request.effectivePermissionMode } },
+          );
+        }
+        const result = (await options.invoke(options.channels.agentPrompt, [
+          {
+            sessionId: request.sessionId,
+            content: request.content,
+            ...(request.sessionMessageId ? { sessionMessageId: request.sessionMessageId } : {}),
+            ...(request.attachments ? { attachments: request.attachments } : {}),
+          },
+        ])) as { accepted?: boolean; turnId: string };
+        return { turnId: result.turnId };
+      } catch (error) {
+        if (request.sessionMessageId) {
+          try {
+            await requireHost().call("session.collaboration.fail", {
+              messageId: request.sessionMessageId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          } catch (persistenceError) {
+            options.log("warn", "collaboration dispatch failure persistence failed", {
+              sessionId: request.sessionId,
+              messageId: request.sessionMessageId,
+              error: String(persistenceError),
+            });
+          }
+        }
+        throw error;
       }
-      const result = (await options.invoke(options.channels.agentPrompt, [
-        {
+    },
+    /**
+     * Deliver one more user message into a running turn (`send now` keeps the
+     * promoted messages adjacent). This is the same channel the Composer's
+     * Alt+Enter uses, so admission, attachments, and persistence are unchanged.
+     */
+    async steer(request: TurnSteerRequest) {
+      try {
+        const result = (await options.invoke(options.channels.agentSteer, [
+          {
+            sessionId: request.sessionId,
+            expectedTurnId: request.turnId,
+            content: request.content,
+            ...(request.sessionMessageId ? { messageId: request.sessionMessageId } : {}),
+            ...(request.attachments ? { attachments: request.attachments } : {}),
+          },
+        ])) as { accepted?: boolean } | undefined;
+        return { accepted: result?.accepted !== false };
+      } catch (error) {
+        options.log("warn", "agent host steer failed", {
           sessionId: request.sessionId,
-          content: request.content,
-          ...(request.attachments ? { attachments: request.attachments } : {}),
-        },
-      ])) as { accepted?: boolean; turnId: string };
-      return { turnId: result.turnId };
+          turnId: request.turnId,
+          error: String(error),
+        });
+        return { accepted: false };
+      }
     },
     async stop(sessionId: string) {
       const result = (await options.invoke(options.channels.agentStop, [{ sessionId }])) as
@@ -110,10 +156,10 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
         | undefined;
       return { requested: result?.requested ?? true };
     },
-    async abort(sessionId: string) {
+    async abort(sessionId: string, turnId?: string) {
       abortingSessions.add(sessionId);
       try {
-        await options.invoke(options.channels.agentAbort, [{ sessionId }]);
+        await options.invoke(options.channels.agentAbort, [{ sessionId, ...(turnId ? { turnId } : {}) }]);
       } catch (error) {
         abortingSessions.delete(sessionId);
         throw error;
@@ -214,6 +260,7 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
         ...(record.idempotencyKey ? { idempotencyKey: record.idempotencyKey } : {}),
         inputHash: record.inputHash,
         content: record.content,
+        ...(record.sessionMessageId ? { sessionMessageId: record.sessionMessageId } : {}),
         ...(record.attachments ? { attachments: record.attachments } : {}),
         permissionMode: record.effectivePermissionMode,
       });
@@ -224,6 +271,13 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
     },
     async prioritize(id) {
       await requireHost().call("session.queuePrioritize", { id });
+    },
+    async reorder(id, direction) {
+      const result = await requireHost().call<{ moved?: boolean }>("session.queueReorder", {
+        id,
+        direction,
+      });
+      return result.moved === true;
     },
   };
 
@@ -247,6 +301,7 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
           ...(request.idempotencyKey ? { idempotencyKey: request.idempotencyKey } : {}),
           input: {
             text: request.content,
+            ...(request.sessionMessageId ? { sessionMessageId: request.sessionMessageId } : {}),
             ...(request.attachments ? { attachments: request.attachments } : {}),
           },
           context: { requestId: `desktop-queue-${Date.now().toString(36)}` },
@@ -259,6 +314,7 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
             id: result.turn.id,
             sessionId: request.sessionId,
             content: request.content,
+            ...(request.sessionMessageId ? { sessionMessageId: request.sessionMessageId } : {}),
             ...(request.attachments ? { attachments: request.attachments } : {}),
             position: 0,
             createdAt: new Date().toISOString(),
@@ -268,16 +324,38 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
       return agentHost.queueEntries(sessionId).map(toQueueSummary);
     },
     async remove(turnId: string): Promise<void> {
+      const turn = agentHost.getTurn(turnId);
+      const entry = agentHost.queueEntries(turn.sessionId).find((candidate) => candidate.turn.id === turnId);
+      if (entry?.sessionMessageId) {
+        await requireHost().call("session.collaboration.cancel", {
+          sessionId: turn.sessionId,
+          messageId: entry.sessionMessageId,
+        });
+      }
       await forIpc(() => agentHost.cancelTurn(DESKTOP_PRINCIPAL, turnId));
+    },
+    async cancelSessionMessage(sessionId: string, messageId: string): Promise<boolean> {
+      return forIpc(() => agentHost.cancelSessionMessage(DESKTOP_PRINCIPAL, sessionId, messageId));
     },
     async prioritize(turnId: string): Promise<void> {
       await forIpc(() => agentHost.prioritizeTurn(DESKTOP_PRINCIPAL, turnId));
+    },
+    async reorder(
+      turnId: string,
+      direction: "up" | "down",
+    ): Promise<{ moved: boolean }> {
+      return forIpc(() => agentHost.reorderTurn(DESKTOP_PRINCIPAL, turnId, direction));
     },
   };
 
   return {
     agentHost,
     queue,
+    /** A ledger stores the actual durable turn, which can differ from a queue ID. */
+    async interruptSessionMessage(sessionId: string, turnId: string): Promise<boolean> {
+      const result = await options.invoke(options.channels.agentAbort, [{ sessionId, turnId }]) as { aborted?: boolean } | undefined;
+      return result?.aborted !== false;
+    },
     /** Feed one normalized runtime event; `agent_end` after an abort is `turn.interrupted`. */
     ingest(envelope: AgentEventEnvelope): void {
       const interrupted =
@@ -313,6 +391,30 @@ export function createAgentHostBridge(options: AgentHostBridgeOptions) {
         options.log("warn", "agent host settle failed", { approvalId, error: String(error) });
       }
     },
+    /**
+     * The runtime settled one turn. Main is authoritative here: a real abort can
+     * lose its terminal event (`isStaleTerminalEvent` drops a terminal event for
+     * a turn main no longer owns, and the runtime need not emit one), and a turn
+     * left active in the Host would hold the queue forever.
+     */
+    endTurn(
+      sessionId: string,
+      turnId: string,
+      status: "completed" | "failed" | "interrupted" | "canceled",
+      error?: { code: string; message: string; retriable: boolean; traceId: string },
+    ): void {
+      abortingSessions.delete(sessionId);
+      try {
+        agentHost.endTurn(sessionId, turnId, status, error ? { error } : {});
+      } catch (error_) {
+        options.log("warn", "agent host end turn failed", {
+          sessionId,
+          turnId,
+          status,
+          error: String(error_),
+        });
+      }
+    },
     markAborting(sessionId: string): void {
       abortingSessions.add(sessionId);
     },
@@ -341,8 +443,10 @@ function toQueueSummary(entry: QueueEntryView): QueuedTurnSummary {
     id: entry.turn.id,
     sessionId: entry.turn.sessionId,
     content: entry.content,
+    ...(entry.sessionMessageId ? { sessionMessageId: entry.sessionMessageId } : {}),
     ...(entry.attachments ? { attachments: entry.attachments } : {}),
     position: entry.turn.queuePosition ?? 0,
+    ...(entry.priority !== undefined ? { priority: entry.priority } : {}),
     createdAt: entry.turn.startedAt ?? new Date().toISOString(),
   };
 }
@@ -354,9 +458,11 @@ type HostQueueEntry = {
   idempotencyKey?: string;
   inputHash: string;
   content: string;
+  sessionMessageId?: string;
   attachments?: unknown;
   permissionMode: string;
   position: number;
+  priority?: number;
   createdAt: string;
 };
 
@@ -368,10 +474,12 @@ function fromHostQueueEntry(entry: HostQueueEntry): QueuedTurnRecord {
     sessionId: entry.sessionId,
     principalSubject: entry.principal,
     content: entry.content,
+    ...(entry.sessionMessageId ? { sessionMessageId: entry.sessionMessageId } : {}),
     ...(Array.isArray(entry.attachments) ? { attachments: entry.attachments as QueuedTurnRecord["attachments"] } : {}),
     effectivePermissionMode: permissionMode,
     ...(entry.idempotencyKey ? { idempotencyKey: entry.idempotencyKey } : {}),
     inputHash: entry.inputHash,
+    ...(entry.priority !== undefined ? { priority: entry.priority } : {}),
     createdAt: Date.parse(entry.createdAt) || 0,
   };
 }

@@ -43,6 +43,13 @@
   color: var(--ds-text-primary);
 }
 
+/* A blurred window keeps :hover latched on the last row under the cursor;
+ * restore the resting paint. Active rows keep their own paint. */
+.sidebar[data-window-blur="true"] .thread-item:hover:not(.active) {
+  background: transparent;
+  color: var(--ds-text-secondary);
+}
+
 .thread-item.active {
   background: var(--ds-bg-active);
 }
@@ -97,6 +104,7 @@
   left: 8px;
   z-index: 1;
   height: 2px;
+  border-radius: var(--radius-round);
   background: var(--ds-accent);
   content: "";
   pointer-events: none;
@@ -134,6 +142,13 @@
 
 .sidebar-session-group-title:not(.static):hover {
   color: var(--ds-text-primary);
+}
+
+/* Same release for the project title's hover tile: a blurred window must not
+ * leave it lit while the pointer that caused it is gone. */
+.sidebar[data-window-blur="true"] .sidebar-session-group-title:not(.static):hover {
+  background: transparent;
+  color: var(--ds-text-secondary);
 }
 
 .sidebar-session-group-title svg {
@@ -246,4 +261,33 @@
   color: var(--ds-text-muted);
   font-size: var(--text-md); /* empty-state copy tracks group titles */
   line-height: var(--leading-compact);
+}
+
+.sidebar-pinned-sessions {
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.sidebar-session-group-body.pinned {
+  max-height: min(224px, 30vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 0 2px;
+}
+
+.sidebar-pinned-sessions .thread-item-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.thread-item-project {
+  min-width: 0;
+  max-width: 40%;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--ds-text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -1,21 +1,18 @@
+import { readAppSource } from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { loadStyles } from "./helpers/styles.mjs";
+import { readMainSource } from "./helpers/main-source.mjs";
+import { readStoreSource } from "./helpers/store-source.mjs";
+import { readTranscriptSource } from "./helpers/transcript-source.mjs";
 import {
   MAIN_PANE_MIN_WIDTH,
   WORK_PANEL_DEFAULT_WIDTH,
-  WORK_PANEL_MAX_WIDTH,
   WORK_PANEL_MIN_WIDTH,
 } from "../src/lib/work-panel-resize.ts";
-const appSource = await readFile(
-  new URL("../src/App.tsx", import.meta.url),
-  "utf8",
-);
-const mainSource = await readFile(
-  new URL("../electron/main/index.ts", import.meta.url),
-  "utf8",
-);
+const appSource = await readAppSource();
+const mainSource = await readMainSource();
 const apiSource = await readFile(
   new URL("../src/lib/api.ts", import.meta.url),
   "utf8",
@@ -28,14 +25,8 @@ const panelSource = await readFile(
   new URL("../src/components/workpanel/WorkPanel.tsx", import.meta.url),
   "utf8",
 );
-const transcriptSource = await readFile(
-  new URL("../src/components/ChatTranscript.tsx", import.meta.url),
-  "utf8",
-);
-const storeSource = await readFile(
-  new URL("../src/stores/app-store.ts", import.meta.url),
-  "utf8",
-);
+const transcriptSource = await readTranscriptSource();
+const storeSource = await readStoreSource();
 const globalStyles = await loadStyles();
 
 test("work panel replaces the context panel overlay", async () => {
@@ -136,7 +127,7 @@ test("work panel uses the fixed-window internal dock", () => {
   // only change the in-flow flex allocation inside the existing window.
   assert.match(appSource, /setWorkPanelReservation\(0\)/);
   assert.doesNotMatch(appSource, /requestedWidth\s*=\s*Math\.round\(workPanelWidth\)/);
-  assert.match(mainSource, /requestedWorkPanelReservation = 0/);
+  assert.match(mainSource, /setWorkPanelReservationWidth\(0\)/);
   assert.match(mainSource, /return \{ requested: 0, reserved: 0 \}/);
   assert.match(appSource, /commitWorkPanelPresentation/);
   assert.doesNotMatch(appSource, /\.finally\(\(\) => \{[\s\S]*setPresentedWorkPanelOpen/);
@@ -144,7 +135,7 @@ test("work panel uses the fixed-window internal dock", () => {
   // before unmounting, so MainChat reflows continuously in both directions.
   assert.match(
     appSource,
-    /<\/section>\s*\{\(presentedWorkPanelOpen \|\| workPanelExiting\) && \(?\s*<WorkPanel/,
+    /<\/section>\s*\)\}\s*\{\(presentedWorkPanelOpen \|\| workPanelExiting\) && \(?\s*<WorkPanel/,
   );
   assert.doesNotMatch(
     appSource,
@@ -164,7 +155,7 @@ test("work panel uses the fixed-window internal dock", () => {
   assert.match(panelSource, /exitAnimationReady && "is-exiting"/);
   assert.match(panelSource, /if \(!exitAnimationReady\) return/);
   assert.match(panelSource, /animationName\.startsWith\("work-panel-out"\)/);
-  assert.match(panelSource, /renderPanelWidth = clampWorkPanelWidth\(panelDragWidth \?\? width\)/);
+  assert.match(panelSource, /const renderPanelWidth = layout\.panelWidth/);
   assert.match(panelSource, /setWidth\(drag\.currentWidth\)/);
   // The panel remains a fixed-width in-flow shell sibling; its flex allocation
   // is animated with the dock so the main pane does not jump before motion.
@@ -204,7 +195,7 @@ test("work panel header exposes a scrollable tab strip and direct new-page actio
   assert.match(panelSource, /toolWorkPanelTab\("review"\)/);
   assert.match(panelSource, /pluginViews\.map\(\(view\) =>/);
   assert.doesNotMatch(panelSource, /HEADER_TOOLS|headerToolTab|HeaderToolKind/);
-  // Launchable tools are plugin views (`pi.files`, `pi.browser`, …). The
+  // Launchable tools are plugin views (`pi.file-manager`, `pi.browser`, …). The
   // `file` *kind* remains: a `file:<path>` tab is a transcript artifact.
   assert.doesNotMatch(panelSource, /\{ kind: "file", Icon/);
   assert.match(panelSource, /onClick=\{openNewWorkPanelTab\}/);
@@ -289,18 +280,23 @@ test("closing the final tab keeps the panel open for the New launcher", () => {
 });
 
 test("work panel width is renderer-owned inside the fixed window", () => {
-  assert.equal(MAIN_PANE_MIN_WIDTH, 515);
+  assert.equal(MAIN_PANE_MIN_WIDTH, 450);
   assert.equal(WORK_PANEL_DEFAULT_WIDTH, 360);
   assert.equal(WORK_PANEL_MIN_WIDTH, 244);
-  assert.equal(WORK_PANEL_MAX_WIDTH, 720);
-  assert.match(panelSource, /renderPanelWidth = clampWorkPanelWidth\(panelDragWidth \?\? width\)/);
+  assert.match(panelSource, /const renderPanelWidth = layout\.panelWidth/);
   assert.match(panelSource, /setWidth\(drag\.currentWidth\)/);
   assert.match(panelSource, /startWidth \+ drag\.startClientX - event\.clientX/);
   assert.doesNotMatch(panelSource, /api\.setWorkPanelChatWidth/);
   assert.doesNotMatch(panelSource, /api\.onWorkPanelResize/);
   assert.doesNotMatch(panelSource, /\.sidebar, \.sidebar-rail/);
-  assert.match(globalStyles, /\.main-pane \{[^}]*min-width:\s*515px;/s);
-  assert.match(globalStyles, /\.chat-surface,[\s\S]*?\.route-page \{[^}]*min-width:\s*515px;/s);
+  assert.match(
+    globalStyles,
+    /\.main-pane \{[^}]*min-width:\s*var\(--ds-main-pane-min-width, 450px\);/s,
+  );
+  assert.match(
+    globalStyles,
+    /\.chat-surface,[\s\S]*?\.route-page \{[^}]*min-width:\s*var\(--ds-main-pane-min-width, 450px\);/s,
+  );
   assert.match(globalStyles, /\.work-panel \{[^}]*flex: 0 0 var\(--work-panel-width\)/s);
   // The Electron seam remains available for old callers but is deliberately
   // inert, so no positive target can expand the native window.
@@ -308,7 +304,7 @@ test("work panel width is renderer-owned inside the fixed window", () => {
     mainSource.indexOf("IPC.invoke.windowSetWorkPanelReservation"),
     mainSource.indexOf("IPC.invoke.windowSetWorkPanelChatWidth"),
   );
-  assert.match(reservationHandler, /requestedWorkPanelReservation = 0/);
+  assert.match(reservationHandler, /setWorkPanelReservationWidth\(0\)/);
   assert.match(reservationHandler, /return \{ requested: 0, reserved: 0 \}/);
   assert.doesNotMatch(reservationHandler, /applyWorkPanelReservation/);
 });
@@ -355,8 +351,8 @@ test("native window edges never own the internal panel width", () => {
 test("work panel separator exposes internal panel width resizing", () => {
   assert.match(panelSource, /role="separator"/);
   assert.match(panelSource, /aria-label=\{t\("panel\.resize"\)\}/);
-  assert.match(panelSource, /aria-valuemin=\{WORK_PANEL_MIN_WIDTH\}/);
-  assert.match(panelSource, /aria-valuemax=\{WORK_PANEL_MAX_WIDTH\}/);
+  assert.match(panelSource, /aria-valuemin=\{Math\.min\(/);
+  assert.match(panelSource, /aria-valuemax=\{Math\.max\(/);
   assert.match(panelSource, /aria-valuenow=\{Math\.round\(panelDragWidth \?\? renderPanelWidth\)\}/);
   assert.match(panelSource, /tabIndex=\{0\}/);
   assert.match(panelSource, /startClientX:\s*event\.clientX/);
@@ -380,8 +376,8 @@ test("work panel separator exposes internal panel width resizing", () => {
 test("Electron enforces the responsive shell minimum", () => {
   assert.match(mainSource, /const WINDOW_MIN_WIDTH = 1040/);
   assert.match(mainSource, /const WINDOW_MIN_HEIGHT = 700/);
-  assert.match(mainSource, /minWidth:\s*WINDOW_MIN_WIDTH/);
-  assert.match(mainSource, /minHeight:\s*WINDOW_MIN_HEIGHT/);
+  assert.match(mainSource, /minWidth:\s*windowMinWidth/);
+  assert.match(mainSource, /minHeight:\s*windowMinHeight/);
 });
 
 test("the terminal tool is remote-only while the work panel keeps its other surfaces", () => {
@@ -425,7 +421,7 @@ test("work panel context is retained by session instead of cleared on selection"
   assert.match(storeSource, /workPanelContexts:\s*Record<string, WorkPanelContext>/);
   assert.match(storeSource, /openWorkPanelTabForSession:/);
   const selectBlock =
-    storeSource.match(/selectSession: async[\s\S]*?\n  newSession:/)?.[0] ?? "";
+    storeSource.match(/selectSession: async[\s\S]*?\n\s+newSession:/)?.[0] ?? "";
   assert.match(
     selectBlock,
     /switchWorkPanelSession\([\s\S]*id/,
@@ -454,7 +450,7 @@ test("background panel updates do not replace or resize the visible session", ()
   assert.ok(openForSessionBlock, "session-scoped tab action exists");
   assert.match(
     openForSessionBlock,
-    /const affectsVisibleSession\s*=\s*state\.activeSessionId\s*===\s*sessionId\s*&&\s*\(\s*pendingSessionSelection\s*===\s*null\s*\|\|\s*pendingSessionSelection\.id\s*===\s*sessionId\s*\)/,
+    /const affectsVisibleSession\s*=\s*state\.activeSessionId\s*===\s*sessionId\s*&&\s*\(\s*!isSessionSelectionPending\(sessionId\)\s*\)/,
     "visible-session updates require the active session and matching pending selection",
   );
   assert.match(openForSessionBlock, /workPanelContexts/);
@@ -470,14 +466,20 @@ test("background panel updates do not replace or resize the visible session", ()
 });
 
 test("deleting a session also removes its retained work panel context", () => {
-  const deleteBlock =
-    storeSource.match(/deleteSession: async[\s\S]*?\n  setSessionSort:/)?.[0] ?? "";
-  assert.ok(deleteBlock, "deleteSession action exists");
-  assert.match(deleteBlock, /workPanelContexts/);
+  // The cleanup is one shared helper so session and project deletion cannot
+  // drift apart, so the contract is asserted on the helper itself.
+  const cleanupBlock =
+    storeSource.match(/function clearLocalSessionState\([\s\S]*?\n\}/)?.[0] ?? "";
+  assert.ok(cleanupBlock, "local session cleanup helper exists");
+  assert.match(cleanupBlock, /workPanelContexts/);
   assert.match(
-    deleteBlock,
+    cleanupBlock,
     /delete workPanelContexts\[id\]|withoutRecordKey\([^)]*workPanelContexts,\s*id\)/,
   );
+  const deleteBlock =
+    storeSource.match(/deleteSession: async[\s\S]*?\n\s+setSessionSort:/)?.[0] ?? "";
+  assert.ok(deleteBlock, "deleteSession action exists");
+  assert.match(deleteBlock, /clearLocalSessionState\(/);
 });
 
 test("the panel and a new tab share the same launcher rows", async () => {
@@ -527,5 +529,76 @@ test("work panel empty states match the app's other empty-state proportions", ()
   assert.match(
     globalStyles,
     /\.work-panel-launcher-row:focus-visible \{\s*outline: 2px solid var\(--ds-focus\)/,
+  );
+});
+
+test("the shell budgets the three columns inside the fixed client area", () => {
+  // MainChat is the first-priority column: the panel is capped by the shared
+  // budget and the expanded sidebar is the column that yields.
+  assert.equal(MAIN_PANE_MIN_WIDTH, 450);
+  assert.match(
+    globalStyles,
+    /\.main-pane \{[^}]*min-width:\s*var\(--ds-main-pane-min-width, 450px\);/s,
+  );
+  assert.match(
+    globalStyles,
+    /\.chat-surface,[\s\S]*?\.route-page \{[^}]*min-width:\s*var\(--ds-main-pane-min-width, 450px\);/s,
+  );
+  assert.match(panelSource, /const renderPanelWidth = layout\.panelWidth/);
+  assert.match(panelSource, /maxWidth: layout\.maxPanelWidth/);
+  assert.match(panelSource, /sidebarOccupiesBudget = !sidebarCollapsed \|\| sidebarExiting/);
+  assert.match(panelSource, /layout\.shouldCollapseSidebar\) onAutoCollapseSidebar/);
+  assert.match(appSource, /onAutoCollapseSidebar=\{autoCollapseSidebar\}/);
+  assert.match(appSource, /containerWidth=\{shellWidth\}/);
+  assert.match(appSource, /sidebarExiting=\{sidebarExiting\}/);
+  assert.match(appSource, /workPanelWidthForSidebarReopen/);
+  assert.match(appSource, /if \(sidebarCollapsedRef\.current\) reopenSidebar\(\)/);
+  // The window itself never changes: the native reservation seam stays at
+  // zero and no committed panel width is mirrored through it.
+  assert.match(appSource, /setWorkPanelReservation\(0\)/);
+  assert.doesNotMatch(appSource, /setWorkPanelReservation\(Math\.round\(/);
+});
+
+test("preview mode keeps shell actions and restores routes before navigation", () => {
+  assert.match(appSource, /className=\{cx\([\s\S]*?"window-chrome-row"/);
+  assert.match(appSource, /data-nav="new-task"/);
+  assert.match(appSource, /<CollapsedTitlebarActions[\s\S]*?onNewTask=/);
+  assert.match(appSource, /<WindowControls contained \/>/);
+  assert.match(appSource, /const workPanelMaximizedRef = useRef\(false\)/);
+  assert.match(
+    appSource,
+    /if \(workPanelOpenRef\.current && !workPanelMaximizedRef\.current\)/,
+  );
+  assert.match(
+    appSource,
+    /if \(workPanelMaximized && page !== "chat"\) \{\s*setWorkPanelMaximized\(false\);/s,
+  );
+  assert.match(
+    appSource,
+    /case "newTask":[\s\S]*?if \(workPanelMaximizedRef\.current\) setWorkPanelMaximized\(false\);/,
+  );
+  assert.match(
+    globalStyles,
+    /\.window-chrome-row \{[\s\S]*?-webkit-app-region: drag;/,
+  );
+  assert.match(
+    globalStyles,
+    /\.window-chrome-row\.sidebar-expanded \{[\s\S]*?left: var\(--ds-sidebar-width\);/,
+  );
+  assert.match(
+    globalStyles,
+    /:root\[data-platform="darwin"\] \.window-chrome-row:not\(\.sidebar-expanded\) \{[\s\S]*?padding-left:\s*76px;/,
+  );
+  assert.match(
+    globalStyles,
+    /:root\[data-platform="darwin"\]\[data-fullscreen="true"\][\s\S]*?\.window-chrome-row:not\(\.sidebar-expanded\) \{[\s\S]*?padding-left:\s*8px;/,
+  );
+  assert.match(
+    globalStyles,
+    /:root\[data-platform="darwin"\]:not\(\[data-fullscreen="true"\]\)[\s\S]*?\.app-shell\.work-panel-maximized\.sidebar-collapsed\s+\.work-panel-header\s*\{[^}]*padding-left:\s*calc\(76px \+ var\(--ds-preview-action-lane-width\)\);/,
+  );
+  assert.match(
+    globalStyles,
+    /:root\[data-platform="darwin"\]\[data-fullscreen="true"\][\s\S]*?\.app-shell\.work-panel-maximized\.sidebar-collapsed\s+\.work-panel-header\s*\{[^}]*padding-left:\s*calc\(8px \+ var\(--ds-preview-action-lane-width\)\);/,
   );
 });

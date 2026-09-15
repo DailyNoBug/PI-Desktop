@@ -11,7 +11,14 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   section.
 
 - Left settings rail only (sidebar surface `#f4f4f4` light / `#000` dark), **~275px** (Codex gold at 1200-wide)
-- Top of rail: traffic-light clearance, **Back to app** (`返回应用`), pill **Search settings…**
+- Top of rail: traffic-light clearance and the pill **Search settings…**
+- The **Back to app** (`返回应用`) action is pinned to the foot of the rail, not
+  the top: it keeps its chevron + label form as a 32px control, and it shares
+  the horizontal band of the main shell's sidebar footer icon row (settings /
+  plugins / notifications), so the action does not jump vertically when the
+  full-page takeover opens or closes. The directory above it scrolls when the
+  window is too short for every destination, so a pinned action never covers a
+  row
 - The 46px top band is a native window drag region across both the rail and the
   content pane, but it is drawn in two parts so each keeps its own surface: the
   rail drags via its own top strip on the rail surface, and the content pane's
@@ -27,7 +34,7 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   5. **Models / 模型** — Lucide `Bot` (providers and default model)
   6. **Skills / 技能** — Lucide `BookOpen` (reusable agent instructions)
   7. **MCP** — Lucide `Server` (agent connections)
-  8. **Subagents / 子智能体** — Lucide `Bot` (personal parallel agents)
+  8. **Subagents / 子智能体** — Lucide `Bot` (built-in and personal parallel agents)
   9. **Connections / 连接** — Lucide `Server` (SSH Hosts and remote projects)
   10. **Import / 导入** — Lucide `Download` (bring sessions and model configuration in from other tools)
   11. **Projects / 项目** — Lucide `Archive` (durable project index)
@@ -42,7 +49,10 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   non-interactive labels and use whitespace for separation; no divider lines are
   rendered. These are visual landmarks only, not a second navigation level.
   When search filters the directory, empty clusters and their headings disappear.
-- No additional settings destinations or placeholder navigation rows are shown
+- Loaded plugin Settings entries may appear only in a final **Extensions** group
+  after all core groups. The host owns their ordering, search result, titlebar
+  and fallback to General. Their content is a sandboxed plugin page measured
+  into the content pane; it never covers the rail or titlebar.
 - Main content pane on primary surface with large section title + elevated
   rounded cards of rows. Its content uses the full width available after the
   fixed rail and pane gutters, and resizes continuously with the window.
@@ -109,6 +119,9 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
 ### 全局 AI (`ai` tab)
 - **Permissions** card: the global permission-mode control
   (ask / accept-edits / auto) that governs how autonomously the agent acts.
+  The control is a menu select on the shared anchored-menu surface rather than
+  a platform-drawn `<select>` popup, so every Settings picker opens the same
+  way.
 - **Defaults** card: the host-backed default operating mode (Agent / Plan / Goal),
   command shell selection, Link open destination, context usage display
   (remaining or used), Enter-to-send control, and the large text paste
@@ -128,7 +141,8 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   and the fallback state is shown. When the selected shell is available, the
   selector is the only configured-state indicator; status text is reserved for
   the default, fallback, and no-effective-shell cases. A Bash turn verifies its
-  pinned ID/dialect before execution.
+  pinned ID/dialect before execution. The row renders the same menu select as
+  the Permissions card and the Appearance pickers.
 - Context management has **no card and no controls** (D200 / ADR 0061, kept by
   D203 / ADR 0064). Automatic protection is always on and its budgets and
   retention limits are derived from the active model's window, so there is
@@ -138,7 +152,7 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   session; the transcript shows where each compaction happened and the context
   usage inspector shows whether a checkpoint is installed.
 
-Token usage is **not a Settings destination** (D335 / D404 / ADR 0230). The
+Token usage is **not a Settings destination** (D335 / D430 / ADR 0266). The
 expanded sidebar footer Activity icon, directly right of Settings, opens a
 read-only fourteen-day
 completed-turn summary from host-owned history
@@ -328,6 +342,17 @@ system while preserving their different data ownership:
   search field with a clear affordance, the selected-project picker, and the
   page's primary actions right-aligned. Subagents omits the filter and the
   picker because it is global-only, keeping only search and its actions.
+  The panel still uses two in-panel groups: **Built-in** (the five shipped
+  definitions `explorer`, `code-reviewer`, `test-runner`, `fixer`, and
+  `ui-designer`, rendered as read-only rows) and **Global**
+  (`~/.agents/subagents`, user-owned). An enabled user document of the same
+  name shadows that builtin in the Task catalog, so the Built-in row is omitted
+  while the user row remains. A disabled user document of the same name leaves
+  the builtin in the catalog (and on the Built-in list) because Task uses the
+  shipped definition again. Built-in rows carry a source badge and
+  **Copy as mine** (opens the create sheet pre-filled from that definition, with
+  the matching template chip selected); they have no enablement switch, reveal,
+  or delete because they are not files.
 - The level filter narrows which groups the panel renders; it never hides the
   toolbar or moves the actions. New capabilities are created at the level the
   filter points at — Global under All or Global, Project under Project — and
@@ -366,6 +391,14 @@ system while preserving their different data ownership:
   the width with evenly divided segments, search sits below it, and the
   actions wrap left-aligned. Group headers drop the resolved path so row copy
   keeps the width.
+- Skills exposes a Market action beside New / Import. Market is a second view
+  of the same page, not a new Settings destination: browse catalog sources,
+  preview the assembled markdown (including inlined sibling `.md` files), and
+  install through `skills.create` into `~/.agents/skills`. Built-in picks are
+  English-titled offline fallback. Default GitHub sources are queried with
+  user-added sources; a remote badge uses `sourceId`, not id collision with
+  builtin rows. Documents that would exceed the 128 KiB host cap cannot be
+  installed. Back reloads the skill list.
 - The Subagents create/edit sheet pins a model with a searchable, provider-
   grouped anchored menu — the same option-menu control the service picker uses
   — over the configured, runnable models the Composer offers, plus an
@@ -389,16 +422,20 @@ system while preserving their different data ownership:
 - Subagents open one **New subagent / Edit subagent** sheet that
   pre-fills the same fields the runtime's `BUILTIN_SUBAGENT_DOCUMENTS` ship
   with. Above the name field the sheet shows a "Start from template" row of
-  compact name chips (Explorer, Code reviewer, Test runner, Fixer, plus a
-  blank option). Chips show the localized name only; the selected chip's
-  one-line caption sits once under the row. Hyphenated preset ids
-  (`code-reviewer`, `test-runner`) resolve through an explicit catalog map
-  (`presetReviewerName` / `presetTestRunnerName`) — they must not be
+  compact name chips (Explorer, Code reviewer, Test runner, Fixer, UI
+  designer, plus a blank option). Chips show the localized name only; the
+  selected chip's one-line caption sits once under the row. Hyphenated preset
+  ids (`code-reviewer`, `test-runner`, `ui-designer`) resolve through an
+  explicit catalog map (`presetReviewerName` / `presetTestRunnerName` /
+  `presetUiDesignerName`) — they must not be
   turned into keys by capitalizing the first letter. Picking a chip
-  replaces the draft's description, tools, max turns and body wholesale.
+  replaces the draft's description, tools and body wholesale and
+  clears inherit-parent-tools. The tool grant row includes an inherit checkbox
+  (`tools: inherit`) plus the seven assignable tools; inherit-only drafts may
+  leave the assignable boxes empty. Saving must keep the inherit token.
   The chip uses the same accent-tint pill as the tool grant row. Create
   omits the long subtitle and the per-chip Apply label; model, thinking,
-  turn limit, output limit and scope sit behind an Advanced disclosure that
+  output limit and scope sit behind an Advanced disclosure that
   starts closed on create and open on edit. The output limit caps one delegate
   response (issue #171). It defaults to an empty field, which reads as "follow
   the model" rather than "no limit" — empty is the only spelling of that, so
@@ -409,9 +446,9 @@ system while preserving their different data ownership:
   is a picker over the configured providers' models; the picker groups entries
   by provider and every option comes from the configured catalog, so there is
   no hand-typed pin entry (issue #60). With no providers configured it shows
-  an empty state whose action opens Models. Builtins and project shadows stay
-  on the existing read-only rows; the picker is for new and user-owned
-  subagents only.
+  an empty state whose action opens Models. Builtins stay on the existing
+  read-only Built-in rows; the picker is for new and user-owned subagents
+  only.
   The create/edit sheet stays compact at desktop sizes: form controls are
   local filled wells with restrained padding, the prompt editor is the only
   intentionally tall control, and Advanced remains a compact disclosure. Hover
@@ -468,6 +505,15 @@ system while preserving their different data ownership:
   the destination still has no visibility toggle
 - Supports project search, add, activate, project-session expansion, pin,
   archive/restore, and close
+- A successful session import bound to an archived project restores that
+  project's renderer presentation state after the session refresh, making the
+  imported session visible in the default sidebar. Ordinary refreshes and
+  skipped imports preserve the archive choice.
+- Add project opens the Create project dialog. The user supplies a display name
+  and can select multiple local folders in one native picker; the first folder
+  is the primary root of one logical project, and the remaining folders are
+  retained as roots of that same project rather than separate project tabs.
+  Chats, project instructions, and project memory are shared by the group.
 - The destination is one workbench, not a stack of bands (D267, revising D168):
   a quiet intro line above a single toolbar above a single elevated panel. It
   reuses the same composition, control height, and row rhythm as the agent
@@ -496,6 +542,12 @@ system while preserving their different data ownership:
   pinned tag remains as the localized text cue.
 - The row menu groups create/edit actions above pin, archive/restore, and the
   destructive Close action, and closes on Escape or any outside press
+- The row menu includes Project memory. Its editor is a compact viewport-level
+  dialog with a list of editable memory cards. Each card supports an optional
+  title, multiline content, and removal; the dialog also supports adding
+  entries, shows an empty state, and keeps Cancel/Save actions. Saved entries
+  are scoped to that project's path and are available in later chats for the
+  project.
 - Project search also matches session titles. Matching a session retains and
   expands its owning project; expanded sessions are ordered by latest activity,
   show a count and relative update time, and reveal additional rows in batches
@@ -543,12 +595,13 @@ system while preserving their different data ownership:
   to the catalog controls; it is not a separate Settings destination.
 - Project archive is indexed by Settings search and is not duplicated as a home
   sidebar destination or standalone global-search page
-- Back to app returns to chat shell
+- Back to app returns to chat shell from the rail's pinned footer action
 
 ## 4. Acceptance
 
 1. Opening Settings hides the coding app sidebar (full-page takeover)
-2. Rail shows search + back and exactly General / 常规, AI,
+2. Rail shows the search pill at the top, the back-to-app action pinned at the
+   foot on the main sidebar's footer icon line, and exactly General / 常规, AI,
    Shortcuts / 快捷键, Instructions / 指令, Models / 模型, Skills / 技能, MCP,
    Subagents / 子智能体, Import / 导入, Projects / 项目, and Info / 信息 in
    that order. The rows are grouped under Preferences / 偏好, Agent / 智能体,
@@ -618,6 +671,9 @@ system while preserving their different data ownership:
     if the host rejects the change
 26. Info exposes a Report a problem action that opens the GitHub bug form
     with version and OS filled in; Settings search indexes the row
+27. The Skills page Market view browses public-HTTPS catalogs, previews
+    the assembled document, and installs only through `skills.create`; oversized
+    expanded documents are refused and source badges follow `sourceId`
 
 ## 5. General chrome metrics
 

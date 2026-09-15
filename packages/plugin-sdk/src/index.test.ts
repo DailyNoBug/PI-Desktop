@@ -8,8 +8,10 @@ import {
   validateContributions,
   validateManifest,
   LEGACY_FS_PERMISSIONS,
+  MAX_GLOBAL_SHORTCUTS_PER_PLUGIN,
   PLUGIN_PERMISSIONS,
   PLUGIN_VIEW_ICONS,
+  type PluginProviderContrib,
 } from "./index.js";
 
 const base = { schemaVersion: 1, id: "demo.x", name: "X", version: "0.1.0", main: "main.js" };
@@ -104,6 +106,30 @@ describe("validateManifest", () => {
         contributes: { sessionSources: [{ id: "legacy" }, { id: "legacy" }] },
       }).error,
     ).toMatch(/duplicate session source/);
+  });
+
+  it("validates typed theme variables and sandboxed settings destinations", () => {
+    expect(
+      validateContributions({
+        themes: [{
+          id: "scenic",
+          label: "Scenic",
+          path: "themes/scenic.css",
+          variables: [{ name: "--nexus-backdrop-blur", type: "length", unit: "px", min: 0, max: 20, default: 6 }],
+        }],
+        settingsDestinations: [{
+          id: "scenic-themes",
+          label: { en: "Scenic themes", "zh-CN": "风景主题" },
+          icon: "palette",
+          entry: "settings/index.html",
+        }],
+      }),
+    ).toBeUndefined();
+    expect(
+      validateContributions({
+        themes: [{ id: "scenic", label: "Scenic", path: "themes/scenic.css", variables: [{ name: "--pi-bg", type: "color", default: "#000000" }] }],
+      }),
+    ).toMatch(/variable declaration/);
   });
 });
 
@@ -305,10 +331,174 @@ describe("planSafeActions contract (ADR 0211)", () => {
   });
 });
 
+describe("contributed theme assets and window appearance", () => {
+  it("accepts a whitelisted absolute asset list", () => {
+    expect(
+      validateContributions({
+        themes: [
+          {
+            id: "midnight",
+            label: "Midnight",
+            path: "a.css",
+            assets: ["C:/art/bg.png", "file:///C:/font/ui.woff2", "/art/sheen.svg"],
+          },
+        ],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("rejects a relative path, an escape, an unknown scheme or a wrong extension", () => {
+    for (const asset of [
+      "art/bg.png",
+      "./art/bg.png",
+      "../bg.png",
+      "art/../bg.png",
+      "C:/art/../bg.png",
+      "C:/art/bg.gif",
+      "https://x/bg.png",
+      "",
+    ]) {
+      expect(
+        validateContributions({
+          themes: [{ id: "midnight", label: "Midnight", path: "a.css", assets: [asset] }],
+        }),
+      ).toMatch(/asset/);
+    }
+  });
+
+  it("rejects the same asset declared twice", () => {
+    expect(
+      validateContributions({
+        themes: [
+          {
+            id: "m",
+            label: "M",
+            path: "a.css",
+            assets: ["C:/art/bg.png", "file:///C:/art/bg.png"],
+          },
+        ],
+      }),
+    ).toMatch(/twice/);
+  });
+
+  it("accepts #rrggbb and #rrggbbaa window backgrounds", () => {
+    expect(
+      validateContributions({
+        windowAppearance: { backgroundColor: { light: "#ffffff", dark: "#0d1424cc" } },
+      }),
+    ).toBeUndefined();
+    expect(validateContributions({ windowAppearance: {} })).toBeUndefined();
+  });
+
+  it("rejects a window background that is not #rrggbb or #rrggbbaa", () => {
+    for (const color of ["#fff", "0d1424", "#0d1424z", "#0d1424ccc"]) {
+      expect(
+        validateContributions({ windowAppearance: { backgroundColor: { dark: color } } }),
+      ).toMatch(/backgroundColor/);
+    }
+    expect(
+      validateContributions({ windowAppearance: { backgroundColor: "dark" } } as never),
+    ).toMatch(/backgroundColor/);
+    expect(validateContributions({ windowAppearance: [] } as never)).toMatch(/windowAppearance/);
+  });
+
+  it("requires ui.window.appearance for a declared window background", () => {
+    const contributes = { windowAppearance: { backgroundColor: { dark: "#0d1424" } } };
+    expect(validateManifest({ ...base, contributes }).error).toMatch(
+      /ui\.window\.appearance permission/,
+    );
+    expect(
+      validateManifest({ ...base, permissions: ["ui.window.appearance"], contributes }).ok,
+    ).toBe(true);
+  });
+});
+
+describe("contributes.globalShortcuts", () => {
+  const command = { id: "voice.pushToTalk", title: "Push to talk" };
+  const withShortcuts = (globalShortcuts: unknown) =>
+    ({ commands: [command], globalShortcuts }) as never;
+
+  it("accepts a declared shortcut with a dotted id and a default", () => {
+    const result = validateManifest({
+      ...base,
+      permissions: ["keyboard.globalShortcut"],
+      contributes: withShortcuts([
+        { id: "voice.pushToTalk", command: "voice.pushToTalk", default: "Alt+Space" },
+      ]),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.manifest?.contributes?.globalShortcuts).toEqual([
+      { id: "voice.pushToTalk", command: "voice.pushToTalk", default: "Alt+Space" },
+    ]);
+  });
+
+  it("requires the keyboard.globalShortcut permission", () => {
+    expect(
+      validateManifest({
+        ...base,
+        contributes: withShortcuts([{ id: "voice.pushToTalk", command: "voice.pushToTalk" }]),
+      }).error,
+    ).toMatch(/globalShortcuts requires the keyboard\.globalShortcut permission/);
+  });
+
+  it("accepts an empty list without the permission, because nothing is registered", () => {
+    expect(validateManifest({ ...base, contributes: withShortcuts([]) }).ok).toBe(true);
+  });
+
+  it("rejects a command that contributes.commands never declares", () => {
+    expect(
+      validateContributions(withShortcuts([{ id: "voice.pushToTalk", command: "voice.other" }])),
+    ).toMatch(/undeclared command/);
+  });
+
+  it("rejects a duplicate id", () => {
+    expect(
+      validateContributions(
+        withShortcuts([
+          { id: "voice.pushToTalk", command: "voice.pushToTalk" },
+          { id: "voice.pushToTalk", command: "voice.pushToTalk", default: "F2" },
+        ]),
+      ),
+    ).toMatch(/duplicate global shortcut id/);
+  });
+
+  it("rejects ids outside the dotted id grammar", () => {
+    for (const id of ["1voice", "voice push"]) {
+      expect(validateContributions(withShortcuts([{ id, command: "voice.pushToTalk" }]))).toMatch(
+        /globalShortcuts entries need an id/,
+      );
+    }
+  });
+
+  it("rejects a default the shortcut grammar cannot parse", () => {
+    for (const value of ["Ctrl+", "Alt+Ctrl", "NopeBig", 42]) {
+      expect(
+        validateContributions(
+          withShortcuts([{ id: "voice.pushToTalk", command: "voice.pushToTalk", default: value }]),
+        ),
+      ).toMatch(/invalid default/);
+    }
+  });
+
+  it("caps the list at MAX_GLOBAL_SHORTCUTS_PER_PLUGIN entries", () => {
+    const shortcuts = Array.from({ length: MAX_GLOBAL_SHORTCUTS_PER_PLUGIN + 1 }, (_, index) => ({
+      id: `voice.slot${index}`,
+      command: "voice.pushToTalk",
+    }));
+    expect(validateContributions(withShortcuts(shortcuts))).toMatch(
+      new RegExp(`globalShortcuts is limited to ${MAX_GLOBAL_SHORTCUTS_PER_PLUGIN} entries`),
+    );
+    expect(
+      validateContributions(withShortcuts(shortcuts.slice(0, MAX_GLOBAL_SHORTCUTS_PER_PLUGIN))),
+    ).toBeUndefined();
+  });
+});
+
 describe("PLUGIN_PERMISSIONS", () => {
   it("declares the capability permissions and stays unique", () => {
     for (const permission of [
       "ui.theme",
+      "ui.window.appearance",
       "ui.view",
       "mcp.server.local",
       "mcp.server.remote",
@@ -326,6 +516,10 @@ describe("PLUGIN_PERMISSIONS", () => {
       "browser.cdp",
       "git.read",
       "git.write",
+      "audio.capture.background",
+      "audio.playback.background",
+      "keyboard.globalShortcut",
+      "net.websocket",
     ]) {
       expect(PLUGIN_PERMISSIONS).toContain(permission);
     }
@@ -430,5 +624,105 @@ describe("contributes.agentExtensions", () => {
         .error,
     ).toMatch(/at most/);
     expect(PLUGIN_PERMISSIONS).toContain("agent.extension");
+  });
+});
+
+describe("contributes.providers", () => {
+  const base = { schemaVersion: 1, id: "demo.providers", name: "P", version: "0.1.0", main: "main.js" };
+  // Annotated so a deliberate bad value in one test does not widen the literal
+  // type for every other call.
+  const provider: PluginProviderContrib = {
+    id: "demo",
+    name: "Demo",
+    baseUrl: "https://api.example.com/v1",
+    apiStyle: "chat_completions",
+    authKind: "api_key",
+    models: [
+      { id: "demo-large", name: "Demo Large", contextWindow: 200000, maxTokens: 8192 },
+      { id: "demo-small" },
+    ],
+  };
+
+  it("accepts a declaration when provider.register is declared", () => {
+    const result = validateManifest({
+      ...base,
+      permissions: ["provider.register"],
+      contributes: { providers: [provider] },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.manifest?.contributes?.providers?.[0]?.id).toBe("demo");
+    expect(result.manifest?.contributes?.providers?.[0]?.models).toHaveLength(2);
+  });
+
+  it("rejects a declaration without the provider.register permission", () => {
+    expect(validateManifest({ ...base, contributes: { providers: [provider] } }).error).toMatch(
+      /provider\.register permission/,
+    );
+    expect(PLUGIN_PERMISSIONS).toContain("provider.register");
+  });
+
+  it("rejects an unsupported apiStyle or authKind", () => {
+    const perm = { ...base, permissions: ["provider.register"] };
+    expect(
+      validateManifest({
+        ...perm,
+        contributes: { providers: [{ ...provider, apiStyle: "grpc" as never }] },
+      }).error,
+    ).toMatch(/unsupported apiStyle/);
+    expect(
+      validateManifest({
+        ...perm,
+        contributes: { providers: [{ ...provider, authKind: "basic" as never }] },
+      }).error,
+    ).toMatch(/unsupported authKind/);
+  });
+
+  it("rejects a non-http baseUrl, an unbound model list, duplicate ids, and too many entries", () => {
+    expect(
+      validateContributions({
+        providers: [{ ...provider, baseUrl: "file:///etc/passwd" }],
+      }),
+    ).toMatch(/http\(s\) URL/);
+    expect(validateContributions({ providers: [{ ...provider, models: [] }] })).toMatch(
+      /1 to 64 models/,
+    );
+    expect(
+      validateContributions({
+        providers: [{ ...provider, models: [{ id: "m" }, { id: "m" }] }],
+      }),
+    ).toMatch(/declares model m twice/);
+    expect(validateContributions({ providers: [{ ...provider, id: "1bad" }] })).toMatch(
+      /id is missing or invalid/,
+    );
+    expect(validateContributions({ providers: [provider, provider] })).toMatch(
+      /duplicate provider declaration id/,
+    );
+    expect(
+      validateContributions({
+        providers: Array.from({ length: 9 }, (_, index) => ({ ...provider, id: `p${index}` })),
+      }),
+    ).toMatch(/at most 8 entries/);
+    expect(
+      validateContributions({
+        providers: [{ ...provider, models: [{ id: "" }] }],
+      }),
+    ).toMatch(/without a valid id/);
+  });
+
+  it("rejects oauth, which needs a Host-owned login flow", () => {
+    expect(
+      validateContributions({ providers: [{ ...provider, authKind: "oauth" as never }] }),
+    ).toMatch(/unsupported authKind oauth/);
+    expect(
+      validateContributions({
+        providers: [{ ...provider, oauth: { label: "Demo" } } as never],
+      }),
+    ).toMatch(/not supported in this release/);
+  });
+
+  it("requires a name", () => {
+    expect(validateContributions({ providers: [{ ...provider, name: "  " }] })).toMatch(
+      /requires a name/,
+    );
   });
 });

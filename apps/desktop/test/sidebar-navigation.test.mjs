@@ -1,3 +1,4 @@
+import { readAppSource } from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -7,11 +8,16 @@ const sidebarSource = await readFile(
   new URL("../src/components/Sidebar.tsx", import.meta.url),
   "utf8",
 );
-const globalStyles = await loadStyles();
-const appSource = await readFile(
-  new URL("../src/App.tsx", import.meta.url),
+const hoverSource = await readFile(
+  new URL("../src/features/sessions/SessionHoverCard.tsx", import.meta.url),
   "utf8",
 );
+const hoverHookSource = await readFile(
+  new URL("../src/features/sessions/useSessionHoverCard.ts", import.meta.url),
+  "utf8",
+);
+const globalStyles = await loadStyles();
+const appSource = await readAppSource();
 const panelSource = await readFile(
   new URL("../src/components/workpanel/WorkPanel.tsx", import.meta.url),
   "utf8",
@@ -120,7 +126,7 @@ test("sidebar shows a bounded standalone session list before retained projects",
   assert.match(standaloneSessions, /t\("nav\.sessions"/);
   assert.match(standaloneSessions, /data-action="new-standalone-session"/);
   assert.match(standaloneSessions, /createSession\(\{ projectPath: null \}\)/);
-  assert.match(standaloneSessions, /renderSessionRows\(temporarySessions/);
+  assert.match(standaloneSessions, /renderSessionRows\(temporarySessionHistory/);
   assert.ok(
     sidebarSource.indexOf('data-sidebar-session-section="temporary"') <
       sidebarSource.indexOf('data-action="new-project"'),
@@ -253,6 +259,16 @@ test("project rows expose folder actions and full-path hover", () => {
   assert.match(sidebarSource, /className="sr-only">\s*\{entry\.path\}/);
 });
 
+test("sidebar row menus omit project reassignment and switching actions", () => {
+  assert.doesNotMatch(sidebarSource, /data-action="move-session-to-project"/);
+  assert.doesNotMatch(sidebarSource, /t\("nav\.moveToProject"/);
+  assert.doesNotMatch(sidebarSource, /t\("project\.switch"/);
+  assert.match(
+    sidebarSource,
+    /if \(!entry\.active && !\(await selectProject\(entry\.path\)\)\) return;/,
+  );
+});
+
 test("session rows use the hover card instead of a native title tooltip", () => {
   const sessionMain = sidebarSource.match(
     /className="thread-item-main"[\s\S]*?<\/button>/,
@@ -261,6 +277,68 @@ test("session rows use the hover card instead of a native title tooltip", () => 
   assert.match(sessionMain, /showSessionHoverCard\(/);
   assert.doesNotMatch(sessionMain, /title=\{taskTitle\(session\.title\)\}/);
   assert.doesNotMatch(sessionMain, /\btitle=\{/);
-  assert.match(sidebarSource, /className="sidebar-session-hover-card"/);
-  assert.match(sidebarSource, /className="sidebar-session-hover-card-title"/);
+  assert.match(hoverSource, /className="sidebar-session-hover-card"/);
+  assert.match(hoverSource, /className="sidebar-session-hover-card-title"/);
+  assert.match(sessionMain, /onFocusCapture=/);
+  assert.match(sessionMain, /aria-describedby=/);
+  assert.match(hoverHookSource, /\}, 500\)/);
+  assert.match(hoverHookSource, /event\.key === "Escape"/);
+  assert.match(hoverHookSource, /addEventListener\("scroll", hide, true\)/);
+  assert.match(hoverHookSource, /addEventListener\("visibilitychange", onVisibility\)/);
+});
+
+test("session hover cards expose readable models and keyboard-navigable session links", () => {
+  assert.match(hoverSource, /role="dialog"/);
+  assert.match(hoverSource, /summary\?\.providerName/);
+  assert.match(hoverSource, /summary\?\.modelName/);
+  assert.doesNotMatch(hoverSource, /modelKey\?\.includes\("\/"\)/);
+  assert.match(hoverSource, /data-session-link=\{summary\.createdBySession\.sessionId\}/);
+  assert.match(hoverSource, /summary\.createdSessions\.slice\(0, 8\)/);
+  assert.match(hoverSource, /type="button"/);
+  assert.match(hoverSource, /onClick=\{\(\) => openSessionReference/);
+  assert.match(hoverSource, /onFocusCapture=\{keepVisible\}/);
+  assert.match(hoverHookSource, /setTimeout\(\(\) => \{[\s\S]*?hide\(\);[\s\S]*?\}, 160\)/);
+  assert.match(globalStyles, /\.sidebar-session-hover-card\s*\{[\s\S]*?pointer-events:\s*auto;/);
+  assert.match(globalStyles, /\.sidebar-session-hover-card-session-link:focus-visible\s*\{[\s\S]*?outline:/);
+});
+
+test("hidden row actions stay out of the row's click path", () => {
+  // Resting state: the invisible control is not a pointer target at all.
+  assert.match(
+    globalStyles,
+    /\.thread-item-more\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;[^}]*\}/s,
+  );
+  assert.match(
+    globalStyles,
+    /\.thread-item:focus-within \.thread-item-more,\s*\n\.thread-item-more:focus-visible\s*\{[^}]*pointer-events:\s*auto;/s,
+  );
+  // Without hover there is no reveal, so a no-hover pointer gets the controls
+  // visible and tappable instead of an invisible gutter.
+  assert.match(
+    globalStyles,
+    /@media \(hover: none\)\s*\{[\s\S]*?\.sidebar-row-actions \.thread-item-more,[\s\S]*?opacity:\s*1;\s*\n\s*pointer-events:\s*auto;/,
+  );
+  // The row itself stays clickable where the hidden control used to swallow
+  // the click, and spelled-out controls never double-fire the row.
+  assert.match(sidebarSource, /if \(target\?\.closest\("button, \[data-action\]"\)\) return;/);
+  assert.match(sidebarSource, /className=\{`thread-item[\s\S]*?onClick=\{\(event\) => \{/);
+});
+
+test("a blurred window releases latched row hover and actions", () => {
+  assert.match(sidebarSource, /const \[windowFocused, setWindowFocused\] = useState\(true\)/);
+  assert.match(sidebarSource, /window\.addEventListener\("focus", onWindowFocus\)/);
+  assert.match(sidebarSource, /window\.addEventListener\("blur", onWindowBlur\)/);
+  assert.match(sidebarSource, /data-window-blur=\{windowFocused \? undefined : "true"\}/);
+  assert.match(
+    globalStyles,
+    /\.sidebar\[data-window-blur="true"\] \.thread-item:hover:not\(\.active\)\s*\{[^}]*background:\s*transparent;/s,
+  );
+  assert.match(
+    globalStyles,
+    /\.sidebar\[data-window-blur="true"\] \.thread-item:hover \.thread-item-more:not\(\[aria-expanded="true"\]\),[\s\S]*?opacity:\s*0;\s*\n\s*pointer-events:\s*none;/,
+  );
+  assert.match(
+    globalStyles,
+    /\.sidebar\[data-window-blur="true"\] \.sidebar-session-group-title:not\(\.static\):hover\s*\{[^}]*background:\s*transparent;/s,
+  );
 });

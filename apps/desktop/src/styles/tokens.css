@@ -37,10 +37,24 @@
 
   --ds-bg-primary: var(--gray-900);
   --ds-bg-sidebar: var(--ds-bg-under); /* Codex surface-under / sideBar */
+  /*
+   * Optional paint layer for the sidebar surface (gradients / images).
+   * `--ds-bg-sidebar` stays a color so color-mix, borders, and macOS glass
+   * tint keep working; themes set this to a CSS <image> value when they want
+   * a gradient or picture plate.
+   */
+  --ds-bg-sidebar-image: none;
   --ds-bg-secondary: var(--gray-800);
   --ds-bg-tertiary: var(--gray-750);
   --ds-bg-inset: var(--gray-1000);
   --ds-bg-under: #000000;
+  /*
+   * The dock column and its raised header/chrome strips carry their own tokens
+   * so a contributed theme can move them: before D419 the light values were
+   * literals in work-panel.css, which no theme could reach.
+   */
+  --ds-bg-dock: var(--ds-bg-secondary);
+  --ds-bg-dock-raised: transparent;
   --ds-bg-elevated: color-mix(in oklab, var(--gray-800) 96%, transparent);
   --ds-bg-elevated-opaque: var(--gray-750);
   --ds-bg-hover: color-mix(in oklab, var(--gray-0) 6%, transparent);
@@ -88,6 +102,14 @@
   --ds-accent: var(--gray-0);
   --ds-accent-hover: var(--gray-100);
   --ds-accent-soft: var(--gray-300);
+  /* Focus rings / resize affordances. Tied to the accent so themes stay monochrome. */
+  --ds-focus: var(--ds-accent);
+  /* Settings rail and shared inset searches keep their built-in surface tones. */
+  --ds-settings-rail-bg: #000000;
+  --ds-settings-field-bg: #212121;
+  --ds-settings-nav-active: color-mix(in oklab, var(--gray-0) 10%, transparent);
+  --ds-field-inset-bg: color-mix(in oklab, var(--ds-text-primary) 5%, transparent);
+  --ds-field-inset-focus-bg: color-mix(in oklab, var(--ds-text-primary) 7%, transparent);
   /*
     Switch track/knob. Off keeps a dim fill plus a hairline ring so the empty
     slot still reads as a control; on inverts to the solid accent, so the knob
@@ -120,6 +142,9 @@
   --ds-work-panel-toggle-size: 28px;
   --ds-work-panel-toggle-inset: 12px;
   --ds-work-panel-toggle-gap: 20px;
+  /* Preview-mode shell actions are two 22px buttons with a 4px gap and an
+     additional 8px buffer before the panel's first tab. */
+  --ds-preview-action-lane-width: 56px;
   /* Keep an 8px visual buffer between work-panel actions and window chrome. */
   --ds-window-controls-width: 120px;
   --ds-composer-radius: var(--radius-xl);
@@ -145,6 +170,9 @@
   --ds-bg-tertiary: #f3f3f3;
   --ds-bg-inset: #ededed;
   --ds-bg-under: #f9f9f9;
+  /* Dock column reads as quiet inset paper on the white chat pane (D419). */
+  --ds-bg-dock: #fafafa;
+  --ds-bg-dock-raised: #ffffff;
   --ds-bg-elevated: color-mix(in oklab, #ffffff 70%, transparent);
   --ds-bg-elevated-opaque: #ffffff;
   --ds-bg-hover: color-mix(in oklab, #1a1c1f 5%, transparent);
@@ -170,6 +198,12 @@
   --ds-accent: #1a1c1f;
   --ds-accent-hover: #303030;
   --ds-accent-soft: #5d5d5d;
+  --ds-focus: var(--ds-accent);
+  --ds-settings-rail-bg: #f4f4f4;
+  --ds-settings-field-bg: #ffffff;
+  --ds-settings-nav-active: color-mix(in oklab, #1a1c1f 12%, #ffffff);
+  --ds-field-inset-bg: #f3f3f3;
+  --ds-field-inset-focus-bg: #ffffff;
   /* Off knob stays white on the pale track; on knob keeps white on near-black. */
   --ds-switch-track-off: color-mix(in oklab, #1a1c1f 10%, transparent);
   --ds-switch-track-off-hover: color-mix(in oklab, #1a1c1f 18%, transparent);

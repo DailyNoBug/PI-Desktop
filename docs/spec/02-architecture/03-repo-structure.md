@@ -62,6 +62,22 @@ PI-Desktop/
 └── README.md · README.zh-CN.md
 ```
 
+## Split-domain facades
+
+Large entry points remain compatibility facades while their implementation is
+owned by domain modules. Electron main wires `ipc/`, `runtime/`, `bootstrap/`,
+and `services/`; renderer page entry points delegate to `features/app`,
+`features/plugins`, and `features/settings`; and host-core facades delegate to
+the `plugins/`, `db/`, `providers/`, and `plans/` submodules. The shared
+`types.ts` entry point re-exports the domain files under `shared/src/types/`.
+
+The facade paths preserve existing imports and public contracts. New logic
+belongs in the domain module that owns its state or process boundary.
+
+Source budgets are reported and enforced by
+[`scripts/check-architecture.mjs`](../../architecture/README.md). Its
+allowlist records only existing extraction debt with a reason.
+
 ## 2. Package responsibilities
 
 ### `apps/desktop`
@@ -102,7 +118,7 @@ Remote Linux runtime:
 ### `packages/shared`
 Cross-boundary contracts:
 - IPC channel names
-- DTO types
+- DTO types, split by domain under `src/types/` and re-exported from `types.ts`
 - error codes
 - protocol versioning
 - changelog entries surfaced in the app

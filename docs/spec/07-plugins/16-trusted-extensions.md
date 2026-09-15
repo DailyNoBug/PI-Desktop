@@ -1,6 +1,6 @@
 # 16. Trusted Extensions
 
-> Status: Implemented v1.1 (D387 / D388, ADR 0214 / ADR 0215); implementation notes are marked "v1 note"
+> Status: Implemented v1.1 (D387 / D388, ADR 0214 / ADR 0215 / ADR 0244); implementation notes are marked "v1 note"
 > Scope: v1.1. v2 and v3 items are listed in §12 and are not committed.
 
 ## 1. Purpose and terminology
@@ -15,6 +15,12 @@ which PI-Desktop adopts alongside the `pi-ai` and `pi-agent-core` kernel
 (ADR 0002), so an extension written for the pi CLI is the module a plugin
 contributes. D388 folded the earlier standalone "trusted extensions"
 registry into this contribution; the engine below is unchanged.
+
+Provider declarations are a separate manifest surface rather than part of this
+contract: `contributes.providers` materializes Host-owned provider rows
+([02-plugin-manifest-schema.md](02-plugin-manifest-schema.md) §5.4, ADR 0259),
+so it is neither an `ExtensionAPI` member nor a row in the §5 support matrix.
+`registerProvider` (§5) remains the session-scoped extension counterpart.
 
 | Term | Meaning |
 |---|---|
@@ -67,23 +73,81 @@ manifest that lists entries without the permission is invalid
 ([02-plugin-manifest-schema.md](02-plugin-manifest-schema.md) §4 and §7).
 `main` may be a no-op module when the plugin contributes nothing else.
 
-### 3.2 Importing a pi CLI extension
+### 3.2 Importing a pi CLI extension or skill package
 
 Plugins → "Import pi extension" opens a native picker (main owns the path,
-D344) for a file or a directory. Main resolves entries with the
-`pi-coding-agent` loader rules (a `package.json` `pi.extensions` field, else
-`index.ts` / `index.js`, else loose `*.ts` / `*.js` files one level deep),
-copies the source under `<dataDir>/plugins/imported/<slug>/src/`, writes the
-manifest above with id `imported.<slug>`, and registers the directory as a
-development plugin through the same path as "Load local plugin". The confirm
-before the picker is the trust decision; the row then shows the
-`agent.extension` permission like any other grant.
+D344) for an explicit local file or directory. Main copies the selected
+source under `<dataDir>/plugins/imported/<slug>/src/`, writes a generated
+no-op `main.js` and a manifest with id `imported.<slug>` (a unique suffix is
+added for repeated imports), and registers the directory through the existing
+local-plugin flow. The confirmation before the picker remains the trust
+decision; the generated manifest declares the permissions needed by its actual
+contributions.
+
+For extension files and packages without `pi.skills`, entry discovery keeps
+the existing `pi-coding-agent` rules: `package.json` `pi.extensions`, otherwise
+`index.ts` / `index.js`, otherwise loose `*.ts` / `*.js` files one level deep.
+A package that explicitly declares `pi.skills` and has no `pi.extensions` (or
+an empty array) is skill-only: incidental scripts, including `index.js`, are
+copied as resources but never promoted to executable agent extensions.
+
+A directory that ships a `package.json` also has it (plus its npm lockfile)
+copied to the plugin root with any `workspaces` field stripped. When it declares
+production or optional dependencies, main performs a bounded two-step install:
+it first resolves `npm install --package-lock-only --omit=dev --legacy-peer-deps
+--no-audit --no-fund --ignore-scripts`, validates the complete generated lockfile,
+then runs `npm ci` with the same safety flags. Direct specs in `dependencies`,
+`optionalDependencies`, `devDependencies`, and `peerDependencies` must be
+registry-only because npm may inspect all four; the git resolver is disabled.
+No lifecycle script runs. Failed installs remove partial dependencies/cache and
+are reported to the renderer without blocking the import. The confirm discloses
+the npm step alongside the skills disclosure.
 
 | Source | Becomes |
 |---|---|
-| A pi extension directory or file | A development plugin under `plugins/imported`, id `imported.<slug>` |
+| A pi extension directory or file | A local plugin under `plugins/imported`, id `imported.<slug>` |
 | A plugin package declaring `contributes.agentExtensions` | Installed like any plugin; the grant is asked for at install |
-| A `package.json` with a `pi.extensions` field | The listed entries, relative to `src/` |
+| A `package.json` with `pi.extensions` | Entries under `src/`, exposed through `contributes.agentExtensions` with `agent.extension` |
+| A `package.json` with `pi.skills` | Markdown documents under `src/`, exposed through `contributes.skills` with `agent.prompt.inject` |
+| A skill-only package | A no-op plugin holding `agent.prompt.inject`, without `agent.extension` |
+
+`pi.skills` is an array of at most 32 nonempty relative Markdown-file or
+directory paths. An explicit `.md` file contributes that document. For a
+directory, its own `SKILL.md` takes precedence; otherwise directly contained
+`.md` files are included and subdirectories are searched for `SKILL.md`.
+Nested skill directories stop at their own `SKILL.md`, so support documents
+are not turned into extra skills. Scanning skips dot-prefixed entries and
+`node_modules`, deduplicates documents, and has a budget of 256 directories.
+More than 32 discovered skills, a missing declaration, or an unsupported
+path fails the import rather than silently yielding an incomplete catalog.
+Each contribution has an explicit, stable plugin-local ID derived from its
+package-relative path; different directories named `SKILL.md` remain
+independent skills. Normal plugin skill parsing, size limits, grants, and
+unload behavior remain in force.
+
+Copying uses paths relative to the selected package. A package installed
+under an ancestor `node_modules` directory is copied normally; only its own
+`node_modules` directory segments are excluded. References, assets, helper
+scripts, and other ordinary source files remain under `src/`, preserving
+skill-relative resource paths. Credential files (`.env*`, `.npmrc`, `.netrc`,
+`.pypirc`, private-key and certificate files) and repository metadata directories
+are not copied. The selected root is resolved to its real path. Contribution
+paths must stay inside that root, cannot traverse `..`, and cannot point into
+its dependency directories. Absolute `pi.skills` paths and descendant symbolic
+links are rejected. Copying also rejects symbolic links among retained resources
+and removes a partial copy on failure. The generated destination is created
+atomically and must not be inside the selected source.
+
+This is an explicit local import, not a pi CLI package manager. It never
+automatically scans or imports `~/.pi`, does not read the CLI's installed
+package registry, and does not run npm lifecycle scripts. When dependencies
+are declared, the bounded installer accepts only registry version specs and
+registry-resolved npm lockfiles, rejects unsafe package locations and nested
+dependency specs, disables git resolution, and isolates npm's config/cache from
+the user's credentials and proxy settings. Importing a package does not promise
+that every third-party extension dependency can execute.
+
+## 4. Loading and runtime
 
 ## 4. Loading and runtime
 
@@ -137,10 +201,28 @@ unsupported ones.
 
 | Class | Members |
 |---|---|
-| Supported | `registerTool`, `registerCommand`, `on(...)` for every event in §6, `exec`, `getActiveTools`, `getAllTools`, `setActiveTools`, `getCommands`, `setModel` (v1 note: returns `false`, the desktop owns the session's provider binding), `getThinkingLevel`, `setThinkingLevel`, `setSessionName`, `getSessionName`, `sendUserMessage` (Host-owned queue, D386), `getFlag` |
+| Supported | `registerTool`, `registerCommand`, `registerAgent`, `registerProvider` (plugin-owned compatibility alias; same shape as `registerAgent`), `unregisterAgent`, `unregisterProvider`, `on(...)` for every event in §6, `exec`, `getActiveTools`, `getAllTools`, `setActiveTools`, `getCommands`, `setModel` (configured models and plugin agents; idle-only; persists the current session binding), `getThinkingLevel`, `setThinkingLevel`, `setSessionName`, `getSessionName`, `sendUserMessage` (Host-owned queue, D386), `getFlag` |
 | Supported on context | `ui.notify`, `ui.confirm`, `ui.select`, `ui.input`, `ui.setStatus`, `ui.setWorkingMessage`, `cwd`, `modelRegistry`, `isIdle`, `abort`, `hasPendingMessages`, `getContextUsage`, `compact`, `getSystemPrompt`, `waitForIdle`, `newSession`, `fork` |
 | Deferred to v2 | `sendMessage`, `appendEntry`, `setLabel`, `sessionManager` read API, `switchSession`, `registerShortcut`, `registerMarkdownTransformer`, `ui.setEditorText`, `ui.getEditorText`, `ui.addAutocompleteProvider`, `registerFlag` value editing |
 | Unsupported | `ui.setWidget`, `ui.setFooter`, `ui.setHeader`, `ui.setTitle`, `ui.custom`, `ui.overlay`, `ui.onTerminalInput`, `ui.setWorkingVisible`, `ui.setWorkingIndicator`, `ui.setHiddenThinkingLabel`, `ui.pasteToEditor`, `ui.editor`, `registerMessageRenderer`, `registerEntryRenderer`, `navigateTree`, `shutdown` |
+
+`registerAgent({ id, name?, models, stream? | complete? })` registers a
+session-scoped plugin-owned LLM integration. Each model declares bounded public
+metadata (`id`, display name, API label, modalities, reasoning and limits). The
+plugin callback receives the pi-ai model/context/options and owns endpoint,
+authentication, request serialization, and response conversion. It must honor
+`options.signal` for cancellation. `complete` is adapted to a one-result stream.
+
+The host assigns `extension-agent:<encoded-agent-key>` as the provider id. A
+successful idle `setModel` persists that provider/model pair through
+`session.configure`; the next turn reloads the trusted extension and restores the
+agent implementation. `modelRegistry` exposes only models and auth availability;
+it never exposes Host API keys, secret refs, OAuth tokens, arbitrary Host headers,
+or Host provider internals. `registerProvider` and its unregister counterpart
+accept the same plugin-owned shape as a compatibility alias — a `stream` or
+`complete` implementation, in the upstream `(id, config)` form and in the object
+form; provider credentials in the upstream config are ignored by Host and are
+not persisted.
 
 Neutral values: `getFlag` returns the declared default; `registerFlag` records
 the declaration so `getFlag` works but exposes no CLI or UI in v1;
@@ -241,6 +323,7 @@ No host-core RPC method, protocol version, or SQLite schema changes in v1.
 | `extensions.commands.publish` | Replace the session's registered command list |
 | `extensions.ui.request` | One interactive or status call from §9 |
 | `extensions.diagnostics.publish` | Replace the session's diagnostics list |
+| `extensions.model.configure` | Validate and persist a plugin-owned provider/model binding through `session.configure`, then broadcast `session:modelChanged` |
 | `session.rename`, `session.create`, `session.fork`, `session.queuePush`, `session.queuePrioritize` | Existing methods, now reachable from the adapter |
 
 ### 10.2 Main ↔ renderer (Electron IPC)
@@ -252,8 +335,8 @@ No host-core RPC method, protocol version, or SQLite schema changes in v1.
 | `extensions/ui/respond` | request | Answer a pending prompt |
 | `extensions/ui/prompt` | event | A prompt is pending |
 | `extensions/event/status` | event | `ui.setStatus` / `ui.setWorkingMessage` text changed |
-| `plugin/list` | request | Plugin rows carry `agentExtension` state, tool and command names, and diagnostics |
-| `event/pluginChanged` | event | Also fires when a session publishes commands or diagnostics |
+| `plugin/list` | request | Plugin rows carry `agentExtension` state, tool, command, custom-agent names, and diagnostics |
+| `event/pluginChanged` | event | Also fires when a session publishes commands, diagnostics, or model binding changes |
 
 All channels are sender-validated like other plugin channels. The MCP
 control plane exposes `extensions/commands/run` (write) and
@@ -267,9 +350,9 @@ The Plugins page shows agent extensions on the owning plugin's row:
 - The `agentExtension` capability chip and the `agent.extension` permission
   chip (high risk) beside the other capabilities and permissions.
 - A details section with a state chip (`enabled` until a session loads the
-  modules in this app run, `loaded`, `error`), the registered tool and slash
-  command names, and the diagnostics: load errors, unsupported API calls
-  with counts, rejected registrations, handler timeouts.
+  modules in this app run, `loaded`, `error`), the registered tool, slash
+  command and custom-agent names, and the diagnostics: load errors, unsupported
+  API calls with counts, rejected registrations, handler timeouts.
 - "Import pi extension" in the page's overflow actions, guarded by a confirm
   that states what the grant means.
 
@@ -279,6 +362,7 @@ The Plugins page shows agent extensions on the owning plugin's row:
 |---|---|---|
 | v1 | Loader, Runner per session, support matrix, events, tools, commands, UI bridge | Shipped (D387) |
 | v1.1 | Modules become `contributes.agentExtensions` with the `agent.extension` grant; import of pi CLI extensions as development plugins; the standalone registry and settings tab are removed | Shipped (D388) |
+| v1.1 amendment | Plugin-owned custom agents via `registerAgent`, provider compatibility alias, redacted model registry, idle-only session binding and restore through `extension-agent:` ids | Implemented (D426 / ADR 0258) |
 | v2 | Custom session entries (`sendMessage`, `appendEntry`) with a schema bump and a generic renderer, `sessionManager` read shim, `switchSession`, editor read and write, autocomplete providers, `registerShortcut`, markdown transformers | Planned, needs a decision on entry persistence and compaction |
 | v3 | `pi` package manifests and installation, read-only hints from the pi CLI's `settings.json`, unified skill and prompt discovery, remote-control routing for prompts, marketplace listing | Not scheduled |
 

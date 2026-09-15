@@ -1,13 +1,16 @@
+import { readStoreSource, readStoreModule } from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const storeSource = await readFile(
-  new URL("../src/stores/app-store.ts", import.meta.url),
-  "utf8",
-);
+const storeSource = await readStoreSource();
+const projectSliceSource = await readStoreModule("slices/project-slice.ts");
 const sidebarSource = await readFile(
   new URL("../src/components/Sidebar.tsx", import.meta.url),
+  "utf8",
+);
+const hoverSource = await readFile(
+  new URL("../src/features/sessions/SessionHoverCard.tsx", import.meta.url),
   "utf8",
 );
 const topbarSource = await readFile(
@@ -30,19 +33,18 @@ test("project activation separates visible transcript state from background run 
 });
 
 test("sidebar hover refreshes the active project branch without activating a project", () => {
-  const refreshBlock = storeSource.match(
-    /refreshProject: async[\s\S]*?\n  openProjectPath:/,
+  const refreshBlock = projectSliceSource.match(
+    /refreshProject: async[\s\S]*?\n    openProjectPath:/,
   )?.[0] ?? "";
   assert.match(refreshBlock, /api\.getProject\(\)/);
   assert.match(refreshBlock, /normalizeProjectPath\(workspace\.path\) !== requestedKey/);
   assert.match(refreshBlock, /normalizeProjectPath\(state\.activeProjectPath\) !== requestedKey/);
   assert.match(refreshBlock, /openProjects: upsertWorkspace\(state\.openProjects, workspace\)/);
 
-  const hoverBlock = sidebarSource.match(
-    /const showSessionHoverCard = useCallback\([\s\S]*?\n  \);/,
-  )?.[0] ?? "";
-  assert.match(hoverBlock, /await refreshProject\(projectPath\)/);
-  assert.match(hoverBlock, /branch: refreshedWorkspace \? refreshedWorkspace\.branch : spaceEntry\?\.branch/);
+  assert.match(hoverSource, /refreshProject\(session\.projectPath \?\? ""\)/);
+  assert.match(hoverSource, /current && target\.isConnected && workspace/);
+  assert.match(hoverSource, /setProject\(\{ space: workspace\.name, branch: workspace\.branch \}\)/);
+  assert.match(sidebarSource, /branch: entry\?\.branch/);
   assert.match(sidebarSource, /for \(const entry of projectEntries\) map\.set\(entry\.key, entry\)/);
   assert.match(sidebarSource, /projectEntriesByPath\.get\(normalizedProjectPath \?\? ""\)/);
 });
