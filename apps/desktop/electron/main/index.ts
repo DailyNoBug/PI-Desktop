@@ -1553,11 +1553,6 @@ function registerIpc() {
    });
  });
 
- // Voice dictation microphone policy: the default session (main renderer)
- // grants audio-only media capture for the main window and denies everything
- // else. Plugin panels and work-panel browser views run on separate
- // partitions with their own deny-all handlers.
- installVoiceMediaPermissionPolicy(session.defaultSession, () => mainWindow);
 const startupState: StartupState = {
   get applicationBooted() {
     return applicationLifecycleState.applicationBooted;
@@ -1608,6 +1603,8 @@ registerApplicationStartup({
   createTray,
   dispatchApplicationMenuCommand,
   dispatchNativeMenuAction,
+  installMediaPermissionPolicy: () =>
+    installVoiceMediaPermissionPolicy(session.defaultSession, () => mainWindow),
   prewarmPluginLauncher,
   registerIpc,
   openRemoteManager,
