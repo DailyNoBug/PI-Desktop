@@ -256,7 +256,10 @@ Plan 是代理工具的附加主机策略边界：
 仍然敞着、单独跟踪的：`agent.prompt.inject`（技能文本可以让一个有 shell
 能力的 Agent 替它搬运）、`shell.openExternal`、`bus.publish` 转给一个有网络
 能力的插件，以及插件进程里的原生 `fetch` —— 最后一项需要 ADR 0008 D009
-的沙箱化插件运行时。
+的沙箱化插件运行时。`pi.net.fetch` 并不会缩小这些缺口：宿主只负责套用白名单、
+手工跟随重定向并审计这次调用，它从不重试、不限流、也不重新发起请求 —— 上游的
+`429` 会带着服务器给出的 `Retry-After` 原样到达插件，插件怎么处理是插件自己
+的策略。
 
 ## 8. 1 MCP 服务器出口和凭证
 
@@ -315,7 +318,7 @@ MCP 调用相同的 IPC 校验、生命周期检查、完成事件和审计条�
 Electron 的 `globalShortcut`；插件永远拿不到键盘钩子、`before-input-event`、
 原始输入设备或按键事件流，所以不存在键盘记录器形状的表面，也无法看到用户
 按下的键。插件只能把加速键映射到自己已注册的一条命令；被操作系统保留、被
-PI-Desktop 自己当前占用（默认是 `Alt+Space` 与 `Mod+Shift+W`；用户改绑后
+PI-Desktop 自己当前占用（默认是 `Alt+Space` 与 `Mod+W`；用户改绑后
 即可释放给插件）或已被另一个插件持有的
 加速键会被拒绝，返回 `SHORTCUT_CONFLICT` / `SHORTCUT_UNAVAILABLE` /
 `INVALID_ACCELERATOR` / `LIMIT_EXCEEDED`（每个插件最多 8 条），而不是被抢走。

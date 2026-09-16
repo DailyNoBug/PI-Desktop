@@ -139,10 +139,7 @@ export function CommandShellRow({
   };
 
   return (
-    <SettingsRow
-      title={t("settings.commandShell")}
-      description={t("settings.commandShellDesc")}
-    >
+    <SettingsRow title={t("settings.commandShell")}>
       <div
         className="settings-command-shell-control"
         aria-busy={saving || (!catalog && !loadError)}
@@ -197,10 +194,7 @@ export function LinkOpenTargetRow({
   const { t } = useTranslation();
   const current = settings.linkOpenTarget ?? "workpanel";
   return (
-    <SettingsRow
-      title={t("settings.linkOpenTarget")}
-      description={t("settings.linkOpenTargetDesc")}
-    >
+    <SettingsRow title={t("settings.linkOpenTarget")}>
       <div
         className="settings-segment"
         role="group"
@@ -243,10 +237,7 @@ export function ContextUsageDisplayRow({
   const { t } = useTranslation();
   const current = resolveContextUsageDisplay(settings.contextUsageDisplay);
   return (
-    <SettingsRow
-      title={t("settings.contextUsageDisplay")}
-      description={t("settings.contextUsageDisplayDesc")}
-    >
+    <SettingsRow title={t("settings.contextUsageDisplay")}>
       <div
         className="settings-segment"
         role="radiogroup"

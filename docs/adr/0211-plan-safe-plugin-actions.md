@@ -3,7 +3,10 @@
 - Status: Accepted
 - Date: 2026-09-10
 - Deciders: PI-Desktop core
-- Related: ADR 0052, ADR 0053, ADR 0170, E2E-PLAN-005
+ - Amended by: D438 (the window-summon shortcut in §7 becomes one
+  window-visibility toggle on `Mod+W`; the plan-safe plugin-action opt-in is
+  unchanged)
+ - Related: ADR 0052, ADR 0053, ADR 0170, E2E-PLAN-005
 
 ## Context
 
@@ -105,6 +108,12 @@ is the symmetrical counterpart to `closeWindow`: closing a window hides
 it to the tray or minimizes it; summoning brings the same window back to
 focus.
 
+*(Amended by D438: the catalog now ships one `toggleWindow` id on `Mod+W`
+instead of the `summonWindow` / `closeWindow` pair, the retired `Mod+Shift+W`
+chord is registered by nothing, and stored overrides for the two retired ids
+are folded into the toggle on read. Hiding is `Window.hide()` and never the
+close path.)*
+
 ## Consequences
 
 - Plan and Goal modes can inspect external resources through any plugin
@@ -121,7 +130,8 @@ focus.
   plugin rejects it itself.
 - The `Mod+Shift+W` summon shortcut pairs with `Mod+W` close, so users
   on Windows/Linux with a tray-residing window have one shortcut to
-  hide and one to bring back.
+  hide and one to bring back. *(Amended by D438: those two keys are one
+  `Mod+W` toggle.)*
 
 ## Alternatives
 
@@ -164,7 +174,7 @@ current focus. The `Mod+Shift+W` binding is symmetrical with
 
 - `docs/spec/03-runtime/03-tools-and-permissions.md`
 - `docs/spec/06-delivery/04-e2e-test-plan.md` E2E-PLAN-005
-- `docs/spec/08-meta/decisions-log.md` D384
+ - `docs/spec/08-meta/decisions-log.md` D384, D438
 - `packages/plugin-sdk/src/index.ts`
 - `packages/agent-runtime/src/runtime.ts`
 - `packages/agent-runtime/src/mode-prompts.ts`

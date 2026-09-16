@@ -246,6 +246,9 @@ picked through `requestDirectory()` when the mode declares
 anything outside it prompts the user, and the credential deny-list overrides both
 (see [04-plugin-security.md](04-plugin-security.md) §6). `remove` is
 non-recursive and moves the path to the OS trash.
+Under the `workspace` root, paths are relative to the project of the tool session
+that invoked the call, falling back to the visible workspace for a panel call,
+which has no tool session (ADR 0266).
 
 `list` returns one directory's entries, name-sorted, so a plugin can walk a tree
 lazily instead of pulling a whole-repo `glob` and reassembling it. It applies the
@@ -572,8 +575,18 @@ a secret. `includeSessionContext: true` also requires `session.read` and an
 in-flight tool session; the host serializes that context and, if `messages` is
 empty, appends `Please respond to the request.` System prompt
 ≤ 32 KiB; combined messages ≤ 200k characters; eight calls per plugin per
-rolling 60s (`RATE_LIMITED`); 90s budget (`TIMEOUT`). Empty model output is
-`INVALID_ARGUMENT`.
+rolling 60s (`RATE_LIMITED`); 90s budget (`TIMEOUT`). Provider 429 and other
+transient provider failures are retried inside the same call under the shared
+provider retry budget (ADR 0206) and a `Retry-After` header is honored. Empty
+model output is `INVALID_ARGUMENT`.
+
+When the call still fails, the plugin receives the host's classified code
+rather than a single generic failure — `PROVIDER_RATE_LIMITED` once the retry
+budget is exhausted, `PROVIDER_UNAUTHORIZED`, `CONTEXT_TOO_LARGE`,
+`NETWORK_ERROR` — so it can pace itself and report the cause. The broker
+answers with whichever code the failing service classified, in the same
+`data.errorCode` → `errorCode` → `code` precedence every other host boundary
+uses.
 
 `agent.complete` is also a fixed panel-bridge channel. The host gateway checks
 the same permission and calls the completion service directly, so a docked or
@@ -685,6 +698,14 @@ pi.net.fetch(input: {
  timeoutMs?: number
 }): Promise<{ status: number; headers: Record<string, string>; bodyText: string }>
 ```
+
+`fetch` answers with the upstream response unchanged — `status`, `headers`, and
+`bodyText` — so a `429` is data your plugin can read, `Retry-After` included,
+rather than an error the host hides. The host does not retry, throttle, or
+re-issue the request: retry and backoff after a `429` are your plugin's own
+policy, and the response headers are the only backoff signal you get. A failed
+call (`status >= 400`) is audited as `ok: false`, together with the
+`retryAfter` it advertised when the response states one (§7).
 
 ```ts
 pi.net.websocket.connect(input: {
@@ -844,7 +865,7 @@ command belonging to that plugin.
 `command` must already be registered by the calling plugin; anything else fails
 `INVALID_ARGUMENT`. An accelerator reserved by the operating system, one
 PI-Desktop itself currently spends (by default `Alt+Space` opens the plugin
-launcher and `Mod+Shift+W` summons the window; once the user rebinds one of
+launcher and `Mod+W` shows or hides the window; once the user rebinds one of
 them, the freed accelerator is available again), or one held by another plugin
 is refused rather than taken over, and a refused re-registration leaves the
 previous binding in place.
@@ -1066,6 +1087,8 @@ Log fields:
 - ts
 - sessionId?
 - ok / errorCode
+- status / retryAfter (`net.fetch`: the upstream status of a completed call, and
+  for a failed one the `Retry-After` it stated — never the header set or body)
 
 ## 8. Versioning strategy
 

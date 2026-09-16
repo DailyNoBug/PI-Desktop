@@ -6,6 +6,7 @@ import {
   APP_NAME,
   IPC,
   isThemeColorScheme,
+  migrateKeybindingOverrides,
   type AppMenuCommand,
   type CloseBehavior,
   type KeybindingOverrides,
@@ -14,10 +15,13 @@ import {
 import { catalogs, resolveLocale } from "@pi-desktop/i18n";
 import { installApplicationMenu } from "../application-menu";
 import { createWindow, type WindowLifecycleState } from "./window";
+import { windowToggleAction } from "./window-visibility";
 import type { BrowserPane } from "../browser-view";
 import type { Logger } from "../logger";
 import type { PluginRuntime } from "../plugin-runtime";
 import type { PluginViewHost } from "../plugin-view-host";
+import type { HostProcess } from "../host-process";
+import { syncPluginDisplayLocale } from "../plugin-display-locale";
 import type { PluginAppearance } from "../../shared/plugin-panel-chrome";
 
 export type ApplicationLifecycleState = {
@@ -62,8 +66,9 @@ export type ApplicationLifecycleDependencies = {
   logger: Pick<Logger, "app">;
   refreshReleaseNotes: () => void;
   applyPluginLauncherShortcut: (keybindings?: KeybindingOverrides) => void;
-  applySummonWindowShortcut: (keybindings?: KeybindingOverrides) => void;
+  applyToggleWindowShortcut: (keybindings?: KeybindingOverrides) => void;
   broadcastPluginPanelEvent: (event: string, payload: unknown) => void;
+  getHost: () => HostProcess | null;
 };
 
 export function createApplicationLifecycle({
@@ -94,8 +99,9 @@ export function createApplicationLifecycle({
   logger,
   refreshReleaseNotes,
   applyPluginLauncherShortcut,
-  applySummonWindowShortcut,
+  applyToggleWindowShortcut,
   broadcastPluginPanelEvent,
+  getHost,
 }: ApplicationLifecycleDependencies) {
 
   function applyDevelopmentBranding() {
@@ -147,6 +153,21 @@ export function createApplicationLifecycle({
           data: String(error),
         });
       });
+  }
+
+  /**
+   * One press of the merged window shortcut (D438): hide the window the user is
+   * looking at, otherwise bring it back. Hiding is `Window.hide()` and never
+   * the close path, so it raises no close-behaviour prompt, destroys no window,
+   * and quits nothing — the tray (or the same key again) is the way back.
+   */
+  function toggleMainWindow() {
+    const window = state.mainWindow;
+    if (window && !window.isDestroyed() && windowToggleAction(window) === "hide") {
+      window.hide();
+      return;
+    }
+    restoreMainWindow();
   }
 
   function updateTrayMenu(locale = app.getLocale()) {
@@ -303,8 +324,9 @@ export function createApplicationLifecycle({
     action: NativeMenuAction,
     target: BrowserWindow | null = state.mainWindow,
   ) {
-    if (action === "restoreMainWindow") {
-      restoreMainWindow();
+    if (action === "restoreMainWindow" || action === "toggleMainWindow") {
+      if (action === "restoreMainWindow") restoreMainWindow();
+      else toggleMainWindow();
       const window = state.mainWindow;
       return {
         maximized: Boolean(window && !window.isDestroyed() && window.isMaximized()),
@@ -457,14 +479,27 @@ export function createApplicationLifecycle({
     if (locale !== appearanceState.updaterLocale) {
       appearanceState.updaterLocale = locale;
       refreshReleaseNotes();
+      // Plugin labels are resolved in the host (a plugin ships them per
+      // locale), so the change is pushed there before the surfaces re-read.
+      // `pluginChanged` is also what makes the Extensions page re-list, so a
+      // language switch localizes the rows without a restart (ADR 0160).
+      void syncPluginDisplayLocale(getHost(), locale)
+        .then(() => sendToRenderer(IPC.event.pluginChanged, { reason: "locale" }))
+        // Notifying is best-effort: a window that is already gone must not turn
+        // a language change into an unhandled rejection.
+        .catch(() => {});
     }
     applyAppThemePreference(settings?.theme);
-    const keybindings =
+    // Persisted keybindings can still carry the retired window ids (D438); the
+    // main process is the only reader when the window never opens, so it folds
+    // them itself instead of relying on a renderer write-back.
+    const keybindings = migrateKeybindingOverrides(
       settings?.keybindings && typeof settings.keybindings === "object"
         ? (settings.keybindings as KeybindingOverrides)
-        : undefined;
+        : undefined,
+    );
     applyPluginLauncherShortcut(keybindings);
-    applySummonWindowShortcut(keybindings);
+    applyToggleWindowShortcut(keybindings);
     const devMode = settings?.developerMode === true;
     const signature = JSON.stringify({ locale, keybindings, devMode });
     if (appState.appliedMenuSettings === signature) return;
@@ -529,6 +564,7 @@ export function createApplicationLifecycle({
     applyDevelopmentBranding,
     hasVisibleWindow,
     restoreMainWindow,
+    toggleMainWindow,
     updateTrayMenu,
     createTray,
     resetMenuRendererReady,

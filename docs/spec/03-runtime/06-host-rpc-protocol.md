@@ -613,14 +613,28 @@ one after the final row would be wrong.
 ### Agent capabilities (skills, subagents, MCP servers)
 - `skills.list` / `skills.active` / `skills.read` / `skills.create` /
   `skills.update` / `skills.remove` / `skills.import` /
-  `skills.setEnabled` / `skills.setScope` — user skill documents
-  (`SKILL_INVALID` on validation failure)
+  `skills.setEnabled` / `skills.setScope` / `skills.transfer` — user skill
+  documents (`SKILL_INVALID` on validation failure)
 - `agents.list` / `agents.active` / `agents.read` / `agents.create` /
   `agents.update` / `agents.remove` / `agents.setEnabled` /
   `agents.setScope` — user subagent documents (`SUBAGENT_INVALID`)
 - `mcp.list` / `mcp.active` / `mcp.upsert` / `mcp.remove` /
-  `mcp.setEnabled` / `mcp.setScope` — user MCP server definitions
-  (`MCP_INVALID`)
+  `mcp.setEnabled` / `mcp.setScope` / `mcp.transfer` — user MCP server
+  definitions (`MCP_INVALID`)
+
+`skills.transfer` and `mcp.transfer` take `{ id, from, to }`, each end a
+`{ level, projectPath? }` target (`projectPath` is required for the project
+level), and return `{ skill }` / `{ server }` for the document where it landed.
+A transfer moves the document between the two levels rather than copying it, so
+the source level stops listing the entry. A destination that already owns the
+same id gives the arriving document a `-2`/`-3` id suffix; one that owns the
+same display name / label, compared case-insensitively, gives it a matching
+` (2)`/` (3)` display suffix. The existing entry stays untouched. Enablement
+travels with the document: the source level drops every state entry for the old
+id, including its project overrides, and the destination stores the value the
+source was showing (a project target keeps that project's state, a global
+target the global default). Naming the source's own directory as the
+destination is a no-op.
 
 `*.active` returns the entries that apply to the given project after
 activation-scope filtering (`CAPABILITY_INVALID` for an unknown scope).

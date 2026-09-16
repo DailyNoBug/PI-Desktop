@@ -18,7 +18,7 @@
 | `Cmd/Ctrl + Shift + P` | 打开命令面板 | 全球 (D014) |
 | `Cmd/Ctrl + N` | 新 chat/session | 全球 |
 | `Cmd/Ctrl + O` | 打开项目 | 全球 |
-| `Cmd/Ctrl + W` | 关闭窗口 | 全球 |
+| `Cmd/Ctrl + W` | 呼出或隐藏窗口（切换） | 全局（D438）；隐藏到托盘，绝不退出 |
 | `Cmd/Ctrl + ,` | 打开设置 | 全球 |
 | `Cmd/Ctrl + B` | 切换侧边栏 | 全球 |
 | `Cmd/Ctrl + J` | 打开工作面板 | 全球；活动会话 |
@@ -70,6 +70,11 @@
   专注。如果钩子无法被安装，聚焦窗口后备仍然可用。未绑定时会同时关闭钩子和
   聚焦窗口后备。自定义绑定继续使用 Electron 的全局快捷方式 API。
   启动器始终在最靠近指针的显示屏上打开。
+- 窗口可见性只有一个开关键（`Cmd/Ctrl + W`）：可见且在前台的窗口隐藏到托盘，
+  其余情况 —— 已隐藏、已最小化或被其它应用挡在后面 —— 显示并获得焦点。隐藏
+  不走关闭路径，因此不会弹出关闭行为询问、不会销毁窗口，也绝不会退出应用。
+  已弃用的 `Cmd/Ctrl + Shift + W` 呼出组合键不再注册；读取配置映射时，
+  已存储的 `closeWindow` / `summonWindow` 覆盖项会并入该开关键（D438）。
 
 ### 1. 5 插件启动器快捷方式
 
@@ -860,9 +865,16 @@ Mode/provider/model/permission/shell 配置和新提示仍然存在
   （预订始终为 0）。
 - 后台会话工件永远不会更新可见面板。
 
-- 预览模式会卸载 MainChat，让工作面板填充侧边栏之外的客户区。窗口级 46px
-  chrome 行保留新建任务、侧边栏和本机窗口控件；侧边栏折叠时，macOS 窗口模式
-  左侧预留 76px，全屏预留 8px 给交通灯。
+- Preview mode unmounts MainChat and fills the client area beside the sidebar.
+  The 46px chrome row keeps shell/native controls but declares neither drag nor
+  no-drag across the panel and passes pointer events through outside controls.
+  The panel header alone owns dragging in the preview pane; its border box
+  excludes shell actions plus an 8px gap in both sidebar states on all platforms.
+  The left inset is 8px except collapsed-sidebar windowed macOS (88px through
+  `--ds-window-lead-inset`: the 76px native cluster edge from
+  `@pi-desktop/shared` plus a 12px gap).
+  Native clicks must operate controls and empty-header drags must move the
+  window; DOM/CDP clicks alone are not native hit-test proof.
 
 展开侧边栏固定为 275px。折叠/展开只改变列是否存在；历史上的调整大小手柄
 会隐藏，旧的宽度偏好不会继续持久化。

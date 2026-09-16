@@ -14,7 +14,6 @@ import {
   type QueuedPrompt,
   type QueuedPromptDirection,
 } from "../../../lib/queued-prompts";
-import { requestTextWithoutAnnotations } from "../../../lib/response-annotations";
 
 export type ComposerStatusProps = {
   t: TFunction;
@@ -58,7 +57,7 @@ export function ComposerStatus({
         >
           {queuedPrompts.map((item) => {
             const label =
-              requestTextWithoutAnnotations(item.content).trim() ||
+              item.content.trim() ||
               item.draft.fileReferences.map((reference) => reference.name).join(", ") ||
               t("chat.queuedPromptEmpty");
             const promoted = isPromotedQueuedPrompt(item);

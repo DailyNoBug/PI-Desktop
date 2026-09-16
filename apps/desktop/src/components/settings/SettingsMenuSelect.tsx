@@ -5,8 +5,10 @@
  * `overflow: hidden`), so the option list opens through `AnchoredMenu`. A
  * native `<select>` draws its popup at the OS level instead: it ignores the
  * menu surface tokens, shows the platform highlight, and has no current-value
- * marker. Rows whose list is short still use this control so one Settings
- * window does not mix two popup implementations.
+ * marker. The closed trigger sizes to the current label (capped by its parent)
+ * so a short value does not stretch the settings control column. Rows whose
+ * list is short still use this control so one Settings window does not mix two
+ * popup implementations.
  *
  * Unlike the Appearance pickers this list is not searchable — the longest
  * catalog here is the host command-shell list — so the menu opens on the
@@ -31,6 +33,7 @@ export function SettingsMenuSelect({
   label,
   disabled = false,
   busy = false,
+  fullWidth = false,
   className,
 }: {
   value: string;
@@ -41,6 +44,8 @@ export function SettingsMenuSelect({
   disabled?: boolean;
   /** Keeps the trigger non-interactive while a write is in flight. */
   busy?: boolean;
+  /** Stretch across a form field. Compact settings rows leave this off. */
+  fullWidth?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -82,7 +87,7 @@ export function SettingsMenuSelect({
   };
 
   return (
-    <div className={cx("settings-menu-select-anchor", className)}>
+    <div className={cx("settings-menu-select-anchor", fullWidth && "is-full", className)}>
       <AnchoredMenu
         open={open}
         onClose={close}

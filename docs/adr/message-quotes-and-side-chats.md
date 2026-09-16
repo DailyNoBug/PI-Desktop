@@ -1,6 +1,7 @@
 # ADR message-quotes-and-side-chats: Message Quotes and Renderer-Owned Side Chats
+> Superseded by ADR 0268.
 
-- Status: Accepted
+- Status: Superseded by ADR 0268
 - Date: 2026-09-11
 - Deciders: PI-Desktop runtime and desktop UI maintainers
 - Amends: D209, D301

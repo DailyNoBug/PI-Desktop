@@ -99,9 +99,6 @@ export function Composer({
   const nativeReadOnly =
     nativeSession && activeSessionSummary.capabilities?.canPrompt !== true;
   const nativeInputBlocked = nativeReadOnly || (nativeSession && isRunning);
-  const hasAnnotations = useAppStore((s) =>
-    Boolean(s.activeSessionId && s.responseAnnotations[s.activeSessionId]?.length),
-  );
   const workspacePath = useAppStore((s) => s.workspace?.path ?? "");
   const providers = useAppStore((s) => s.providers);
   const providerModels = useAppStore((s) => s.providerModels);
@@ -397,7 +394,7 @@ export function Composer({
   const enterToSend = settings?.enterToSend ?? true;
   // Chips occupy sentinel characters, which `trim()` preserves — text and
   // attachments share one content check.
-  const hasDraftContent = Boolean(value.trim()) || hasAnnotations;
+  const hasDraftContent = Boolean(value.trim());
 
   useEffect(() => {
     if (!controlsBlocked) return;

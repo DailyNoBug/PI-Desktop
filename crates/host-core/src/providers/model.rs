@@ -127,6 +127,13 @@ pub struct ModelBinding {
     /// published name; `id` remains the wire identity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    /// Provenance of `context_window`. `catalog` values follow the published
+    /// models.dev record, so a catalog correction still reaches a saved binding;
+    /// `user` values are the user's own number. Absent means the record predates
+    /// the marker and readers apply the historical rule (only the generic 128k
+    /// seed is inherited).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window_source: Option<String>,
     pub context_window: u32,
     pub max_tokens: u32,
     #[serde(default)]

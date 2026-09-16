@@ -37,6 +37,7 @@ import {
   ErrorCodes as SharedErrorCodes,
   initialThinkingLevelForBinding,
   modeForProposalKind,
+  migrateKeybindingOverrides,
   modelIdsMatch,
   normalizeMode,
   normalizeProposalKind,
@@ -172,8 +173,6 @@ import type {
   ToastOptions,
   ToastVariant,
 } from "./app-state";
-import { createAnnotationSlice } from "./slices/annotation-slice";
-import { createSideChatSlice } from "./slices/side-chat-slice";
 import { createSessionSlice } from "./slices/session-slice";
 import { createQueueSlice } from "./slices/queue-slice";
 import { createTranscriptSlice } from "./slices/transcript-slice";
@@ -541,6 +540,10 @@ export const useAppStore = create<AppState>((set, get) => {
               defaultMode: normalizeMode(
                 (settingsRaw as { defaultMode?: unknown }).defaultMode,
               ),
+              // Persisted keybindings can still name the retired window ids
+              // (D438); every renderer reader sees the folded map, and the next
+              // shortcut save writes that shape back.
+              keybindings: migrateKeybindingOverrides(settingsRaw.keybindings),
             }
           : settingsRaw;
         // First-run default per D003: Agent. Never force-rewrite an existing
@@ -720,8 +723,6 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
-  ...createAnnotationSlice({ get, set }),
-  ...createSideChatSlice({ get, set, commitForkedSession, withoutRecordKey }),
   ...createWorkPanelSlice({
     get,
     set,

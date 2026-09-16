@@ -729,8 +729,11 @@ export function useAppShellRuntime() {
           case "abort":
             void abort();
             break;
-          case "closeWindow":
-            void api.windowControl("close");
+          case "toggleWindow":
+            // The same native action the menu item runs (D438): hide the window
+            // the user is looking at, or bring it back. The window's own close
+            // button stays the only path into the close behaviour.
+            void api.nativeMenuAction("toggleMainWindow");
             break;
           case "resetZoom":
           case "zoomIn":

@@ -322,7 +322,11 @@ generous `fs.read` scope affordable (§6).
 Still open, tracked separately: `agent.prompt.inject` (skill text can ask a
 shell-capable agent to do the carrying), `shell.openExternal`, a `bus.publish`
 relayed to a net-capable plugin, and raw `fetch` inside the plugin process — the
-last one needs the sandboxed plugin runtime from ADR 0008 D009.
+last one needs the sandboxed plugin runtime from ADR 0008 D009. `pi.net.fetch`
+narrows none of that: the host applies the allowlist, follows redirects by hand,
+and audits the call, but it never retries, throttles, or re-issues a request. An
+upstream `429` reaches the plugin as `429` plus whatever `Retry-After` the server
+sent, and what the plugin does about it is the plugin's own policy.
 
 ## 8.1 MCP server egress and credentials
 
@@ -392,8 +396,8 @@ receives a keyboard hook, `before-input-event`, raw input device, or key event
 stream, so there is no keylogger-shaped surface and no way to see the keys the
 user types. A plugin may only map an accelerator to one of its own registered
 commands, and an accelerator the OS reserves, that PI-Desktop itself currently
-spends (the plugin-launcher and summon-window bindings, `Alt+Space` and
-`Mod+Shift+W` by default; a user rebinding one frees it for plugins), or that
+spends (the plugin-launcher and window-toggle bindings, `Alt+Space` and
+`Mod+W` by default; a user rebinding one frees it for plugins), or that
 another plugin holds is refused with
 `LIMIT_EXCEEDED` (at most 8 per plugin) instead of being taken over. A trigger
 runs exactly that one command. Register, unregister, and trigger are audited

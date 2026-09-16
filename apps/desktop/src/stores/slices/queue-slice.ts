@@ -1,4 +1,3 @@
-import { responseAnnotationPrompt } from "../../lib/response-annotations";
 import i18n from "i18next";
 import type {
   AgentQueueChangedEvent,
@@ -356,20 +355,6 @@ export function createQueueSlice({
         }
         if (!sessionId) throw new Error(i18n.t("errors.noActiveSession"));
         if (get().pendingPlans[sessionId]?.status === "pending") return false;
-        // Capture this session's immutable annotation objects before awaiting the host.
-        // Only accepted, unchanged objects are consumed; edits/new attachments survive.
-        const annotationSessionId = sessionId;
-        const annotations = get().responseAnnotations[annotationSessionId] ?? [];
-        const outgoing = responseAnnotationPrompt(content, annotations);
-        const consumeAnnotations = () => set((state) => {
-          const current = state.responseAnnotations[annotationSessionId] ?? [];
-          const remaining = current.filter((item) => !annotations.includes(item));
-          if (remaining.length === current.length) return {};
-          const responseAnnotations = { ...state.responseAnnotations };
-          if (remaining.length) responseAnnotations[annotationSessionId] = remaining;
-          else delete responseAnnotations[annotationSessionId];
-          return { responseAnnotations };
-        });
         if (get().runningSessions[sessionId]) {
           // Native Pi children have no Desktop prompt queue. Reject the send
           // here so the caller restores the draft instead of round-tripping a
@@ -381,8 +366,7 @@ export function createQueueSlice({
             get().showToast(i18n.t("chat.nativeSessionBusy"), { variant: "info" });
             return false;
           }
-          const accepted = await get().enqueuePrompt(outgoing, draft, sessionId);
-          if (accepted) consumeAnnotations();
+          const accepted = await get().enqueuePrompt(content, draft, sessionId);
           return accepted;
         }
         const startedIn = sessionId;
@@ -448,12 +432,11 @@ export function createQueueSlice({
           }
           await api.prompt({
             sessionId,
-            content: outgoing,
+            content,
             messageId: optimisticMessage.id,
             viewingSessionId: viewingSessionIdForPrompt(get(), sessionId),
             attachments: draft ? promptAttachmentsFromDraft(draft.fileReferences) : [],
           });
-          consumeAnnotations();
           const submitted = runtime.submittedComposerDrafts.get(startedIn);
           if (submitted?.abortResolution && (await submitted.abortResolution)) {
             return false;
@@ -463,10 +446,8 @@ export function createQueueSlice({
           runtime.submittedComposerDrafts.delete(startedIn);
           runtime.retractOptimisticUserMessage(startedIn, optimisticMessage);
           const messageError = messageErrorFromUnknown(error);
-          const sideChatChild = Boolean(get().sideChats[startedIn]);
           const errorRow = assistantErrorMessage(messageError);
           set((state) => {
-            const childRows = state.sideChatTranscripts[startedIn];
             return {
               isRunning:
                 state.activeSessionId === startedIn ? false : state.isRunning,
@@ -483,37 +464,14 @@ export function createQueueSlice({
               sessionOutcomes: { ...state.sessionOutcomes, [startedIn]: "failed" },
               ...(state.activeSessionId === startedIn
                 ? { messages: [...state.messages, errorRow] }
-                : sideChatChild && childRows
-                  ? {
-                      sideChatTranscripts: {
-                        ...state.sideChatTranscripts,
-                        [startedIn]: [...childRows, errorRow],
-                      },
-                    }
-                  : {}),
+                : {}),
             };
           });
-          if (sideChatChild && get().activeSessionId !== startedIn) {
-            // The panel is not the visible conversation: surface the failure in
-            // the child projection and as a toast instead of the main transcript.
-            const cached = runtime.sessionTranscriptCache.get(startedIn);
-            if (cached) {
-              runtime.cacheSessionTranscript(startedIn, [...cached, errorRow]);
-            }
-            get().showToast(messageError.message, { variant: "error" });
-          }
           return false;
         }
       } catch (error) {
         // Keep sendPrompt's Promise<boolean> contract so the composer can
         // restore a draft cleared before submission, even on unexpected setup errors.
-        const target = requestedSessionId ?? get().activeSessionId;
-        if (target && get().sideChats[target]) {
-          get().showToast(
-            error instanceof Error ? error.message : String(error),
-            { variant: "error" },
-          );
-        }
         return false;
       } finally {
         pendingSubmissions.delete(submissionKey);

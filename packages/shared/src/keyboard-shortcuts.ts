@@ -10,8 +10,7 @@ export const KEYBOARD_SHORTCUT_IDS = [
   "toggleSidebar",
   "openWorkPanel",
   "abort",
-  "summonWindow",
-  "closeWindow",
+  "toggleWindow",
   "resetZoom",
   "zoomIn",
   "zoomOut",
@@ -54,8 +53,7 @@ export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcutDefinition[] = [
   { id: "toggleSidebar", group: "navigation", defaultBinding: "Mod+B" },
   { id: "openWorkPanel", group: "navigation", defaultBinding: "Mod+J" },
   { id: "abort", group: "agent", defaultBinding: "Mod+Period" },
-  { id: "summonWindow", group: "window", defaultBinding: "Mod+Shift+W" },
-  { id: "closeWindow", group: "window", defaultBinding: "Mod+W" },
+  { id: "toggleWindow", group: "window", defaultBinding: "Mod+W" },
   { id: "resetZoom", group: "window", defaultBinding: "Mod+0" },
   { id: "zoomIn", group: "window", defaultBinding: "Mod+Equal" },
   { id: "zoomOut", group: "window", defaultBinding: "Mod+Minus" },
@@ -66,6 +64,89 @@ export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcutDefinition[] = [
     macDefaultBinding: "Mod+Ctrl+F",
   },
 ] as const;
+
+/**
+ * A keybinding map as it comes back from storage: it may still name ids an
+ * older release shipped, so it is deliberately wider than
+ * `KeybindingOverrides`.
+ */
+export type PersistedKeybindingOverrides = Record<
+  string,
+  string | null | undefined
+>;
+
+/**
+ * Shortcut ids that the window toggle replaced (D438). Their stored overrides
+ * are folded into `toggleWindow` by `migrateKeybindingOverrides`.
+ */
+const RETIRED_WINDOW_SHORTCUTS = [
+  // The key the toggle keeps: `Mod+W` was the binding that hid the window, and
+  // it stays the binding that hides it.
+  { id: "closeWindow", defaultBinding: "Mod+W" },
+  // Retired outright: nothing summons the window with `Mod+Shift+W` any more.
+  { id: "summonWindow", defaultBinding: "Mod+Shift+W" },
+] as const;
+
+/**
+ * Fold the retired `closeWindow` / `summonWindow` overrides into the single
+ * `toggleWindow` entry (D438), for a persisted `settings.keybindings` map.
+ *
+ * Rules, in order:
+ *
+ * - an existing `toggleWindow` override wins as it is, so the migration is
+ *   idempotent and never rewrites a later rebind;
+ * - otherwise the first retired entry that carries a *binding* wins, in the
+ *   order above. `closeWindow` comes first because `Mod+W` is the key the
+ *   toggle keeps;
+ * - a retired entry that is only `null` (the user unbound it) is honoured after
+ *   that: the toggle stays unbound instead of resurrecting a shipped default;
+ * - a stored value equal to its retired default carries no intent (the
+ *   settings UI deletes overrides that match the shipped default), so it is
+ *   ignored and the new default applies.
+ */
+export function migrateKeybindingOverrides(
+  overrides:
+    | KeybindingOverrides
+    | PersistedKeybindingOverrides
+    | null
+    | undefined,
+): KeybindingOverrides | undefined {
+  if (!overrides || typeof overrides !== "object") return undefined;
+  const legacy = overrides as PersistedKeybindingOverrides;
+  const migrated: Record<string, string | null> = {};
+  for (const [id, binding] of Object.entries(overrides)) {
+    // A key stored without a value is not an override; JSON cannot hold one
+    // either, so it never reaches the migrated map.
+    if (binding === undefined) continue;
+    if (RETIRED_WINDOW_SHORTCUTS.some((retired) => retired.id === id)) continue;
+    migrated[id] = binding;
+  }
+  if (!Object.prototype.hasOwnProperty.call(migrated, "toggleWindow")) {
+    const inherited = inheritedToggleBinding(legacy);
+    if (inherited !== undefined) migrated.toggleWindow = inherited;
+  }
+  return Object.keys(migrated).length > 0
+    ? (migrated as KeybindingOverrides)
+    : undefined;
+}
+
+function inheritedToggleBinding(
+  legacy: Record<string, string | null | undefined>,
+): string | null | undefined {
+  let unbound = false;
+  for (const { id, defaultBinding } of RETIRED_WINDOW_SHORTCUTS) {
+    if (!Object.prototype.hasOwnProperty.call(legacy, id)) continue;
+    const value = legacy[id];
+    if (value === null) {
+      unbound = true;
+      continue;
+    }
+    const binding = normalizeKeybinding(value);
+    if (!binding || binding === defaultBinding) continue;
+    return binding;
+  }
+  return unbound ? null : undefined;
+}
 
 const MODIFIER_ORDER = ["Mod", "Ctrl", "Alt", "Shift"] as const;
 const MODIFIERS = new Set<string>(MODIFIER_ORDER);

@@ -29,6 +29,7 @@ import {
 } from "../../lib/model-limit-presets";
 import { Button, Field, Input, Tooltip, TooltipButton, cx } from "../ui";
 import { IconClose, IconHelp, IconPlus, IconRefresh, IconSearch } from "../icons";
+import { SettingsMenuSelect } from "./SettingsMenuSelect";
 import { filterChosenModels, hidesAddedBinding } from "./model-chosen-filter";
 import { describeModelsFetchError } from "./model-fetch-error";
 import type { ProviderModelsState } from "./useProviderModels";
@@ -498,6 +499,14 @@ export function ModelSelectionPanes({
               const enabledLevels = sortThinkingLevels(binding.thinkingLevels);
               const info = infoById.get(binding.id.toLowerCase());
               const publishedImages = info ? modelMatchesFilter(info, "vision") : false;
+              // The row's published window, so the hint below the field can say
+              // the number still follows it.
+              const publishedContextWindow = info
+                ? (info.contextWindow ?? info.limit?.context)
+                : undefined;
+              const followsCatalog =
+                binding.contextWindowSource !== "user" &&
+                publishedContextWindow !== undefined;
               const publishedDocuments = info ? modelMatchesFilter(info, "pdf") : false;
               const expanded = expandedModelId === binding.id;
               const advancedId = `model-advanced-${binding.id}`;
@@ -600,6 +609,7 @@ export function ModelSelectionPanes({
                                 onClick={() =>
                                   updateBinding(binding.id, {
                                     contextWindow: preset.tokens,
+                                    contextWindowSource: "user",
                                   })
                                 }
                               >
@@ -616,9 +626,17 @@ export function ModelSelectionPanes({
                           onChange={(event) =>
                             updateBinding(binding.id, {
                               contextWindow: Number(event.target.value) || 0,
+                              contextWindowSource: "user",
                             })
                           }
                         />
+                        {/* A catalog window keeps following models.dev; the hint
+                            says so until the user pins a number. */}
+                        {followsCatalog ? (
+                          <span className="provider-chosen-limit-hint">
+                            {t("settings.contextWindowCatalogHint")}
+                          </span>
+                        ) : null}
                       </label>
                       <label className="provider-chosen-field">
                         <span className="provider-chosen-field-label">
@@ -681,32 +699,30 @@ export function ModelSelectionPanes({
                           </span>
                         ) : null}
                         {enabledLevels.length > 1 ? (
-                          <label className="provider-chosen-thinking-default">
+                          <div className="provider-chosen-thinking-default">
                             <span className="provider-chosen-thinking-label">
                               {t("settings.defaultThinkingLevel")}
                             </span>
-                            <select
+                            <SettingsMenuSelect
                               className="provider-chosen-thinking-select"
+                              label={t("settings.defaultThinkingLevel")}
                               value={
                                 binding.defaultThinkingLevel &&
                                 enabledLevels.includes(binding.defaultThinkingLevel)
                                   ? binding.defaultThinkingLevel
                                   : (enabledLevels[0] ?? "")
                               }
-                              onChange={(event) =>
+                              onChange={(id) =>
                                 updateBinding(binding.id, {
-                                  defaultThinkingLevel: event.target
-                                    .value as ThinkingLevel,
+                                  defaultThinkingLevel: id as ThinkingLevel,
                                 })
                               }
-                            >
-                              {enabledLevels.map((level) => (
-                                <option key={level} value={level}>
-                                  {level}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                              options={enabledLevels.map((level) => ({
+                                id: level,
+                                label: level,
+                              }))}
+                            />
+                          </div>
                         ) : null}
                       </div>
                       <div

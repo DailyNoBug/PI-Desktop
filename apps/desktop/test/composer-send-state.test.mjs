@@ -290,9 +290,8 @@ test("mode slash prefixes send the trailing prompt and retain failed drafts", ()
   assert.match(sendPrompt, /return false;/);
   assert.match(
     sendPrompt,
-    // An annotated send ships the block the model reads, not the bare draft
-    // text, so the prompt call carries the composed prompt (D-LOCAL-response-annotations).
-    /await api\.prompt\(\{[\s\S]*?sessionId,[\s\S]*?content: outgoing,[\s\S]*?attachments:[\s\S]*?promptAttachmentsFromDraft\(draft\.fileReferences\)[\s\S]*?\}\);[\s\S]*?return true;/,
+    // The prompt call carries the submitted content and attachment mapping.
+    /await api\.prompt\(\{[\s\S]*?sessionId,[\s\S]*?content,[\s\S]*?attachments:[\s\S]*?promptAttachmentsFromDraft\(draft\.fileReferences\)[\s\S]*?\}\);[\s\S]*?return true/,
   );
 });
 

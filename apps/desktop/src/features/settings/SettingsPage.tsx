@@ -455,7 +455,7 @@ export function SettingsPage() {
           {tab === "about" && (
             <div className="settings-stack">
               <SettingsCard>
-                <SettingsRow title={t("settings.application")} description={t("settings.applicationDesc")}>
+                <SettingsRow title={t("settings.application")}>
                   <div className="settings-about-meta">
                     <div className="font-medium">
                       {version?.name || "PI-Desktop"} {version?.version}
@@ -465,7 +465,7 @@ export function SettingsPage() {
                     </div>
                   </div>
                 </SettingsRow>
-                <SettingsRow title={t("settings.logs")} description={t("settings.logsDesc")}>
+                <SettingsRow title={t("settings.logs")}>
                   <Button variant="secondary" onClick={() => void api.openLogs()}>
                     {t("settings.openLogs")}
                   </Button>

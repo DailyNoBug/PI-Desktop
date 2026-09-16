@@ -86,15 +86,11 @@ test("macOS hides sidebar branding and keeps header actions beside traffic light
   assert.doesNotMatch(sidebarSource, /sidebar-macos-drag-row/);
   assert.match(
     globalStyles,
-    /:root\[data-platform="darwin"\] \.sidebar-header\s*\{[^}]*padding-left:\s*76px;/s,
+    /:root\[data-platform="darwin"\] \.sidebar-header\s*\{[^}]*padding-left:\s*var\(--ds-window-lead-inset\);/s,
   );
   assert.match(
     globalStyles,
     /:root\[data-platform="darwin"\] \.sidebar-header > \.brand\s*\{[^}]*display:\s*none;/s,
-  );
-  assert.match(
-    globalStyles,
-    /:root\[data-platform="darwin"\]\[data-fullscreen="true"\] \.sidebar-header\s*\{[^}]*padding-left:\s*8px;/s,
   );
   assert.match(
     globalStyles,
@@ -289,9 +285,12 @@ test("session rows use the hover card instead of a native title tooltip", () => 
 
 test("session hover cards expose readable models and keyboard-navigable session links", () => {
   assert.match(hoverSource, /role="dialog"/);
-  assert.match(hoverSource, /summary\?\.providerName/);
-  assert.match(hoverSource, /summary\?\.modelName/);
+  assert.match(hoverSource, /summary\?\.modelName \|\| summary\?\.providerName/);
   assert.doesNotMatch(hoverSource, /modelKey\?\.includes\("\/"\)/);
+  assert.doesNotMatch(hoverSource, /sidebar-session-hover-card-id/);
+  assert.doesNotMatch(hoverSource, /sessionCollaboration\.checkedAt/);
+  assert.doesNotMatch(hoverSource, /sessionCollaboration\.provider/);
+  assert.doesNotMatch(hoverSource, /nav\.hoverCardLocalTask/);
   assert.match(hoverSource, /data-session-link=\{summary\.createdBySession\.sessionId\}/);
   assert.match(hoverSource, /summary\.createdSessions\.slice\(0, 8\)/);
   assert.match(hoverSource, /type="button"/);

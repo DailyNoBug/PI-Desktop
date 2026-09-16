@@ -242,9 +242,9 @@ Each ADR includes:
 | 0220 | Keep Windows work-panel chrome single-purpose | Accepted (amends D154 / D357 / ADR 0195) |
 | 0221 | Render canonical thinking-level values without translation | Accepted (amends D369 / ADR 0202) |
 | 0222 | Native file and folder drops in the Composer | Accepted (amends ADR 0101 / D397) |
-| message-quotes-and-side-chats | Message quotes and renderer-owned side chats | Accepted (preserves D097 / D128 / D134 / D154; amended by D-LOCAL-selection-overlay) |
-| response-annotations | Response annotations as prompt attachments | Accepted (amends D-LOCAL-message-quotes decision 3 for assistant turns; presentation amended by floating-annotation-index) |
-| floating-annotation-index | Floating annotation index and source locations | Accepted (amends D-LOCAL-response-annotations / response-annotations) |
+| message-quotes-and-side-chats | Message quotes and renderer-owned side chats | Superseded by 0268 |
+| response-annotations | Response annotations as prompt attachments | Superseded by 0268 |
+| floating-annotation-index | Floating annotation index and source locations | Superseded by 0268 |
 | 0223 | Context Usage Display Preference | Accepted (amends 0184) |
 | 0224 | Right panel tab strip and data-driven add menu | Accepted (issue #229) |
 | 0225 | Restore deferred tools from effective session context | Accepted (issue #225) |
@@ -292,13 +292,22 @@ Each ADR includes:
 | 0265 | [Priority block and row actions for the Host-owned turn queue](0265-turn-queue-priority-block-and-row-actions.md) | Accepted for implementation (D429; amends ADR 0213 / 0118) |
 | session-content-search | [Discover sessions by indexed message text](session-content-search.md) | Accepted |
 | transcript-reading-ownership | [Share renderer history and search views](transcript-reading-ownership.md) | Accepted |
-| 0266 | [Sidebar token usage summary](0266-sidebar-token-usage-summary.md) | Accepted (amends 0173) |
-| 0267 | [Bundled Git work panel](0267-bundled-git-work-panel.md) | Accepted (D431; amended by 0268 / D432) |
-| 0268 | [Tree review and AI commit messages in Git](0268-git-ai-commit-messages.md) | Accepted (D432) |
-| 0269 | [Window-sized plugin view modals](0269-window-sized-plugin-view-modals.md) | Accepted (D433) |
-| 0270 | [Remote SSH Agent Runtime](0270-remote-ssh-agent-runtime.md) | Accepted for implementation (D434) |
-| 0271 | [Managed SSH password authentication](0271-managed-ssh-password-auth.md) | Accepted (D435) |
+| 0266 | [Plugin fs roots follow the calling session](0266-plugin-fs-root-follows-the-calling-session.md) | Accepted (D093) |
+| 0267 | [Plugin labels follow the app language](0267-plugin-labels-follow-the-app-language.md) | Accepted (amends 0160; ADR 0182) |
+| 0268 | Remove quotes, annotations, and side chats | Accepted (supersedes message-quotes-and-side-chats / response-annotations / floating-annotation-index) |
+| 0269 | [Move capability documents between the global and project levels](0269-capability-level-transfer.md) | Accepted for implementation (amends ADR 0112) |
+| 0270 | [Builtin subagents can be switched off](0270-builtin-subagents-can-be-disabled.md) | Accepted for implementation (amends ADR 0063; ADR 0112) |
+| 0271 | [Rebuild the shared provider transport after repeated unanswered failures](0271-provider-transport-rebuild.md) | Accepted for implementation (issue #234) |
+| 0272 | [Judge a public-network address on the route the request will dial](0272-connection-time-public-network-route.md) | Accepted for implementation (amends ADR 0243; issue #419 / PR #473) |
+| 0273 | [Sidebar token usage summary](0273-sidebar-token-usage-summary.md) | Accepted (amends 0173; D430) |
+| 0274 | [Bundled Git work panel](0274-bundled-git-work-panel.md) | Accepted (D431; amended by 0275 / D432) |
+| 0275 | [Tree review and AI commit messages in Git](0275-git-ai-commit-messages.md) | Accepted (D432) |
+| 0276 | [Window-sized plugin view modals](0276-window-sized-plugin-view-modals.md) | Accepted (D433) |
+| 0277 | [Remote SSH Agent Runtime](0277-remote-ssh-agent-runtime.md) | Accepted for implementation (D434) |
+| 0278 | [Managed SSH password authentication](0278-managed-ssh-password-auth.md) | Accepted (D435) |
 
 The fork's own decisions originally took the 0230 - 0235 range that merged main
 had already assigned, so they were renumbered to 0266 - 0271 (D430 - D435)
-against merged main.
+against merged main. A later upstream sync then claimed 0266 - 0272 for its own
+records, so the fork's six decisions moved once more, to 0273 - 0278, keeping
+their decision IDs D430 - D435 unchanged.

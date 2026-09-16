@@ -305,6 +305,10 @@ type UserModelConfig = {
 type ModelBinding = {
   id: string
   contextWindow: number
+  /** Where `contextWindow` came from; absent on records older than the marker,
+   * which then resolve through the historical rule (see
+   * `13-model-catalog-and-selection.md` §9.1). */
+  contextWindowSource?: "catalog" | "user"
   maxTokens: number
   thinkingLevels: ThinkingLevel[]
   defaultThinkingLevel: ThinkingLevel | null

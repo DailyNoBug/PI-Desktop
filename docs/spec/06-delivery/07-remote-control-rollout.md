@@ -402,7 +402,7 @@ Recorded on the `feat/remote-agent-host` branch, 2026-09-10:
   graceful stop.
 - R1 open: a runtime-level per-turn permission ceiling (a capped turn
   currently fails closed in the bridge).
-- R2 in progress (D434 / ADR 0270): the loopback `RACP-WS` server/client with
+- R2 in progress (D434 / ADR 0277): the loopback `RACP-WS` server/client with
   one-time pairing and cursor replay, the Linux `packages/pi-host` runtime,
   workspace boundary and checksummed x64/arm64 release bundles, and Electron
   Main's SSH discovery/bootstrap/port-forward/reconnect supervisor plus

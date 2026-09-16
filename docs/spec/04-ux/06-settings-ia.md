@@ -62,18 +62,19 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
 ### General
 - **Appearance** card:
   - **Theme**: a searchable picker row (same anchored-menu pattern as
-    Language). The trigger fills the settings control column and shows the
-    current name. The menu pins System, Light, and Dark at the top, then lists
-    plugin themes after a divider with a "Provided by …" hint. Search matches
-    labels, descriptions, ids, and plugin ids. Selection updates
-    `settings.theme`.
-  - **Language**: a searchable picker row (not a card grid). The trigger fills
-    the settings control column and shows the current native name, or Match
-    system. The menu pins Auto at the top with the detected language inline
-    (e.g. "Currently 简体中文"), then lists every shipped locale with its
-    native name (endonym, never translated) and English name for search and
-    sort. Selection updates `settings.language`. Adding a locale is a catalog
-    plus a registry row; the picker does not hard-code the option list.
+    Language). The closed trigger sizes to the current label, capped by the
+    settings control column, and shows the current name. The menu pins System,
+    Light, and Dark at the top, then lists plugin themes after a divider with a
+    "Provided by …" hint. Search matches labels, descriptions, ids, and plugin
+    ids. Selection updates `settings.theme`.
+  - **Language**: a searchable picker row (not a card grid). The closed trigger
+    sizes to the current label, capped by the settings control column, and
+    shows the current native name, or Match system. The menu pins Auto at the
+    top with the detected language inline (e.g. "Currently 简体中文"), then
+    lists every shipped locale with its native name (endonym, never translated)
+    and English name for search and sort. Selection updates `settings.language`.
+    Adding a locale is a catalog plus a registry row; the picker does not
+    hard-code the option list.
   - **Font**: a searchable picker row (trigger shows the current family rendered
     in that face) offering the System default, bundled open-licensed families
     (Geist, Inter, Noto Sans SC, LXGW WenKai — SIL OFL 1.1, shipped locally),
@@ -104,10 +105,12 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
     `net.fetch`, and the in-app browser). Workspace Bash and the system
     browser used for OAuth are not rewritten.
   - Custom shows a Proxy URL field (`socks5://127.0.0.1:1080` /
-    `http://127.0.0.1:7890`), a Bypass list defaulting to
-    `localhost,127.0.0.1,::1,<local>` so loopback MCP and local models stay
-    direct, and a Test action that issues one Chromium fetch through the
-    draft proxy. The URL is validated on blur; invalid schemes are rejected.
+    `http://127.0.0.1:7890`, including `user:pass@` userinfo), a Bypass
+    list defaulting to `localhost,127.0.0.1,::1,<local>` so loopback MCP
+    and local models stay direct, and a Test action that issues one
+    Chromium fetch through the draft proxy. Credentialed URLs are applied
+    to Chromium through a loopback SOCKS5 relay (issue #490). The URL is
+    validated on blur; invalid schemes are rejected.
   - The selection persists as optional `AppSettings.networkProxy`
     (`mode` / `url` / `bypass`). Absent means System. No host protocol or
     storage schema version bump (D340 / ADR 0177).
@@ -121,7 +124,8 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   (ask / accept-edits / auto) that governs how autonomously the agent acts.
   The control is a menu select on the shared anchored-menu surface rather than
   a platform-drawn `<select>` popup, so every Settings picker opens the same
-  way.
+  way. The closed trigger sizes to the current label, capped by the settings
+  control column.
 - **Defaults** card: the host-backed default operating mode (Agent / Plan / Goal),
   command shell selection, Link open destination, context usage display
   (remaining or used), Enter-to-send control, and the large text paste
@@ -152,7 +156,7 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   session; the transcript shows where each compaction happened and the context
   usage inspector shows whether a checkpoint is installed.
 
-Token usage is **not a Settings destination** (D335 / D430 / ADR 0266). The
+Token usage is **not a Settings destination** (D335 / D430 / ADR 0273). The
 expanded sidebar footer Activity icon, directly right of Settings, opens a
 read-only fourteen-day
 completed-turn summary from host-owned history
@@ -182,6 +186,11 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     on Windows/Linux; its native global registration follows the same override.
     An unbound launcher disables Electron registration, the Windows host hook,
     and the focused-window fallback
+  - the window-visibility row is one toggle on `Cmd/Ctrl + W`: it hides a
+    visible, focused window to the tray and brings a hidden or minimized window
+    back. It is the only window key — the retired `Cmd/Ctrl + Shift + W` summon
+    row is gone — and a stored `closeWindow`/`summonWindow` override is folded
+    into it when the map is read (D438)
 
 ### Model configuration (`agent` tab)
 - **Defaults** card: a compact settings row shows the provider name and exact
@@ -238,8 +247,9 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     action that re-probes the service immediately. Each selected model has an independent, compact
     configuration row for context window, max output, supported thinking
     levels, and the default thinking level. The row keeps the model ID,
-    source, capabilities, and token limits visible at a glance, and expands
-    in place for edits. The expanded body is a compact sheet, not a stacked
+    source, capabilities, and token limits visible at a glance in one shared
+    compact form that keeps neighbouring windows apart (`1.05M · 128K`), and
+    expands in place for edits. The expanded body is a compact sheet, not a stacked
     form dump: 2xs labels, dense numeric fields without native spinners, the
     alias hint as a title tooltip rather than a paragraph, the default
     thinking selector on the thinking label row, and attachments plus
@@ -251,6 +261,12 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     outside settings container dismisses it before the trigger can become
     detached. Search results keep a dedicated no-match state instead of
     reusing the search placeholder.
+  - the context-window field states its provenance: while the number still
+    follows the published models.dev limit, a faint hint under the input says so
+    (`settings.contextWindowCatalogHint`), and the first edit — the preset
+    ladder or the numeric input — pins the value to the user, which removes the
+    hint. A value the user pinned is never replaced by a catalog refresh; an
+    unpublished model shows no hint because there is nothing to follow.
   - each model option and configuration row shows a compact text/vision
     capability state. Settings compares the checkbox with the published model
     record, while the Composer badge and runtime use the effective binding:
@@ -344,15 +360,18 @@ system while preserving their different data ownership:
   picker because it is global-only, keeping only search and its actions.
   The panel still uses two in-panel groups: **Built-in** (the five shipped
   definitions `explorer`, `code-reviewer`, `test-runner`, `fixer`, and
-  `ui-designer`, rendered as read-only rows) and **Global**
-  (`~/.agents/subagents`, user-owned). An enabled user document of the same
-  name shadows that builtin in the Task catalog, so the Built-in row is omitted
-  while the user row remains. A disabled user document of the same name leaves
-  the builtin in the catalog (and on the Built-in list) because Task uses the
-  shipped definition again. Built-in rows carry a source badge and
-  **Copy as mine** (opens the create sheet pre-filled from that definition, with
-  the matching template chip selected); they have no enablement switch, reveal,
-  or delete because they are not files.
+  `ui-designer`) and **Global** (`~/.agents/subagents`, user-owned). An enabled
+  user document of the same name shadows that builtin in the Task catalog, so
+  the Built-in row is omitted while the user row remains. A disabled user
+  document of the same name leaves the builtin in the catalog (and on the
+  Built-in list) because Task uses the shipped definition again. Built-in rows
+  carry a source badge, **Copy as mine** (opens the create sheet pre-filled from
+  that definition, with the matching template chip selected), and the same
+  enablement switch a user row has (D202 activation, ADR 0270): turning one off
+  writes app-local state rather than a document, the row stays listed and dimmed
+  so the switch is still the way back on, and the next catalog load stops
+  offering it to `Task`. Reveal and delete remain absent because a builtin is
+  not a file.
 - The level filter narrows which groups the panel renders; it never hides the
   toolbar or moves the actions. New capabilities are created at the level the
   filter points at — Global under All or Global, Project under Project — and
@@ -374,10 +393,16 @@ system while preserving their different data ownership:
   the overflow menu stay quiet until the row is hovered, focused, or has its
   menu open; the switch is always visible because enablement is the state the
   list is read for. Without hover the quiet actions are always shown. The
-  overflow menu holds the level-aware destructive and out-of-app actions —
-  Reveal and Remove for skills and subagents, Test connection and Remove for
-  MCP — and Remove arms on first press, relabels to ask for confirmation, and
-  disarms on its own if the menu is dismissed or left alone.
+  overflow menu holds the level-aware destructive, move, and out-of-app
+  actions — Reveal and Remove for skills and subagents, Test connection and
+  Remove for MCP, and Move to Global / Move into <project> on MCP and Skill
+  rows — and Remove arms on first press, relabels to ask for confirmation,
+  and disarms on its own if the menu is dismissed or left alone. The move
+  direction follows the row's own level: a global row offers Move into the
+  project named by the page toolbar's project picker, and a project row offers
+  Move to Global. With no project selected the Move into <project> item is not
+  offered and the project group asks for a project selection instead, so a
+  capability is never sent to an unnamed project.
 - Skeleton rows appear on first paint only. A later refresh keeps the rows it
   already has and dims the list instead, announcing the refresh to assistive
   technology, so toggling a switch never replaces the list with skeletons.
@@ -398,7 +423,12 @@ system while preserving their different data ownership:
   English-titled offline fallback. Default GitHub sources are queried with
   user-added sources; a remote badge uses `sourceId`, not id collision with
   builtin rows. Documents that would exceed the 128 KiB host cap cannot be
-  installed. Back reloads the skill list.
+  installed. A preview that fails is reported in the sheet with its reason and
+  a Retry action — the install button may sit disabled, but never without an
+  explanation — and a market whose sources were refused by the public-network
+  guard says so instead of calling every source unreachable, because a proxied
+  user sees that refusal while the same URL opens in their browser (ADR 0177).
+  Back reloads the skill list.
 - The Subagents create/edit sheet pins a model with a searchable, provider-
   grouped anchored menu — the same option-menu control the service picker uses
   — over the configured, runnable models the Composer offers, plus an
@@ -446,9 +476,9 @@ system while preserving their different data ownership:
   is a picker over the configured providers' models; the picker groups entries
   by provider and every option comes from the configured catalog, so there is
   no hand-typed pin entry (issue #60). With no providers configured it shows
-  an empty state whose action opens Models. Builtins stay on the existing
-  read-only Built-in rows; the picker is for new and user-owned subagents
-  only.
+  an empty state whose action opens Models. A builtin keeps its Built-in row,
+  which is switched but never edited; the picker is for new and user-owned
+  subagents only.
   The create/edit sheet stays compact at desktop sizes: form controls are
   local filled wells with restrained padding, the prompt editor is the only
   intentionally tall control, and Advanced remains a compact disclosure. Hover
@@ -487,7 +517,9 @@ system while preserving their different data ownership:
   automatically (D007 / D342).
 - Sessions: review candidates through `SessionImportPanel`. Source and
   project-path grouping behavior follows
-  [08-component-spec §18](08-component-spec.md#18-sessionimportpanel)
+  [08-component-spec §18](08-component-spec.md#18-sessionimportpanel).
+  The Group-by control is the same in-app menu select as the Appearance and
+  Permissions pickers, not a platform-drawn `<select>`.
 - Model configuration: review provider drafts through
   `ModelConfigImportPanel`
   ([08-component-spec §18.5](08-component-spec.md#185-modelconfigimportpanel)).

@@ -115,7 +115,7 @@ export function ComposerToolbar({
           <div className="composer-plus">
             <TooltipButton
               type="button"
-              className="icon-btn"
+              className="icon-btn icon-btn-square"
               tooltip={t("chat.addFiles")}
               ariaLabel={t("chat.addFiles")}
               disabled={controlsBlocked || pasting}
@@ -253,7 +253,7 @@ export function ComposerToolbar({
         />
         <TooltipButton
           type="button"
-          className={`icon-btn composer-enhance-btn${enhancingPrompt ? " is-loading" : ""}`}
+          className={`icon-btn icon-btn-square composer-enhance-btn${enhancingPrompt ? " is-loading" : ""}`}
           tooltip={t("chat.enhancePrompt")}
           ariaLabel={enhancingPrompt ? t("chat.enhancingPrompt") : t("chat.enhancePrompt")}
           aria-busy={enhancingPrompt}
@@ -278,7 +278,7 @@ export function ComposerToolbar({
         {enhancementUndoText !== null ? (
           <TooltipButton
             type="button"
-            className="icon-btn composer-enhance-undo"
+            className="icon-btn icon-btn-square composer-enhance-undo"
             tooltip={t("chat.undoEnhancement")}
             ariaLabel={t("chat.undoEnhancement")}
             disabled={controlsBlocked}

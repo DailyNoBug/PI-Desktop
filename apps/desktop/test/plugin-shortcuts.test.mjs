@@ -225,7 +225,9 @@ test("a system-reserved binding is refused", () => {
 test("without a live source the app's shipped defaults are refused", () => {
   for (const platform of ["linux", "darwin"]) {
     const { registry, calls } = fakePlatform({ platform });
-    for (const accelerator of ["Alt+Space", "Mod+Shift+W"]) {
+    // D438: the app spends `Mod+W` on the window toggle, and the retired
+    // `Mod+Shift+W` summon chord is free again.
+    for (const accelerator of ["Alt+Space", "Mod+W"]) {
       refusal(
         () =>
           registry.register({
@@ -243,29 +245,30 @@ test("without a live source the app's shipped defaults are refused", () => {
 });
 
 test("the live host bindings decide, not the shipped defaults", () => {
-  // The user rebound the summon-window shortcut, so its old default is free
-  // again while whatever the app now holds is refused instead.
+  // The user rebound the window toggle, so `Mod+W` is free again while
+  // whatever the app now holds is refused instead.
   const { registry, calls } = fakePlatform({ hostBindings: () => ["Mod+Shift+W"] });
 
   const freedDefault = registry.register({
     pluginId: PLUGIN_ID,
     id: "voice.pushToTalk",
-    accelerator: "Alt+Space",
+    accelerator: "Mod+W",
     command: VOICE_COMMAND,
   });
-  assert.equal(freedDefault.accelerator, "Alt+Space");
+  assert.equal(freedDefault.accelerator, "Mod+W");
 
   refusal(
     () =>
       registry.register({
         pluginId: PLUGIN_ID,
-        id: "voice.summon",
+        id: "voice.toggle",
         accelerator: "Mod+Shift+W",
         command: VOICE_COMMAND,
       }),
     "SHORTCUT_CONFLICT",
   );
-  assert.deepEqual(calls.registered, ["Alt+Space"]);
+  // `register` receives Electron's platform spelling of the canonical binding.
+  assert.deepEqual(calls.registered, ["Control+W"]);
 });
 
 test("an empty live report still falls back to the shipped defaults", () => {

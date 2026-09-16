@@ -26,7 +26,6 @@ import {
   IconBot,
   IconChevronLeft,
   IconClose,
-  IconChat,
   IconDiff,
   IconFileText,
   IconPanelMaximize,
@@ -40,7 +39,6 @@ import { ReviewTab } from "./ReviewTab";
 import { FilesTab } from "./FilesTab";
 import { PluginViewTab } from "./PluginViewTab";
 import { SubagentPanel } from "./SubagentPanel";
-import { SideChatTab } from "./SideChatTab";
 import type { SubagentPanelSelection } from "../../lib/subagent-panel";
 import {
   MAIN_PANE_MIN_WIDTH,
@@ -49,7 +47,6 @@ import {
   clampWorkPanelWidth,
   workPanelLayout,
 } from "../../lib/work-panel-resize";
-import { sideChatTabSessionId } from "../../lib/side-chat";
 
 const TAB_ICONS = {
   new: IconPlus,
@@ -57,7 +54,6 @@ const TAB_ICONS = {
   terminal: IconTerminal,
   file: IconFileText,
   plugin: IconPlug,
-  sidechat: IconChat,
 } as const;
 
 type WorkPanelResizeState = {
@@ -90,9 +86,6 @@ function tabLabel(
     // back to its id rather than leaving the tab blank until it closes.
     return view?.title ?? tab.resource ?? t("panel.tabs.plugin");
   }
-  // The side-chat tab shows a conversation, so it reuses the side chat's own
-  // label instead of inventing a second name for the same surface (D-LOCAL-message-quotes).
-  if (tab.kind === "sidechat") return t("sideChat.title");
   if (tab.kind === "new") return t("panel.new.title");
   if (tab.kind !== "file") return t(`panel.tabs.${tab.kind}`);
   const path = tab.resource ?? "";
@@ -645,25 +638,6 @@ export function WorkPanel({
                     // Native WebContentsViews composite above renderer content.
                     blocked={exiting || panelBlocked}
                   />
-                </div>
-              );
-            })()}
-          {/* A side chat docks the child session's conversation beside the main
-              one. The child retains its renderer-owned transcript while another tab is visible. */}
-          {!subagentPanel &&
-            activeTab?.kind === "sidechat" &&
-            (() => {
-              const sessionId = sideChatTabSessionId(activeTab);
-              if (!sessionId) return null;
-              return (
-                <div
-                  key={activeTab.id}
-                  id={`work-panel-surface-${activeTab.id}`}
-                  className="work-panel-tabpane"
-                  role="tabpanel"
-                  aria-labelledby={`work-panel-tab-${activeTab.id}`}
-                >
-                  <SideChatTab sessionId={sessionId} />
                 </div>
               );
             })()}

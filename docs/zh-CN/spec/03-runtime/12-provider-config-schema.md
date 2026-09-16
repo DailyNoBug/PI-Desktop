@@ -87,6 +87,7 @@
           "id": { "type": "string", "minLength": 1 },
           "alias": { "type": "string", "maxLength": 60 },
           "contextWindow": { "type": "integer", "minimum": 1 },
+          "contextWindowSource": { "enum": ["catalog", "user"] },
           "maxTokens": { "type": "integer", "minimum": 1 },
           "thinkingLevels": {
             "type": "array",
@@ -122,6 +123,12 @@
 `models[].alias` 是可选展示标签（ADR 0192）。`models[].id` 仍是发给提供商的
 身份，别名从不用于提供商或模型解析。host-core 会修剪别名、丢弃空白值，
 并在超过 60 个 Unicode 字符时以 `MODEL_ALIAS_TOO_LONG` 拒绝。
+
+`models[].contextWindowSource` 记录存储的 `contextWindow` 来自哪里：`catalog` 表示
+models.dev 快照，之后的目录修正可以替换它；`user` 表示用户在设置中手改的值，永不被
+替换。该字段可选，因此早于该标记写出的配置仍可读，旧客户端会忽略它。host-core 只
+保留这两个取值、丢弃其它值，避免出现第三种无人识别的状态。解析规则见
+[13-model-catalog-and-selection](13-model-catalog-and-selection.md) §9.1。
 
 `compatibility.supportsReasoning` 和
 `compatibility.supportedThinkingLevels` 对于存储的记录保持可读状态

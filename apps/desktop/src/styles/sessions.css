@@ -41,8 +41,7 @@
   white-space: nowrap;
 }
 
-.import-group-select.settings-pill-select {
-  min-width: 116px;
+.import-group-select .settings-menu-select-trigger {
   height: 28px;
 }
 
@@ -604,16 +603,15 @@
 }
 
 
-/* WorkBuddy-style rich hover card for session rows. The related-session
-   references are real buttons so the card remains usable with a keyboard and
-   can navigate to another durable conversation. */
+/* Compact hover card for session rows. Related-session references stay
+   real buttons so the card remains usable with a keyboard. */
 .sidebar-session-hover-card {
   position: fixed;
   z-index: 71;
   width: min(320px, calc(100vw - 16px));
   max-height: calc(100vh - 16px);
   overflow: auto;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px solid var(--ds-border-default);
   border-radius: var(--radius-md);
   background: var(--ds-bg-elevated-opaque, var(--ds-bg-primary));
@@ -625,7 +623,7 @@
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   animation: sidebar-hover-card-in var(--motion-duration-fast)
     var(--motion-ease-out) both;
 }
@@ -649,7 +647,7 @@
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   overflow: hidden;
 }
 
@@ -671,14 +669,6 @@
 
 .sidebar-session-hover-card-status[data-status="waiting_permission"] {
   color: var(--ds-warning);
-}
-
-.sidebar-session-hover-card-id {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: var(--leading-compact);
-  color: var(--ds-text-muted);
-  overflow-wrap: anywhere;
 }
 
 .sidebar-session-hover-card-section {
@@ -745,8 +735,7 @@
 }
 
 .sidebar-session-hover-card-preview,
-.sidebar-session-hover-card-peer,
-.sidebar-session-hover-card-model {
+.sidebar-session-hover-card-peer {
   color: var(--ds-text-primary);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
@@ -776,18 +765,6 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.sidebar-session-hover-card-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.sidebar-session-hover-card-observed {
-  color: var(--ds-text-muted);
-  font-size: var(--text-xs);
-  line-height: var(--leading-compact);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -821,6 +798,13 @@
   color: var(--ds-text-primary);
 }
 
+.sidebar-session-hover-card-model {
+  color: var(--ds-text-primary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+
 .sidebar-session-hover-card-meta {
   display: flex;
   flex-direction: column;
@@ -829,8 +813,7 @@
 }
 
 .sidebar-session-hover-card-meta-row {
-  display: grid;
-  grid-template-columns: 14px auto 1fr;
+  display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -840,20 +823,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 14px;
   color: var(--ds-text-faint);
-}
-
-.sidebar-session-hover-card-meta-label {
-  color: var(--ds-text-faint);
-  font-size: var(--text-xs);
-  white-space: nowrap;
 }
 
 .sidebar-session-hover-card-meta-value {
-  color: var(--ds-text-primary);
-  font-size: var(--text-sm);
+  color: var(--ds-text-secondary);
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
-  text-align: end;
   min-width: 0;
 }
 

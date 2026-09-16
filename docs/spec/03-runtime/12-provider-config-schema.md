@@ -90,6 +90,7 @@ Tables (canonical DDL in [04-data-storage](04-data-storage.md) §4.3–4.4, §4.
           "id": { "type": "string", "minLength": 1 },
           "alias": { "type": "string", "maxLength": 60 },
           "contextWindow": { "type": "integer", "minimum": 1 },
+          "contextWindowSource": { "enum": ["catalog", "user"] },
           "maxTokens": { "type": "integer", "minimum": 1 },
           "thinkingLevels": {
             "type": "array",
@@ -118,6 +119,14 @@ provider or model resolution; UI naming and clearing rules are specified in
 [04-ux/08-component-spec](../04-ux/08-component-spec.md). Host-core trims the
 alias, drops a blank one, and enforces the 60-character limit by rejecting an
 over-long alias with `MODEL_ALIAS_TOO_LONG`.
+
+`models[].contextWindowSource` records where the stored `contextWindow` came
+from. `catalog` marks a models.dev snapshot that a later catalog correction may
+replace; `user` marks a number entered in Settings and is never replaced. The
+property is optional, so a config written before the marker stays readable and
+older clients ignore it. Host-core keeps only those two values and drops anything
+else, so an unreadable marker cannot turn into a third state. The resolution rule
+is specified in [13-model-catalog-and-selection](13-model-catalog-and-selection.md) §9.1.
 
 `compatibility.supportsReasoning` and
 `compatibility.supportedThinkingLevels` remain readable for stored-record and

@@ -18,6 +18,8 @@ import {
   PROVIDER_RATE_LIMIT_MAX_RETRIES,
   PROVIDER_TRANSIENT_MAX_RETRIES,
 } from "./provider-retry.js";
+import { getGlobalDispatcher } from "undici";
+import { describeProviderFetchFailure } from "./provider-transport-recovery.js";
 /**
  * The delegate loop itself is covered in `subagent.test.ts`; here only the
  * `Task` wiring around it is under test, so `SubagentRun` is replaced by a
@@ -1323,6 +1325,178 @@ describe("DesktopAgentRuntime live activity", () => {
       message: "503: upstream unavailable",
       providerStatus: 503,
     });
+
+    await runtime.dispose();
+  });
+
+  it("surfaces the transport errno while a network failure retries", async () => {
+    const onEvent = vi.fn();
+    const runtime = createRuntime({ onEvent });
+    const classified = classifyAgentError(
+      Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(
+          new Error("getaddrinfo ENOTFOUND api.example.com"),
+          {
+            code: "ENOTFOUND",
+            syscall: "getaddrinfo",
+            hostname: "api.example.com",
+          },
+        ),
+      }),
+    );
+    const activityError = (runtime as any).retryActivityError(classified);
+
+    // The retry popover renders exactly this object, so the user learns which
+    // transport layer is failing instead of only that the provider is
+    // unreachable.
+    expect(activityError).toEqual({
+      code: "NETWORK_ERROR",
+      message: "fetch failed",
+      networkCode: "ENOTFOUND",
+    });
+
+    (runtime as any).setAgentActivity({
+      phase: "retrying",
+      since: 100,
+      attempt: 2,
+      retryDelayMs: 2_000,
+      error: activityError,
+    });
+    const statusEvent = onEvent.mock.calls
+      .map(([envelope]) => (envelope as any).event)
+      .find((event) => event.type === "status");
+    expect(statusEvent?.status.activity).toMatchObject({
+      phase: "retrying",
+      error: { networkCode: "ENOTFOUND" },
+    });
+
+    await runtime.dispose();
+  });
+
+  it("stamps request size, message count and compaction generation on provider diagnostics", async () => {
+    const runtime = createRuntime({ onEvent: vi.fn() });
+    (runtime as any).providerRequestMessages = 42;
+    (runtime as any).providerRequestBytes = 180_000;
+    (runtime as any).activeCompaction = { details: { generation: 3 } };
+
+    expect(
+      (runtime as any).providerErrorWithDiagnostics(
+        {
+          code: "NETWORK_ERROR",
+          message: "fetch failed",
+          retriable: true,
+          details: { networkCategory: "dns", networkCode: "ENOTFOUND" },
+        },
+        "stream",
+        1_500,
+        2,
+      ).details,
+    ).toEqual({
+      networkCategory: "dns",
+      networkCode: "ENOTFOUND",
+      phase: "stream",
+      requestMessages: 42,
+      requestBytes: 180_000,
+      compactionGeneration: 3,
+      providerWaitMs: 1_500,
+      streamMs: 2,
+    });
+
+    await runtime.dispose();
+  });
+
+  it("keeps the network diagnosis on the emitted assistant error", async () => {
+    const onEvent = vi.fn();
+    const runtime = createRuntime({ onEvent });
+    const error = classifyAgentError(
+      Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("connect ECONNRESET"), {
+          code: "ECONNRESET",
+        }),
+      }),
+    );
+
+    (runtime as any).finalizeCurrentAssistant("error", error);
+
+    // The event envelope is what the logger persists as `agent/session.log`
+    // and what the renderer shows, so this is the surface the diagnosis has to
+    // survive on (ADR 0212).
+    const events = onEvent.mock.calls.map(([envelope]) => envelope as any);
+    expect(events.at(-1)?.event).toMatchObject({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        error: {
+          code: "NETWORK_ERROR",
+          details: { networkCategory: "reset", networkCode: "ECONNRESET" },
+        },
+      },
+    });
+
+    await runtime.dispose();
+  });
+
+  it("reports the captured transport cause instead of the flattened message", async () => {
+    const runtime = createRuntime({ onEvent: vi.fn() });
+    // The reporter's log line (issue #234): a bare `fetch failed`, a stream
+    // phase, a two-millisecond "stream", and 112s of provider wait. pi-ai had
+    // already flattened the Error, so the text-only classifier can only say
+    // "unknown" — the fetch wrapper still held the cause chain.
+    const flattened = classifyAgentError("fetch failed");
+    expect(flattened).toMatchObject({
+      code: "NETWORK_ERROR",
+      details: { networkCategory: "unknown" },
+    });
+    (runtime as any).providerFetchFailure = describeProviderFetchFailure(
+      Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("read ECONNRESET"), {
+          code: "ECONNRESET",
+          syscall: "read",
+        }),
+      }),
+      "https://chatgpt.com/backend-api/codex/responses",
+    );
+
+    expect(
+      (runtime as any).providerErrorWithDiagnostics(
+        flattened,
+        "stream",
+        112_442,
+        2,
+      ).details,
+    ).toMatchObject({
+      networkCategory: "reset",
+      networkCode: "ECONNRESET",
+      networkSyscall: "read",
+      // No response ever arrived, so this is not a started stream — the
+      // synthetic `message_start` pi-agent-core emits for a stream that ended
+      // without `start` must not read as one.
+      phase: "request",
+      providerWaitMs: 112_442,
+      streamMs: 2,
+    });
+
+    await runtime.dispose();
+  });
+
+  it("rebuilds the shared transport only once the same origin fails twice", async () => {
+    const runtime = createRuntime({ onEvent: vi.fn() });
+    const failure = describeProviderFetchFailure(
+      Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("read ECONNRESET"), {
+          code: "ECONNRESET",
+        }),
+      }),
+      "https://chatgpt.com/backend-api/codex/responses",
+    );
+    const before = getGlobalDispatcher();
+
+    (runtime as any).recoverProviderTransport(failure);
+    // One unanswered attempt is what a retry is for; the pool stays.
+    expect(getGlobalDispatcher()).toBe(before);
+    (runtime as any).recoverProviderTransport(failure);
+    // The second one has spent its retry on the same dead pool.
+    expect(getGlobalDispatcher()).not.toBe(before);
 
     await runtime.dispose();
   });

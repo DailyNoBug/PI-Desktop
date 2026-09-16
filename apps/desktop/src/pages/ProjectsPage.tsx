@@ -157,10 +157,13 @@ export function ProjectsPage() {
     roots?: ProjectGroupRecord["roots"];
     legacy?: boolean;
   } | null>(null);
+  // `roots` rides along so the dialog can keep deriving the project's live
+  // running sessions while it is open, instead of a snapshot taken on click.
   const [deleteFor, setDeleteFor] = useState<{
     name: string;
     path: string;
     sessionCount: number;
+    roots: ProjectGroupRecord["roots"];
   } | null>(null);
   const [remoteOpen, setRemoteOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -539,11 +542,9 @@ export function ProjectsPage() {
           <div className="projects-empty-title">
             {items.length === 0 ? t("project.noProjects") : t("project.noSearchResults")}
           </div>
-          <div className="projects-empty-body">
-            {items.length === 0
-              ? t("project.emptyIndexBody")
-              : t("project.noSearchResultsBody")}
-          </div>
+          {items.length === 0 ? null : (
+            <div className="projects-empty-body">{t("project.noSearchResultsBody")}</div>
+          )}
           {items.length === 0 ? (
             <Button variant="primary" onClick={addProject}>
               <IconPlus size={14} />
@@ -834,21 +835,14 @@ export function ProjectsPage() {
                                 data-action="delete-project"
                                 onClick={() => {
                                   setMenuFor(null);
-                                  const runningCount = sessions.filter(
-                                    (session) =>
-                                      sessionMatchesIndexProject(session, project) &&
-                                      runningSessions[session.id] === true,
-                                  ).length;
-                                  if (runningCount > 0) {
-                                    showToast(t("project.deleteRunningBlocked"), {
-                                      variant: "warning",
-                                    });
-                                    return;
-                                  }
+                                  // Never refuse silently: the dialog names the
+                                  // running sessions and asks for an explicit
+                                  // confirmation before it stops them.
                                   setDeleteFor({
                                     name: project.name,
                                     path: project.path,
                                     sessionCount: totalSessions,
+                                    roots: project.roots,
                                   });
                                 }}
                               >
@@ -1044,6 +1038,13 @@ export function ProjectsPage() {
       {deleteFor ? (
         <ProjectDeleteDialog
           project={deleteFor}
+          runningSessionIds={sessions
+            .filter(
+              (session) =>
+                sessionMatchesIndexProject(session, deleteFor) &&
+                runningSessions[session.id] === true,
+            )
+            .map((session) => session.id)}
           onClose={() => setDeleteFor(null)}
           onDeleted={() => {
             setDeleteFor(null);

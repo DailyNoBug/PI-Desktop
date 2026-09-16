@@ -278,6 +278,9 @@ type UserModelConfig = {
 type ModelBinding = {
   id: string
   contextWindow: number
+  /** `contextWindow` 的来源；早于该标记的记录没有此字段，按历史规则解析
+   * （见 `13-model-catalog-and-selection.md` §9.1）。 */
+  contextWindowSource?: "catalog" | "user"
   maxTokens: number
   thinkingLevels: ThinkingLevel[]
   defaultThinkingLevel: ThinkingLevel | null

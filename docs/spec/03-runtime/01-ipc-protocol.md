@@ -252,7 +252,7 @@ persisted marker protects accepted input from Smart Stop after renderer reload.
 A native Pi `message_end` may additionally carry the optional additive
 `replacesMessageId`: the provisional streaming row id whose durable SDK entry
 this event publishes. The renderer re-keys exactly that row (active, cache,
-retained, side chat) and a generic event without the field leaves every other
+retained) and a generic event without the field leaves every other
 row untouched. The field adds no event kind, RACP kind, or storage change.
 A user `message_end` can additionally
 carry `precedingAssistant`, a streaming snapshot that reserves the reply's
@@ -734,9 +734,14 @@ context. Manual compaction never silently falls back.
 
 Provider `error` events may include bounded diagnostic fields in
 `AppError.details`: `phase` (`request` or `stream`), `providerStatus`,
-`providerCode`, `providerWaitMs`, `streamMs`, and `retryAttempt`. These fields
-are additive and redacted; they never carry credentials or an unrestricted
-provider response. A transient stream failure may be replayed once inside the
+`providerCode`, `providerWaitMs`, `streamMs`, `retryAttempt`, and, for a
+network failure, `networkCategory`, `networkCode`, `networkSyscall`,
+`networkHost` and `networkRoute` plus the request correlation fields
+`requestMessages`,
+`requestBytes` and `compactionGeneration`. These fields are additive and
+redacted; they never carry credentials or an unrestricted provider response,
+and the request fields are counts and byte sizes only. A transient stream
+failure may be replayed once inside the
 same turn without a terminal `error` event or a duplicate assistant message.
 The second failure emits the terminal normalized `STREAM_FAILED` error.
 
@@ -1122,8 +1127,9 @@ Non-sensitive config that can be returned to the UI:
   tools disabled
 - optional `AppSettings.networkProxy` (`system` / `direct` / `custom` plus a
   proxy URL and bypass list). Absent means System. Custom accepts `http`,
-  `https`, `socks5`, and `socks5h` URLs. Main applies Chromium
-  `session.setProxy` and Node env immediately; the agent sidecar is
+  `https`, `socks5`, and `socks5h` URLs, including userinfo. Main applies
+  Chromium `session.setProxy` (credentialed URLs through a loopback SOCKS5
+  relay; issue #490) and Node env immediately; the agent sidecar is
   reconfigured without a process restart. `pi-desktop/network/testProxy`
   runs one bounded Chromium fetch through the supplied config and does not
   persist it.
@@ -1456,10 +1462,23 @@ state is pruned during the next scan.
 
 Desktop-only skill market channels (not host RPC) live on Electron IPC:
 
-- `pi-desktop/skill/market/search` — `{ query, sources[] }` → `{ entries, failedSources }`.
-  Main aggregates builtin-safe catalog JSON and GitHub repo SKILL.md scans.
-  Source URLs must pass the public-HTTPS policy (ADR 0243). One failing source
-  is dropped; the rest still return.
+- `pi-desktop/skill/market/search` — `{ query, sources[] }` →
+  `{ entries, failedSources, failureKinds, failureDetails }`. Main aggregates
+  builtin-safe catalog JSON and GitHub repo SKILL.md scans. Source URLs must pass
+  the public-HTTPS policy (ADR 0243). One failing source is dropped; the rest
+  still return. `failureKinds` maps each name in `failedSources` to `policy`
+  (the public-network guard judged the target and refused it, so the request
+  never left the process), `unresolved` (the local DNS lookup returned no answer,
+  so no address was judged — a resolver or proxy condition, not a verdict on the
+  source), or `network`. `failureDetails` carries the same keys with the host
+  that actually failed, the guard's own `reason`, the class of the refused
+  address, and the route that address was judged on (`proxied`, `direct`, or
+  `unknown` when the transport reported no readable route, ADR 0272), which is
+  what lets the panel name *what* was refused instead of only which source went
+  quiet.
+  `NETWORK_POLICY_BLOCKED` and an unanswered resolver as `NETWORK_RESOLVE_FAILED`
+  (spec 08 §3.1); the install sheet classifies a failed preview on those two
+  codes.
 - `pi-desktop/skill/market/fetch` — `{ entry }` → `{ name?, description?, body, resources? }`.
   Main fetches the document over the same policy, splits frontmatter, and may
   attach sibling `.md` files from a jsDelivr listing. The renderer installs
@@ -1491,6 +1510,8 @@ written into the Markdown file.
 - `agents.read(id)` → `{ subagent, body }`
 - `agents.remove(id)`
 - `agents.setEnabled(id, enabled)`
+- `agents.disabledBuiltins` → `{ disabled: string[] }`
+- `agents.setBuiltinEnabled(id, enabled)` → `{ id, enabled }`
 
 The `thinkingLevel` field accepted by `agents.create` and `agents.update` may
 be a canonical thinking level, `omit`, or the empty string. The empty string
@@ -1508,12 +1529,24 @@ The `tools` array may include the token `inherit` (ADR 0246). `inherit` alone
 is a valid grant; host-core must not drop the document. Settings round-trips
 the token as `tools: inherit` or `tools: [inherit, Bash]`.
 
+`agents.disabledBuiltins` and `agents.setBuiltinEnabled` carry activation for the
+shipped builtins, which have no document to switch (ADR 0270). Handles are stored
+at the global level in `<data>/agent-capabilities/subagent-builtins.json`, a file
+of its own: the user-document scan prunes state for ids it cannot see, and a
+builtin is never scanned, so a shared file would drop every builtin exclusion on
+the next scan. `agents.setBuiltinEnabled` normalizes the id the way a document
+name is normalized and rejects an empty one with `SUBAGENT_INVALID`; a handle no
+current builtin uses is stored inertly rather than refused, because host-core
+does not ship the builtin list.
+
 Electron's `subagent/list` IPC channel exposes the same global-only list to
 Settings > Agent > Subagents. `subagent/catalog` returns the effective Task
-catalog (enabled user documents merged with the five shipped builtins) so the
-page can render those defaults as read-only rows. The runtime catalog
-combines the same sources; it does not scan `.pi/agents` or any project
-capability directory.
+catalog — enabled user documents merged with the five shipped builtins, minus the
+builtins the user switched off — together with `builtins`: every shipped
+definition that still wins its handle, each carrying `enabled`, so the page can
+render a switched-off default as a row with its own switch. The runtime catalog
+combines the same sources and applies the same exclusions; it does not scan
+`.pi/agents` or any project capability directory.
 
 ## 12d. Capability level and local activation
 
@@ -1656,7 +1689,8 @@ a generic main-process command surface:
 type NativeMenuAction =
   | "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll"
   | "reload" | "zoomIn" | "zoomOut" | "resetZoom"
-  | "toggleFullScreen" | "minimize" | "toggleMaximize" | "close";
+  | "toggleFullScreen" | "minimize" | "toggleMaximize" | "close"
+  | "restoreMainWindow" | "toggleMainWindow";
 
 menu/nativeAction({ action: NativeMenuAction })
   -> { maximized: boolean; fullScreen: boolean }
