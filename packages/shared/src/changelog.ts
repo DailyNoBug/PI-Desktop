@@ -29,6 +29,23 @@ export type ChangelogEntry = {
 
 const enEntries: ChangelogEntry[] = [
   {
+    version: "0.14.9",
+    date: "2026-09-16",
+    highlights: [
+      "Reorder, edit, lock, and promote queued prompts so a later message can run next.",
+      "Create a side chat on the first send without switching the main conversation.",
+      "Show skill-market install failures with a retry instead of a dead button.",
+      "Show plugin-declared providers as native rows, including API keys and trusted custom agents.",
+      "Add plugin real-time connections, global shortcuts, and capability permissions.",
+      "Let plugins register theme variables and theme assets.",
+      "Delete a project together with its owned sessions.",
+      "Give subagents an ordered model fallback list.",
+      "Open file references from tool rows, and keep the reading position when expanding details.",
+      "Paint Plan approval and retry-error hover cards as opaque plates so transcript text does not show through.",
+    ],
+  },
+
+  {
     version: "0.14.8",
     date: "2026-09-14",
     highlights: [
@@ -759,6 +776,23 @@ const enEntries: ChangelogEntry[] = [
 
 const zhCNEntries: ChangelogEntry[] = [
   {
+    version: "0.14.9",
+    date: "2026-09-16",
+    highlights: [
+      "排队消息支持调整顺序、编辑、锁定，以及提升为下一条立即发送。",
+      "第一次发送时创建侧边对话，不切换主会话。",
+      "技能市场安装失败会显示原因并支持重试，而不再是失效按钮。",
+      "插件声明的提供商显示为原生行，可填写 API 密钥，并支持受信任的自定义 Agent。",
+      "插件可申请实时连接、全局快捷键和相应能力权限。",
+      "插件可注册主题变量和主题资源。",
+      "删除项目时一并删除其拥有的会话。",
+      "子智能体支持按顺序回退的模型列表。",
+      "工具行中的文件引用会打开对应视图，展开详情时保持阅读位置。",
+      "Plan 审批条和报错悬停卡片使用不透明底板，记录正文不再透出。",
+    ],
+  },
+
+  {
     version: "0.14.8",
     date: "2026-09-14",
     highlights: [
@@ -1487,6 +1521,23 @@ const zhCNEntries: ChangelogEntry[] = [
 ];
 
 const zhTWEntries: ChangelogEntry[] = [
+  {
+    version: "0.14.9",
+    date: "2026-09-16",
+    highlights: [
+      "排隊訊息支援調整順序、編輯、鎖定，以及提升為下一則立即傳送。",
+      "第一次傳送時建立側邊對話，不切換主工作階段。",
+      "技能市場安裝失敗會顯示原因並支援重試，而不再是失效按鈕。",
+      "外掛宣告的提供商顯示為原生列，可填寫 API 金鑰，並支援受信任的自訂 Agent。",
+      "外掛可申請即時連線、全域快速鍵和相應能力權限。",
+      "外掛可註冊主題變數和主題資源。",
+      "刪除專案時一併刪除其擁有的工作階段。",
+      "子智慧體支援依序回退的模型清單。",
+      "工具列中的檔案引用會開啟對應檢視，展開詳情時保持閱讀位置。",
+      "Plan 審批列和錯誤懸停卡片使用不透明底板，記錄正文不再透出。",
+    ],
+  },
+
   {
     version: "0.14.8",
     date: "2026-09-14",

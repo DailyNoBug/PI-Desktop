@@ -2,6 +2,23 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const esEntries: ChangelogEntry[] = [
   {
+    "version": "0.14.9",
+    "date": "2026-09-16",
+    "highlights": [
+      "Reordena, edita, bloquea y promociona prompts en cola para que un mensaje posterior se ejecute a continuación.",
+      "Crea un chat lateral en el primer envío sin cambiar la conversación principal.",
+      "Los fallos de instalación del mercado de skills muestran un reintento en lugar de un botón inerte.",
+      "Los proveedores declarados por plugins aparecen como filas nativas, con claves API y agentes personalizados de confianza.",
+      "Los plugins pueden pedir conexiones en tiempo real, atajos globales y permisos de capacidad.",
+      "Los plugins pueden registrar variables y recursos de tema.",
+      "Elimina un proyecto junto con las sesiones que le pertenecen.",
+      "Los subagentes tienen una lista ordenada de modelos de respaldo.",
+      "Las referencias de archivo en filas de herramientas abren la vista correcta, y expandir detalles mantiene la posición de lectura.",
+      "La barra de aprobación de Plan y el hover de error de reintento usan placas opacas para que el texto del transcript no se vea a través.",
+    ],
+  },
+
+  {
     "version": "0.14.8",
     "date": "2026-09-14",
     "highlights": [

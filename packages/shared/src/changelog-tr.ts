@@ -2,6 +2,23 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const trEntries: ChangelogEntry[] = [
   {
+    "version": "0.14.9",
+    "date": "2026-09-16",
+    "highlights": [
+      "Kuyruktaki istemleri yeniden sıralayın, düzenleyin, kilitleyin ve bir sonrakinin hemen çalışması için öne alın.",
+      "İlk gönderimde ana sohbeti değiştirmeden yan sohbet oluşturur.",
+      "Skill pazarı kurulum hataları ölü bir düğme yerine yeniden deneme gösterir.",
+      "Eklentinin bildirdiği sağlayıcılar yerel satır olarak görünür; API anahtarları ve güvenilir özel ajanlar dahildir.",
+      "Eklentiler gerçek zamanlı bağlantı, genel kısayol ve yetenek izinleri isteyebilir.",
+      "Eklentiler tema değişkenleri ve tema varlıkları kaydedebilir.",
+      "Bir projeyi sahip olduğu oturumlarla birlikte siler.",
+      "Alt ajanlara sıralı bir model geri dönüş listesi verir.",
+      "Araç satırlarındaki dosya başvuruları doğru görünümü açar; ayrıntıları açmak okuma konumunu korur.",
+      "Plan onay çubuğu ve yeniden deneme hata vurgusu opak yüzeylerdir, böylece transkript metni görünmez.",
+    ],
+  },
+
+  {
     "version": "0.14.8",
     "date": "2026-09-14",
     "highlights": [

@@ -2,6 +2,23 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const deEntries: ChangelogEntry[] = [
   {
+    "version": "0.14.9",
+    "date": "2026-09-16",
+    "highlights": [
+      "Warteschlangen-Prompts lassen sich umordnen, bearbeiten, sperren und als Nächstes senden.",
+      "Ein Side-Chat entsteht beim ersten Senden, ohne die Hauptunterhaltung zu wechseln.",
+      "Fehler bei der Skill-Markt-Installation zeigen einen Retry statt eines toten Buttons.",
+      "Von Plugins deklarierte Anbieter erscheinen als native Zeilen, inklusive API-Keys und vertrauenswürdiger Custom-Agents.",
+      "Plugins können Echtzeitverbindungen, globale Shortcuts und Fähigkeitsrechte anfordern.",
+      "Plugins können Theme-Variablen und Theme-Assets registrieren.",
+      "Ein Projekt wird zusammen mit seinen eigenen Sitzungen gelöscht.",
+      "Subagenten erhalten eine geordnete Modell-Fallback-Liste.",
+      "Dateiverweise in Tool-Zeilen öffnen die passende Ansicht; das Aufklappen von Details hält die Leseposition.",
+      "Plan-Freigabe und Retry-Fehler-Hover sind undurchsichtige Flächen, damit Transkripttext nicht durchscheint.",
+    ],
+  },
+
+  {
     "version": "0.14.8",
     "date": "2026-09-14",
     "highlights": [
