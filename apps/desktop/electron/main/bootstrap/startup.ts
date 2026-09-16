@@ -66,6 +66,13 @@ export type StartupDependencies = {
   createTray: () => void;
   dispatchApplicationMenuCommand: (command: AppMenuCommand) => void;
   dispatchNativeMenuAction: (action: NativeMenuAction) => void;
+  /**
+   * Install the voice dictation media-permission policy on the default
+   * session. `session.defaultSession` only exists once Electron is ready,
+   * and the policy must replace Chromium's defaults before the first web
+   * contents (main window or prewarmed launcher) can request media.
+   */
+  installMediaPermissionPolicy: () => void;
   prewarmPluginLauncher: () => void;
   registerIpc: () => IpcInvoker;
   /** Open the remote SSH supervisor once IPC handlers are registered. */
@@ -118,6 +125,7 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
       createTray,
       dispatchApplicationMenuCommand,
       dispatchNativeMenuAction,
+      installMediaPermissionPolicy,
       prewarmPluginLauncher,
       registerIpc,
       openRemoteManager,
@@ -142,6 +150,10 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
     installPluginAssetProtocol((pluginId, assetPath) =>
       plugins.resolveThemeAsset(pluginId, assetPath),
     );
+    // The default session exists only after ready, and this must precede the
+    // first web contents so no surface ever gets Chromium's default media
+    // permission answer.
+    installMediaPermissionPolicy();
     // Load the close-behavior preference before the first window exists: the
     // close handler reads `closeBehavior` synchronously, and a window created
     // while it still held the "ask" default would prompt a user who already
