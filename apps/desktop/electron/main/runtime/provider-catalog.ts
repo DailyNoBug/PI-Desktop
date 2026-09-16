@@ -5,7 +5,8 @@ import {
   isCommandShellId,
   modelIdsMatch,
   resolveBindingContextWindow,
-  validateNetworkProxy,
+   validateNetworkProxy,
+   normalizeVoiceSettings,
   type CommandShellId,
   type ModelBinding,
   type ThinkingLevel,
@@ -208,10 +209,25 @@ export function createProviderCatalogRuntime({
           errorCode: ErrorCodes.INVALID_ARGUMENT,
         });
       }
-      value.networkProxy = proxy.value;
-    }
-    return settings;
-  };
+       value.networkProxy = proxy.value;
+     }
+     if (Object.prototype.hasOwnProperty.call(value, "voice")) {
+       const voice = (value as { voice?: unknown }).voice;
+       const normalized = normalizeVoiceSettings(voice);
+       if (
+         normalized === undefined &&
+         voice &&
+         typeof voice === "object" &&
+         Object.keys(voice).length > 0
+       ) {
+         throw Object.assign(new Error("voice settings are invalid"), {
+           errorCode: ErrorCodes.INVALID_ARGUMENT,
+         });
+       }
+       (value as { voice?: unknown }).voice = normalized;
+     }
+     return settings;
+   };
 
   const listRuntimeProviders = async (includeDisabled = true) => {
     const host = getHost();

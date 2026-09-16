@@ -118,6 +118,7 @@ unit/integration 测试；代码 pull request 使用有选择且高价值的 E2E
 - 导入扩展依赖安装或 registry 边界改动：`pnpm test:e2e:plugin-import-deps`。
 - 受信任扩展或插件扩展改动：`pnpm test:e2e:trusted-extensions`。
 - 会话通信 / Session Orchestrator：`pnpm test:e2e:collaboration`。
+- 语音听写 / voice IPC：`pnpm test:e2e:voice`。
 - 同时涉及多个面的改动使用适用套件的并集。
 
 `pnpm test:e2e` 是 host RPC、IPC、Agent 执行、插件、持久化集成和共享运行时合约的默认跨系统烟雾测试。由于显示、平台、凭据、硬件或其他环境能力缺失而无法运行的必需套件，必须记录为 `NOT RUN`，并说明原因、替代验证和剩余风险。在具备条件且可信的环境中通过前，该 pull request 不具备合入条件。
@@ -5014,6 +5015,10 @@ IPC 请求无法关闭。
 | F — 持久化（目录窗口来源） | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
 | 品质（目录窗口来源） | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
 | M6+（目录窗口来源） | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
+| C — 对话和直播（语音听写） | E2E-269 |
+| 安全（语音听写） | E2E-269 |
+| 品质（语音听写） | E2E-269 |
+| M6+（语音听写） | E2E-269 |
 
 `US-UI-*` 视觉场景（§UI shell 视觉场景）追踪到
 [决策日志 §D](/zh-CN/spec/08-meta/decisions-log) 中的法典平价决策
@@ -7600,3 +7605,25 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
   目录、继承值保持 `catalog` 标记）；`packages/shared/src/model-catalog.test.ts` 覆盖
   四条来源规则；`crates/host-core/src/providers/catalog.rs` 覆盖配置往返、无标记记录与
   被丢弃的未知标记。端到端的设置旅程与实际启动窗口断言为草稿。
+
+#### E2E-269：基于模拟 STT 端点的语音听写
+
+- **前置条件**：测试套件能在回环上用 `node:http` 启动本地模拟
+  OpenAI 兼容 STT 服务器，`AppSettings.voice` 可指向它；不需要真实麦克风。
+- **步骤**：1）运行 `pnpm test:e2e:voice`。2）套件让模拟 STT 端点返回成功、
+  失败与超时响应，并分别驱动 OpenAI 兼容适配器。3）用合法与非法载荷调用
+  `pi-desktop/voice/capabilities` / `transcribe` / `cancel` 通道。4）驱动
+  sidecar 的 `voice.transcribe` / `voice.cancel` RPC、超限载荷与转写中的
+  取消。5）在 agent 会话存活时强制 STT 失败，并检查渲染器状态、主进程日志
+  与 IPC 流量。
+- **预期**：适配器成功时返回文本和 `detectedLanguage`，否则返回结构化语音
+  错误。IPC 拒绝非主窗口发送方以及非法或超限（120 秒 / 20 MiB）请求。
+  sidecar 接受以 base64 走 stdio 的音频、拒绝超限输入并干净取消。STT 失败
+  不影响 agent 运行时，也不会自动发送任何内容。已保存的 API 密钥与音频
+  字节绝不出现在渲染器、转录或日志中。
+- **链接规格**：`03-runtime/01-ipc-protocol.md` §13e、
+  `03-runtime/14-secrets-storage.md` §4、`05-security/01-security.md` §2、
+  `04-ux/06-settings-ia.md` §2；ADR 0279、D439
+- **验收**：C（对话与流式）、安全、质量
+- **里程碑**：M6+
+- **状态**：已自动化（2026-09-17 通过）：`pnpm test:e2e:voice`（模拟 STT 端点，无需麦克风）

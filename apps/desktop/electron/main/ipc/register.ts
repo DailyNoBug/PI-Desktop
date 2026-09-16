@@ -19,7 +19,8 @@ import { registerProviderIpc } from "./provider-ipc";
 import { registerPullsIpc } from "./pulls-ipc";
 import { registerScheduledIpc } from "./scheduled-ipc";
 import { registerSessionIpc } from "./session-ipc";
-import { registerSettingsIpc } from "./settings-ipc";
+ import { registerSettingsIpc } from "./settings-ipc";
+ import { registerVoiceIpc } from "./voice-ipc";
 import { registerSkillsIpc } from "./skills-ipc";
 import { fetchSkillMarketDocument, searchSkillMarket } from "../skill-market-catalog";
 import { registerWindowIpc } from "./window-ipc";
@@ -225,7 +226,12 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     applyApplicationMenuSettings,
     applyDeveloperMode,
     resolveEffectiveCommandShell,
-  });
+   });
+   registerVoiceIpc({
+     registrar,
+     getHost,
+     getSidecar,
+   });
   registerProviderIpc({
     registrar,
     getHost,

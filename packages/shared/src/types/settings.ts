@@ -5,7 +5,8 @@ import type { NetworkProxySettings } from "../network-proxy.js";
 import type { ContextCompactionSettings } from "./sessions.js";
 import type { Mode } from "./common.js";
 import type { GlobalPermissionMode } from "./permissions.js";
-import type { PluginMarketSource } from "./plugins.js";
+ import type { PluginMarketSource } from "./plugins.js";
+ import type { VoiceSettings } from "../voice.js";
 
 export type ThemePreference = "system" | "light" | "dark" | `plugin:${string}`;
 
@@ -85,8 +86,14 @@ export type AppSettings = {
    * Color thresholds always follow remaining capacity, so the warning state
    * does not change meaning with this preference.
    */
-  contextUsageDisplay?: ContextUsageDisplay;
-  onboardingDismissed: boolean;
+   contextUsageDisplay?: ContextUsageDisplay;
+   /**
+    * Voice dictation configuration (Phase 1 batch STT). Non-secret fields
+    * only; the API key lives in the host secret store under
+    * `VOICE_STT_SECRET_REF` and never crosses to the renderer.
+    */
+   voice?: VoiceSettings;
+   onboardingDismissed: boolean;
 };
 
 export type LinkOpenTarget = "workpanel" | "external";

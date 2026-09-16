@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { TFunction } from "i18next";
 import {
   isRemoteProjectPath,
@@ -64,7 +64,9 @@ export type ComposerToolbarProps = {
   clearEnhancementError: () => void;
   runActive: boolean;
   hasDraftContent: boolean;
-  abort: AppState["abort"];
+   abort: AppState["abort"];
+   /** Optional voice dictation affordance (rendered only when configured). */
+   voiceSlot?: ReactNode;
   submit: () => Promise<void>;
 };
 
@@ -100,7 +102,8 @@ export function ComposerToolbar({
   runActive,
   hasDraftContent,
   abort,
-  submit,
+   submit,
+   voiceSlot,
 }: ComposerToolbarProps) {
   const platform = (window.piDesktop?.platform ?? "darwin") as ShortcutPlatform;
   const steeringShortcut = keybindingDisplayParts("Alt+Enter", platform).join("+");
@@ -239,7 +242,8 @@ export function ComposerToolbar({
       </div>
 
       <div className="composer-right">
-        {contextUsage ? <ContextUsageInspector {...contextUsage} /> : null}
+         {voiceSlot ?? null}
+         {contextUsage ? <ContextUsageInspector {...contextUsage} /> : null}
         <ComposerModelPicker
           t={t}
           controller={modelMenu}

@@ -1,9 +1,10 @@
 import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
+   useEffect,
+   useLayoutEffect,
+   useCallback,
+   useMemo,
+   useRef,
+   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -59,7 +60,11 @@ import { useComposerSubmit } from "../features/chat/composer/hooks/useComposerSu
 import { ComposerInput } from "../features/chat/composer/ComposerInput";
 import { useComposerModelMenu } from "../features/chat/composer/hooks/useComposerModelMenu";
 import { ComposerToolbar } from "../features/chat/composer/ComposerToolbar";
-import { ComposerStatus } from "../features/chat/composer/ComposerStatus";
+ import { ComposerStatus } from "../features/chat/composer/ComposerStatus";
+ import { useVoiceCapabilities } from "../features/voice/use-voice-capabilities";
+ import { useVoiceDictation } from "../features/voice/useVoiceDictation";
+ import { VoiceDictationButton } from "../features/voice/VoiceDictationButton";
+ import { VoiceRecordingOverlay } from "../features/voice/VoiceRecordingOverlay";
 
 const EMPTY_QUEUED_PROMPTS: QueuedPrompt[] = [];
 
@@ -444,6 +449,35 @@ export function Composer({
     enabled: !inputBlocked,
   });
 
+  // Voice dictation: the state machine lives in features/voice; the composer
+  // only inserts the transcript at the cursor (and never auto-sends — the
+  // setting defaults off and is reserved for the future voice-control flow).
+  const voiceCapabilities = useVoiceCapabilities(settings?.voice);
+  const insertVoiceTranscript = useCallback(
+    (text: string) => {
+      const current = valueRef.current;
+      const at = Math.max(0, Math.min(cursor, current.length));
+      applyEditorDraft(
+        current.slice(0, at) + text + current.slice(at),
+        fileReferencesRef.current,
+        at + text.length,
+      );
+    },
+    [applyEditorDraft, cursor, fileReferencesRef, valueRef],
+  );
+  const voice = useVoiceDictation({
+    composerId: variant,
+    sessionId: activeSessionId ?? null,
+    language: settings?.voice?.language,
+    enabled: voiceCapabilities.configured,
+    onTranscript: insertVoiceTranscript,
+  });
+  useEffect(() => {
+    if (voice.snapshot.state !== "ready") return;
+    const timer = setTimeout(voice.dismiss, 2500);
+    return () => clearTimeout(timer);
+  }, [voice.snapshot.state, voice.dismiss]);
+
   const acceptCompletion = (index: number) => {
     const result = composerAc.accept(index);
     if (!result) return;
@@ -550,8 +584,13 @@ export function Composer({
               ac={composerAc}
               onAccept={acceptCompletion}
             />
-          ) : null}
-          <ComposerInput
+           ) : null}
+           <VoiceRecordingOverlay
+             snapshot={voice.snapshot}
+             onCancel={voice.cancel}
+             onDismiss={voice.dismiss}
+           />
+           <ComposerInput
             inputRef={ref}
             value={value}
             placeholderText={placeholderText}
@@ -578,8 +617,17 @@ export function Composer({
             }}
           />
           <ComposerToolbar
-            t={t}
-            mode={mode}
+             t={t}
+             mode={mode}
+             voiceSlot={
+               <VoiceDictationButton
+                 snapshot={voice.snapshot}
+                 busy={voice.busy}
+                 enabled={voiceCapabilities.configured}
+                 disabled={inputBlocked}
+                 onToggle={voice.toggle}
+               />
+             }
             planningLive={planningLive}
             providerId={provider?.id}
             modelId={modelId}

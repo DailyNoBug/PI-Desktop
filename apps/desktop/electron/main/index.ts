@@ -4,9 +4,10 @@ import {
   dialog,
   ipcMain,
   nativeTheme,
-  screen,
-  Tray,
-} from "electron";
+   screen,
+   session,
+   Tray,
+ } from "electron";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -118,7 +119,8 @@ import { registerWindowIpc } from "./ipc/window-ipc";
 import { registerPullsIpc } from "./ipc/pulls-ipc";
 import { registerScheduledIpc } from "./ipc/scheduled-ipc";
 import { registerAgentIpc } from "./ipc/agent-ipc";
-import { registerIpcHandlers } from "./ipc/register";
+ import { registerIpcHandlers } from "./ipc/register";
+ import { installVoiceMediaPermissionPolicy } from "./voice/voice-media-permission";
 import {
   type WindowLifecycleState,
 } from "./bootstrap/window";
@@ -1544,13 +1546,18 @@ function registerIpc() {
 // the owning surface can wire its own handlers (which replace these). A new
 // window that forgets to set a window-open handler therefore denies popups
 // and cannot attach a <webview> instead of inheriting Chromium's defaults.
-app.on("web-contents-created", (_event, contents) => {
-  contents.setWindowOpenHandler(() => ({ action: "deny" }));
-  contents.on("will-attach-webview", (event) => {
-    event.preventDefault();
-  });
-});
+ app.on("web-contents-created", (_event, contents) => {
+   contents.setWindowOpenHandler(() => ({ action: "deny" }));
+   contents.on("will-attach-webview", (event) => {
+     event.preventDefault();
+   });
+ });
 
+ // Voice dictation microphone policy: the default session (main renderer)
+ // grants audio-only media capture for the main window and denies everything
+ // else. Plugin panels and work-panel browser views run on separate
+ // partitions with their own deny-all handlers.
+ installVoiceMediaPermissionPolicy(session.defaultSession, () => mainWindow);
 const startupState: StartupState = {
   get applicationBooted() {
     return applicationLifecycleState.applicationBooted;

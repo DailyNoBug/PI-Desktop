@@ -35,6 +35,7 @@ Principles:
 | `menu` | Allowlisted application-menu commands and native editing/window actions |
 | `notification` | Durable inbox list/read/clear and new/activated events |
 | `stats` | Completed-turn token history (host RPC; dashboard is plugin-owned) |
+| `voice` | Voice dictation capability query, batch transcription, and cancellation (main-window sender only) |
 
 ## 3. Channel Conventions
 
@@ -2064,6 +2065,50 @@ The renderer refreshes sessions and applies project/session selection from that
 event, so an external Agent can create a session, open a project, or submit a
 prompt while the visible desktop follows the same state. A control-server
 startup failure is logged and does not prevent the desktop from launching.
+
+## 13e. Voice dictation API (D439 / ADR 0279)
+
+Three invoke channels under `pi-desktop/voice/*` carry batch speech-to-text
+from the composer to an OpenAI-compatible transcription endpoint. All three
+are accepted only from the main application window's sender; plugin panels,
+work-panel views, and every other frame are rejected.
+
+```ts
+voice/capabilities() -> {
+  configured: boolean;
+  recording: boolean;
+  maxDurationMs: number;   // 120_000
+  maxPayloadBytes: number; // 20 MiB
+}
+
+voice/transcribe({
+  requestId: string;
+  audio: Uint8Array;       // WebM/Opus preferred; memory-only, never persisted
+  mimeType: string;
+  durationMs: number;
+  language?: string;
+}) -> {
+  requestId: string;
+  text: string;
+  detectedLanguage?: string;
+}
+
+voice/cancel({ requestId: string }) -> { ok: true }
+```
+
+Every request is runtime-validated: the shared typebox envelope plus binary
+checks on `audio`, `mimeType`, and `durationMs`, with a 120-second recording
+cap and a 20 MiB payload cap. Electron main resolves the trusted
+`AppSettings.voice` endpoint/model (plain `http://` only on loopback) and the
+API key from the secret-ref `voice/stt` through `secrets.getForRuntime`, then
+hands both to the existing Node agent sidecar per call (`voice.transcribe` /
+`voice.cancel`, audio as base64 over stdio) — the same trust shape as
+`agent/prompt` receiving `provider.apiKey`. Captured audio is memory-only: it
+is never written to disk, to a transcript, or to logs. Failures surface the
+structured codes `VOICE_NOT_CONFIGURED`, `VOICE_PAYLOAD_TOO_LARGE`,
+`VOICE_CANCELLED`, `VOICE_MIC_PERMISSION_DENIED`, and
+`VOICE_TRANSCRIPTION_FAILED`; a transcription failure never disturbs an agent
+runtime, and no transcript is auto-sent through `agent/prompt`.
 
 ## 14. Error Codes — Initial registry (extensible)
 

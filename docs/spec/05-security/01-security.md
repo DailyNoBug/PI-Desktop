@@ -62,6 +62,22 @@ Required (all **implemented**):
 - Electron fuses (`runAsNode`, `nodeCliInspect` off) at package time
 - `webSecurity` assertions in an automated security e2e
 
+### Microphone permission (voice dictation, D439 / ADR 0279)
+
+- The default session's permission handlers allow `media` only when the
+  requesting webContents is the main window's, and only when every requested
+  capture kind is `audio`; camera, video, and unspecified media requests are
+  denied.
+- Plugin partitions and work-panel views keep their existing deny-all
+  permission handlers, so no other frame can acquire capture devices.
+- Captured dictation audio is memory-only and never persisted or logged; the
+  recorder timer, the IPC validation, and the sidecar each enforce the 120 s /
+  20 MiB caps.
+- The STT API key lives under the secret-ref `voice/stt` in the host secret
+  store (see [14-secrets-storage](../03-runtime/14-secrets-storage.md)); it is
+  resolved by Electron main only and handed to the agent sidecar per call, so
+  it never reaches the renderer, and the shared redaction policy applies to it.
+
 ## 3. Secrets
 
 - Keys stored via Electron `safeStorage` encryption, managed by host-core

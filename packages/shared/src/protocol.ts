@@ -291,8 +291,12 @@ export const IPC = {
     closeBehaviorGet: "pi-desktop/window/closeBehavior/get",
     closeBehaviorSet: "pi-desktop/window/closeBehavior/set",
     menuRendererReady: "pi-desktop/menu/rendererReady",
-    nativeMenuAction: "pi-desktop/menu/nativeAction",
-  },
+     nativeMenuAction: "pi-desktop/menu/nativeAction",
+     /** Voice dictation domain (ADR: voice dictation, Phase 1). */
+     voiceCapabilities: "pi-desktop/voice/capabilities",
+     voiceTranscribe: "pi-desktop/voice/transcribe",
+     voiceCancel: "pi-desktop/voice/cancel",
+   },
   event: {
     pluginChanged: "pi-desktop/event/pluginChanged",
     /** Host-originated app settings mutation (e.g. plugin `app.setTheme`). */

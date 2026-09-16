@@ -191,6 +191,10 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     back. It is the only window key — the retired `Cmd/Ctrl + Shift + W` summon
     row is gone — and a stored `closeWindow`/`summonWindow` override is folded
     into it when the map is read (D438)
+  - the `voiceDictation` action (default `Mod + Shift + V`, agent group)
+    toggles composer dictation and follows the same override, conflict, and
+    restore rules as the rest of the shared shortcut map (D439 / ADR 0279)
+
 
 ### Model configuration (`agent` tab)
 - **Defaults** card: a compact settings row shows the provider name and exact
@@ -231,6 +235,13 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     row and keeps the global default model in sync when that account is selected
   - Test connection resolves the account's OAuth authorization and reports a
     transient success or failure without probing the provider with an API key
+- **Voice dictation** card (D439 / ADR 0279): one card with the STT endpoint
+  (an OpenAI-compatible base URL; plain `http://` is accepted only on
+  loopback), the transcription model, a write-only API key stored under the
+  `voice/stt` secret ref and never shown raw after save, an optional language
+  hint, and an Auto-send toggle that defaults to off. The composer's mic
+  affordance renders only when both endpoint and model are configured.
+
 - **Providers** studio:
   - OpenAI-compatible and custom-service add-provider dialog (opened from Add
     provider / empty-state CTA)

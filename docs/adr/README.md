@@ -305,6 +305,7 @@ Each ADR includes:
 | 0276 | [Window-sized plugin view modals](0276-window-sized-plugin-view-modals.md) | Accepted (D433) |
 | 0277 | [Remote SSH Agent Runtime](0277-remote-ssh-agent-runtime.md) | Accepted for implementation (D434) |
 | 0278 | [Managed SSH password authentication](0278-managed-ssh-password-auth.md) | Accepted (D435) |
+| 0279 | [Voice dictation, phase 1](0279-voice-dictation-phase-1.md) | Accepted for implementation (D439) |
 
 The fork's own decisions originally took the 0230 - 0235 range that merged main
 had already assigned, so they were renumbered to 0266 - 0271 (D430 - D435)
