@@ -51,6 +51,7 @@ type SecretMeta = {
 ```text
 secret:provider:<providerId>:api_key
 secret:provider:<providerId>:oauth
+voice/stt
 ```
 
 The two refs are independent, so one provider row may hold an API key, a vendor
@@ -58,6 +59,14 @@ account, or both. The OAuth ref stores the serialized pi-ai `OAuthCredential`
 (access token, refresh token, expiry) written through the generic `secrets.set`
 path, so it is encrypted by the same backend but is not indexed in
 `secrets_meta`; provider delete clears both refs and any metadata row for them.
+
+The `voice/stt` ref (D439 / ADR 0279) holds the voice-dictation STT API key. It
+is written, deleted, and probed only through the existing generic
+`secrets.set` / `secrets.delete` / `secrets.has` channels from the Settings →
+Model configuration **Voice dictation** card, and it is read only by Electron
+main through `secrets.getForRuntime`, which hands it to the agent sidecar per
+call exactly like `provider.apiKey` on `agent/prompt`. The value never renders
+back to the renderer, which only ever learns configured/not-configured.
 
 ## 4a. Provider readiness flags
 

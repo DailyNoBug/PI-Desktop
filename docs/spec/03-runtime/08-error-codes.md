@@ -113,7 +113,12 @@ does not turn temporary thread pressure into a host process exit.
 | `TOOL_DENIED` | no | permission denied / mode forbidden |
 | `TOOL_TIMEOUT` | yes | tool execution timeout |
 | `TOOL_FAILED` | maybe | tool executed but failed |
-| `TOOL_ABORTED` | no | the tool was cancelled by a user stop or a turn abort before it finished |
+ | `TOOL_ABORTED` | no | the tool was cancelled by a user stop or a turn abort before it finished |
+ | `VOICE_NOT_CONFIGURED` | no | dictation requested while no voice STT endpoint/model is configured (ADR 0279) |
+ | `VOICE_PAYLOAD_TOO_LARGE` | no | dictation audio exceeded the 20 MiB payload cap |
+ | `VOICE_CANCELLED` | no | transcription aborted through `pi-desktop/voice/cancel` |
+ | `VOICE_MIC_PERMISSION_DENIED` | no | the OS or session policy denied audio-only microphone capture |
+ | `VOICE_TRANSCRIPTION_FAILED` | no | the STT provider failed without a more specific code |
 | `MUTATION_RETRY_BUDGET_EXHAUSTED` | yes | the repeat guard ended the turn after same-path `Edit` or shell patch failures; carries `details.kind` (`edit` or `patch-command`), the last tool error code, and a class-specific `details.recovery` hint |
 | `PROCESS_RESOURCE_EXHAUSTED` | yes | shell process could not start because the OS temporarily exhausted process resources |
 | `SHELL_NOT_FOUND` | no | no effective platform shell is available after catalog fallback; message carries guidance |

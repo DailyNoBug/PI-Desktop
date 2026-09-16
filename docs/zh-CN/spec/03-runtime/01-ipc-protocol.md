@@ -38,6 +38,7 @@
 | `menu` | 列入许可名单的应用程序菜单命令和本机 editing/window 操作 |
 | `notification` | 持久收件箱 list/read/clear 和 new/activated 事件 |
 | `stats` | 已完成回合的 token 历史（host RPC；仪表板由插件拥有） |
+| `voice` | 语音听写能力查询、批量转写与取消（仅接受主窗口发送方） |
 
 ## 3. 通道约定
 
@@ -1717,6 +1718,46 @@ MCP 调用方无法调用它们。
 渲染器会刷新会话，并根据该事件应用项目/会话选择，因此外部 Agent 创建会话、打开
 项目或提交提示词时，可见桌面会跟随相同状态。控制服务启动失败会记录日志，但不会阻止
 桌面启动。
+
+## 13e. 语音听写 API（D439 / ADR 0279）
+
+`pi-desktop/voice/*` 下的三个 invoke 通道把 Composer 的批量语音转文字送到
+OpenAI 兼容的转写端点。三个通道都只接受主应用窗口的发送方；插件面板、
+工作面板视图及其它任何 frame 都会被拒绝。
+
+```ts
+voice/capabilities() -> {
+  configured: boolean;
+  recording: boolean;
+  maxDurationMs: number;   // 120_000
+  maxPayloadBytes: number; // 20 MiB
+}
+
+voice/transcribe({
+  requestId: string;
+  audio: Uint8Array;       // 优先 WebM/Opus；仅存内存，绝不持久化
+  mimeType: string;
+  durationMs: number;
+  language?: string;
+}) -> {
+  requestId: string;
+  text: string;
+  detectedLanguage?: string;
+}
+
+voice/cancel({ requestId: string }) -> { ok: true }
+```
+
+每个请求都经过运行时校验：共享 typebox 包络加上对 `audio`、`mimeType`、
+`durationMs` 的二进制检查，录音上限 120 秒、载荷上限 20 MiB。Electron 主进程
+解析受信任的 `AppSettings.voice` 端点/模型（明文 `http://` 仅允许回环）以及
+通过 `secrets.getForRuntime` 读取的 `voice/stt` 密钥，再按调用把两者交给现有
+Node agent sidecar（`voice.transcribe` / `voice.cancel`，音频以 base64 走
+stdio）——与 `agent/prompt` 接收 `provider.apiKey` 的信任形态相同。捕获的音频
+仅存内存：绝不写入磁盘、转录或日志。失败返回结构化错误码
+`VOICE_NOT_CONFIGURED`、`VOICE_PAYLOAD_TOO_LARGE`、`VOICE_CANCELLED`、
+`VOICE_MIC_PERMISSION_DENIED`、`VOICE_TRANSCRIPTION_FAILED`；转写失败不会
+影响 agent 运行时，也不会通过 `agent/prompt` 自动发送任何内容。
 
 ## 14. 错误代码 — 初始注册表（可扩展）
 

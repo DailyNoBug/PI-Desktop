@@ -154,6 +154,7 @@ The minimum selection is:
 - Imported-extension dependency installation or registry-boundary changes: `pnpm test:e2e:plugin-import-deps`.
 - Trusted extension or plugin-extension changes: `pnpm test:e2e:trusted-extensions`.
 - Session collaboration / Session Orchestrator: `pnpm test:e2e:collaboration`.
+- Voice dictation / voice IPC: `pnpm test:e2e:voice`.
 - Changes spanning multiple surfaces use the union of the applicable suites.
 
 `pnpm test:e2e` is the default cross-system smoke suite for host RPC, IPC,
@@ -7518,6 +7519,10 @@ identify the platform validation still needed.
 | F — Persistence (catalog window provenance) | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
 | Quality (catalog window provenance) | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
 | M6+ (catalog window provenance) | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
+| C — Conversation & stream (voice dictation) | E2E-269 |
+| Security (voice dictation) | E2E-269 |
+| Quality (voice dictation) | E2E-269 |
+| M6+ (voice dictation) | E2E-269 |
 
 The `US-UI-*` visual scenarios (§UI shell visual scenarios) trace to the
 Codex parity decisions in [decisions-log §D](../08-meta/decisions-log.md)
@@ -12931,3 +12936,30 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   marked); `packages/shared/src/model-catalog.test.ts` covers the four source rules;
   `crates/host-core/src/providers/catalog.rs` covers the config round trip, the
   unmarked record, and the dropped unknown marker. The end-to-end settings journey
+
+#### E2E-269: Voice dictation over a mock STT endpoint
+
+- **Preconditions**: a local mock OpenAI-compatible STT server can be started
+  on loopback by the suite (`node:http`), `AppSettings.voice` can be pointed at
+  it, and no real microphone is available or required.
+- **Steps**: 1) Run `pnpm test:e2e:voice`. 2) The suite serves success,
+  failure, and timeout responses from the mock STT endpoint and drives the
+  OpenAI-compatible adapter against each. 3) It exercises the
+  `pi-desktop/voice/capabilities` / `transcribe` / `cancel` channels with valid
+  and invalid payloads. 4) It drives the sidecar `voice.transcribe` /
+  `voice.cancel` RPC, an over-cap payload, and an in-flight cancellation.
+  5) It forces an STT failure while an agent session is live and inspects
+  renderer state, main-process logs, and IPC traffic.
+- **Expected**: The adapter returns text and `detectedLanguage` on success and
+  structured voice errors otherwise. IPC rejects non-main-window senders and
+  malformed or over-cap (120 s / 20 MiB) requests. The sidecar accepts audio as
+  base64 over stdio, rejects oversized input, and cancels cleanly. An STT
+  failure leaves the agent runtime untouched and nothing is auto-sent. The
+  stored API key and the audio bytes never appear in the renderer, transcripts,
+  or logs.
+- **Specs linked**: `03-runtime/01-ipc-protocol.md` §13e,
+  `03-runtime/14-secrets-storage.md` §4, `05-security/01-security.md` §2,
+  `04-ux/06-settings-ia.md` §2; ADR 0279, D439
+- **Acceptance criterion**: C (conversation & stream), Security, Quality
+- **Milestone**: M6+
+- **Status**: Automated (passed 2026-09-17): `pnpm test:e2e:voice` (mock STT endpoint, no microphone required)

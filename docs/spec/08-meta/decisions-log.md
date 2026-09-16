@@ -5841,3 +5841,37 @@ that was sitting at the bottom — including after the turn had finished.
   `--ds-bg-composer` / `--ds-tile-deep`. See
   `04-ux/11-asktool-question-card.md`, `04-ux/07-ui-design-system.md` §6.4, and
   E2E-078.
+
+## 2026-09-17 — Voice dictation phase 1 rides the existing agent-runtime path (D439)
+
+- Dictation is batch STT: the composer records `getUserMedia` audio with
+  `MediaRecorder` (WebM/Opus preferred, memory-only, 120 s / 20 MiB caps
+  enforced renderer-side, at IPC validation, and in the sidecar), then sends
+  the bytes through a new additive IPC domain — `pi-desktop/voice/capabilities`,
+  `pi-desktop/voice/transcribe`, `pi-desktop/voice/cancel` — validated with the
+  shared typebox schema. No audio ever rides `agent/prompt`, and the renderer
+  never addresses an STT endpoint (ADR 0279).
+- Electron main resolves the trusted config (`AppSettings.voice`: endpoint,
+  model, language, default-off `autoSend`) and the API key (secret-ref
+  `voice/stt` in the host secret store, read via `secrets.getForRuntime`) and
+  hands both to the existing Node agent sidecar per call — the same trust
+  shape as `agent.prompt` receiving `provider.apiKey`. The key never crosses
+  to the renderer or into logs. `http://` endpoints are loopback-only so a
+  local Whisper server works without opening plaintext LAN egress.
+- The sidecar exposes `voice.transcribe` / `voice.cancel` through a
+  `VoiceTranscriptionProvider` abstraction whose first implementation is an
+  OpenAI-compatible transcription adapter (OpenAI, Groq Whisper, local
+  servers). Voice providers are independent of coding-model providers.
+- The composer mic affordance is a real state machine
+  (`idle / requesting-permission / recording / stopping / transcribing /
+  ready / error`, cancel and failure always return to `idle`) with a
+  process-wide singleton bound to window/session/composer, so only one
+  recording can be active. The transcript inserts at the cursor; nothing is
+  auto-sent (the setting exists, default off). The configurable shortcut is
+  `voiceDictation` (`Mod+Shift+V` default) in the shared shortcut map.
+- Microphone policy: the default session grants `media` only to the main
+  window's webContents and only for audio-only requests; camera/video and
+  every other frame are denied, and plugin/work-panel partitions keep their
+  deny-all handlers. A transcription failure is isolated from agent runtimes
+  (E2E-269). No protocol or storage-schema change; ADR 0279 records the
+  future voice-control extension points.

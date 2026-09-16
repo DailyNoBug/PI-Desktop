@@ -114,7 +114,12 @@ stdio 与 Tokio 的动态阻塞池隔离，因此后一种情况
 | `TOOL_DENIED` | 不 | 权限被拒绝/模式被禁止 |
 | `TOOL_TIMEOUT` | 是的 | 工具执行超时 |
 | `TOOL_FAILED` | 也许 | 工具已执行但失败 |
-| `TOOL_ABORTED` | 不 | 工具在完成前被用户停止或回合中止取消 |
+ | `TOOL_ABORTED` | 不 | 工具在完成前被用户停止或回合中止取消 |
+ | `VOICE_NOT_CONFIGURED` | 不 | 未配置语音 STT 端点/模型时请求听写（ADR 0279） |
+ | `VOICE_PAYLOAD_TOO_LARGE` | 不 | 听写音频超过 20 MiB 载荷上限 |
+ | `VOICE_CANCELLED` | 不 | 转写被 `pi-desktop/voice/cancel` 中止 |
+ | `VOICE_MIC_PERMISSION_DENIED` | 不 | 操作系统或会话策略拒绝了仅音频的麦克风采集 |
+ | `VOICE_TRANSCRIPTION_FAILED` | 不 | STT 提供方失败且无更具体的代码 |
 | `MUTATION_RETRY_BUDGET_EXHAUSTED` | 是 | 重复保护在同路径 `Edit` 或 shell patch 反复失败后终止了本轮；携带 `details.kind`（`edit` 或 `patch-command`）与最后一个工具错误代码 |
 | `PROCESS_RESOURCE_EXHAUSTED` | 是的 | shell 进程无法启动，因为操作系统暂时耗尽了进程资源 |
 | `SHELL_NOT_FOUND` | 不 | 目录回退后没有有效的平台 shell 可用；消息承载指引 |

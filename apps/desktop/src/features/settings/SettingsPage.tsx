@@ -28,7 +28,8 @@ import {
   IconSparkles,
 } from "../../components/icons";
 import { Button, cx } from "../../components/ui";
-import { ModelConfigPage } from "../../components/settings/ModelConfigPage";
+ import { ModelConfigPage } from "../../components/settings/ModelConfigPage";
+ import { VoiceSettingsSection } from "./VoiceSettingsSection";
 import { KeyboardShortcutsSection } from "../../components/settings/KeyboardShortcutsSection";
 import { FontFamilyRow } from "../../components/settings/FontFamilyRow";
 import { FontSizeRow } from "../../components/settings/FontSizeRow";
@@ -436,7 +437,14 @@ export function SettingsPage() {
             </div>
           )}
 
-          {tab === "agent" && <ModelConfigPage />}
+           {tab === "agent" && (
+             <>
+               <ModelConfigPage />
+               {settings ? (
+                 <VoiceSettingsSection settings={settings} saveSettings={saveSettings} />
+               ) : null}
+             </>
+           )}
 
           {tab === "skills" && <AgentSkillsPage />}
 

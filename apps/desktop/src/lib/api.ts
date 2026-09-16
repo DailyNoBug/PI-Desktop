@@ -114,17 +114,21 @@ import {
   normalizeLargePasteThreshold,
   normalizeMode,
   normalizeNetworkProxy,
-  resolveFontScale,
+   resolveFontScale,
+   VOICE_STT_SECRET_REF,
   validateNetworkProxy,
 } from "@pi-desktop/shared";
 
 export type ImportSource = "claude-code" | "opencode" | "codex" | "pi";
 // One definition, owned by the shared package (the host and sidecar use the
 // same shape); re-exported so existing renderer imports keep working.
-import type {
-  ModelConfigImportCandidate,
-  ModelConfigImportSource,
-} from "@pi-desktop/shared";
+ import type {
+   ModelConfigImportCandidate,
+   ModelConfigImportSource,
+   VoiceCapabilities,
+   VoiceTranscribeRequest,
+   VoiceTranscribeResponse,
+ } from "@pi-desktop/shared";
 export type { ModelConfigImportCandidate, ModelConfigImportSource };
 
 export interface ImportCandidate {
@@ -431,14 +435,27 @@ export const api = {
    * Set or clear one provider's API key. The only write a plugin-declared row
    * accepts from the user path, since `updateProvider` refuses it.
    */
-  setProviderSecret: (input: { id: string; secretValue?: string }) =>
-    invoke<{ provider: ProviderPublic | null }>(
-      IPC.invoke.providersSetSecret,
-      input,
-    ),
-  testProvider: (id: string) => invoke(IPC.invoke.providersTest, id),
-  /**
-   * Discover models from the provider's own endpoint. Saved providers pass
+   setProviderSecret: (input: { id: string; secretValue?: string }) =>
+     invoke<{ provider: ProviderPublic | null }>(
+       IPC.invoke.providersSetSecret,
+       input,
+     ),
+   /** Voice dictation capabilities: booleans and limits only, no secrets. */
+   getVoiceCapabilities: () =>
+     invoke<VoiceCapabilities>(IPC.invoke.voiceCapabilities),
+   /** One-shot dictation transcription (validated audio bytes in, text out). */
+   voiceTranscribe: (request: VoiceTranscribeRequest) =>
+     invoke<VoiceTranscribeResponse>(IPC.invoke.voiceTranscribe, request),
+   /** Write the voice STT API key into the host secret store (never readable back). */
+   setVoiceSttKey: (value: string) =>
+     invoke(IPC.invoke.secretsSet, { secretRef: VOICE_STT_SECRET_REF, value }),
+   clearVoiceSttKey: () =>
+     invoke(IPC.invoke.secretsDelete, VOICE_STT_SECRET_REF),
+   hasVoiceSttKey: () =>
+     invoke<{ has: boolean }>(IPC.invoke.secretsHas, VOICE_STT_SECRET_REF),
+   testProvider: (id: string) => invoke(IPC.invoke.providersTest, id),
+   /**
+    * Discover models from the provider's own endpoint. Saved providers pass
    * providerId (stored secret is reused); the setup form may pass raw config
    * before the provider exists.
    *

@@ -791,3 +791,67 @@
 .composer-directory-drop-action:hover {
   background: var(--ds-tile-hover);
 }
+
+/* Voice dictation (Phase 1): mic affordance + inline status strip. */
+.composer-voice-btn {
+  min-width: 28px;
+}
+
+.icon-btn.composer-voice-btn.is-recording {
+  color: var(--ds-danger, #e5484d);
+}
+
+.composer-voice-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-lg);
+  background: var(--ds-tile-deep);
+  color: var(--ds-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.composer-voice-status .tool-spinner {
+  margin-left: 0;
+  border-color: color-mix(in oklab, var(--ds-text-secondary) 45%, transparent);
+  border-top-color: var(--ds-text-primary);
+}
+
+.composer-voice-status.is-recording {
+  color: var(--ds-text-primary);
+}
+
+.composer-voice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--ds-danger, #e5484d);
+  animation: composer-voice-pulse 1.4s ease-in-out infinite;
+}
+
+.composer-voice-status.is-error {
+  color: var(--ds-danger, #e5484d);
+}
+
+.composer-voice-cancel {
+  margin-left: auto;
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 2px 8px;
+  background: var(--ds-tile-hover);
+  color: var(--ds-text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+@keyframes composer-voice-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

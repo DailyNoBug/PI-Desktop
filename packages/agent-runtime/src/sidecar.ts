@@ -26,8 +26,9 @@ import {
   normalizeSupportedThinkingLevels,
   normalizeThinkingLevel,
 } from "./sidecar-config.js";
-import { applyNodeNetworkProxy } from "./node-proxy.js";
-import { NATIVE_PI_SESSION_PREFIX, nativePiService } from "./native-pi-session.js";
+ import { applyNodeNetworkProxy } from "./node-proxy.js";
+ import { NATIVE_PI_SESSION_PREFIX, nativePiService } from "./native-pi-session.js";
+ import { disposeVoiceTranscription, handleVoiceRpc } from "./voice/voice-sidecar-rpc.js";
 import {
   formatFileInsert,
   isCommandShellOption,
@@ -649,9 +650,12 @@ async function handle(method: string, params: any): Promise<unknown> {
         await runtime.dispose();
         runtimes.delete(sessionId);
       }
-      return { ok: true };
-    }
-    default:
+       return { ok: true };
+       }
+     case "voice.transcribe":
+     case "voice.cancel":
+       return handleVoiceRpc(method, params);
+     default:
       throw Object.assign(new Error(`method not found: ${method}`), {
         rpcCode: -32601,
       });
@@ -687,7 +691,10 @@ rl.on("line", async (line) => {
 // host call) must not take every session's runtime down with it: Node's
 // default for `unhandledRejection` is to exit the process. Log and carry on;
 // the affected session surfaces its own error through the normal event path.
-process.on("exit", () => nativePiService().disposeAll());
+ process.on("exit", () => {
+   disposeVoiceTranscription();
+   nativePiService().disposeAll();
+ });
 
 process.on("unhandledRejection", (reason) => {
   const detail =

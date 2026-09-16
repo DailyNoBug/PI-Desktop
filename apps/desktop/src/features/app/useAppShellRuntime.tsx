@@ -728,7 +728,15 @@ export function useAppShellRuntime() {
             break;
           case "abort":
             void abort();
-            break;
+             break;
+           case "voiceDictation":
+             // Reaches the active composer's dictation hook via a DOM event;
+             // the hook owns the singleton guard, so two composers mounted at
+             // once cannot both start recording.
+             window.dispatchEvent(
+               new CustomEvent("pi-desktop:voice-dictation-toggle"),
+             );
+             break;
           case "toggleWindow":
             // The same native action the menu item runs (D438): hide the window
             // the user is looking at, or bring it back. The window's own close
