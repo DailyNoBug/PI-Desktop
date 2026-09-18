@@ -20,6 +20,7 @@
   "dependencies": {
     "@pi-desktop/agent-host": "workspace:*",
     "@pi-desktop/agent-runtime": "workspace:*",
+    "@pi-desktop/racp": "workspace:*",
     "@pi-desktop/shared": "workspace:*"
   },
   "devDependencies": {
