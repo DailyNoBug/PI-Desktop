@@ -43,6 +43,7 @@
 - [19-remote-agent-control-protocol.md](03-runtime/19-remote-agent-control-protocol.md)
 - [20-remote-ssh-desktop.md](03-runtime/20-remote-ssh-desktop.md)
 - [20-speech.md](03-runtime/20-speech.md)
+- [21-cc-connect-bridge.md](03-runtime/21-cc-connect-bridge.md)
 
 ## 4. UX
 - [README.md](04-ux/README.md)

@@ -6200,3 +6200,32 @@ that was sitting at the bottom — including after the turn had finished.
   changes; the existing `prompt/enhance` payload is unchanged. See
   `04-ux/12-prompt-enhancement.md` §3 and §5, ADR 0121, and
   `06-delivery/04-e2e-test-plan.md` E2E-259.
+
+## 2026-09-19 — CC Connect external session control ships behind an authenticated loopback bridge (D451)
+
+Ship chat-platform control of real PI-Desktop sessions through a locally-managed
+cc-connect daemon instead of shelling out to the `pi` CLI as a second process.
+
+- Electron main hosts the desktop's own Agent Host over RACP-WS on
+  `127.0.0.1:<ephemeral>` (`bootstrap/racp-bridge.ts`), with a dedicated
+  viewer/controller/approver device (never owner), a 0600 token file beside a
+  token-free discovery file, and catalog mutations routed through the existing
+  session IPC handlers so external turns are desktop turns — same queue,
+  approvals, transcript, and UI visibility.
+- The bundled `pi.cc-connect` plugin exposes bridge enablement, daemon
+  start/stop/restart over a locally-detected executable, conversation-binding
+  CRUD (fixed / latest-of-project / new-per-conversation), and a redacted log
+  tail, behind the new deny-by-default `ccconnect.control` permission. Nothing
+  is downloaded; `~/.cc-connect` is never touched — PI-managed config lives
+  under the plugin data directory.
+- `createHostOperations` and `FileCredentialStore` move to
+  `@pi-desktop/host-runtime` (behavior-preserving) so the headless host and the
+  desktop share one implementation; the reserved RACP `attachment/*` operations
+  ship as a staging area into the existing content-addressed attachments blobs,
+  and the headless runtime forwards staged uploads exactly like desktop prompt
+  attachments.
+- Approval decisions from chat resolve the SAME pending request as the desktop
+  card; bypass/yolo is never set automatically, and `allow-session` from the
+  bridge device is refused host-side.
+- See `03-runtime/21-cc-connect-bridge.md`, ADR 0297, and
+  `06-delivery/04-e2e-test-plan.md` E2E-270.
