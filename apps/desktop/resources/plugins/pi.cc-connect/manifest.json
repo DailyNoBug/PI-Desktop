@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "pi.cc-connect",
+  "name": "CC Connect",
+  "version": "0.1.0",
+  "description": "Control PI-Desktop projects and sessions from messaging platforms (WeChat Work, Feishu, Telegram, Discord, Slack and more) through a locally-managed cc-connect daemon: bridge status, channel and daemon lifecycle, conversation-to-session bindings with three modes, and daemon logs with diagnostics.",
+  "i18n": {
+    "en": {
+      "name": "CC Connect",
+      "description": "Control PI-Desktop projects and sessions from messaging platforms through a locally-managed cc-connect daemon: bridge status, daemon start/stop/restart, conversation-to-session bindings (fixed session, latest for project, or a new session per conversation), and daemon logs with diagnostics.",
+      "safetyNotes": "The plugin talks only to the host's CC Connect controller over the reviewed pi.ccConnect surface (permission ccconnect.control) and never touches the network itself. The host starts the cc-connect daemon only from a locally-detected executable — nothing is ever downloaded. PI-managed configuration lives under the plugin's own data directory; ~/.cc-connect is never read or written. The daemon configuration references a loopback-only, token-authenticated bridge whose device token stays in a 0600 file; tokens are redacted from the log tail."
+    },
+    "zh-CN": {
+      "name": "CC Connect",
+      "description": "通过本地托管的 cc-connect 守护进程，在消息平台（企业微信、飞书、Telegram、Discord、Slack 等）中控制 PI-Desktop 的项目与会话：桥接状态、守护进程启动/停止/重启、会话绑定（固定会话、项目最新会话、或每个会话新建），以及带诊断信息的守护进程日志。",
+      "safetyNotes": "插件仅通过宿主审核过的 pi.ccConnect 接口（权限 ccconnect.control）与宿主的 CC Connect 控制器通信，自身不访问网络。宿主只会启动本机已安装的 cc-connect 可执行文件，绝不下载任何二进制。PI 托管的配置保存在插件自己的数据目录下，不会读写 ~/.cc-connect。守护进程配置引用仅限本机回环、带令牌认证的桥接；设备令牌保存在 0600 权限文件中，日志摘录会对其做脱敏处理。"
+    }
+  },
+  "author": "PI-Desktop",
+  "license": "MIT",
+  "categories": ["productivity", "integration"],
+  "safetyNotes": "Talks only to the host CC Connect controller (pi.ccConnect.*, permission ccconnect.control); no network access. The cc-connect daemon is started only from a locally-detected executable; PI-managed configuration stays under the plugin data directory and ~/.cc-connect is never touched. The bridge is loopback-only with a token-authenticated device (roles: viewer/controller/approver, never owner); tokens stay in 0600 files and are redacted in logs.",
+  "main": "main.js",
+  "contributes": {
+    "views": [
+      {
+        "id": "cc-connect",
+        "title": { "en": "CC Connect", "zh-CN": "CC Connect" },
+        "icon": "server",
+        "entry": "views/index.html",
+        "order": 50
+      }
+    ]
+  },
+  "permissions": ["ui.view", "ccconnect.control"],
+  "engines": { "piDesktop": ">=0.15.0" },
+  "activationEvents": ["onStartup"]
+}

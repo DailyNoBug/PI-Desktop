@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CC Connect</title>
+<style>
+  :root {
+    --bg: #16181d;
+    --panel: #1d2026;
+    --border: #2c313a;
+    --text: #e6e8eb;
+    --muted: #9aa1ab;
+    --accent: #4c8dff;
+    --ok: #3fb96f;
+    --bad: #e5534b;
+    --warn: #d9a53f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+    font: 13px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 0 8px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .kv { display: flex; gap: 8px; margin: 2px 0; }
+  .kv .k { color: var(--muted); min-width: 110px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); }
+  button {
+    background: var(--accent); border: none; color: #fff; border-radius: 6px;
+    padding: 5px 12px; font-size: 12px; cursor: pointer;
+  }
+  button.secondary { background: #333a46; }
+  button.danger { background: var(--bad); }
+  button:disabled { opacity: .45; cursor: default; }
+  input, select {
+    background: #14161a; border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 5px 8px; font-size: 12px;
+  }
+  input { min-width: 180px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  pre {
+    background: #14161a; border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px; max-height: 220px; overflow: auto; font-size: 11px; color: #c7ced8;
+  }
+  .banner { border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; display: none; }
+  .banner.error { background: rgba(229, 83, 75, .15); border: 1px solid var(--bad); color: #f2b8b4; display: block; }
+  .banner.info { background: rgba(76, 141, 255, .12); border: 1px solid var(--accent); color: #b9d2ff; display: block; }
+  .muted { color: var(--muted); }
+  code { background: #14161a; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+  form.new { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin-top: 8px; }
+  form.new label { color: var(--muted); }
+  form.new .actions { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+  <h1>CC Connect</h1>
+  <div id="banner" class="banner" role="alert"></div>
+
+  <h2 data-i18n="statusTitle">Status</h2>
+  <div class="card">
+    <div class="kv"><span class="k" data-i18n="integration">Integration</span><span id="st-integration">…</span></div>
+    <div class="kv"><span class="k" data-i18n="bridge">Bridge</span><span id="st-bridge">…</span></div>
+    <div class="kv"><span class="k" data-i18n="daemon">cc-connect daemon</span><span id="st-daemon">…</span></div>
+    <div class="kv"><span class="k" data-i18n="binary">Executable</span><span id="st-binary">…</span></div>
+    <div class="kv"><span class="k" data-i18n="desktopVersion">PI-Desktop</span><span id="st-version">…</span></div>
+    <div class="row" style="margin-top:10px">
+      <button id="btn-enable"></button>
+      <button id="btn-start" class="secondary" data-i18n="start">Start daemon</button>
+      <button id="btn-restart" class="secondary" data-i18n="restart">Restart</button>
+      <button id="btn-stop" class="danger" data-i18n="stop">Stop</button>
+      <button id="btn-refresh" class="secondary" data-i18n="refresh">Refresh</button>
+    </div>
+  </div>
+
+  <h2 data-i18n="bindingsTitle">Conversation bindings</h2>
+  <div class="card">
+    <table aria-label="bindings">
+      <thead><tr>
+        <th data-i18n="colConversation">Conversation (platform:account:thread)</th>
+        <th data-i18n="colMode">Mode</th>
+        <th data-i18n="colProject">Project ID</th>
+        <th data-i18n="colSession">Session ID</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="bindings-body"></tbody>
+    </table>
+    <form class="new" id="binding-form">
+      <label for="b-key" data-i18n="colConversation">Conversation</label><input id="b-key" placeholder="telegram:12345:-100200" />
+      <label for="b-mode" data-i18n="colMode">Mode</label>
+      <select id="b-mode">
+        <option value="new" data-i18n="modeNew">New session per conversation</option>
+        <option value="latest" data-i18n="modeLatest">Latest session of project</option>
+        <option value="fixed" data-i18n="modeFixed">Fixed session</option>
+      </select>
+      <label for="b-project" data-i18n="colProject">Project ID</label><input id="b-project" placeholder="12" />
+      <label for="b-session" data-i18n="colSession">Session ID</label><input id="b-session" placeholder="optional" />
+      <div class="actions"><button type="submit" data-i18n="addBinding">Add binding</button></div>
+    </form>
+    <p class="muted" style="margin-bottom:0" data-i18n="bindingsHint"></p>
+  </div>
+
+  <h2 data-i18n="logsTitle">Daemon logs</h2>
+  <div class="card">
+    <div class="row" style="margin-bottom:8px">
+      <button id="btn-logs" class="secondary" data-i18n="refreshLogs">Refresh logs</button>
+    </div>
+    <pre id="logs" aria-live="polite"></pre>
+  </div>
+
+  <h2 data-i18n="setupTitle">Setup</h2>
+  <div class="card">
+    <div class="kv"><span class="k" data-i18n="configFile">Config file</span><code id="p-config">…</code></div>
+    <div class="kv"><span class="k" data-i18n="bindingsFile">Bindings file</span><code id="p-bindings">…</code></div>
+    <p class="muted" style="margin-bottom:0" data-i18n="setupHint"></p>
+  </div>
+
+<script>
+(() => {
+  const locale = (navigator.language || "en").toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+  const i18n = {
+    en: {
+      statusTitle: "Status", integration: "Integration", bridge: "Bridge", daemon: "cc-connect daemon",
+      binary: "Executable", desktopVersion: "PI-Desktop",
+      enabled: "Enabled", disabled: "Disabled", running: "Running", stopped: "Stopped",
+      enable: "Enable bridge", disable: "Disable bridge", start: "Start daemon", restart: "Restart",
+      stop: "Stop", refresh: "Refresh", refreshLogs: "Refresh logs",
+      bindingsTitle: "Conversation bindings", colConversation: "Conversation (platform:account:thread)",
+      colMode: "Mode", colProject: "Project ID", colSession: "Session ID", addBinding: "Add binding",
+      modeNew: "New session per conversation", modeLatest: "Latest session of project", modeFixed: "Fixed session",
+      delete: "Delete",
+      bindingsHint: "Modes: fixed pins one PI session; latest always uses the newest session of the project; new creates a session per conversation. Bindings survive restarts.",
+      logsTitle: "Daemon logs", setupTitle: "Setup", configFile: "Config file", bindingsFile: "Bindings file",
+      setupHint: "PI-managed configuration lives under the plugin data directory — ~/.cc-connect is never touched. Point platform credentials at this config via cc-connect --config <file>.",
+      notFound: "not found — install cc-connect locally; nothing is downloaded automatically",
+      loadFailed: "Failed to reach the CC Connect controller: ",
+    },
+    "zh-CN": {
+      statusTitle: "状态", integration: "集成", bridge: "桥接", daemon: "cc-connect 守护进程",
+      binary: "可执行文件", desktopVersion: "PI-Desktop",
+      enabled: "已启用", disabled: "未启用", running: "运行中", stopped: "已停止",
+      enable: "启用桥接", disable: "停用桥接", start: "启动守护进程", restart: "重启",
+      stop: "停止", refresh: "刷新", refreshLogs: "刷新日志",
+      bindingsTitle: "会话绑定", colConversation: "会话（平台:账号:对话）",
+      colMode: "模式", colProject: "项目 ID", colSession: "会话 ID", addBinding: "添加绑定",
+      modeNew: "每个对话新建会话", modeLatest: "项目最新会话", modeFixed: "固定会话",
+      delete: "删除",
+      bindingsHint: "模式说明：固定会话始终使用同一个 PI 会话；项目最新会话自动跟随项目的最新会话；每个对话新建则为该对话创建独立会话。绑定在重启后依然生效。",
+      logsTitle: "守护进程日志", setupTitle: "设置", configFile: "配置文件", bindingsFile: "绑定文件",
+      setupHint: "PI 托管的配置保存在插件数据目录下，不会触碰 ~/.cc-connect。平台凭据请通过 cc-connect --config <文件> 指向此配置。",
+      notFound: "未找到 —— 请先在本机安装 cc-connect，插件不会自动下载",
+      loadFailed: "无法连接 CC Connect 控制器：",
+    },
+  }[locale];
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.getAttribute("data-i18n");
+    if (i18n[key]) el.textContent = i18n[key];
+  });
+
+  const $ = (id) => document.getElementById(id);
+  const invoke = (channel, payload) => window.pluginBridge.invoke(channel, payload);
+  let state = null;
+
+  function banner(text, kind) {
+    const el = $("banner");
+    if (!text) { el.className = "banner"; el.textContent = ""; return; }
+    el.className = `banner ${kind}`;
+    el.textContent = text;
+  }
+
+  function dot(ok) { return `<span class="dot ${ok ? "ok" : "bad"}"></span>`; }
+
+  function render() {
+    const s = state;
+    if (!s) return;
+    const bridge = s.status.bridge;
+    const proc = s.status.process;
+    const integrationOn = bridge.enabled;
+    $("st-integration").innerHTML = `${dot(integrationOn)}${integrationOn ? i18n.enabled : i18n.disabled}`;
+    $("st-bridge").innerHTML = integrationOn && bridge.running
+      ? `${dot(true)}${i18n.running} <span class="muted">${bridge.url || ""}</span>`
+      : `${dot(false)}${i18n.stopped}`;
+    $("st-daemon").innerHTML = proc.running
+      ? `${dot(true)}${i18n.running} <span class="muted">pid ${proc.pid}</span>`
+      : `${dot(false)}${i18n.stopped}`;
+    $("st-binary").innerHTML = s.binary.found
+      ? `${dot(true)}<code>${s.binary.path}</code>${s.binary.version ? ` <span class="muted">${s.binary.version}</span>` : ""}`
+      : `${dot(false)}${i18n.notFound}`;
+    $("st-version").textContent = s.status.version;
+    $("btn-enable").textContent = integrationOn ? i18n.disable : i18n.enable;
+    $("btn-start").disabled = !integrationOn || proc.running || !s.binary.found;
+    $("btn-restart").disabled = !integrationOn || !proc.running;
+    $("btn-stop").disabled = !proc.running;
+
+    const body = $("bindings-body");
+    body.innerHTML = "";
+    for (const binding of s.bindings) {
+      const tr = document.createElement("tr");
+      const modeText = binding.mode === "fixed" ? i18n.modeFixed : binding.mode === "latest" ? i18n.modeLatest : i18n.modeNew;
+      tr.innerHTML = `<td><code>${binding.key}</code></td><td>${modeText}</td><td>${binding.projectId || "—"}</td><td>${binding.sessionId || "—"}</td>`;
+      const td = document.createElement("td");
+      const del = document.createElement("button");
+      del.className = "danger"; del.textContent = i18n.delete;
+      del.addEventListener("click", () => saveBindings(s.bindings.filter((b) => b.id !== binding.id)));
+      td.appendChild(del);
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
+
+    $("p-config").textContent = s.paths.config;
+    $("p-bindings").textContent = s.paths.bindings;
+  }
+
+  async function refresh() {
+    try {
+      state = await invoke("status");
+      banner("");
+      render();
+    } catch (error) {
+      banner(i18n.loadFailed + (error?.message || error), "error");
+    }
+  }
+
+  async function saveBindings(bindings) {
+    try {
+      await invoke("bindings.save", { bindings });
+      await refresh();
+    } catch (error) {
+      banner(error?.message || String(error), "error");
+    }
+  }
+
+  $("btn-refresh").addEventListener("click", refresh);
+  $("btn-logs").addEventListener("click", async () => {
+    try {
+      const { lines } = await invoke("logs", { limit: 300 });
+      $("logs").textContent = lines.length ? lines.join("\n") : "—";
+    } catch (error) {
+      $("logs").textContent = error?.message || String(error);
+    }
+  });
+  $("btn-enable").addEventListener("click", async () => {
+    try {
+      state = await invoke("enableBridge", { enabled: !(state && state.status.bridge.enabled) });
+      render();
+    } catch (error) {
+      banner(error?.message || String(error), "error");
+    }
+  });
+  $("btn-start").addEventListener("click", async () => {
+    try {
+      state = await invoke("startDaemon", {});
+      render();
+    } catch (error) {
+      banner(error?.message || String(error), "error");
+    }
+  });
+  $("btn-stop").addEventListener("click", async () => {
+    try {
+      state = await invoke("stopDaemon", {});
+      render();
+    } catch (error) {
+      banner(error?.message || String(error), "error");
+    }
+  });
+  $("btn-restart").addEventListener("click", async () => {
+    try {
+      await invoke("restartDaemon", {});
+      await refresh();
+    } catch (error) {
+      banner(error?.message || String(error), "error");
+    }
+  });
+  $("binding-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const key = $("b-key").value.trim();
+    if (!key) return;
+    const mode = $("b-mode").value;
+    const entry = {
+      id: `b_${Date.now().toString(36)}`,
+      key,
+      mode,
+      projectId: $("b-project").value.trim(),
+      sessionId: $("b-session").value.trim(),
+    };
+    const next = [
+      ...(state?.bindings ?? []).filter((b) => b.key !== key),
+      entry,
+    ];
+    $("b-key").value = ""; $("b-project").value = ""; $("b-session").value = "";
+    saveBindings(next);
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>

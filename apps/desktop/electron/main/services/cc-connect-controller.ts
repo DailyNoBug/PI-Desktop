@@ -36,6 +36,15 @@ export type CcConnectStatus = {
   version: string;
   bridge: RacpBridgeStatus & { enabled: boolean };
   process: CcConnectProcessStatus;
+  /** Host-side paths a local daemon config may reference (never secrets). */
+  paths: {
+    /** 0600 discovery file: {url, host, port, version, pid, startedAt}. */
+    discoveryFile: string;
+    /** 0600 device-token file the `pidesktop` backend reads directly. */
+    tokenFile: string;
+    /** PI-managed state dir for generated cc-connect configuration. */
+    stateDir: string;
+  };
 };
 
 export type CcConnectStartInput = {
@@ -231,6 +240,11 @@ export function createCcConnectController(options: CcConnectControllerOptions): 
         version: options.version,
         bridge: { ...bridge.status(), enabled: state.bridgeEnabled === true },
         process: processStatus(),
+        paths: {
+          discoveryFile: bridge.discoveryFile,
+          tokenFile: bridge.tokenFile,
+          stateDir: stateDir,
+        },
       };
     },
 
