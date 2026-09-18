@@ -1584,6 +1584,7 @@ const startupState: StartupState = {
   set mcpControl(value) {
     mcpControl = value;
   },
+  ccConnect: null,
 };
 
 registerApplicationStartup({
@@ -1684,6 +1685,7 @@ registerShutdownHandlers({
   getHost: () => host,
   getSidecar: () => sidecar,
   getMcpControl: () => mcpControl,
+  getCcConnect: () => startupState.ccConnect,
   activeTurns,
   persistenceOutbox,
   inflightCheckpointer,

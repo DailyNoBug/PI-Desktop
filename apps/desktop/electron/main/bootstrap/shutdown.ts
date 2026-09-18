@@ -34,6 +34,8 @@ export type ShutdownDependencies = {
   getHost: () => HostProcess | null;
   getSidecar: () => AgentSidecar | null;
   getMcpControl: () => McpControlServer | null;
+  /** CC Connect integration (bridge + daemon); optional and null before boot. */
+  getCcConnect?: () => { dispose(): Promise<void> } | null;
   activeTurns: Map<string, string>;
   persistenceOutbox: PersistenceOutbox;
   inflightCheckpointer: InflightCheckpointer;
@@ -56,6 +58,7 @@ export function registerShutdownHandlers({
   getHost,
   getSidecar,
   getMcpControl,
+  getCcConnect,
   getRemoteManager,
   activeTurns,
   persistenceOutbox,
@@ -148,6 +151,7 @@ export function registerShutdownHandlers({
       });
       const hostShutdown = getHost()?.dispose();
       const mcpShutdown = getMcpControl()?.stop();
+      const ccConnectShutdown = getCcConnect?.()?.dispose();
       const pluginPanelShutdown = pluginPanels.closeAll();
       updater.dispose();
       logger.app("lifecycle", "info", "app shutdown");
@@ -174,6 +178,7 @@ export function registerShutdownHandlers({
         sidecarShutdown,
         mcpShutdown,
         remoteHostsShutdown,
+        ccConnectShutdown,
       ]);
     })();
 
