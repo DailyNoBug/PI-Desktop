@@ -323,6 +323,61 @@ export const RacpApprovalResultSchema = Type.Object({
   revision: Type.Integer({ minimum: 0 }),
 });
 export type RacpApprovalResult = Static<typeof RacpApprovalResultSchema>;
+/**
+ * One uploaded attachment referenced by `turn/start`. Uploads go through
+ * `attachment/create` → `attachment/put` → `attachment/complete` before the
+ * id may be referenced (spec §6.4); the Host keys staged blobs by content.
+ */
+export const RacpAttachmentRefSchema = Type.Object({
+  attachmentId: Type.String({ minLength: 1 }),
+});
+export type RacpAttachmentRef = Static<typeof RacpAttachmentRefSchema>;
+
+export const RacpAttachmentCreateParamsSchema = Type.Object({
+  sessionId: Type.String({ minLength: 1 }),
+  name: Type.String({ minLength: 1 }),
+  kind: Type.Union([Type.Literal("image"), Type.Literal("file")]),
+  mimeType: Type.Optional(Type.String({ minLength: 1 })),
+  sizeBytes: Type.Integer({ minimum: 1 }),
+});
+export type RacpAttachmentCreateParams = Static<typeof RacpAttachmentCreateParamsSchema>;
+
+export const RacpAttachmentCreatedSchema = Type.Object({
+  attachmentId: Type.String({ minLength: 1 }),
+  chunkSize: Type.Integer({ minimum: 1 }),
+});
+export type RacpAttachmentCreated = Static<typeof RacpAttachmentCreatedSchema>;
+
+export const RacpAttachmentPutParamsSchema = Type.Object({
+  attachmentId: Type.String({ minLength: 1 }),
+  offset: Type.Integer({ minimum: 0 }),
+  /** Base64 of the next sequential chunk; must decode within the frame limit. */
+  dataBase64: Type.String({ minLength: 1 }),
+});
+export type RacpAttachmentPutParams = Static<typeof RacpAttachmentPutParamsSchema>;
+
+export const RacpAttachmentPutResultSchema = Type.Object({
+  received: Type.Integer({ minimum: 0 }),
+});
+export type RacpAttachmentPutResult = Static<typeof RacpAttachmentPutResultSchema>;
+
+export const RacpAttachmentCompleteParamsSchema = Type.Object({
+  attachmentId: Type.String({ minLength: 1 }),
+});
+export type RacpAttachmentCompleteParams = Static<typeof RacpAttachmentCompleteParamsSchema>;
+
+/** A completed upload. `ref` is the content-addressed blob relative to the Host attachments dir. */
+export const RacpAttachmentRecordSchema = Type.Object({
+  attachmentId: Type.String({ minLength: 1 }),
+  name: Type.String({ minLength: 1 }),
+  kind: Type.Union([Type.Literal("image"), Type.Literal("file")]),
+  mimeType: Type.Optional(Type.String()),
+  sizeBytes: Type.Integer({ minimum: 0 }),
+  sha256: Type.String({ minLength: 64, maxLength: 64 }),
+  ref: Type.String({ minLength: 1 }),
+});
+export type RacpAttachmentRecord = Static<typeof RacpAttachmentRecordSchema>;
+
 
 export const RacpInputRequestSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
@@ -589,6 +644,7 @@ export const RACP_OPERATIONS = {
   "input/respond": { role: "controller", profile: "v1", mutation: true },
   "attachment/create": { role: "controller", profile: "v1", mutation: true },
   "attachment/complete": { role: "controller", profile: "v1", mutation: true },
+  "attachment/put": { role: "controller", profile: "v1", mutation: true },
   "tools/advertise": { role: "owner", profile: "v1", mutation: true },
   "session/revoke": { role: "owner", profile: "v1", mutation: true },
   "session/archive": { role: "owner", profile: "v1", mutation: true },

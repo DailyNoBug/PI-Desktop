@@ -2,9 +2,14 @@ import type { AgentHost, Principal } from "@pi-desktop/agent-host";
 import { RacpError } from "@pi-desktop/agent-host";
 import {
   RacpApprovalResponseSchema,
+  RacpAttachmentCreateParamsSchema,
+  RacpAttachmentCompleteParamsSchema,
+  RacpAttachmentPutParamsSchema,
+  RacpAttachmentRefSchema,
   RacpCursorSchema,
   RacpInputResponseSchema,
   RacpRequestContextSchema,
+  type AgentPromptAttachment,
   type RacpCursor,
   type RacpLimits,
   type RacpOperation,
@@ -23,6 +28,8 @@ export type OperationContext = {
   principal: Principal;
   agentHost: AgentHost;
   operations: RacpHostOperations;
+  /** Present when the Host stages prompt attachments (spec §6.4). */
+  attachments?: RacpHostOperations["attachments"];
   authenticator: DeviceTokenAuthenticator;
   limits: RacpLimits;
   capabilities: RacpServerCapabilities;
@@ -99,6 +106,8 @@ const TerminalResizeParams = Type.Object({
 });
 const TerminalIdParams = Type.Object({ terminalId: Type.String({ minLength: 1 }) });
 const PairParams = Type.Object({ deviceLabel: Type.Optional(Type.String()) });
+/** Upper bound on attachment references a single turn/start may carry. */
+const MAX_ATTACHMENTS_PER_TURN = 8;
 
 function check<T extends Type.TSchema>(schema: T, params: unknown): Type.Static<T> {
   if (!Value.Check(schema, params)) {
@@ -114,6 +123,13 @@ function requireTerminal(context: OperationContext) {
     throw new RacpError("CAPABILITY_UNAVAILABLE", "this Host does not offer terminals");
   }
   return terminal;
+}
+
+function requireAttachments(context: OperationContext): NonNullable<RacpHostOperations["attachments"]> {
+  if (!context.attachments || !context.capabilities.attachments) {
+    throw new RacpError("CAPABILITY_UNAVAILABLE", "attachments are not offered by this Host");
+  }
+  return context.attachments;
 }
 
 function unavailable(capability: string): OperationHandler {
@@ -236,8 +252,25 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
     if (Buffer.byteLength(input.input.text, "utf8") > context.limits.maxPromptBytes) {
       throw new RacpError("PAYLOAD_TOO_LARGE", "prompt exceeds maxPromptBytes");
     }
+    let attachments: AgentPromptAttachment[] | undefined;
     if (input.input.attachments?.length) {
-      throw new RacpError("CAPABILITY_UNAVAILABLE", "attachments are not offered by this Host");
+      if (input.input.attachments.length > MAX_ATTACHMENTS_PER_TURN) {
+        throw new RacpError("INVALID_ARGUMENT", `a turn accepts at most ${MAX_ATTACHMENTS_PER_TURN} attachments`);
+      }
+      const staging = requireAttachments(context);
+      attachments = await Promise.all(
+        input.input.attachments.map(async (entry) => {
+          const reference = check(RacpAttachmentRefSchema, entry);
+          const resolved = await staging.resolve(reference.attachmentId, input.sessionId);
+          return {
+            path: resolved.path,
+            name: resolved.name,
+            kind: resolved.kind,
+            ...(resolved.mimeType ? { mimeType: resolved.mimeType } : {}),
+            ...(resolved.size !== undefined ? { size: resolved.size } : {}),
+          } satisfies AgentPromptAttachment;
+        }),
+      );
     }
     return context.agentHost.startTurn(context.principal, {
       sessionId: input.sessionId,
@@ -245,6 +278,7 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
       ...(input.admission ? { admission: input.admission } : {}),
       input: {
         text: input.input.text,
+        ...(attachments ? { attachments } : {}),
         ...(input.input.sessionMessageId ? { sessionMessageId: input.input.sessionMessageId } : {}),
         ...(input.input.messageId ? { userMessageId: input.input.messageId } : {}),
       },
@@ -272,8 +306,9 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
     context.agentHost.respondInput(context.principal, check(RacpInputResponseSchema, params)),
   );
 
-  handlers.set("attachment/create", unavailable("attachments"));
-  handlers.set("attachment/complete", unavailable("attachments"));
+  handlers.set("attachment/create", async (context, params) => requireAttachments(context).create(params));
+  handlers.set("attachment/put", async (context, params) => requireAttachments(context).put(params));
+  handlers.set("attachment/complete", async (context, params) => requireAttachments(context).complete(params));
   handlers.set("tools/advertise", unavailable("tool relay"));
 
   handlers.set("session/revoke", async (context, params) => {

@@ -11,6 +11,7 @@ import {
 } from "@pi-desktop/shared";
 
 import type { LaunchResolver } from "./launch-resolver.js";
+import { prepareHeadlessAttachments } from "./prompt-attachment-forwarding.js";
 import { resolveSessionMessageInput } from "./session-message-input.js";
 import { TurnEventPipeline } from "./turn-events.js";
 
@@ -253,9 +254,6 @@ export class RuntimeService implements RuntimePort {
     if (sessionId.startsWith("native-pi:")) {
       throw typedError("Native Pi sessions are not available on a headless host", "NATIVE_PI_UNSUPPORTED");
     }
-    if (request.attachments?.length) {
-      throw typedError("Prompt attachments are not supported by the headless runtime yet", ErrorCodes.INVALID_ARGUMENT);
-    }
     try {
       return await this.withSessionOperation(sessionId, () => this.startTurn(sessionId, request));
     } catch (error) {
@@ -309,6 +307,13 @@ export class RuntimeService implements RuntimePort {
     }
     const launch = await this.options.launch.resolve(sessionId, session, settings ?? {});
     sidecar.setProjectInstructionRoot(sessionId, launch.projectPath);
+    // Staged RACP uploads become durable rows, inline image payloads, and a
+    // fallback-path suffix, mirroring the desktop prompt-attachment contract.
+    const preparedAttachments = await prepareHeadlessAttachments(
+      request.attachments ?? [],
+      typeof launch.sidecarParams.attachmentsDir === "string" ? launch.sidecarParams.attachmentsDir : undefined,
+      launch.sidecarParams.provider.supportsVision === true,
+    );
 
     const turnId = await this.beginTurn(sessionId, launch.providerId, launch.modelId, sessionMessage?.origin.messageId);
 
@@ -325,6 +330,10 @@ export class RuntimeService implements RuntimePort {
         this.options.log("warn", "slash expansion failed; sending literal text", { sessionId, error: String(error) });
       }
     }
+    if (preparedAttachments.contentSuffix) {
+      const text = content.trim();
+      content = text ? `${text}\n${preparedAttachments.contentSuffix}` : preparedAttachments.contentSuffix;
+    }
     const existing = Array.isArray(session.messages) ? (session.messages as Array<{ id?: unknown }>) : [];
     const userMessage: UiMessage = {
       id: durableUserMessageId(request.userMessageId, existing),
@@ -334,6 +343,7 @@ export class RuntimeService implements RuntimePort {
       createdAt: new Date(this.now()).toISOString(),
       status: "complete",
       ...(command ? { command } : {}),
+      ...(preparedAttachments.messages.length ? { attachments: preparedAttachments.messages } : {}),
     };
     try {
       await host.call("session.appendMessage", { sessionId, message: userMessage, turnId });
@@ -355,7 +365,7 @@ export class RuntimeService implements RuntimePort {
         turnId,
         content,
         ...(sessionMessage ? { sessionMessage: sessionMessage.origin } : {}),
-        attachments: [],
+        attachments: preparedAttachments.sidecar,
         userMessageId: userMessage.id,
         // Per-turn permission ceiling override (R1 leftover; spec §7.3). Only
         // forwarded when the effective mode differs from the session's stored
@@ -381,6 +391,9 @@ export class RuntimeService implements RuntimePort {
   async steer(request: TurnSteerRequest): Promise<{ accepted: boolean }> {
     const sessionId = request.sessionId.trim();
     if (!this.isTurnDispatchable(sessionId, request.turnId)) return { accepted: false };
+    if (request.attachments?.length) {
+      throw typedError("Steering attachments are not supported by the headless runtime yet", ErrorCodes.INVALID_ARGUMENT);
+    }
     try {
       const host = this.requireHost();
       const sidecar = this.requireSidecar();

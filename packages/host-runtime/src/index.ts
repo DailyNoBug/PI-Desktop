@@ -14,3 +14,4 @@ export * from "./workspace-files.js";
 export * from "./workspace-diff.js";
 export * from "./racp-host-operations.js";
 export * from "./racp-credentials.js";
+export * from "./prompt-attachment-forwarding.js";
