@@ -54,6 +54,8 @@ PluginManager
   选择器和注入的 `<style>` 元素
 - `plugin/services` ✅ — 居民服务状态 (`starting` | `running` |
   `stopped` | `failed`) 加上重新启动计数，用于插件页面芯片
+- `plugin/rpc` — 把渲染器的管理调用送达插件已注册的 `pi.rpc` 处理器
+  （仅主窗口发送方；插件须持有 `plugin.rpc` 权限）
 
 ### commandPalette 域
 - `commandPalette/search`

@@ -12,11 +12,6 @@ import type {
   AgentPromptResponse,
   PromptEnhancementRequest,
   PromptEnhancementResponse,
-  SpeechStatus,
-  SpeechSynthesizeRequest,
-  SpeechSynthesizeResult,
-  SpeechTranscribeRequest,
-  SpeechTranscribeResult,
   SessionSummarizeTitleRequest,
   SessionSummarizeTitleResponse,
   AgentStopResponse,
@@ -127,9 +122,7 @@ import {
   normalizeNetworkProxy,
   resolveFontScale,
   normalizeChatContentMaxWidth,
-  VOICE_STT_SECRET_REF,
   validateNetworkProxy,
-  validateSpeechSettings,
 } from "@pi-desktop/shared";
 
 export type ImportSource = "claude-code" | "opencode" | "codex" | "pi";
@@ -425,11 +418,6 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
     }
     value.networkProxy = proxy.value;
   }
-  if (Object.prototype.hasOwnProperty.call(value, "speech")) {
-    (value as AppSettings).speech = validateSpeechSettings(
-      (value as { speech?: unknown }).speech,
-    );
-  }
   return settings;
 }
 
@@ -606,13 +594,6 @@ export const api = {
    /** One-shot dictation transcription (validated audio bytes in, text out). */
    voiceTranscribe: (request: VoiceTranscribeRequest) =>
      invoke<VoiceTranscribeResponse>(IPC.invoke.voiceTranscribe, request),
-   /** Write the voice STT API key into the host secret store (never readable back). */
-   setVoiceSttKey: (value: string) =>
-     invoke(IPC.invoke.secretsSet, { secretRef: VOICE_STT_SECRET_REF, value }),
-   clearVoiceSttKey: () =>
-     invoke(IPC.invoke.secretsDelete, VOICE_STT_SECRET_REF),
-   hasVoiceSttKey: () =>
-     invoke<{ has: boolean }>(IPC.invoke.secretsHas, VOICE_STT_SECRET_REF),
    testProvider: (id: string) => invoke(IPC.invoke.providersTest, id),
    /**
     * Discover models from the provider's own endpoint. Saved providers pass
@@ -867,11 +848,6 @@ export const api = {
     invoke<AgentPromptResponse>(IPC.invoke.agentPrompt, req),
   enhancePrompt: (req: PromptEnhancementRequest) =>
     invoke<PromptEnhancementResponse>(IPC.invoke.promptEnhance, req),
-  speechStatus: () => invoke<SpeechStatus>(IPC.invoke.speechGetStatus),
-  speechTranscribe: (req: SpeechTranscribeRequest) =>
-    invoke<{ text: string }>(IPC.invoke.speechTranscribe, req),
-  speechSynthesize: (req: SpeechSynthesizeRequest) =>
-    invoke<SpeechSynthesizeResult>(IPC.invoke.speechSynthesize, req),
   compact: (req: AgentCompactRequest) =>
     invoke<AgentCompactResponse>(IPC.invoke.agentCompact, req),
   abort: (sessionId: string) =>
@@ -965,6 +941,9 @@ export const api = {
    */
   setPluginScope: (id: string, scope: ActivationScope) =>
     invoke<{ plugin?: PluginSummary }>(IPC.invoke.pluginSetScope, { id, scope }),
+  /** One management call into a plugin's registered rpc handler. */
+  pluginRpc: (id: string, method: string, params?: Record<string, unknown>) =>
+    invoke<{ result: unknown }>(IPC.invoke.pluginRpc, { id, method, params }),
 
   // --- MCP servers the user owns -------------------------------------------
   listMcpServers: (query?: AgentCapabilityQuery) =>

@@ -151,6 +151,9 @@ function normalizeBytes(value) {
 const commands = new Map();
 const tools = new Map();
 const speechHandles = new Map();
+// Renderer-facing management RPC registered via `pi.rpc.register`. The host
+// routes `pi-desktop/plugin/rpc` requests here; one handler per plugin.
+let rpcHandler = null;
 // Resident services declared in the manifest. The broker decides when they run;
 // this map only holds the callables and whether they are currently up.
 const services = new Map();
@@ -235,6 +238,24 @@ function buildApi() {
       unregisterAdapter: async (protocol) => {
         speechHandles.delete(String(protocol ?? ""));
         await call("speech.unregisterAdapter", [protocol]);
+      },
+    },
+    rpc: {
+      register: async (handler) => {
+        if (typeof handler !== "function") {
+          throw new Error("rpc handler must be a function");
+        }
+        rpcHandler = handler;
+        try {
+          await call("plugin.rpc.register", []);
+        } catch (error) {
+          rpcHandler = null;
+          throw error;
+        }
+      },
+      unregister: async () => {
+        rpcHandler = null;
+        await call("plugin.rpc.unregister", []);
       },
     },
     ui: {
@@ -540,6 +561,16 @@ async function handleParentCall(method, payload, invocationId) {
         throw error;
       }
       return handle(payload ?? {});
+    }
+    case "rpc.handle": {
+      if (!rpcHandler) {
+        const error = new Error("rpc handler is not registered");
+        error.code = "NOT_FOUND";
+        throw error;
+      }
+      const method = String(payload?.method ?? "");
+      const params = payload?.params ?? undefined;
+      return rpcHandler(method, params);
     }
     case "tool.execute": {
       if (typeof invocationId !== "string" || !invocationId || invocations.has(invocationId)) {

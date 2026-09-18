@@ -155,7 +155,7 @@ The minimum selection is:
 - Imported-extension dependency installation or registry-boundary changes: `pnpm test:e2e:plugin-import-deps`.
 - Trusted extension or plugin-extension changes: `pnpm test:e2e:trusted-extensions`.
 - Session collaboration / Session Orchestrator: `pnpm test:e2e:collaboration`.
-- Voice dictation / voice IPC: `pnpm test:e2e:voice`.
+- Local voice dictation / local-voice inference (network-gated): `node --test apps/desktop/test/local-voice-inference.test.mjs`.
 - Completion-notice silence or the silent-turn contract (D193 / D446): `pnpm test:e2e:session-completion`.
 - Changes spanning multiple surfaces use the union of the applicable suites.
 
@@ -872,20 +872,25 @@ identify the platform validation still needed.
 - **Status**: Source-level regression (`composer-ime.test.mjs`); full UI
   keyboard journey remains Draft. Protocol smoke does not dispatch key events.
 
-#### E2E-008e: Host speech transcribe and speak
+#### E2E-008e: Local voice dictation settings and composer entry
 
-- **Preconditions**: A session is open. Settings → AI Voice is unconfigured.
-- **Steps**: 1) Confirm Composer transcribe/speak stay disabled. 2) Bind ASR
-  (`openai_audio` / whisper) and TTS. 3) Attach a small wav and transcribe it
-  into the draft. 4) Read the draft aloud.
-- **Expected**: Unconfigured actions never call the provider. Transcribe inserts
-  text. Speak writes session scratch audio and plays a bounded data URL.
-  Whisper/TTS never appear in the chat model picker.
+- **Preconditions**: A session is open. The bundled `pi.local-voice` plugin is
+  enabled and no model is installed yet.
+- **Steps**: 1) Confirm the Composer mic affordance stays hidden while no
+  model is ready. 2) Open Settings → Model configuration → Voice and download
+  a model from the card. 3) Watch the download progress and set the model
+  active. 4) Dictate a short clip and inspect the draft.
+- **Expected**: The card lists only catalog models with download / set-active
+  / delete actions and never asks for an endpoint or API key. The mic
+  affordance appears once the plugin reports ready. The transcript inserts at
+  the cursor and nothing is auto-sent. No speech provider appears in the chat
+  model picker.
 - **Specs linked**: `03-runtime/20-speech.md`, `04-ux/06-settings-ia.md`
 - **Acceptance**: C (speech)
 - **Milestone**: M2
-- **Status**: Source-level regression (`speech-capability.test.mjs`,
-  `plugin-speech-adapter.test.mjs`); live provider journey remains Draft.
+- **Status**: Source-level regression (`plugin-speech-adapter.test.mjs`,
+  `local-voice-wiring.test.mjs`); the network-gated inference journey is
+  E2E-269.
 
 #### E2E-008a: First-turn tools load on demand
 
@@ -7641,10 +7646,10 @@ identify the platform validation still needed.
 | Quality (builtin subagent defaults) | E2E-SUBAGENT-settings-lists-builtin-defaults |
 | C — Conversation & stream (opaque floating surfaces) | E2E-CHAT-opaque-floating-decision-and-retry-surfaces |
 | Quality (opaque floating surfaces) | E2E-CHAT-opaque-floating-decision-and-retry-surfaces |
-| M6 (opaque floating surfaces) | E2E-CHAT-opaque-floating-decision-and-retry-surfaces |
-| B — Model config (catalog window provenance) | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
-| F — Persistence (catalog window provenance) | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
-| Quality (catalog window provenance) | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
+| C — Conversation & stream (local voice dictation) | E2E-269 |
+| Security (local voice dictation) | E2E-269 |
+| Quality (local voice dictation) | E2E-269 |
+| M6+ (local voice dictation) | E2E-269 |
 | M6+ (catalog window provenance) | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
 | C — Conversation & stream (voice dictation) | E2E-269 |
 | Security (voice dictation) | E2E-269 |
@@ -13483,32 +13488,33 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   `crates/host-core/src/providers/catalog.rs` covers the config round trip, the
   unmarked record, and the dropped unknown marker. The end-to-end settings journey
 
-#### E2E-269: Voice dictation over a mock STT endpoint
+#### E2E-269: Local voice dictation end-to-end
 
-- **Preconditions**: a local mock OpenAI-compatible STT server can be started
-  on loopback by the suite (`node:http`), `AppSettings.voice` can be pointed at
-  it, and no real microphone is available or required.
-- **Steps**: 1) Run `pnpm test:e2e:voice`. 2) The suite serves success,
-  failure, and timeout responses from the mock STT endpoint and drives the
-  OpenAI-compatible adapter against each. 3) It exercises the
-  `pi-desktop/voice/capabilities` / `transcribe` / `cancel` channels with valid
-  and invalid payloads. 4) It drives the sidecar `voice.transcribe` /
-  `voice.cancel` RPC, an over-cap payload, and an in-flight cancellation.
-  5) It forces an STT failure while an agent session is live and inspects
-  renderer state, main-process logs, and IPC traffic.
-- **Expected**: The adapter returns text and `detectedLanguage` on success and
-  structured voice errors otherwise. IPC rejects non-main-window senders and
-  malformed or over-cap (120 s / 20 MiB) requests. The sidecar accepts audio as
-  base64 over stdio, rejects oversized input, and cancels cleanly. An STT
-  failure leaves the agent runtime untouched and nothing is auto-sent. The
-  stored API key and the audio bytes never appear in the renderer, transcripts,
-  or logs.
-- **Specs linked**: `03-runtime/01-ipc-protocol.md` §13e,
-  `03-runtime/14-secrets-storage.md` §4, `05-security/01-security.md` §2,
-  `04-ux/06-settings-ia.md` §2; ADR 0296, D439
+- **Preconditions**: network access to `huggingface.co` for the one-time
+  model download performed by the suite; a committed WAV fixture stands in
+  for microphone capture, so no real microphone is required.
+- **Steps**: 1) Run `node --test apps/desktop/test/local-voice-inference.test.mjs`
+  (network-gated; skipped when the environment is offline). 2) The suite
+  downloads the real Whisper model from Hugging Face once, through the
+  plugin's own downloader, and stores it under the plugin data directory.
+  3) It feeds the committed WAV fixture to the real local inference path and
+  asserts a transcript. 4) During transcription it monkeypatches `fetch` to
+  throw and re-runs the clip, proving zero egress while transcribing.
+  5) It exercises the `pi-desktop/voice/capabilities` / `transcribe` /
+  `cancel` contract around the same fixture.
+- **Expected**: The real model downloads exactly once and only from the
+  manifest-declared HF domains. Local inference returns the expected
+  transcript for the fixture; the same clip transcribes unchanged with
+  `fetch` disabled, so transcription performs zero network I/O. IPC rejects
+  non-main-window senders and malformed or over-cap (120 s / 20 MiB)
+  requests. A transcription failure leaves the agent runtime untouched,
+  nothing is auto-sent, and audio bytes never appear in transcripts or logs.
+- **Specs linked**: `03-runtime/20-speech.md`, `03-runtime/01-ipc-protocol.md`
+  §13e, `05-security/01-security.md` §2, `04-ux/06-settings-ia.md` §2;
+  ADR 0297, D451
 - **Acceptance criterion**: C (conversation & stream), Security, Quality
 - **Milestone**: M6+
-- **Status**: Automated (passed 2026-09-17): `pnpm test:e2e:voice` (mock STT endpoint, no microphone required)
+- **Status**: Automated (network-gated): `node --test apps/desktop/test/local-voice-inference.test.mjs` (real model download from HF once, real local inference, fetch disabled during transcription)
 #### E2E-PLUGIN-official-channel-resolves-through-the-platform: An official-channel install resolves through the platform and installs from the first working mirror
 
 - **Preconditions**: A clean profile on the official channel, a plugin present in `plugins.aiuo.net/catalog.json`, and a request log for the platform and both mirror hosts (a local stub may stand in for each).

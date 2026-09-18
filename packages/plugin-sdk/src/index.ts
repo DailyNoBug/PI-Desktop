@@ -665,6 +665,17 @@ export type PluginSpeechHandleResult =
       };
     };
 
+/**
+ * Handler a plugin exposes to the app UI over `pi.rpc.register`. The host
+ * delivers `(method, params)` pairs from the renderer's `pi-desktop/plugin/rpc`
+ * IPC under the plugin's `plugin.rpc` permission; results must be
+ * JSON-serializable. One handler per plugin; registering again replaces it.
+ */
+export type PluginRpcHandler = (
+  method: string,
+  params: Record<string, unknown> | undefined,
+) => Promise<unknown> | unknown;
+
 export type PluginSpeechAdapter = {
   protocol: string;
   label: string;
@@ -1076,6 +1087,10 @@ export type PluginHostApi = {
     registerAdapter: (adapter: PluginSpeechAdapter) => Promise<void>;
     unregisterAdapter: (protocol: string) => Promise<void>;
   };
+  rpc: {
+    register: (handler: PluginRpcHandler) => Promise<void>;
+    unregister: () => Promise<void>;
+  };
   ui: {
     openPanel: (opts?: { title?: string }) => Promise<void>;
     closePanel: () => Promise<void>;
@@ -1364,6 +1379,9 @@ export const PLUGIN_PERMISSIONS = [
   "audio.capture.background",
   "audio.playback.background",
   "speech.adapter.register",
+  // Renderer→plugin management RPC (`pi.rpc.register`). The handler runs in
+  // the plugin process; the host only routes main-window requests to it.
+  "plugin.rpc",
   "keyboard.globalShortcut",
   "net.websocket",
 ] as const;

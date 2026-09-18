@@ -1,25 +1,26 @@
 /**
- * useVoiceDictation — composer-facing dictation hook (Phase 1, batch STT).
+ * useVoiceDictation — composer-facing dictation hook (local plugin STT).
  *
- * Owns the microphone lifecycle: getUserMedia(audio) → MediaRecorder
- * (WebM/Opus preferred) → stop → in-memory bytes → `pi-desktop/voice/transcribe`
- * → transcript callback. Raw audio lives only in memory for the duration of
- * the request and is never persisted or logged. Exactly one recording may be
+ * Owns the microphone lifecycle: getUserMedia(audio) → WebAudio tap
+ * (AudioWorklet, ScriptProcessor fallback) → mono 16 kHz PCM →
+ * `pi-desktop/voice/transcribe` → the local-voice plugin's speech adapter →
+ * transcript callback. Audio lives only in memory for the duration of the
+ * request and is never persisted or logged. Exactly one recording may be
  * active app-wide (voice-singleton), bound to window/session/composer.
  *
  * All side-effectful collaborators are injectable so tests can drive the full
  * state machine without a microphone.
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
- import {
-   VOICE_MAX_AUDIO_BYTES,
-   VOICE_MAX_RECORDING_MS,
-   VOICE_PREFERRED_MIME_TYPE,
-   type VoiceDictationSnapshot,
-   type VoiceSessionBinding,
- } from "@pi-desktop/shared";
- import { api } from "../../lib/api";
- import { INITIAL_VOICE_SNAPSHOT, reduceVoiceSnapshot } from "./voice-state";
+import {
+  VOICE_MAX_AUDIO_BYTES,
+  VOICE_MAX_RECORDING_MS,
+  VOICE_PREFERRED_MIME_TYPE,
+  type VoiceDictationSnapshot,
+  type VoiceSessionBinding,
+} from "@pi-desktop/shared";
+import { api } from "../../lib/api";
+import { INITIAL_VOICE_SNAPSHOT, reduceVoiceSnapshot } from "./voice-state";
 import {
   claimVoiceSession,
   activeVoiceSession,
@@ -27,26 +28,18 @@ import {
   sameVoiceBinding,
 } from "./voice-singleton";
 import { getUserMediaErrorName, toVoiceFailure } from "./voice-errors";
+import { float32ToInt16Bytes } from "./pcm";
+import { createPcmCapture, type PcmCapture, type PcmCaptureFactory } from "./pcm-capture";
 
 /** DOM CustomEvent the global shortcut dispatcher emits to reach this hook. */
 export const VOICE_DICTATION_TOGGLE_EVENT = "pi-desktop:voice-dictation-toggle";
-
-export type VoiceRecorderLike = {
-  readonly mimeType: string;
-  start(timesliceMs?: number): void;
-  stop(): void;
-  ondataavailable: ((event: { data: Blob }) => void) | null;
-  onstop: (() => void) | null;
-};
-
-export type VoiceRecorderFactory = (stream: MediaStream, mimeType: string) => VoiceRecorderLike;
 
 export type UseVoiceDictationOptions = {
   composerId: string;
   sessionId: string | null;
   /** Language hint from trusted settings (AppSettings.voice.language). */
   language?: string;
-  /** Mic affordance renders only when the STT provider is configured. */
+  /** Mic affordance renders only when the local voice plugin is ready. */
   enabled: boolean;
   /** Receives the final transcript for insertion at the composer cursor. */
   onTranscript: (text: string) => void;
@@ -67,42 +60,6 @@ const VOICE_WINDOW_ID = globalThis.crypto?.randomUUID
   ? globalThis.crypto.randomUUID()
   : `window-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 
-function pickRecorderMimeType(): string {
-  const recorder = globalThis.MediaRecorder as
-    | (typeof MediaRecorder & { isTypeSupported?: (type: string) => boolean })
-    | undefined;
-  if (recorder?.isTypeSupported) {
-    if (recorder.isTypeSupported(VOICE_PREFERRED_MIME_TYPE)) return VOICE_PREFERRED_MIME_TYPE;
-    if (recorder.isTypeSupported("audio/webm")) return "audio/webm";
-  }
-  return "";
-}
-
-function defaultRecorderFactory(stream: MediaStream, mimeType: string): VoiceRecorderLike {
-  const recorder = mimeType
-    ? new MediaRecorder(stream, { mimeType })
-    : new MediaRecorder(stream);
-  return {
-    get mimeType() {
-      return recorder.mimeType || mimeType || "audio/webm";
-    },
-    start: (timesliceMs?: number) => recorder.start(timesliceMs),
-    stop: () => recorder.stop(),
-    get ondataavailable() {
-      return recorder.ondataavailable as VoiceRecorderLike["ondataavailable"];
-    },
-    set ondataavailable(handler: VoiceRecorderLike["ondataavailable"]) {
-      recorder.ondataavailable = handler as MediaRecorder["ondataavailable"];
-    },
-    get onstop() {
-      return recorder.onstop as VoiceRecorderLike["onstop"];
-    },
-    set onstop(handler: VoiceRecorderLike["onstop"]) {
-      recorder.onstop = handler as MediaRecorder["onstop"];
-    },
-  };
-}
-
 export function useVoiceDictation({
   composerId,
   sessionId,
@@ -111,9 +68,7 @@ export function useVoiceDictation({
   onTranscript,
 }: UseVoiceDictationOptions): UseVoiceDictationResult {
   const [snapshot, dispatch] = useReducer(reduceVoiceSnapshot, INITIAL_VOICE_SNAPSHOT);
-  const recorderRef = useRef<VoiceRecorderLike | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const captureRef = useRef<PcmCapture | null>(null);
   const cancelRequestedRef = useRef(false);
   const startedAtRef = useRef<number | null>(null);
   const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -121,11 +76,6 @@ export function useVoiceDictation({
   const languageRef = useRef(language);
   onTranscriptRef.current = onTranscript;
   languageRef.current = language;
-
-  const stopStreamTracks = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-  }, []);
 
   const clearAutoStopTimer = useCallback(() => {
     if (autoStopTimerRef.current !== null) {
@@ -136,27 +86,35 @@ export function useVoiceDictation({
 
   const releaseIfOwner = useCallback((binding: VoiceSessionBinding) => {
     releaseVoiceSession(binding);
-    recorderRef.current = null;
-    chunksRef.current = [];
+    captureRef.current = null;
     cancelRequestedRef.current = false;
     startedAtRef.current = null;
   }, []);
 
-  const handleRecorderStopped = useCallback(
-    async (binding: VoiceSessionBinding) => {
-      const recorder = recorderRef.current;
-      const mimeType = recorder?.mimeType || "audio/webm";
-      stopStreamTracks();
+  const handleCaptured = useCallback(
+    async (binding: VoiceSessionBinding, capture: PcmCapture) => {
       clearAutoStopTimer();
       if (cancelRequestedRef.current) {
         releaseIfOwner(binding);
         dispatch({ type: "cancelled" });
         return;
       }
-      const blob = new Blob(chunksRef.current, { type: mimeType });
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      if (bytes.byteLength === 0) {
+      let captured: { samples: Float32Array; sampleRate: number };
+      try {
+        captured = await capture.stop();
+      } catch {
+        captured = { samples: new Float32Array(0), sampleRate: 16000 };
+      }
+      if (cancelRequestedRef.current) {
         releaseIfOwner(binding);
+        dispatch({ type: "cancelled" });
+        return;
+      }
+      const bytes = float32ToInt16Bytes(captured.samples);
+      const durationMs =
+        startedAtRef.current !== null ? Math.max(1, Date.now() - startedAtRef.current) : 1;
+      releaseIfOwner(binding);
+      if (bytes.byteLength === 0) {
         dispatch({
           type: "failed",
           code: "INVALID_ARGUMENT",
@@ -165,7 +123,6 @@ export function useVoiceDictation({
         return;
       }
       if (bytes.byteLength > VOICE_MAX_AUDIO_BYTES) {
-        releaseIfOwner(binding);
         dispatch({
           type: "failed",
           code: "VOICE_PAYLOAD_TOO_LARGE",
@@ -173,21 +130,18 @@ export function useVoiceDictation({
         });
         return;
       }
-      const durationMs =
-        startedAtRef.current !== null ? Math.max(1, Date.now() - startedAtRef.current) : 1;
-      releaseIfOwner(binding);
       dispatch({ type: "audio-ready" });
       const requestId = globalThis.crypto?.randomUUID
         ? globalThis.crypto.randomUUID()
         : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
       try {
-         const result = await api.voiceTranscribe({
-           requestId,
-           audio: bytes,
-           mimeType,
-           durationMs,
-           ...(languageRef.current ? { language: languageRef.current } : {}),
-         });
+        const result = await api.voiceTranscribe({
+          requestId,
+          audio: bytes,
+          mimeType: VOICE_PREFERRED_MIME_TYPE,
+          durationMs,
+          ...(languageRef.current ? { language: languageRef.current } : {}),
+        });
         dispatch({ type: "transcription-succeeded" });
         onTranscriptRef.current(result.text);
       } catch (error) {
@@ -203,7 +157,7 @@ export function useVoiceDictation({
         });
       }
     },
-    [clearAutoStopTimer, releaseIfOwner, stopStreamTracks],
+    [clearAutoStopTimer, releaseIfOwner],
   );
 
   const start = useCallback(async () => {
@@ -225,37 +179,27 @@ export function useVoiceDictation({
       const media = globalThis.navigator?.mediaDevices;
       if (!media?.getUserMedia) throw Object.assign(new Error("getUserMedia unavailable"), { name: "NotFoundError" });
       const stream = await media.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const mimeType = pickRecorderMimeType();
-      const recorder = defaultRecorderFactory(stream, mimeType);
-      recorderRef.current = recorder;
-      chunksRef.current = [];
+      const capture = await createPcmCapture(stream);
+      captureRef.current = capture;
       cancelRequestedRef.current = false;
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) chunksRef.current.push(event.data);
-      };
-      recorder.onstop = () => {
-        void handleRecorderStopped(binding).catch((error) => {
+      startedAtRef.current = Date.now();
+      autoStopTimerRef.current = setTimeout(() => {
+        // Hard stop at the cap: transition through `stopping` exactly like a
+        // manual stop, so the captured audio is transcribed, not dropped.
+        dispatch({ type: "stop-requested" });
+        const active = captureRef.current;
+        captureRef.current = null;
+        if (active) {
+          void handleCaptured(binding, active).catch(() => {
+            releaseIfOwner(binding);
+            dispatch({ type: "cancelled" });
+          });
+        } else {
           releaseIfOwner(binding);
           dispatch({ type: "cancelled" });
-          void error;
-        });
-      };
-      startedAtRef.current = Date.now();
-      recorder.start(500);
-       autoStopTimerRef.current = setTimeout(() => {
-         // Hard stop at the cap: transition through `stopping` exactly like a
-         // manual stop, so the captured audio is transcribed, not dropped.
-         dispatch({ type: "stop-requested" });
-         try {
-           recorderRef.current?.stop();
-         } catch {
-           releaseIfOwner(binding);
-           dispatch({ type: "cancelled" });
-         }
-       }, VOICE_MAX_RECORDING_MS);
+        }
+      }, VOICE_MAX_RECORDING_MS);
     } catch (error) {
-      stopStreamTracks();
       releaseIfOwner(binding);
       const name = getUserMediaErrorName(error);
       if (
@@ -263,7 +207,8 @@ export function useVoiceDictation({
         name === "SecurityError" ||
         name === "NotFoundError" ||
         name === "NotReadableError" ||
-        name === "OverconstrainedError"
+        name === "OverconstrainedError" ||
+        name === "NotSupportedError"
       ) {
         dispatch({
           type: "permission-denied",
@@ -274,55 +219,55 @@ export function useVoiceDictation({
       const failure = toVoiceFailure(error);
       dispatch({ type: "failed", code: failure.code, message: failure.message });
     }
-  }, [composerId, handleRecorderStopped, releaseIfOwner, sessionId, stopStreamTracks]);
+  }, [composerId, handleCaptured, releaseIfOwner, sessionId]);
 
   const stop = useCallback(() => {
     const binding = snapshot.binding;
     if (!binding) return;
     dispatch({ type: "stop-requested" });
-    try {
-      recorderRef.current?.stop();
-    } catch {
-      releaseIfOwner(binding);
-      dispatch({ type: "cancelled" });
+    const active = captureRef.current;
+    captureRef.current = null;
+    if (active) {
+      void handleCaptured(binding, active).catch(() => {
+        releaseIfOwner(binding);
+        dispatch({ type: "cancelled" });
+      });
+      return;
     }
-  }, [releaseIfOwner, snapshot.binding]);
+    releaseIfOwner(binding);
+    dispatch({ type: "cancelled" });
+  }, [handleCaptured, releaseIfOwner, snapshot.binding]);
 
   const cancel = useCallback(() => {
     const binding = snapshot.binding;
     if (!binding) return;
     cancelRequestedRef.current = true;
-    const recorder = recorderRef.current;
-    if (recorder) {
-      try {
-        recorder.stop();
-      } catch {
-        releaseIfOwner(binding);
-        dispatch({ type: "cancelled" });
-      }
-      return;
+    const active = captureRef.current;
+    if (active) {
+      captureRef.current = null;
+      active.abort();
     }
     releaseIfOwner(binding);
     dispatch({ type: "cancelled" });
   }, [releaseIfOwner, snapshot.binding]);
 
-   const toggle = useCallback(() => {
-     switch (snapshot.state) {
-       case "idle":
-       case "error":
-       case "ready":
-         void start();
-         break;
-       case "recording":
-         stop();
-         break;
-       case "transcribing":
-         cancel();
-         break;
-       default:
-         break;
-     }
-   }, [cancel, snapshot.state, start, stop]);
+  const toggle = useCallback(() => {
+    switch (snapshot.state) {
+      case "idle":
+      case "error":
+      case "ready":
+        void start();
+        break;
+      case "recording":
+        stop();
+        break;
+      case "transcribing":
+        cancel();
+        break;
+      default:
+        break;
+    }
+  }, [cancel, snapshot.state, start, stop]);
 
   const dismiss = useCallback(() => {
     dispatch({ type: "reset" });
@@ -347,14 +292,9 @@ export function useVoiceDictation({
   useEffect(() => {
     return () => {
       cancelRequestedRef.current = true;
-      try {
-        recorderRef.current?.stop();
-      } catch {
-        // recorder already inactive
-      }
-       streamRef.current?.getTracks().forEach((track) => track.stop());
-       streamRef.current = null;
-       resetOnUnmount(sessionId, composerId);
+      captureRef.current?.abort();
+      captureRef.current = null;
+      resetOnUnmount(sessionId, composerId);
     };
   }, [sessionId, composerId]);
 

@@ -50,7 +50,8 @@ Provide a permission–capability–risk–default-policy reference table for re
 | `session.delete.own` | high | `pi.session.delete` | Confirm at install | Trash/purge only the calling plugin's imported sessions; rate-limited |
 | `usage.read` | medium | `pi.usage.listTurns` | Confirm at install | Read-only listing of completed-turn facts (per-turn token counters and identifiers, keyset-paginated); no message body and no write path |
 | `agent.complete` | high | `pi.agent.complete` | Confirm at install | Host-owned one-shot; spends user quota; `includeSessionContext` also needs `session.read` |
-| `speech.adapter.register` | high | `pi.speech.registerAdapter` / `unregisterAdapter` | Confirm at install | Registers a speech protocol. Handles stay in the guest; HTTP plans are executed by the host with the bound provider key and must stay on that origin. Built-in protocol ids are reserved |
+| `speech.adapter.register` | high | `pi.speech.registerAdapter` / `unregisterAdapter` | Confirm at install | Registers a speech protocol. Handles stay in the guest; HTTP plans are executed by the host with the bound provider key and must stay on that origin. There are no built-in protocol ids any more; every protocol is plugin-registered |
+| `plugin.rpc` | medium | `pi.rpc.register` / `unregister` — one handler receiving renderer-originated management calls over `pi-desktop/plugin/rpc` | Confirm at install | `(method, params)` dispatch under the host's command budget; params and replies must be JSON-serializable; the bundled `pi.local-voice` plugin is the example (ADR 0297) |
 
 ## 2A. A permission is the switch; the manifest carries the range
 
@@ -156,6 +157,7 @@ so "Modify the files it lists" is followed by the list.
 | `usage.read` | Read usage statistics | 读取用量统计 |
 | `agent.complete` | Run a one-shot completion with your models | 用你的模型发起一次补全 |
 | `speech.adapter.register` | Register a speech adapter | 注册语音适配器 |
+| `plugin.rpc` | Receive management calls from the app | 接收来自应用的管理调用 |
 | `audio.capture.background` | Use the microphone in the background | 后台使用麦克风 |
 | `audio.playback.background` | Play audio in the background | 后台播放声音 |
 | `keyboard.globalShortcut` | Register system-wide shortcuts | 注册系统级快捷键 |

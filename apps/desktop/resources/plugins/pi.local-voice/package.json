@@ -1,0 +1,8 @@
+{
+  "name": "pi-local-voice",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@huggingface/transformers": "^3.7.5"
+  }
+}

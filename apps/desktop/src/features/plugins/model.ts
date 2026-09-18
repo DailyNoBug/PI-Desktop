@@ -70,6 +70,8 @@ export const PERMISSION_RISK: Record<string, RiskTier> = {
   "audio.capture.background": "high",
   "speech.adapter.register": "high",
   "audio.playback.background": "medium",
+  // Requests only the app's own settings UI originates, routed by main.
+  "plugin.rpc": "medium",
   "keyboard.globalShortcut": "medium",
   "bus.publish": "medium",
   "bus.subscribe": "medium",

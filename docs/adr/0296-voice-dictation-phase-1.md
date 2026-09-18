@@ -7,6 +7,13 @@
   `05-security/01-security.md`, `04-ux/06-settings-ia.md`,
   `06-delivery/04-e2e-test-plan.md` (E2E-269)
 
+
+> **Superseded (2026-09-18)** by [ADR 0297 — local voice plugin](0297-local-voice-plugin.md):
+> dictation now runs on the bundled `pi.local-voice` plugin with a local
+> Whisper ONNX model. The cloud STT endpoint, the `voice/stt` secret ref, and
+> the agent-sidecar `voice.transcribe` path described below are removed; the
+> frozen `pi-desktop/voice/*` channels, state machine, and microphone policy
+> carry over unchanged.
 ## Context
 
 Users want Codex-Desktop-style voice input: press the microphone, speak, and

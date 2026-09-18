@@ -102,7 +102,6 @@
   「跟随输入框当前模型」。因此会有两行都题为「默认模型」，靠各自卡片标题区分。思考
   强度行是一个菜单选择器，列出所选模型实际支持的等级（不支持时该行仍显示「关闭思考」并禁用），默认「关闭
   思考」，且不提供「跟随会话」项。设置搜索会索引该卡与这两行。
-- **语音**卡：默认转写/朗读绑定（`AppSettings.speech`）。未配置时 Composer 对应入口禁用。Whisper / TTS 不进聊天模型列表。见 `20-speech.md`。
 - **默认项**卡中的**命令 Shell**行：主机发现的本机 PowerShell 5.1、PowerShell 7、
   cmd、Git Bash 和 ID 为 `windows-powershell`、`windows-pwsh`、`cmd`、`git-bash`
   的 Bash 和
@@ -152,7 +151,7 @@ Token 用量**不是设置目的地**（D335 / D430 / ADR 0290）。展开侧边
     `closeWindow` / `summonWindow` 覆盖项会并入它（D438、D439）
   - `voiceDictation` 操作（默认 `Mod + Shift + V`，agent 分组）切换
     Composer 听写，并遵循共享快捷键映射的覆盖、冲突与恢复规则
-    （D439 / ADR 0296）
+    （D439 / ADR 0296；听写后端现为本地语音插件，ADR 0297）
 
 ### 模型配置（`agent` 选项卡）
 - **Studio Hero**：提供商计数、就绪计数和当前默认 provider/model 摘要
@@ -183,11 +182,13 @@ Token 用量**不是设置目的地**（D335 / D430 / ADR 0290）。展开侧边
     因此两种凭据的模型选择完全一致。账户没有 API 密钥输入框，模型发现改由已保存
     的 OAuth 登录解析。保存会更新该 OAuth 提供商行，并在该账户被选为默认时同步
     全局默认模型
-- **语音听写**卡片（D439 / ADR 0296）：包含 STT 端点（OpenAI 兼容 base
-  URL；明文 `http://` 仅允许回环）、转写模型、只写的 API 密钥（存入
-  `voice/stt` 密钥引用，保存后绝不显示原文）、可选语言提示，以及默认
-  关闭的自动发送开关。只有端点和模型都配置后，Composer 的麦克风入口
-  才会出现。
+- **语音**卡片（D451 / ADR 0297）：内置 `pi.local-voice` 插件的本地听写状态。
+  卡片显示插件状态（被禁用或引擎缺失以提示文案呈现），并为目录中的每个模型——
+  Whisper tiny / base / small——提供一行，含下载（下载进行中轮询显示实时百分比
+  进度）、设为默认与删除操作，全部通过插件 rpc（`pi-desktop/plugin/rpc`）驱动。
+  模型列表之下是可选的语言提示与默认关闭的自动发送开关（`AppSettings.voice`：
+  `language`、`autoSend`——此外不存在其它字段）。只有插件启用且模型就绪时，
+  Composer 的麦克风入口才出现；这张卡片上没有端点、模型 id 或 API 密钥。
 
 - **提供商**工作室：
   - OpenAI 兼容的添加提供程序对话框（从添加提供程序/空状态 CTA 打开）

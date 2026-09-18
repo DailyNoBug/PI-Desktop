@@ -54,17 +54,13 @@ type SecretMeta = {
 ```text
 secret:provider:<providerId>:api_key
 secret:provider:<providerId>:oauth
-voice/stt
 ```
 
 两个引用相互独立，因此一个提供商行可以只有 API 密钥、只有厂商账户，或两者兼有。OAuth 引用保存序列化后的 pi-ai `OAuthCredential`（访问令牌、刷新令牌、过期时间），通过通用的 `secrets.set` 路径写入，因此由同一个后端加密，但不进入 `secrets_meta` 索引；删除提供商会清除两个引用及其可能存在的元数据记录。
 
-`voice/stt` 引用（D439 / ADR 0296）保存语音听写 STT 的 API 密钥。它只通过
-设置 → 模型配置「语音听写」卡片使用现有的通用 `secrets.set` /
-`secrets.delete` / `secrets.has` 通道写入、删除与探测；读取只发生在 Electron
-主进程，经 `secrets.getForRuntime` 按调用下发给 agent sidecar，与
-`agent/prompt` 接收 `provider.apiKey` 完全相同。该值绝不回传渲染器，渲染器
-只能得知已配置/未配置。
+已移除的 `voice/stt` 引用（D439 / ADR 0296）曾保存云 STT 的 API 密钥；它随云语音
+路径一并删除（ADR 0297），本地听写不再读取任何密钥。既有配置文件中遗留的值成为
+无人读取的孤立数据。
 
 ## 4a. 提供商就绪标志
 

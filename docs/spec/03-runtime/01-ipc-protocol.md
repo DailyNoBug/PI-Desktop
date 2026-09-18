@@ -1390,6 +1390,9 @@ Minimal interface:
 - `plugin/getPermissions(id)`
 - `plugin/setPermission(id, permission, allowed)` (optional fine-grained)
 - `plugin/setScope(id, scope)` (D192)
+- `plugin/rpc(pluginId, method, params?)` (D451 / ADR 0297) — deliver a
+  renderer management call to a plugin's registered `pi.rpc` handler; the
+  plugin must hold `plugin.rpc` and the result must be JSON-serializable
 
 Returned summary:
 
@@ -2023,17 +2026,6 @@ attachments. Electron main resolves the provider/model and credentials, so the
 renderer never receives a secret. Empty drafts, slash-command drafts, missing
 models, and provider failures return the common `Result` error envelope.
 
-### speech/getStatus, speech/transcribe, speech/synthesize
-
-```ts
-speech/getStatus() -> SpeechStatus
-speech/transcribe({ sessionId?, path, mimeType?, language? }) -> { text }
-speech/synthesize({ sessionId?, text, voice?, format? }) -> { path, mimeType, dataUrl? }
-```
-
-Host speech is independent of chat. Bindings live on `AppSettings.speech`.
-Audio bytes never enter the renderer. See spec `20-speech.md`.
-
 ### app/openFeedback (D313)
 
 ```ts
@@ -2163,45 +2155,47 @@ event, so an external Agent can create a session, open a project, or submit a
 prompt while the visible desktop follows the same state. A control-server
 startup failure is logged and does not prevent the desktop from launching.
 
-## 13e. Voice dictation API (D439 / ADR 0296)
+## 13e. Voice dictation API (D451 / ADR 0297)
 
 Three invoke channels under `pi-desktop/voice/*` carry batch speech-to-text
-from the composer to an OpenAI-compatible transcription endpoint. All three
-are accepted only from the main application window's sender; plugin panels,
-work-panel views, and every other frame are rejected.
+from the composer to the bundled local-voice plugin. All three are accepted
+only from the main application window's sender; plugin panels, work-panel
+views, and every other frame are rejected.
 
 ```ts
 voice/capabilities() -> {
-  configured: boolean;
-  recording: boolean;
-  maxDurationMs: number;   // 120_000
-  maxPayloadBytes: number; // 20 MiB
+  configured: boolean;      // local-voice plugin ready with a model
+  maxRecordingMs: number;   // 120_000
+  maxAudioBytes: number;    // 20 MiB
+  preferredMimeType: string; // "audio/pcm;rate=16000"
 }
 
 voice/transcribe({
   requestId: string;
-  audio: Uint8Array;       // WebM/Opus preferred; memory-only, never persisted
-  mimeType: string;
+  audio: Uint8Array;        // mono 16-bit PCM, 16 kHz; memory-only, never persisted
+  mimeType: string;         // "audio/pcm;rate=16000"
   durationMs: number;
   language?: string;
 }) -> {
   requestId: string;
   text: string;
-  detectedLanguage?: string;
 }
 
-voice/cancel({ requestId: string }) -> { ok: true }
+voice/cancel({ requestId: string }) -> { cancelled: boolean }
 ```
 
 Every request is runtime-validated: the shared typebox envelope plus binary
 checks on `audio`, `mimeType`, and `durationMs`, with a 120-second recording
-cap and a 20 MiB payload cap. Electron main resolves the trusted
-`AppSettings.voice` endpoint/model (plain `http://` only on loopback) and the
-API key from the secret-ref `voice/stt` through `secrets.getForRuntime`, then
-hands both to the existing Node agent sidecar per call (`voice.transcribe` /
-`voice.cancel`, audio as base64 over stdio) — the same trust shape as
-`agent/prompt` receiving `provider.apiKey`. Captured audio is memory-only: it
-is never written to disk, to a transcript, or to logs. Failures surface the
+cap and a 20 MiB payload cap. Electron main then routes the clip to the speech
+adapter that holds the `pi.local_voice` protocol
+(`PluginRuntime.runSpeechAdapter` → plugin process `speech.handle`, audio as
+base64, `role: "transcribe"`); the reply must be `{ kind: "text", text }`.
+Transcription runs entirely inside the plugin's utility process on a locally
+stored Whisper ONNX model: no endpoint is contacted, no API key exists on the
+path, and the `speech.handle` call budget is 120 seconds. `voice/cancel` is
+the renderer-side acknowledgement — the renderer cancels its own state
+machine and discards a late transcript. Captured audio is memory-only: it is
+never written to disk, to a transcript, or to logs. Failures surface the
 structured codes `VOICE_NOT_CONFIGURED`, `VOICE_PAYLOAD_TOO_LARGE`,
 `VOICE_CANCELLED`, `VOICE_MIC_PERMISSION_DENIED`, and
 `VOICE_TRANSCRIPTION_FAILED`; a transcription failure never disturbs an agent

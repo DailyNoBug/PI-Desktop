@@ -104,10 +104,11 @@
 > WebSocket binding, a headless Agent Host module, and the full local
 > approval vocabulary, and D375 schedules the SSH-tunnel remote Host first
 > while Gateway and browser access stay unscheduled. None of them changes the
-> current exclusion. ADR 0296 / D439 adds Phase-1 voice dictation — batch STT
-> over the existing agent runtime, an additive `pi-desktop/voice/*` IPC domain,
-> and the `voice/stt` secret ref — with no protocol or storage-schema version
-> change.
+> current exclusion. Voice dictation (D439 / ADR 0296, superseded by D451 /
+> ADR 0297) runs through the frozen `pi-desktop/voice/*` IPC domain on the
+> bundled local voice plugin `pi.local-voice`: local Whisper transcription,
+> no cloud STT/TTS bindings, no secret ref — with no protocol or
+> storage-schema version change.
 
 ## Frozen Decisions
 

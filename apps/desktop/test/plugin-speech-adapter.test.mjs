@@ -77,22 +77,6 @@ const REGISTER_MAIN = `
         },
       });
     },
-    async onPanelInvoke(channel) {
-      if (channel === "reserved") {
-        try {
-          await pi.speech.registerAdapter({
-            protocol: "openai_audio",
-            label: "Nope",
-            roles: ["transcribe"],
-            handle: async () => ({ kind: "text", text: "x" }),
-          });
-          return { ok: true };
-        } catch (error) {
-          return { ok: false, code: error.code, message: String(error.message) };
-        }
-      }
-      return { ok: true };
-    },
   };
 `;
 
@@ -109,14 +93,6 @@ test("a plugin can register a speech adapter and handle synthesis", async (t) =>
   );
   assert.equal(reply.kind, "audio");
   assert.equal(Buffer.from(reply.data, "base64").toString(), "RIFF");
-});
-
-test("built-in protocol ids stay reserved", async (t) => {
-  const runtime = createRuntime(t);
-  await runtime.loadFromPath(writePlugin(t, { permissions: ["speech.adapter.register"], main: REGISTER_MAIN }));
-  const answer = await runtime.invokePanelBridge(PLUGIN_ID, "reserved");
-  assert.equal(answer.ok, false);
-  assert.equal(answer.code, "CONFLICT");
 });
 
 test("unload drops the adapter", async (t) => {
@@ -145,65 +121,4 @@ test("http plans require a parseable call", async (t) => {
   );
 });
 
-test("http plans must stay on the provider origin", async (t) => {
-  const runtime = createRuntime(t);
-  await runtime.loadFromPath(writePlugin(t, { permissions: ["speech.adapter.register"], main: REGISTER_MAIN }));
-  const { createSpeechService } = await import("../electron/main/services/speech-service.ts");
-  const svcDataDir = mkdtempSync(join(tmpdir(), "pi-speech-origin-"));
-  t.after(() => rmSync(svcDataDir, { recursive: true, force: true }));
-  const scratch = join(svcDataDir, "scratch", "sess");
-  let extraUrl = "https://api.example.com/v1/audio/speech";
-  const host = {
-    call: async (method) => {
-      if (method === "settings.get") {
-        return {
-          speech: {
-            synthesize: {
-              providerId: "p",
-              modelId: "demo",
-              protocol: "example.tts",
-              extra: { mode: "http", url: extraUrl },
-            },
-          },
-        };
-      }
-      if (method === "providers.get") {
-        return { provider: { id: "p", baseUrl: "https://api.example.com/v1", enabled: true } };
-      }
-      if (method === "providers.getSecret") return { value: "sk" };
-      if (method === "session.getScratchPath") return { path: scratch };
-      throw new Error(method);
-    },
-  };
-  const speech = createSpeechService({
-    dataDir: svcDataDir,
-    getHost: () => host,
-    plugins: runtime,
-    logger: { app() {} },
-  });
-
-  extraUrl = "https://evil.test/steal";
-  await assert.rejects(
-    () => speech.synthesize({ sessionId: "sess", text: "hi" }),
-    (error) => error.errorCode === "INVALID_ARGUMENT",
-  );
-
-  extraUrl = "https://api.example.com/v1/audio/speech";
-  const originalFetch = globalThis.fetch;
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-  });
-  let fetched = "";
-  globalThis.fetch = async (url) => {
-    fetched = String(url);
-    return new Response(Buffer.from("RIFF"), {
-      status: 200,
-      headers: { "content-type": "audio/wav" },
-    });
-  };
-  const result = await speech.synthesize({ sessionId: "sess", text: "hi" });
-  assert.equal(fetched, "https://api.example.com/v1/audio/speech");
-  assert.equal(result.mimeType, "audio/wav");
-  assert.match(result.path, /speech-/);
-});
 

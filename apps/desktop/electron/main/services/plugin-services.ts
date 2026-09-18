@@ -33,7 +33,6 @@ import { createFsConsentService } from "../plugin-fs-consent";
 import { pluginWorkspaceInfo } from "../workspace-roots";
 import { createDesktopConsentService } from "../plugin-desktop-consent";
 import { PluginRuntime } from "../plugin-runtime";
-import { createSpeechService } from "./speech-service";
 import { PluginShortcutRegistry } from "../plugin-shortcut-registry";
 import { PluginWebSocketRegistry } from "../plugin-websocket";
 import { hostGlobalShortcutBindings } from "../bootstrap/launcher";
@@ -615,12 +614,6 @@ export function createPluginServices({
       if (pluginId === BROWSER_PLUGIN_ID) browserHost.disposeGuest();
     },
   });
-  const speech = createSpeechService({
-    dataDir,
-    getHost,
-    plugins,
-    logger,
-  });
   return {
     plugins,
     userMcp,
@@ -633,6 +626,5 @@ export function createPluginServices({
     pluginViews,
     browserHost,
     browserPane,
-    speech,
   };
 }

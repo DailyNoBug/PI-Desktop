@@ -143,6 +143,18 @@ export function registerPluginIpc({
   });
 
   handle(
+    IPC.invoke.pluginRpc,
+    async (payload: { id?: string; method?: string; params?: Record<string, unknown> }) => {
+      const result = await plugins.runPluginRpc(
+        String(payload?.id ?? ""),
+        String(payload?.method ?? ""),
+        payload?.params,
+      );
+      return { result };
+    },
+  );
+
+  handle(
     IPC.invoke.pluginSettingsSet,
     async (payload: { id?: string; settings?: Record<string, unknown> }) => {
       const settings = await plugins.setPluginSettings(

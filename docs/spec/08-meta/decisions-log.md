@@ -6200,3 +6200,34 @@ that was sitting at the bottom — including after the turn had finished.
   changes; the existing `prompt/enhance` payload is unchanged. See
   `04-ux/12-prompt-enhancement.md` §3 and §5, ADR 0121, and
   `06-delivery/04-e2e-test-plan.md` E2E-259.
+
+## 2026-09-18 — Local voice plugin replaces cloud speech (D451)
+
+- Supersedes D439 (the Phase 1 cloud STT data path) and the cloud bindings of
+  ADR 0281. Dictation is served by `pi.local-voice`, a first-party plugin
+  bundled under `apps/desktop/resources/plugins/` and disableable like any
+  plugin; it registers the speech adapter protocol `pi.local_voice` via
+  `pi.speech.registerAdapter`, so the host adapter registry — not the agent
+  sidecar — owns routing.
+- Inference is fully local: `@huggingface/transformers` runs int8 Whisper ONNX
+  models (`Xenova/whisper-tiny` / `-base` / `-small`) downloaded ahead of time
+  into the plugin's data directory from the HF domains its manifest declares
+  (`huggingface.co`, `*.huggingface.co`, `*.hf.co`, `*.xethub.hf.co`), with
+  per-hop host checks on every redirect. Transcription sets
+  `env.allowRemoteModels = false` — zero network I/O, and no API key exists on
+  the path. The renderer captures mono 16-bit PCM at 16 kHz via AudioWorklet;
+  the `speech.handle` call budget rises 60 s → 120 s to cover the 120 s
+  recording cap.
+- Model management rides a new plugin host API, `pi.rpc.register` /
+  `pi.rpc.unregister`, plus the renderer IPC channel `pi-desktop/plugin/rpc`
+  (`IPC.invoke.pluginRpc`), gated by the new medium-risk `plugin.rpc`
+  permission: one handler per plugin receives `(method, params)` and returns
+  JSON-serializable values. The Settings Voice card (download with progress,
+  switch, delete, language hint, auto-send) is its first consumer.
+- Cloud speech is removed: `AppSettings.speech` bindings, the cloud TTS card,
+  `speech-service.ts`, `speech-ipc.ts`, builtin speech protocols, the
+  agent-runtime speech/voice STT modules, and the `SPEECH_NOT_CONFIGURED` /
+  `SPEECH_INPUT_TOO_LARGE` codes. `AppSettings.voice` narrows to
+  `language` / `autoSend`; legacy `voice.stt` values are tolerated as orphans
+  and removed channels answer `NOT_FOUND`. E2E-269 is rewritten around the
+  local inference journey. See ADR 0297 and `03-runtime/20-speech.md`.

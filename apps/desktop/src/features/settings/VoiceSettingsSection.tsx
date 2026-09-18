@@ -1,19 +1,54 @@
 /**
- * Voice dictation settings card (Phase 1, batch STT).
+ * Local voice dictation settings card (ADR: local voice plugin).
  *
- * Non-secret fields (endpoint, model, language, auto-send) persist through
- * the normal settings path; the API key goes straight into the host secret
- * store through the generic secrets channel and is never stored in
- * AppSettings, rendered back, or logged. The mic button appears in the
- * composer only once endpoint + model are configured.
+ * Dictation runs on the bundled `pi.local-voice` plugin with an on-device
+ * Whisper model: this card manages models (download with progress, switch,
+ * delete) over the plugin rpc and keeps the dictation preferences
+ * (language hint, auto-send) in AppSettings. No endpoint or API key exists on
+ * this path; the mic button appears in the composer only when the plugin is
+ * enabled and a model is ready.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppSettings, VoiceSettings } from "@pi-desktop/shared";
-import { isAllowedVoiceBaseUrl } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { Button, Input, cx } from "../../components/ui";
 import { SettingsCard, SettingsRow } from "./primitives";
+
+const LOCAL_VOICE_PLUGIN_ID = "pi.local-voice";
+
+type LocalVoiceModel = {
+  id: string;
+  label: string;
+  repoId: string;
+  sizeApproxMB?: number;
+  installed: boolean;
+  active: boolean;
+};
+
+type LocalVoiceDownload = {
+  state: "running" | "error";
+  error?: string;
+  received?: number;
+  total?: number;
+};
+
+type LocalVoiceStatus = {
+  ready: boolean;
+  activeModel: string | null;
+  engineAvailable: boolean;
+  models: Array<{ id: string; installed: boolean; active: boolean }>;
+  downloads: Record<string, LocalVoiceDownload>;
+};
+
+type LocalVoiceCatalog = {
+  models: Array<LocalVoiceModel>;
+};
+
+async function callLocalVoice<T>(method: string, params?: Record<string, unknown>): Promise<T> {
+  const response = await api.pluginRpc(LOCAL_VOICE_PLUGIN_ID, method, params);
+  return response.result as T;
+}
 
 export function VoiceSettingsSection({
   settings,
@@ -24,59 +59,89 @@ export function VoiceSettingsSection({
 }) {
   const { t } = useTranslation();
   const voice = settings.voice ?? {};
-  const [baseUrlDraft, setBaseUrlDraft] = useState(voice.sttBaseUrl ?? "");
-  const [modelDraft, setModelDraft] = useState(voice.sttModel ?? "");
   const [languageDraft, setLanguageDraft] = useState(voice.language ?? "");
-  const [baseUrlError, setBaseUrlError] = useState(false);
-  const [hasKey, setHasKey] = useState(false);
-  const [keyDraft, setKeyDraft] = useState("");
-  const [keyBusy, setKeyBusy] = useState(false);
+  const [status, setStatus] = useState<LocalVoiceStatus | null>(null);
+  const [catalog, setCatalog] = useState<LocalVoiceCatalog | null>(null);
+  const [available, setAvailable] = useState<boolean | null>(null);
+  const [busyAction, setBusyAction] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    setBaseUrlDraft(voice.sttBaseUrl ?? "");
-    setModelDraft(voice.sttModel ?? "");
     setLanguageDraft(voice.language ?? "");
-    // `voice` is a fresh object on every settings refresh; the drafts follow
+    // `voice` is a fresh object on every settings refresh; the draft follows
     // trusted state so a rejected write visibly snaps back.
-  }, [voice.sttBaseUrl, voice.sttModel, voice.language]);
+  }, [voice.language]);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await callLocalVoice<LocalVoiceStatus>("status");
+      setStatus(next);
+      setAvailable(true);
+      setActionError(null);
+      return next;
+    } catch {
+      setAvailable(false);
+      setStatus(null);
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .hasVoiceSttKey()
-      .then((result) => {
-        if (!cancelled) setHasKey(result.has === true);
-      })
-      .catch(() => {
-        if (!cancelled) setHasKey(false);
-      });
+    const initial = async () => {
+      const next = await refresh();
+      if (!cancelled && next) {
+        try {
+          setCatalog(await callLocalVoice<LocalVoiceCatalog>("models.list"));
+        } catch {
+          if (!cancelled) setCatalog(null);
+        }
+      }
+    };
+    void initial();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refresh]);
+
+  const downloadsRunning = Object.values(status?.downloads ?? {}).some(
+    (download) => download.state === "running",
+  );
+  useEffect(() => {
+    if (!downloadsRunning) {
+      if (pollRef.current !== null) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+    if (pollRef.current === null) {
+      pollRef.current = setInterval(() => void refresh(), 700);
+    }
+    return () => {
+      if (pollRef.current !== null) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [downloadsRunning, refresh]);
+
+  const runAction = async (method: string, params?: Record<string, unknown>) => {
+    setBusyAction(true);
+    setActionError(null);
+    try {
+      await callLocalVoice(method, params);
+      await refresh();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(false);
+    }
+  };
 
   const saveVoice = async (patch: Partial<VoiceSettings>) => {
     await saveSettings({ voice: { ...voice, ...patch } });
-  };
-
-  const commitBaseUrl = async () => {
-    const next = baseUrlDraft.trim();
-    if (next === (voice.sttBaseUrl ?? "")) {
-      setBaseUrlError(false);
-      return;
-    }
-    if (next && !isAllowedVoiceBaseUrl(next)) {
-      setBaseUrlError(true);
-      return;
-    }
-    setBaseUrlError(false);
-    await saveVoice({ sttBaseUrl: next || undefined });
-  };
-
-  const commitModel = async () => {
-    const next = modelDraft.trim();
-    if (next === (voice.sttModel ?? "")) return;
-    await saveVoice({ sttModel: next || undefined });
   };
 
   const commitLanguage = async () => {
@@ -85,93 +150,112 @@ export function VoiceSettingsSection({
     await saveVoice({ language: next || undefined });
   };
 
-  const commitKey = async () => {
-    const next = keyDraft.trim();
-    setKeyDraft("");
-    if (!next) return;
-    setKeyBusy(true);
-    try {
-      await api.setVoiceSttKey(next);
-      setHasKey(true);
-    } finally {
-      setKeyBusy(false);
-    }
-  };
-
-  const clearKey = async () => {
-    setKeyBusy(true);
-    try {
-      await api.clearVoiceSttKey();
-      setHasKey(false);
-    } finally {
-      setKeyBusy(false);
-    }
-  };
+  const modelRows: Array<LocalVoiceModel & { download?: LocalVoiceDownload }> =
+    (catalog?.models ?? []).map((model) => ({
+      ...model,
+      installed: status?.models.find((entry) => entry.id === model.id)?.installed ?? false,
+      active: status?.models.find((entry) => entry.id === model.id)?.active ?? false,
+      download: status?.downloads[model.id],
+    }));
 
   return (
     <div className="settings-stack">
       <SettingsCard title={t("settings.voiceTitle")}>
-        <SettingsRow title={t("settings.voiceBaseUrl")}>
-          <Input
-            type="url"
-            value={baseUrlDraft}
-            placeholder="https://api.openai.com/v1"
-            aria-label={t("settings.voiceBaseUrl")}
-            aria-invalid={baseUrlError}
-            onChange={(event) => setBaseUrlDraft(event.target.value)}
-            onBlur={() => void commitBaseUrl()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                event.currentTarget.blur();
+        <p className="settings-row-desc settings-speech-lead">
+          {t("settings.voiceLocalDesc")}
+        </p>
+        {available === false ? (
+          <p className="settings-row-desc" role="note">
+            {t("settings.voicePluginDisabled")}
+          </p>
+        ) : null}
+        {available === true && status && !status.engineAvailable ? (
+          <p className="settings-row-desc" role="note">
+            {t("settings.voiceEngineMissing")}
+          </p>
+        ) : null}
+        {actionError ? (
+          <p className="settings-row-desc" role="alert">
+            {t("settings.voiceActionFailed", { message: actionError })}
+          </p>
+        ) : null}
+        {modelRows.map((model) => {
+          const download = model.download;
+          const running = download?.state === "running";
+          const percent =
+            running && download?.total
+              ? Math.min(100, Math.round(((download.received ?? 0) / download.total) * 100))
+              : null;
+          return (
+            <SettingsRow
+              key={model.id}
+              title={model.label}
+              description={
+                model.sizeApproxMB
+                  ? t("settings.voiceModelSize", { size: model.sizeApproxMB })
+                  : model.repoId
               }
-            }}
-          />
-        </SettingsRow>
-        <SettingsRow title={t("settings.voiceModel")}>
-          <Input
-            type="text"
-            value={modelDraft}
-            placeholder="whisper-1"
-            aria-label={t("settings.voiceModel")}
-            onChange={(event) => setModelDraft(event.target.value)}
-            onBlur={() => void commitModel()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                event.currentTarget.blur();
-              }
-            }}
-          />
-        </SettingsRow>
-        <SettingsRow title={t("settings.voiceApiKey")}>
-          <div className="flex items-center gap-2">
-            <Input
-              type="password"
-              value={keyDraft}
-              placeholder={hasKey ? t("settings.apiKeyKeepHint") : "sk-…"}
-              aria-label={t("settings.voiceApiKey")}
-              disabled={keyBusy}
-              onChange={(event) => setKeyDraft(event.target.value)}
-              onBlur={() => void commitKey()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  event.currentTarget.blur();
-                }
-              }}
-            />
-            {hasKey ? (
-              <Button
-                variant="secondary"
-                disabled={keyBusy}
-                onClick={() => void clearKey()}
-              >
-                {t("settings.remove")}
-              </Button>
-            ) : null}
-          </div>
-        </SettingsRow>
+            >
+              <div className="flex items-center gap-2">
+                {model.active ? (
+                  <span className="settings-voice-state">{t("settings.voiceModelActive")}</span>
+                ) : null}
+                {!model.installed && !running ? (
+                  <Button
+                    variant="secondary"
+                    disabled={busyAction}
+                    onClick={() => void runAction("models.download", { id: model.id })}
+                  >
+                    {t("settings.voiceModelDownload")}
+                  </Button>
+                ) : null}
+                {model.installed && !model.active ? (
+                  <Button
+                    variant="secondary"
+                    disabled={busyAction}
+                    onClick={() => void runAction("models.setActive", { id: model.id })}
+                  >
+                    {t("settings.voiceModelSetActive")}
+                  </Button>
+                ) : null}
+                {model.installed && !model.active ? (
+                  <Button
+                    variant="secondary"
+                    disabled={busyAction}
+                    onClick={() => void runAction("models.remove", { id: model.id })}
+                  >
+                    {t("settings.voiceModelRemove")}
+                  </Button>
+                ) : null}
+              </div>
+              {running ? (
+                <div
+                  className="settings-voice-progress"
+                  role="progressbar"
+                  aria-label={t("settings.voiceDownloading")}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={percent ?? undefined}
+                >
+                  <div
+                    className={cx("settings-voice-progress-fill")}
+                    style={{ width: `${percent ?? 0}%` }}
+                  />
+                  <span className="settings-voice-progress-label">
+                    {percent !== null
+                      ? `${percent}%`
+                      : t("settings.voiceDownloading")}
+                  </span>
+                </div>
+              ) : null}
+              {download?.state === "error" ? (
+                <span className="settings-row-desc" role="alert">
+                  {t("settings.voiceDownloadFailed", { message: download.error ?? "" })}
+                </span>
+              ) : null}
+            </SettingsRow>
+          );
+        })}
         <SettingsRow title={t("settings.voiceLanguage")}>
           <Input
             type="text"
@@ -183,7 +267,7 @@ export function VoiceSettingsSection({
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                 event.currentTarget.blur();
+                event.currentTarget.blur();
               }
             }}
           />

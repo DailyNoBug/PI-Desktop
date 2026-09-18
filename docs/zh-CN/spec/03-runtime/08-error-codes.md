@@ -98,9 +98,7 @@ stdio 与 Tokio 的动态阻塞池隔离，因此后一种情况
 | `STREAM_FAILED` | 是的 | 提供程序流在完整响应之前终止、提前关闭或以其他方式结束；最多四次同回合重试可能会在终止事件之前发生 |
 | `EMPTY_MODEL_RESPONSE` | 是的 | 模型在没有工具调用且没有可见文本的情况下结束了两次：一次是流式传输，一次是在自动重新运行后；对 Host 账本完成通知的第一条回复除外（规范 02-agent-runtime §5e、D446） |
 | `PROMPT_ENHANCEMENT_EMPTY` | 不 | 一次性增强模型没有返回任何文本 |
-| `SPEECH_NOT_CONFIGURED` | 不 | 设置里没有绑定转写或朗读 |
-| `SPEECH_PROTOCOL_UNSUPPORTED` | 不 | 语音协议未知或不支持该角色 |
-| `SPEECH_INPUT_TOO_LARGE` | 不 | 语音输入超过 25 MB |
+| `SPEECH_PROTOCOL_UNSUPPORTED` | 不 | 语音协议不为插件适配器注册表所知，或不支持该角色 |
 | `SUBAGENT_IDLE_TIMEOUT` | 不 | 已撤回（D328）：空闲看门狗不再武装；代码仅为已存储结果保留 |
 | `SUBAGENT_DURATION_TIMEOUT` | 不 | 已撤回（D328）：时长看门狗不再武装；代码仅为已存储结果保留 |
 
@@ -118,11 +116,11 @@ stdio 与 Tokio 的动态阻塞池隔离，因此后一种情况
 | `TOOL_TIMEOUT` | 是的 | 工具执行超时 |
 | `TOOL_FAILED` | 也许 | 工具已执行但失败 |
  | `TOOL_ABORTED` | 不 | 工具在完成前被用户停止或回合中止取消 |
- | `VOICE_NOT_CONFIGURED` | 不 | 未配置语音 STT 端点/模型时请求听写（ADR 0296） |
+| `VOICE_NOT_CONFIGURED` | 不 | 本地语音插件被禁用、没有已安装模型或其 speech 适配器不在线时请求听写（ADR 0297） |
  | `VOICE_PAYLOAD_TOO_LARGE` | 不 | 听写音频超过 20 MiB 载荷上限 |
- | `VOICE_CANCELLED` | 不 | 转写被 `pi-desktop/voice/cancel` 中止 |
+| `VOICE_CANCELLED` | 不 | 听写被渲染器取消；迟到的本地转写结果被丢弃 |
  | `VOICE_MIC_PERMISSION_DENIED` | 不 | 操作系统或会话策略拒绝了仅音频的麦克风采集 |
- | `VOICE_TRANSCRIPTION_FAILED` | 不 | STT 提供方失败且无更具体的代码 |
+| `VOICE_TRANSCRIPTION_FAILED` | 不 | 本地转写插件失败且无更具体的代码 |
 | `MUTATION_RETRY_BUDGET_EXHAUSTED` | 是 | 重复保护在同路径 `Edit` 或 shell patch 反复失败后终止了本轮；携带 `details.kind`（`edit` 或 `patch-command`）与最后一个工具错误代码 |
 | `PROCESS_RESOURCE_EXHAUSTED` | 是的 | shell 进程无法启动，因为操作系统暂时耗尽了进程资源 |
 | `SHELL_NOT_FOUND` | 不 | 目录回退后没有有效的平台 shell 可用；消息承载指引 |

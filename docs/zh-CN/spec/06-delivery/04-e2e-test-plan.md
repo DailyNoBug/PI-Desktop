@@ -118,7 +118,7 @@ unit/integration 测试；代码 pull request 使用有选择且高价值的 E2E
 - 导入扩展依赖安装或 registry 边界改动：`pnpm test:e2e:plugin-import-deps`。
 - 受信任扩展或插件扩展改动：`pnpm test:e2e:trusted-extensions`。
 - 会话通信 / Session Orchestrator：`pnpm test:e2e:collaboration`。
-- 语音听写 / voice IPC：`pnpm test:e2e:voice`。
+- 本地语音听写 / local-voice 推理（需网络）：`node --test apps/desktop/test/local-voice-inference.test.mjs`。
 - 完成通知静默或静默回合契约（D193 / D446）：`pnpm test:e2e:session-completion`。
 - 同时涉及多个面的改动使用适用套件的并集。
 
@@ -5120,10 +5120,10 @@ IPC 请求无法关闭。
 | F — 持久化（目录窗口来源） | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
 | 品质（目录窗口来源） | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
 | M6+（目录窗口来源） | E2E-MODEL-catalog-window-correction-reaches-saved-bindings |
-| C — 对话和直播（语音听写） | E2E-269 |
-| 安全（语音听写） | E2E-269 |
-| 品质（语音听写） | E2E-269 |
-| M6+（语音听写） | E2E-269 |
+| C — 对话和直播（本地语音听写） | E2E-269 |
+| 安全（本地语音听写） | E2E-269 |
+| 品质（本地语音听写） | E2E-269 |
+| M6+（本地语音听写） | E2E-269 |
 
 `US-UI-*` 视觉场景（§UI shell 视觉场景）追踪到
 [决策日志 §D](/zh-CN/spec/08-meta/decisions-log) 中的法典平价决策
@@ -7879,29 +7879,29 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
   四条来源规则；`crates/host-core/src/providers/catalog.rs` 覆盖配置往返、无标记记录与
   被丢弃的未知标记。端到端的设置旅程与实际启动窗口断言为草稿。
 
-#### E2E-269：基于模拟 STT 端点的语音听写
+#### E2E-269：本地语音听写端到端
 
-- **前置条件**：测试套件能在回环上用 `node:http` 启动本地模拟
-  OpenAI 兼容 STT 服务器，`AppSettings.voice` 可指向它；不需要真实麦克风。
-- **步骤**：1）运行 `pnpm test:e2e:voice`。2）套件让模拟 STT 端点返回成功、
-  失败与超时响应，并分别驱动 OpenAI 兼容适配器。3）用合法与非法载荷调用
-  `pi-desktop/voice/capabilities` / `transcribe` / `cancel` 通道。4）驱动
-  sidecar 的 `voice.transcribe` / `voice.cancel` RPC、超限载荷与转写中的
-  取消。5）在 agent 会话存活时强制 STT 失败，并检查渲染器状态、主进程日志
-  与 IPC 流量。
-- **预期**：适配器成功时返回文本和 `detectedLanguage`，否则返回结构化语音
-  错误。IPC 拒绝非主窗口发送方以及非法或超限（120 秒 / 20 MiB）请求。
-  sidecar 接受以 base64 走 stdio 的音频、拒绝超限输入并干净取消。STT 失败
-  不影响 agent 运行时，也不会自动发送任何内容。已保存的 API 密钥与音频
-  字节绝不出现在渲染器、转录或日志中。
-- **链接规格**：`03-runtime/01-ipc-protocol.md` §13e、
-  `03-runtime/14-secrets-storage.md` §4、`05-security/01-security.md` §2、
-  `04-ux/06-settings-ia.md` §2；ADR 0296、D439
+- **前置条件**：测试环境可访问 `huggingface.co` 以完成一次性的模型下载；
+  用仓库内置的 WAV fixture 代替麦克风采集，因此不需要真实麦克风。
+- **步骤**：1）运行 `node --test apps/desktop/test/local-voice-inference.test.mjs`
+  （需网络；离线环境跳过）。2）套件经插件自己的下载器从 Hugging Face 真实下载
+  一次 Whisper 模型，并存入插件数据目录。3）把内置 WAV fixture 送入真实的本地
+  推理路径并断言转写结果。4）转写期间将 `fetch` 打补丁为抛错并重跑同一音频，
+  证明转写期间零外联。5）围绕同一 fixture 验证 `pi-desktop/voice/capabilities`
+  / `transcribe` / `cancel` 契约。
+- **预期**：真实模型只下载一次，且仅来自 manifest 声明的 HF 域。本地推理对
+  fixture 返回预期文本；禁用 `fetch` 后同一音频仍转写不变，即转写不执行任何
+  网络 I/O。IPC 拒绝非主窗口发送方以及非法或超限（120 秒 / 20 MiB）请求。
+  转写失败不影响 agent 运行时，不会自动发送任何内容，音频字节绝不出现在转录
+  或日志中。
+- **链接规格**：`03-runtime/20-speech.md`、`03-runtime/01-ipc-protocol.md`
+  §13e、`05-security/01-security.md` §2、`04-ux/06-settings-ia.md` §2；
+  ADR 0297、D451
 - **验收**：C（对话与流式）、安全、质量
 - **里程碑**：M6+
-- **状态**：已自动化（2026-09-17 通过）：`pnpm test:e2e:voice`（模拟 STT 端点，无需麦克风）
-#### E2E-PLUGIN-official-channel-resolves-through-the-platform：官方渠道的安装通过平台解析，并从第一个可用镜像安装
+- **状态**：已自动化（需网络）：`node --test apps/desktop/test/local-voice-inference.test.mjs`（从 HF 真实下载一次模型、真实本地推理、转写期间禁用 fetch）
 
+#### E2E-PLUGIN-official-channel-resolves-through-the-platform：官方渠道的安装通过平台解析，并从第一个可用镜像安装
 - **先决条件**：全新配置停留在官方渠道；`plugins.aiuo.net/catalog.json` 中存在一个插件；平台与两个镜像主机各有请求日志（可用本地存根代替）。
 - **步骤**：1) 打开扩展 → 市场，确认来源行显示官方渠道，且目录来自 `plugins.aiuo.net`。 2) 安装该插件。 3) 抓取平台收到的请求。 4) 检查是哪个镜像提供了安装包。 5) 再安装第二个插件，然后重新安装第一个插件的同一版本。
 - **预期**：每次安装或更新只发出一次 `POST /api/v1/download/resolve`，JSON body 含 `deviceId`、`pluginId`，用户选定版本时含版本号；安装包来自 `downloads` 中第一个可应答的条目，且在解压之前其字节与返回的 `sha256` 和 `sizeBytes` 一致；不可达或失败的镜像被放弃并自动尝试下一个，无需用户操作；重新安装同一版本会发出新的 resolve 调用，而不是复用上一次的应答，因为响应从不缓存；插件通过常规权限审查安装，其记录标明来源为官方渠道。

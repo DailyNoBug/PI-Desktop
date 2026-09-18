@@ -324,6 +324,7 @@ Each ADR includes:
 | 0294 | [Remote SSH Agent Runtime](0294-remote-ssh-agent-runtime.md) | Accepted for implementation (D434) |
 | 0295 | [Managed SSH password authentication](0295-managed-ssh-password-auth.md) | Accepted (D435) |
 | 0296 | [Voice dictation, phase 1](0296-voice-dictation-phase-1.md) | Accepted for implementation (D439) |
+| 0297 | [Local voice plugin replaces cloud speech](0297-local-voice-plugin.md) | Accepted for implementation (D451) |
 
 > The fork's own decisions originally took the 0230 - 0235 range that merged main
 > had already assigned, so they were renumbered to D430 - D435 and ADR 0266 - 0271

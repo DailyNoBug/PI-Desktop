@@ -6,6 +6,11 @@
 - Related: [ADR 0257](0257-plugin-real-time-capabilities.md) ·
   [03-runtime/20-speech](../spec/03-runtime/20-speech.md)
 
+> **Amended (2026-09-18)** by [ADR 0297 — local voice plugin](0297-local-voice-plugin.md):
+> the built-in OpenAI-compatible cloud protocols, the `AppSettings.speech`
+> bindings, and the `pi-desktop/speech/*` channels are removed. Speech is
+> plugin-adapter-only; dictation runs on the bundled `pi.local-voice` plugin.
+
 ## Context
 
 Chat models, image generation, transcription, and speech synthesis are different
@@ -20,15 +25,21 @@ must not appear in the chat model picker. Local OpenAI-Audio-compatible servers
    `transcribe(audio) → text` and `synthesize(text) → audio`.
 2. Bindings live on optional `AppSettings.speech` (no schema bump). Each role
    names an existing provider, a model id, and an open protocol id.
+   *Removed by ADR 0297: the settings block no longer exists.*
 3. Built-in protocols: `openai_audio` (REST `/audio/transcriptions` and
    `/audio/speech`) and `openai_chat_audio` (chat completions `audio` field;
    MIMO `mimo-v2.5-tts`). New vendors add an adapter, not a new IPC channel.
+   *Removed by ADR 0297: there are no built-in speech protocols; every
+   protocol is plugin-registered.*
 4. Plugins may register a protocol with `pi.speech.registerAdapter` under
    high-risk `speech.adapter.register`. Handles stay in the guest; HTTP plans
    are executed by the host with the bound provider's key and must stay on that
-   origin. Built-in protocol ids are reserved.
+   origin. ~~Built-in protocol ids are reserved.~~ *(ADR 0297: no built-in ids
+   exist any more, so nothing is reserved.)*
 5. v1 product entry is Settings → AI Voice plus Composer file transcription and
    draft speech. Audio bytes never enter the renderer (path in, scratch out).
+   *Removed by ADR 0297: the AI Voice bindings card is gone; the Settings
+   entry is the local-voice plugin card on the Model configuration tab.*
 6. Out of scope: microphone / `pi.audio` device backend, Realtime, agent
    `transcribe`/`speak` tools, audio as LLM content blocks, changing pi-ai.
 

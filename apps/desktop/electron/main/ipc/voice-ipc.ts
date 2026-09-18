@@ -1,64 +1,63 @@
 /**
- * Voice dictation IPC domain (Phase 1, ADR: voice dictation).
+ * Voice dictation IPC domain — local plugin transcription (ADR: local voice
+ * plugin, superseding the Phase 1 cloud-STT path).
  *
  * Channels:
  * - `pi-desktop/voice/capabilities` — booleans + limits, no secrets
- * - `pi-desktop/voice/transcribe`   — validated audio → sidecar → STT
- * - `pi-desktop/voice/cancel`       — abort an in-flight transcription
+ * - `pi-desktop/voice/transcribe`   — validated audio → local-voice plugin
+ *                                     speech adapter (`speech.handle`)
+ * - `pi-desktop/voice/cancel`       — renderer-side cancel acknowledgement
  *
- * Every channel is main-window-sender-only. The STT endpoint/model come from
- * trusted settings and the API key is resolved from the host secret store
- * (`secrets.getForRuntime`) here in main — the renderer can neither choose an
- * arbitrary endpoint nor ever see the key. Audio crosses to the sidecar as
- * base64 because the sidecar protocol is NDJSON.
+ * Every channel is main-window-sender-only. Transcription runs entirely
+ * inside the plugin's utility process on a locally stored Whisper-class ONNX
+ * model; no endpoint is contacted and no API key exists on this path. Audio
+ * crosses to the plugin as base64 (mono PCM 16 kHz) and lives only in memory.
  */
 import { Buffer } from "node:buffer";
 import {
   ErrorCodes,
   IPC,
+  LOCAL_VOICE_PROTOCOL,
   VOICE_MAX_AUDIO_BYTES,
   VOICE_MAX_RECORDING_MS,
   VOICE_PREFERRED_MIME_TYPE,
-  VOICE_STT_SECRET_REF,
-  isVoiceSttConfigured,
-  normalizeVoiceSettings,
   validateVoiceTranscribeRequest,
   type VoiceCapabilities,
-  type VoiceSettings,
   type VoiceTranscribeResponse,
 } from "@pi-desktop/shared";
-import type { AgentSidecar } from "../agent-sidecar";
+import type { PluginRuntime } from "../plugin-runtime";
 import type { HostProcess } from "../host-process";
 import type { IpcRegistrar } from "./types";
 
 export type VoiceIpcDependencies = {
   registrar: IpcRegistrar;
   getHost: () => HostProcess | null;
-  getSidecar: () => AgentSidecar | null;
+  getPlugins: () => PluginRuntime | null;
 };
 
 const VOICE_REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
-async function loadVoiceConfig(
-  host: HostProcess,
-): Promise<{ settings: VoiceSettings | undefined; hasApiKey: boolean }> {
-  const stored = await host
-    .call<{ voice?: unknown } | null>("settings.get")
-    .catch(() => null);
-  const secret = await host
-    .call<{ has?: boolean }>("secrets.has", { secretRef: VOICE_STT_SECRET_REF })
-    .catch(() => ({ has: false }));
-  return {
-    settings: normalizeVoiceSettings(stored?.voice),
-    hasApiKey: secret.has === true,
-  };
+/**
+ * The local-voice plugin reports readiness over its management rpc. Any
+ * failure (plugin disabled, unloaded, handler missing) simply means "not
+ * configured" — the mic affordance stays hidden.
+ */
+async function isLocalVoiceReady(plugins: PluginRuntime): Promise<boolean> {
+  try {
+    const status = await plugins.runPluginRpc("pi.local-voice", "status") as {
+      ready?: boolean;
+    } | null;
+    return status?.ready === true;
+  } catch {
+    return false;
+  }
 }
 
 /** Register the voice IPC domain. */
 export function registerVoiceIpc({
   registrar,
   getHost,
-  getSidecar,
+  getPlugins,
 }: VoiceIpcDependencies): void {
   registrar.handleWithEvent(IPC.invoke.voiceCapabilities, async (event) => {
     registrar.assertMainWindowSender(event);
@@ -68,10 +67,10 @@ export function registerVoiceIpc({
         errorCode: ErrorCodes.HOST_UNAVAILABLE,
       });
     }
-    const { settings, hasApiKey } = await loadVoiceConfig(host);
+    const plugins = getPlugins();
+    const ready = plugins ? await isLocalVoiceReady(plugins) : false;
     const capabilities: VoiceCapabilities = {
-      configured: isVoiceSttConfigured(settings),
-      hasApiKey,
+      configured: ready,
       maxRecordingMs: VOICE_MAX_RECORDING_MS,
       maxAudioBytes: VOICE_MAX_AUDIO_BYTES,
       preferredMimeType: VOICE_PREFERRED_MIME_TYPE,
@@ -81,9 +80,8 @@ export function registerVoiceIpc({
 
   registrar.handleWithEvent(IPC.invoke.voiceTranscribe, async (event, input: unknown) => {
     registrar.assertMainWindowSender(event);
-    const host = getHost();
-    const sidecar = getSidecar();
-    if (!host || !sidecar) {
+    const plugins = getPlugins();
+    if (!plugins) {
       throw Object.assign(new Error("voice backend unavailable"), {
         errorCode: ErrorCodes.HOST_UNAVAILABLE,
       });
@@ -94,33 +92,27 @@ export function registerVoiceIpc({
         errorCode: validated.failure.code,
       });
     }
-    const { settings, hasApiKey } = await loadVoiceConfig(host);
-    if (!isVoiceSttConfigured(settings) || !settings?.sttBaseUrl || !settings?.sttModel) {
-      throw Object.assign(new Error("voice STT provider is not configured"), {
-        errorCode: ErrorCodes.VOICE_NOT_CONFIGURED,
-      });
-    }
-    let apiKey: string | undefined;
-    if (hasApiKey) {
-      const secret = await host.call<{ value?: string }>("secrets.getForRuntime", {
-        secretRef: VOICE_STT_SECRET_REF,
-      });
-      apiKey = secret.value || undefined;
-    }
     const request = validated.value;
-    const result = await sidecar.call<VoiceTranscribeResponse>("voice.transcribe", {
-      requestId: request.requestId,
-      audioBase64: Buffer.from(request.audio).toString("base64"),
-      mimeType: request.mimeType,
-      durationMs: request.durationMs,
-      ...(request.language ? { language: request.language } : {}),
-      provider: {
-        baseUrl: settings.sttBaseUrl,
-        model: settings.sttModel,
-        ...(apiKey ? { apiKey } : {}),
+    const result = await plugins.runSpeechAdapter(
+      { binding: { protocol: LOCAL_VOICE_PROTOCOL }, role: "transcribe" },
+      {
+        requestId: request.requestId,
+        audio: Buffer.from(request.audio).toString("base64"),
+        mimeType: request.mimeType,
+        durationMs: request.durationMs,
+        ...(request.language ? { language: request.language } : {}),
       },
-    });
-    return result;
+    );
+    if (result.kind !== "text") {
+      throw Object.assign(new Error("local voice adapter returned no text"), {
+        errorCode: ErrorCodes.VOICE_TRANSCRIPTION_FAILED,
+      });
+    }
+    const response: VoiceTranscribeResponse = {
+      requestId: request.requestId,
+      text: result.text ?? "",
+    };
+    return response;
   });
 
   registrar.handleWithEvent(IPC.invoke.voiceCancel, async (event, requestId: unknown) => {
@@ -130,8 +122,8 @@ export function registerVoiceIpc({
         errorCode: ErrorCodes.INVALID_ARGUMENT,
       });
     }
-    const sidecar = getSidecar();
-    if (!sidecar) return { cancelled: false };
-    return sidecar.call<{ cancelled: boolean }>("voice.cancel", { requestId });
+    // Local transcription is bounded by the adapter call budget; the renderer
+    // cancels its own state machine and simply discards a late result.
+    return { cancelled: false };
   });
 }

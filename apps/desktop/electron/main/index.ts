@@ -695,7 +695,6 @@ const {
   browserHost,
   browserPane,
   announceTurnEnded,
-  speech,
 } = pluginServices;
 
 const providerCatalogRuntime = createProviderCatalogRuntime({
@@ -1472,7 +1471,6 @@ function registerIpc() {
     persistenceOutbox,
     logger,
     plugins,
-    speech,
     sessionCapabilityContext,
     enrichSession,
     acquireSessionOperation,

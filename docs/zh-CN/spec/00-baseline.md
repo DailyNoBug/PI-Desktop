@@ -87,10 +87,10 @@
 > ADR 0205 / D373 定义未来 MVP 后 Agent Host、Gateway 和多绑定控制面的目标；
 > D374 将其修订为单一规范 WebSocket 绑定、无头 Agent Host 模块和完整本地审批词汇；
 > D375 将 SSH 隧道远端 Host 排在首位，Gateway 与浏览器访问不排期。
-> 当前基线仍排除远程 Gateway / WebUI 控制。ADR 0296 / D439 在此之上增加
-> 第一阶段语音听写——经由现有 agent 运行时的批量 STT、增量的
-> `pi-desktop/voice/*` IPC 域以及 `voice/stt` 密钥引用——协议与存储 schema
-> 版本均不变。
+> 当前基线仍排除远程 Gateway / WebUI 控制。语音听写（D439 / ADR 0296，由
+> D451 / ADR 0297 取代）经冻结的 `pi-desktop/voice/*` IPC 域运行在内置本地语音
+> 插件 `pi.local-voice` 上：本地 Whisper 转写，无云 STT/TTS 绑定、无密钥引用——
+> 协议与存储 schema 版本均不变。
 
 ## 冻结的决定
 

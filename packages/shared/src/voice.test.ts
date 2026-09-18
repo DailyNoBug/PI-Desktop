@@ -1,163 +1,96 @@
 import { describe, expect, it } from "vitest";
-import * as Value from "typebox/value";
 import {
-  isAllowedVoiceBaseUrl,
+  VOICE_MAX_AUDIO_BYTES,
+  VOICE_PREFERRED_MIME_TYPE,
   isSupportedVoiceMimeType,
-  isVoiceSttConfigured,
+  isVoiceDictationState,
   normalizeVoiceSettings,
   validateVoiceTranscribeRequest,
-  VOICE_MAX_AUDIO_BYTES,
-  VOICE_MAX_RECORDING_MS,
-  VoiceTranscribeEnvelopeSchema,
 } from "./voice.js";
 
-function validRequest(overrides: Record<string, unknown> = {}) {
-  return {
-    requestId: "req-12345678",
-    audio: new Uint8Array([1, 2, 3, 4]),
-    mimeType: "audio/webm;codecs=opus",
-    durationMs: 1500,
-    ...overrides,
-  };
-}
-
-describe("voice transcribe request validation", () => {
-  it("accepts a well-formed request", () => {
-    const result = validateVoiceTranscribeRequest(validRequest());
-    expect(result.ok).toBe(true);
-  });
-
-  it("rejects non-object input", () => {
-    const result = validateVoiceTranscribeRequest(null);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe("INVALID_ARGUMENT");
-  });
-
-  it("rejects a malformed envelope through the typebox schema", () => {
-    expect(Value.Check(VoiceTranscribeEnvelopeSchema, {})).toBe(false);
-    const result = validateVoiceTranscribeRequest(
-      validRequest({ requestId: "x" }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe("INVALID_ARGUMENT");
-  });
-
-  it("rejects durations above the cap", () => {
-    const result = validateVoiceTranscribeRequest(
-      validRequest({ durationMs: VOICE_MAX_RECORDING_MS + 1 }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe("INVALID_ARGUMENT");
-  });
-
-  it("rejects audio that is not a Uint8Array", () => {
-    const result = validateVoiceTranscribeRequest(
-      validRequest({ audio: "not-bytes" }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe("INVALID_ARGUMENT");
-  });
-
-  it("rejects an empty payload", () => {
-    const result = validateVoiceTranscribeRequest(
-      validRequest({ audio: new Uint8Array(0) }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe("INVALID_ARGUMENT");
-  });
-
-  it("rejects an oversized payload with the structured voice code", () => {
-    const oversized = new Uint8Array(VOICE_MAX_AUDIO_BYTES + 1);
-    const result = validateVoiceTranscribeRequest(validRequest({ audio: oversized }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe("VOICE_PAYLOAD_TOO_LARGE");
-  });
-
-  it("rejects unsupported mime types", () => {
-    const result = validateVoiceTranscribeRequest(
-      validRequest({ mimeType: "video/webm" }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe("INVALID_ARGUMENT");
-  });
-
-  it("accepts codec-parameterised supported mime types and optional language", () => {
-    const result = validateVoiceTranscribeRequest(
-      validRequest({ mimeType: "audio/ogg;codecs=opus", language: "zh-CN" }),
-    );
-    expect(result.ok).toBe(true);
-  });
+const validEnvelope = () => ({
+  requestId: "req-12345678",
+  mimeType: VOICE_PREFERRED_MIME_TYPE,
+  durationMs: 1500,
 });
 
-describe("voice mime support", () => {
-  it("accepts the containers MediaRecorder produces", () => {
-    expect(isSupportedVoiceMimeType("audio/webm")).toBe(true);
-    expect(isSupportedVoiceMimeType("audio/webm;codecs=opus")).toBe(true);
-    expect(isSupportedVoiceMimeType("audio/ogg;codecs=opus")).toBe(true);
-    expect(isSupportedVoiceMimeType("audio/mp4")).toBe(true);
+describe("isSupportedVoiceMimeType", () => {
+  it("accepts mono PCM at the dictation sample rate", () => {
+    expect(isSupportedVoiceMimeType("audio/pcm;rate=16000")).toBe(true);
+    expect(isSupportedVoiceMimeType("AUDIO/PCM;RATE=16000")).toBe(true);
   });
 
-  it("refuses non-audio and malformed values", () => {
-    expect(isSupportedVoiceMimeType("video/webm")).toBe(false);
+  it("rejects other containers and rates", () => {
+    expect(isSupportedVoiceMimeType("audio/pcm;rate=48000")).toBe(false);
+    expect(isSupportedVoiceMimeType("audio/pcm")).toBe(false);
+    expect(isSupportedVoiceMimeType("audio/webm;codecs=opus")).toBe(false);
     expect(isSupportedVoiceMimeType("")).toBe(false);
-    expect(isSupportedVoiceMimeType("audio/whatever")).toBe(false);
+    expect(isSupportedVoiceMimeType(42 as unknown as string)).toBe(false);
   });
 });
 
-describe("voice base URL policy", () => {
-  it("allows https endpoints anywhere", () => {
-    expect(isAllowedVoiceBaseUrl("https://api.openai.com/v1")).toBe(true);
-    expect(isAllowedVoiceBaseUrl("https://api.groq.com/openai/v1/")).toBe(true);
-  });
-
-  it("allows plain http only on loopback (local Whisper servers)", () => {
-    expect(isAllowedVoiceBaseUrl("http://127.0.0.1:8080/v1")).toBe(true);
-    expect(isAllowedVoiceBaseUrl("http://localhost:9000")).toBe(true);
-    expect(isAllowedVoiceBaseUrl("http://192.168.1.5:8080/v1")).toBe(false);
-    expect(isAllowedVoiceBaseUrl("http://api.openai.com/v1")).toBe(false);
-  });
-
-  it("refuses garbage", () => {
-    expect(isAllowedVoiceBaseUrl("not a url")).toBe(false);
-    expect(isAllowedVoiceBaseUrl("ftp://example.com")).toBe(false);
-    expect(isAllowedVoiceBaseUrl("")).toBe(false);
+describe("isVoiceDictationState", () => {
+  it("accepts only known states", () => {
+    expect(isVoiceDictationState("transcribing")).toBe(true);
+    expect(isVoiceDictationState("rewinding")).toBe(false);
   });
 });
 
-describe("voice settings normalization", () => {
-  it("keeps valid fields and trims trailing slashes off the endpoint", () => {
+describe("validateVoiceTranscribeRequest", () => {
+  const pcm = new Uint8Array(16);
+
+  it("accepts a PCM dictation payload", () => {
+    const result = validateVoiceTranscribeRequest({ ...validEnvelope(), audio: pcm });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.mimeType).toBe("audio/pcm;rate=16000");
+      expect(result.value.audio).toBe(pcm);
+    }
+  });
+
+  it("forwards an optional language hint", () => {
+    const result = validateVoiceTranscribeRequest({
+      ...validEnvelope(),
+      language: "zh-CN",
+      audio: pcm,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.language).toBe("zh-CN");
+  });
+
+  it("rejects junk envelopes and payloads", () => {
+    expect(validateVoiceTranscribeRequest(null).ok).toBe(false);
+    expect(validateVoiceTranscribeRequest({ ...validEnvelope(), audio: "pcm" }).ok).toBe(false);
+    expect(validateVoiceTranscribeRequest({ ...validEnvelope(), audio: new Uint8Array(0) }).ok).toBe(
+      false,
+    );
     expect(
-      normalizeVoiceSettings({
-        sttBaseUrl: "https://api.openai.com/v1/",
-        sttModel: "whisper-1",
-        language: "en",
-        autoSend: false,
-      }),
-    ).toEqual({
-      sttBaseUrl: "https://api.openai.com/v1",
-      sttModel: "whisper-1",
-      language: "en",
+      validateVoiceTranscribeRequest({ ...validEnvelope(), mimeType: "audio/webm", audio: pcm }).ok,
+    ).toBe(false);
+    expect(
+      validateVoiceTranscribeRequest({ ...validEnvelope(), requestId: "short", audio: pcm }).ok,
+    ).toBe(false);
+    const oversized = new Uint8Array(VOICE_MAX_AUDIO_BYTES + 1);
+    expect(validateVoiceTranscribeRequest({ ...validEnvelope(), audio: oversized }).ok).toBe(false);
+  });
+});
+
+describe("normalizeVoiceSettings", () => {
+  it("keeps dictation preferences", () => {
+    expect(normalizeVoiceSettings({ language: "zh-CN", autoSend: false })).toEqual({
+      language: "zh-CN",
       autoSend: false,
     });
-  });
-
-  it("drops unknown and empty input to undefined", () => {
     expect(normalizeVoiceSettings(undefined)).toBeUndefined();
     expect(normalizeVoiceSettings({})).toBeUndefined();
     expect(normalizeVoiceSettings("junk")).toBeUndefined();
+    expect(normalizeVoiceSettings({ language: "not a language!" })).toBeUndefined();
   });
 
-  it("rejects disallowed endpoints entirely", () => {
+  it("ignores legacy cloud STT fields from earlier builds", () => {
+    expect(normalizeVoiceSettings({ sttBaseUrl: "https://x.example/v1", sttModel: "whisper-1" })).toBeUndefined();
     expect(
-      normalizeVoiceSettings({ sttBaseUrl: "http://lan-host/v1", sttModel: "m" }),
-    ).toBeUndefined();
-  });
-
-  it("treats configured as endpoint+model only", () => {
-    expect(isVoiceSttConfigured({ sttBaseUrl: "https://x.example/v1" })).toBe(false);
-    expect(isVoiceSttConfigured({ sttModel: "whisper-1" })).toBe(false);
-    expect(
-      isVoiceSttConfigured({ sttBaseUrl: "https://x.example/v1", sttModel: "w" }),
-    ).toBe(true);
+      normalizeVoiceSettings({ sttBaseUrl: "https://x.example/v1", language: "en" }),
+    ).toEqual({ language: "en" });
   });
 });

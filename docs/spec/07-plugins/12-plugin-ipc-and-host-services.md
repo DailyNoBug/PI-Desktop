@@ -58,6 +58,8 @@ PluginManager
   picker and the injected `<style>` element
 - `plugin/services` ✅ — resident service status (`starting` | `running` |
   `stopped` | `failed`) plus the restart count, for the Plugins page chips
+- `plugin/rpc` — deliver a renderer management call to a plugin's registered
+  `pi.rpc` handler (main-window sender only; the plugin holds `plugin.rpc`)
 
 ### commandPalette domain
 - `commandPalette/search`

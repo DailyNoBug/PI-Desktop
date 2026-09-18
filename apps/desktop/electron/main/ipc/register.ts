@@ -31,7 +31,6 @@ import { registerWindowIpc } from "./window-ipc";
 import { catalogs, resolveLocale } from "@pi-desktop/i18n";
 import { createComposerTemplateLoader, registerWorkspaceIpc } from "./workspace-ipc";
 import { registerComposerIpc } from "./composer-ipc";
-import { registerSpeechIpc } from "./speech-ipc";
 import type { IpcRegistrar } from "./types";
 
 export type RegisterIpcDependencies = {
@@ -89,7 +88,6 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     persistenceOutbox,
     logger,
     plugins,
-    speech,
     sessionCapabilityContext,
     enrichSession,
     acquireSessionOperation,
@@ -255,11 +253,11 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     applyDeveloperMode,
     resolveEffectiveCommandShell,
    });
-   registerVoiceIpc({
-     registrar,
-     getHost,
-     getSidecar,
-   });
+  registerVoiceIpc({
+    registrar,
+    getHost,
+    getPlugins: () => plugins,
+  });
   registerProviderIpc({
     registrar,
     getHost,
@@ -439,8 +437,6 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     getUpdaterLocale,
     getPluginPanelTheme,
   });
-
-  registerSpeechIpc({ registrar, speech });
 
   registerRemoteHostIpc({ registrar });
 

@@ -198,11 +198,6 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   Manual `/compact` remains available from the command palette for an idle
   session; the transcript shows where each compaction happened and the context
   usage inspector shows whether a checkpoint is installed.
-- **Voice** card: default ASR and TTS bindings (`AppSettings.speech`). Each
-  role picks an existing provider, a protocol (`openai_audio` /
-  `openai_chat_audio` plus plugin adapters), and a model id. TTS may set a
-  voice. Unconfigured roles disable the matching Composer action. Whisper / TTS
-  models do not appear in the chat model picker. See spec `20-speech.md`.
 
 Token usage is **not a Settings destination** (D335 / D430 / ADR 0290). The
 expanded sidebar footer Activity icon, directly right of Settings, opens a
@@ -242,7 +237,8 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     override is folded into it when the map is read (D438, D439)
   - the `voiceDictation` action (default `Mod + Shift + V`, agent group)
     toggles composer dictation and follows the same override, conflict, and
-    restore rules as the rest of the shared shortcut map (D439 / ADR 0296)
+    restore rules as the rest of the shared shortcut map (D439 / ADR 0296; the
+    dictation backend is now the local voice plugin, ADR 0297)
 
 ### Model configuration (`agent` tab)
 - **Defaults** card: a compact settings row shows the provider name and exact
@@ -283,12 +279,16 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     row and keeps the global default model in sync when that account is selected
   - Test connection resolves the account's OAuth authorization and reports a
     transient success or failure without probing the provider with an API key
-- **Voice dictation** card (D439 / ADR 0296): one card with the STT endpoint
-  (an OpenAI-compatible base URL; plain `http://` is accepted only on
-  loopback), the transcription model, a write-only API key stored under the
-  `voice/stt` secret ref and never shown raw after save, an optional language
-  hint, and an Auto-send toggle that defaults to off. The composer's mic
-  affordance renders only when both endpoint and model are configured.
+- **Voice** card (D451 / ADR 0297): local dictation state of the bundled
+  `pi.local-voice` plugin. The card shows the plugin state (disabled or
+  engine missing render as notes) and one row per catalog model — Whisper
+  tiny / base / small — with Download (live percentage progress polled while
+  a download runs), Set active, and Delete actions, driven over the plugin
+  rpc (`pi-desktop/plugin/rpc`). Below the models sit an optional language
+  hint and an Auto-send toggle that defaults to off
+  (`AppSettings.voice`: `language`, `autoSend` — nothing else exists). The
+  composer's mic affordance renders only when the plugin is enabled and a
+  model is ready; no endpoint, model id, or API key exists on this card.
 
 - **Providers** studio:
   - OpenAI-compatible and custom-service add-provider dialog (opened from Add

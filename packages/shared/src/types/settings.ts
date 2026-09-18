@@ -6,7 +6,6 @@ import type { ContextCompactionSettings } from "./sessions.js";
 import type { Mode } from "./common.js";
 import type { GlobalPermissionMode } from "./permissions.js";
 import type { PluginMarketSource } from "./plugins.js";
-import type { SpeechSettings } from "./speech.js";
 import type { ThinkingLevel } from "./models.js";
 import type { VoiceSettings } from "../voice.js";
 
@@ -25,8 +24,6 @@ export type CloseBehavior = "ask" | "tray" | "quit";
 export type AppSettings = {
   defaultProviderId?: string;
   defaultModelId?: string;
-  /** Host speech bindings. Absent means voice actions stay disabled. */
-  speech?: SpeechSettings;
   defaultMode: Mode;
   /** Configured command shell for the agent Bash protocol tool. */
   defaultCommandShell?: CommandShellId;
@@ -129,9 +126,10 @@ export type AppSettings = {
    */
   contextUsageDisplay?: ContextUsageDisplay;
   /**
-   * Voice dictation configuration (Phase 1 batch STT). Non-secret fields
-   * only; the API key lives in the host secret store under
-   * `VOICE_STT_SECRET_REF` and never crosses to the renderer.
+   * Voice dictation preferences (local plugin transcription, ADR: local
+   * voice plugin). Transcription runs on a local model owned by the
+   * local-voice plugin, so no endpoint or key is configured here. Legacy
+   * cloud fields (`sttBaseUrl`/`sttModel`) from earlier builds are ignored.
    */
   voice?: VoiceSettings;
   /**

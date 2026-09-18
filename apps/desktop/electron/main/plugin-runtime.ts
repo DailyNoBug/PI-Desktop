@@ -74,7 +74,6 @@ import {
   type PluginServiceStatus,
   type PluginSettingDefinition,
   type PluginWorkspaceInfo,
-  BUILTIN_SPEECH_PROTOCOL_IDS,
 } from "@pi-desktop/shared";
 import {
   previewFile,
@@ -527,6 +526,8 @@ const HOST_API_ALLOWLIST = new Set([
   "bus.publish",
   "bus.subscribe",
   "bus.unsubscribe",
+  "plugin.rpc.register",
+  "plugin.rpc.unregister",
   "browser.navigate",
   "browser.action",
   "browser.setBounds",
@@ -680,6 +681,8 @@ const MAX_SERVICE_RESTARTS = 5;
 const SERVICE_HEALTHY_MS = 60_000;
 /** Bus payloads are messages, not file transfers. */
 const MAX_BUS_PAYLOAD_BYTES = 64 * 1024;
+/** Renderer→plugin rpc calls follow the command budget. */
+const PLUGIN_RPC_BUDGET_MS = 30_000;
 /** A plugin may hold at most this many live subscriptions. */
 const MAX_BUS_SUBSCRIPTIONS_PER_PLUGIN = 16;
 /** Publish budget per plugin, so a hot loop cannot flood every other plugin. */
@@ -1314,6 +1317,8 @@ export class PluginRuntime {
     roles: Array<"transcribe" | "synthesize">;
     pluginId: string;
   }>();
+  /** Plugin ids that registered a renderer-facing rpc handler (`pi.rpc.register`). */
+  private rpcHandlers = new Set<string>();
   private skills = new Map<string, RegisteredPluginSkill>();
   private agentExtensions = new Map<string, RegisteredAgentExtension>();
   private themes = new Map<string, RegisteredPluginTheme>();
@@ -1457,10 +1462,60 @@ export class PluginRuntime {
         method: "speech.handle",
         payload: { protocol: adapter.protocol, ...payload, role: (job as { role?: string }).role },
       },
-      60_000,
+      // Dictation clips run to VOICE_MAX_RECORDING_MS (120s); a local Whisper
+      // pass over the longest clip must fit in the same call budget.
+      120_000,
     );
     return parseSpeechAdapterReply(reply);
   }
+
+  /**
+   * Deliver one renderer-originated management call to a plugin's registered
+   * rpc handler. The handler runs in the plugin process; the host only routes
+   * main-window requests and enforces the command-time budget.
+   */
+  async runPluginRpc(
+    pluginId: string,
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<unknown> {
+    const loaded = this.loaded.get(String(pluginId));
+    if (!loaded?.child || loaded.disposing) {
+      throw apiError("NOT_FOUND", `plugin not loaded: ${pluginId}`);
+    }
+    if (!this.rpcHandlers.has(loaded.manifest.id)) {
+      throw apiError("NOT_FOUND", `plugin has no rpc handler: ${pluginId}`);
+    }
+    const name = String(method ?? "").trim();
+    if (!name || name.length > 128) {
+      throw apiError("INVALID_ARGUMENT", "rpc method is invalid");
+    }
+    let encoded: string;
+    try {
+      encoded = JSON.stringify(params ?? null);
+    } catch {
+      throw apiError("INVALID_ARGUMENT", "rpc params are not serializable");
+    }
+    if (Buffer.byteLength(encoded, "utf8") > MAX_BUS_PAYLOAD_BYTES) {
+      throw apiError("INVALID_ARGUMENT", "rpc params too large");
+    }
+    const reply = await this.sendToChild(
+      loaded,
+      {
+        t: "call",
+        method: "rpc.handle",
+        payload: { method: name, params: params ?? undefined },
+      },
+      PLUGIN_RPC_BUDGET_MS,
+    );
+    try {
+      return JSON.parse(JSON.stringify(reply ?? null));
+    } catch {
+      throw apiError("INVALID_ARGUMENT", "rpc reply is not serializable");
+    }
+  }
+
+  /** ExtensionAPI modules from loaded plugins holding `agent.extension`. */
 
   /** ExtensionAPI modules from loaded plugins holding `agent.extension`. */
   getAgentExtensions(): RegisteredAgentExtension[] {
@@ -2670,9 +2725,6 @@ export class PluginRuntime {
         if (!/^[a-z][a-z0-9._-]{0,63}$/.test(protocol)) {
           throw apiError("INVALID_ARGUMENT", "speech protocol is invalid");
         }
-        if ((BUILTIN_SPEECH_PROTOCOL_IDS as readonly string[]).includes(protocol)) {
-          throw apiError("CONFLICT", "speech protocol is reserved");
-        }
         const existing = this.speechAdapters.get(protocol);
         if (existing && existing.pluginId !== pluginId) {
           throw apiError("CONFLICT", `speech protocol in use: ${protocol}`);
@@ -2702,6 +2754,22 @@ export class PluginRuntime {
         const protocol = String(args[0] ?? "").trim();
         const existing = this.speechAdapters.get(protocol);
         if (existing?.pluginId === pluginId) this.speechAdapters.delete(protocol);
+        return { ok: true };
+      }
+      case "plugin.rpc.register": {
+        this.assertPermission(loaded, "plugin.rpc");
+        this.rpcHandlers.add(pluginId);
+        this.services.audit?.({
+          pluginId,
+          api: "plugin.rpc.register",
+          ok: true,
+          ts: Date.now(),
+        });
+        return { ok: true };
+      }
+      case "plugin.rpc.unregister": {
+        this.assertPermission(loaded, "plugin.rpc");
+        this.rpcHandlers.delete(pluginId);
         return { ok: true };
       }
       case "models.list": {
@@ -3115,6 +3183,7 @@ export class PluginRuntime {
     for (const [protocol, adapter] of this.speechAdapters) {
       if (adapter.pluginId === pluginId) this.speechAdapters.delete(protocol);
     }
+    this.rpcHandlers.delete(pluginId);
     for (const [id, skill] of this.skills) {
       if (skill.pluginId === pluginId) this.skills.delete(id);
     }

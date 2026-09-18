@@ -1141,6 +1141,9 @@ Plan 不会取代此通用许可合同。 Plan `Bash` 调用
 - `plugin/getPermissions(id)`
 - `plugin/setPermission(id, permission, allowed)`（可选细粒度）
 - `plugin/setScope(id, scope)` (D192)
+- `plugin/rpc(pluginId, method, params?)`（D451 / ADR 0297）——把渲染器的管理调用
+  送达插件已注册的 `pi.rpc` 处理器；插件须持有 `plugin.rpc` 权限，结果必须可
+  JSON 序列化
 
 返回摘要：
 
@@ -1642,15 +1645,6 @@ prompt/enhance({
 提供商/模型和凭据，因此渲染器永远拿不到密钥。空草稿、斜杠命令草稿、缺失模型
 以及提供商失败都返回通用的 `Result` 错误包络。
 
-### speech/getStatus、speech/transcribe、speech/synthesize
-```ts
-speech/getStatus() -> SpeechStatus
-speech/transcribe({ sessionId?, path, mimeType?, language? }) -> { text }
-speech/synthesize({ sessionId?, text, voice?, format? }) -> { path, mimeType, dataUrl? }
-```
-
-宿主语音独立于聊天。绑定在 `AppSettings.speech`。音频字节不进入渲染器。见 `20-speech.md`。
-
 ### app/openFeedback（D313）
 
 ```ts
@@ -1762,45 +1756,45 @@ MCP 调用方无法调用它们。
 项目或提交提示词时，可见桌面会跟随相同状态。控制服务启动失败会记录日志，但不会阻止
 桌面启动。
 
-## 13e. 语音听写 API（D439 / ADR 0296）
+## 13e. 语音听写 API（D451 / ADR 0297）
 
-`pi-desktop/voice/*` 下的三个 invoke 通道把 Composer 的批量语音转文字送到
-OpenAI 兼容的转写端点。三个通道都只接受主应用窗口的发送方；插件面板、
-工作面板视图及其它任何 frame 都会被拒绝。
+`pi-desktop/voice/*` 下的三个 invoke 通道把 Composer 的批量语音转文字送到内置的
+本地语音插件。三个通道都只接受主应用窗口的发送方；插件面板、工作面板视图及其它
+任何 frame 都会被拒绝。
 
 ```ts
 voice/capabilities() -> {
-  configured: boolean;
-  recording: boolean;
-  maxDurationMs: number;   // 120_000
-  maxPayloadBytes: number; // 20 MiB
+  configured: boolean;      // 本地语音插件就绪且有模型
+  maxRecordingMs: number;   // 120_000
+  maxAudioBytes: number;    // 20 MiB
+  preferredMimeType: string; // "audio/pcm;rate=16000"
 }
 
 voice/transcribe({
   requestId: string;
-  audio: Uint8Array;       // 优先 WebM/Opus；仅存内存，绝不持久化
-  mimeType: string;
+  audio: Uint8Array;        // 单声道 16-bit PCM，16 kHz；仅存内存，绝不持久化
+  mimeType: string;         // "audio/pcm;rate=16000"
   durationMs: number;
   language?: string;
 }) -> {
   requestId: string;
   text: string;
-  detectedLanguage?: string;
 }
 
-voice/cancel({ requestId: string }) -> { ok: true }
+voice/cancel({ requestId: string }) -> { cancelled: boolean }
 ```
 
 每个请求都经过运行时校验：共享 typebox 包络加上对 `audio`、`mimeType`、
-`durationMs` 的二进制检查，录音上限 120 秒、载荷上限 20 MiB。Electron 主进程
-解析受信任的 `AppSettings.voice` 端点/模型（明文 `http://` 仅允许回环）以及
-通过 `secrets.getForRuntime` 读取的 `voice/stt` 密钥，再按调用把两者交给现有
-Node agent sidecar（`voice.transcribe` / `voice.cancel`，音频以 base64 走
-stdio）——与 `agent/prompt` 接收 `provider.apiKey` 的信任形态相同。捕获的音频
-仅存内存：绝不写入磁盘、转录或日志。失败返回结构化错误码
-`VOICE_NOT_CONFIGURED`、`VOICE_PAYLOAD_TOO_LARGE`、`VOICE_CANCELLED`、
-`VOICE_MIC_PERMISSION_DENIED`、`VOICE_TRANSCRIPTION_FAILED`；转写失败不会
-影响 agent 运行时，也不会通过 `agent/prompt` 自动发送任何内容。
+`durationMs` 的二进制检查，录音上限 120 秒、载荷上限 20 MiB。Electron 主进程随后把
+音频路由到持有 `pi.local_voice` 协议的 speech 适配器
+（`PluginRuntime.runSpeechAdapter` → 插件进程 `speech.handle`，音频以 base64 传
+递、`role: "transcribe"`）；回复必须是 `{ kind: "text", text }`。转写完全在插件的
+utility 进程内用本地保存的 Whisper ONNX 模型完成：不访问任何端点，路径上不存在
+API 密钥，`speech.handle` 的调用预算为 120 秒。`voice/cancel` 是渲染器侧的确认——
+渲染器取消自己的状态机并丢弃迟到的结果。捕获的音频仅存内存：绝不写入磁盘、转录
+或日志。失败返回结构化错误码 `VOICE_NOT_CONFIGURED`、`VOICE_PAYLOAD_TOO_LARGE`、
+`VOICE_CANCELLED`、`VOICE_MIC_PERMISSION_DENIED`、`VOICE_TRANSCRIPTION_FAILED`；
+转写失败不会影响 agent 运行时，也不会通过 `agent/prompt` 自动发送任何内容。
 
 ## 14. 错误代码 — 初始注册表（可扩展）
 

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "pi.local-voice",
+  "name": "Local Voice",
+  "version": "0.1.0",
+  "description": "Local speech-to-text with an on-device Whisper model. No cloud service.",
+  "main": "main.js",
+  "permissions": ["speech.adapter.register", "plugin.rpc"],
+  "net": {
+    "domains": ["huggingface.co", "*.huggingface.co", "*.hf.co", "*.xethub.hf.co"]
+  },
+  "activationEvents": ["onStartup"],
+  "i18n": {
+    "en": {
+      "name": "Local Voice",
+      "description": "Local speech-to-text with an on-device Whisper model. No cloud service."
+    },
+    "zh-CN": {
+      "name": "本地语音",
+      "description": "应用内 Whisper 小模型本地语音转文字，不经云服务。"
+    }
+  },
+  "author": {
+    "name": "PI-Desktop"
+  }
+}

@@ -55,18 +55,18 @@
 - 封装时 Electron 熔断器（`runAsNode`、`nodeCliInspect` 关闭）
 - 自动安全 e2e 中的 `webSecurity` 断言
 
-### 麦克风权限（语音听写，D439 / ADR 0296）
+### 麦克风权限（语音听写，D451 / ADR 0297）
 
 - 默认会话的权限处理器仅在请求方是主窗口的 webContents、且所有请求的捕获
   类型都是 `audio` 时才放行 `media`；camera、video 与未指明的媒体请求一律拒绝。
 - 插件分区与工作面板视图保留各自的 deny-all 权限处理器，其它任何 frame 都
   无法获得捕获设备。
-- 听写音频仅存内存，绝不持久化或写日志；录音计时器、IPC 校验与 sidecar
-  各自执行 120 秒 / 20 MiB 上限。
-- STT API 密钥存放在主机密钥库的 `voice/stt` 引用下（参见
-  [14 密钥存储](/zh-CN/spec/03-runtime/14-secrets-storage)）；仅由 Electron
-  主进程解析并按调用下发给 agent sidecar，绝不到达渲染器，并适用共享的
-  日志脱敏策略。
+- 听写音频仅存内存，绝不持久化或写日志；录音计时器与 IPC 校验各自执行
+  120 秒 / 20 MiB 上限。
+- 捕获的音频只留在渲染器/主进程内存中，且只交给本地语音插件进程
+  （`speech.handle`，单声道 PCM 16 kHz）。模型权重是唯一的网络触点（插件
+  manifest 声明的 Hugging Face 域）；转写本身不执行任何网络 I/O，听写路径上
+  不存在 API 密钥。
 
 远程控制的安全边界是独立的 MVP 后规格：见
 [远程控制安全](/zh-CN/spec/05-security/02-remote-control-security) 和

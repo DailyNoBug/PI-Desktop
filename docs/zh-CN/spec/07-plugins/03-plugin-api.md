@@ -118,8 +118,21 @@ pi.speech.registerAdapter(adapter: {
 pi.speech.unregisterAdapter(protocol: string): Promise<void>
 ```
 
-handle 留在插件进程。内置协议 id `openai_audio` 和 `openai_chat_audio` 保留。
-HTTP 计划由宿主用绑定 provider 的密钥代发，且必须落在该 origin。
+handle 留在插件进程内。内置协议 id 已不存在——每个语音协议都由插件注册。HTTP 计划由宿主用绑定 provider 的密钥代发，且必须落在该 origin。
+
+### rpc（`plugin.rpc`）
+```ts
+pi.rpc.register(handler: (method: string, params?: Record<string, unknown>) => unknown): Promise<void>
+pi.rpc.unregister(): Promise<void>
+```
+
+需要中等风险 `plugin.rpc` 权限。每个插件一个处理器：宿主把来自
+`pi-desktop/plugin/rpc` IPC 通道（仅主窗口发送方）的渲染器管理调用以
+`(method, params)` 送达，并把处理器的回复返回给渲染器；params 与回复都必须可
+JSON 序列化，每次调用都在宿主命令预算内。卸载、禁用或崩溃都会注销处理器。内置
+的 `pi.local-voice` 插件——其 `status` / `models.list` / `models.download` /
+`models.remove` / `models.setActive` 方法驱动设置中的语音卡片——是仓库内的示例
+（ADR 0297）。
 
 
 ### 用户界面
@@ -986,6 +999,7 @@ view.setModal(input: { modal: boolean }): Promise<{
   范围由 `manifest.fs` 限定（ADR 0088）
 - `agent.registerTool` / `unregisterTool` / `agent.complete`
 - `speech.registerAdapter` / `unregisterAdapter`（`speech.adapter.register`）
+- `rpc.register` / `unregister`（`plugin.rpc`；渲染器管理调用，ADR 0297）
 
 - `models.list`、`session.getLlmContext`
 - `clipboard.*`、`shell.openExternal`、`net.fetch`

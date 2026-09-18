@@ -54,6 +54,7 @@
 | `usage.read` | 中等 | `pi.usage.listTurns` | 安装时确认 | 已完成 turn 事实行的只读列举（每回合 token 计数与标识符，keyset 分页）；不含消息正文，无写路径 |
 | `agent.complete` | 高 | `pi.agent.complete` | 安装时确认 | 宿主代发一次性补全；消耗用户额度；`includeSessionContext` 还需要 `session.read` |
 | `speech.adapter.register` | 高 | `pi.speech.registerAdapter` / `unregisterAdapter` | 安装时确认 | 注册语音协议。handle 留在插件进程；HTTP 计划由宿主用绑定密钥代发且必须同 origin |
+| `plugin.rpc` | 中等 | `pi.rpc.register` / `unregister` ——一个处理器经 `pi-desktop/plugin/rpc` 接收渲染器管理调用 | 安装时确认 | `(method, params)` 分发受宿主命令预算约束；params 与回复必须可 JSON 序列化；内置 `pi.local-voice` 插件是示例（ADR 0297） |
 
 ## 2A. 权限是开关，manifest 承载范围
 
@@ -153,6 +154,7 @@ Agent，在 Plan 中不可见。主机返回 `PLUGIN_DISABLED_IN_PLAN`
 | `usage.read` | Read usage statistics | 读取用量统计 |
 | `agent.complete` | Run a one-shot completion with your models | 用你的模型发起一次补全 |
 | `speech.adapter.register` | Register a speech adapter | 注册语音适配器 |
+| `plugin.rpc` | Receive management calls from the app | 接收来自应用的管理调用 |
 | `audio.capture.background` | Use the microphone in the background | 后台使用麦克风 |
 | `audio.playback.background` | Play audio in the background | 后台播放声音 |
 | `keyboard.globalShortcut` | Register system-wide shortcuts | 注册系统级快捷键 |

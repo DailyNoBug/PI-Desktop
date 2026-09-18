@@ -97,9 +97,7 @@ does not turn temporary thread pressure into a host process exit.
 | `STREAM_FAILED` | yes | provider stream was terminated, closed prematurely, or otherwise ended before a complete response; up to ten same-turn retries may precede the terminal event |
 | `EMPTY_MODEL_RESPONSE` | yes | the model ended its turn with no tool call and no visible text twice: once as streamed, once after the automatic re-run; the first reply to a Host-ledger completion notice is exempt (spec 02-agent-runtime §5e, D446) |
 | `PROMPT_ENHANCEMENT_EMPTY` | no | the one-shot enhancement model returned no text |
-| `SPEECH_NOT_CONFIGURED` | no | host speech ASR or TTS is not bound in settings |
-| `SPEECH_PROTOCOL_UNSUPPORTED` | no | the speech protocol is unknown or does not support this role |
-| `SPEECH_INPUT_TOO_LARGE` | no | speech input exceeds 25 MB |
+| `SPEECH_PROTOCOL_UNSUPPORTED` | no | the speech protocol is unknown to the plugin adapter registry or does not support this role |
 | `SUBAGENT_IDLE_TIMEOUT` | no | withdrawn (D328): idle watchdogs are not armed; the code remains for stored results |
 | `SUBAGENT_DURATION_TIMEOUT` | no | withdrawn (D328): duration watchdogs are not armed; the code remains for stored results |
 ### 3.3 Workspace / tools / permissions
@@ -116,11 +114,11 @@ does not turn temporary thread pressure into a host process exit.
 | `TOOL_TIMEOUT` | yes | tool execution timeout |
 | `TOOL_FAILED` | maybe | tool executed but failed |
  | `TOOL_ABORTED` | no | the tool was cancelled by a user stop or a turn abort before it finished |
- | `VOICE_NOT_CONFIGURED` | no | dictation requested while no voice STT endpoint/model is configured (ADR 0296) |
+| `VOICE_NOT_CONFIGURED` | no | dictation requested while the local-voice plugin is disabled, has no installed model, or its speech adapter is not live (ADR 0297) |
  | `VOICE_PAYLOAD_TOO_LARGE` | no | dictation audio exceeded the 20 MiB payload cap |
- | `VOICE_CANCELLED` | no | transcription aborted through `pi-desktop/voice/cancel` |
+| `VOICE_CANCELLED` | no | dictation was cancelled by the renderer; a late local transcript is discarded |
  | `VOICE_MIC_PERMISSION_DENIED` | no | the OS or session policy denied audio-only microphone capture |
- | `VOICE_TRANSCRIPTION_FAILED` | no | the STT provider failed without a more specific code |
+| `VOICE_TRANSCRIPTION_FAILED` | no | the local transcription plugin failed without a more specific code |
 | `MUTATION_RETRY_BUDGET_EXHAUSTED` | yes | the repeat guard ended the turn after same-path `Edit` or shell patch failures; carries `details.kind` (`edit` or `patch-command`), the last tool error code, and a class-specific `details.recovery` hint |
 | `PROCESS_RESOURCE_EXHAUSTED` | yes | shell process could not start because the OS temporarily exhausted process resources |
 | `SHELL_NOT_FOUND` | no | no effective platform shell is available after catalog fallback; message carries guidance |

@@ -1,20 +1,19 @@
 /**
- * Voice dictation contracts — Phase 1 batch transcription (ADR: voice
- * dictation).
+ * Voice dictation contracts — local plugin transcription (ADR: local voice
+ * plugin, superseding the Phase 1 cloud-STT path).
  *
  * Data path:
  *
- *   Renderer MediaRecorder
+ *   Renderer WebAudio capture (mono PCM 16 kHz)
  *     → preload IPC (`pi-desktop/voice/*`)
- *     → Electron main voice IPC (validation + trusted STT config)
- *     → Node agent sidecar (`voice.transcribe`)
- *     → OpenAI-compatible transcription endpoint
+ *     → Electron main voice IPC (validation + plugin adapter lookup)
+ *     → local-voice plugin process (`speech.handle`, Whisper-class ONNX model)
  *     → transcript back to the composer
  *
- * The renderer never addresses a transcription endpoint and never sees
- * provider credentials: main resolves the key from the host secret store
- * (`secrets.getForRuntime`) and hands it to the sidecar the same way
- * `agent.prompt` receives `provider.apiKey`. The transcript is only composer
+ * Transcription never touches the network: the plugin loads model weights from
+ * its own on-disk model directory (downloaded ahead of time from the domains
+ * its manifest declares) and fails closed when none is available. The renderer
+ * never addresses a model source directly. The transcript is only composer
  * text; sending it still goes through the one existing `agent/prompt` path.
  */
 import Type from "typebox";
@@ -25,37 +24,28 @@ import { ErrorCodes } from "./errors.js";
 export const VOICE_MAX_RECORDING_MS = 120_000;
 /** Hard cap on one transcription payload in bytes (IPC validation). */
 export const VOICE_MAX_AUDIO_BYTES = 20 * 1024 * 1024;
-/** Container types MediaRecorder may produce that the STT path accepts. */
-export const VOICE_SUPPORTED_MIME_BASES = [
-  "audio/webm",
-  "audio/ogg",
-  "audio/mp4",
-  "audio/mpeg",
-  "audio/wav",
-] as const;
-/** Preferred capture mime type (Chromium/Electron default recorder). */
-export const VOICE_PREFERRED_MIME_TYPE = "audio/webm;codecs=opus";
-/** File extension per container for the multipart upload field. */
-const MIME_EXTENSIONS: Record<string, string> = {
-  "audio/webm": "webm",
-  "audio/ogg": "ogg",
-  "audio/mp4": "mp4",
-  "audio/mpeg": "mp3",
-  "audio/wav": "wav",
-};
+/** Dictation audio is mono 16-bit little-endian PCM at this sample rate. */
+export const VOICE_PCM_SAMPLE_RATE = 16_000;
+/** The only dictation payload the voice IPC accepts. */
+export const VOICE_PREFERRED_MIME_TYPE = "audio/pcm;rate=16000";
 
-/** `audio/webm`, `audio/webm;codecs=opus`, ... — base type must be supported. */
+/** `audio/pcm` with an explicit `rate` parameter — the local pipeline contract. */
 export function isSupportedVoiceMimeType(mimeType: string): boolean {
   if (typeof mimeType !== "string" || mimeType.length > 64) return false;
-  const base = mimeType.split(";", 1)[0].trim().toLowerCase();
-  return (VOICE_SUPPORTED_MIME_BASES as readonly string[]).includes(base);
+  const [base, ...parameters] = mimeType.split(";");
+  if (base.trim().toLowerCase() !== "audio/pcm") return false;
+  const rate = parameters
+    .map((parameter) => parameter.trim().toLowerCase())
+    .find((parameter) => parameter.startsWith("rate="));
+  if (!rate || rate !== `rate=${VOICE_PCM_SAMPLE_RATE}`) return false;
+  return true;
 }
 
-/** Upload filename extension for a supported mime type (`.webm` fallback). */
-export function voiceAudioExtension(mimeType: string): string {
-  const base = mimeType.split(";", 1)[0].trim().toLowerCase();
-  return MIME_EXTENSIONS[base] ?? "webm";
-}
+/**
+ * Protocol id the bundled local-voice plugin registers. Voice IPC routes
+ * dictation to whichever plugin holds this protocol.
+ */
+export const LOCAL_VOICE_PROTOCOL = "pi.local_voice";
 
 /** Explicit dictation state machine; no conflicting booleans. */
 export const VOICE_DICTATION_STATES = [
@@ -99,7 +89,7 @@ export type VoiceTranscribeRequest = {
   audio: Uint8Array;
   mimeType: string;
   durationMs: number;
-  /** Optional BCP-47 hint forwarded to the STT provider. */
+  /** Optional language hint forwarded to the local model. */
   language?: string;
 };
 
@@ -111,8 +101,8 @@ export type VoiceTranscribeResponse = {
 
 /** Answer of `pi-desktop/voice/capabilities` — no secrets, only booleans/limits. */
 export type VoiceCapabilities = {
+  /** The local-voice plugin is enabled, its adapter is live, and a model is ready. */
   configured: boolean;
-  hasApiKey: boolean;
   maxRecordingMs: number;
   maxAudioBytes: number;
   preferredMimeType: string;
@@ -194,67 +184,22 @@ export function validateVoiceTranscribeRequest(input: unknown): VoiceTranscribeV
 }
 
 /**
- * Trusted, persisted voice settings (AppSettings.voice). Only non-secret
- * fields live here; the API key is stored under `VOICE_STT_SECRET_REF` in the
- * host secret store and never crosses to the renderer.
+ * Trusted, persisted voice settings (AppSettings.voice). Transcription runs on
+ * a local plugin model, so no endpoint, model id, or API key is configured
+ * here; only dictation behavior preferences live in settings.
  */
 export type VoiceSettings = {
-  /** OpenAI-compatible transcription endpoint, e.g. `https://api.openai.com/v1`. */
-  sttBaseUrl?: string;
-  /** Transcription model id, e.g. `whisper-1` / `whisper-large-v3`. */
-  sttModel?: string;
   /** Optional language hint (BCP-47). */
   language?: string;
-  /** Phase 1 keeps default-off; the setting exists for the future voice-control flow. */
+  /** Reserved for the future voice-control flow; no behavioral consumer yet. */
   autoSend?: boolean;
 };
-
-/** Secret-store reference for the voice STT API key. */
-export const VOICE_STT_SECRET_REF = "voice/stt";
-
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" ||
-    hostname === "[::1]" ||
-    hostname === "::1" ||
-    /^127\.\d+\.\d+\.\d+$/.test(hostname)
-  );
-}
-
-/**
- * Accept `https://` endpoints anywhere and `http://` only on loopback, so a
- * local OpenAI-compatible Whisper works without opening plaintext LAN egress.
- */
-export function isAllowedVoiceBaseUrl(baseUrl: string): boolean {
-  if (typeof baseUrl !== "string" || baseUrl.length === 0 || baseUrl.length > 512) {
-    return false;
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol === "https:") return true;
-  if (parsed.protocol === "http:") return isLoopbackHostname(parsed.hostname);
-  return false;
-}
 
 /** Clamp/strip an untrusted `AppSettings.voice` value; `undefined` when empty. */
 export function normalizeVoiceSettings(input: unknown): VoiceSettings | undefined {
   if (!input || typeof input !== "object") return undefined;
   const raw = input as Record<string, unknown>;
   const next: VoiceSettings = {};
-  const baseUrl = typeof raw.sttBaseUrl === "string" ? raw.sttBaseUrl.trim() : "";
-  if (baseUrl) {
-    if (!isAllowedVoiceBaseUrl(baseUrl)) return undefined;
-    next.sttBaseUrl = baseUrl.replace(/\/+$/, "");
-  }
-  const model = typeof raw.sttModel === "string" ? raw.sttModel.trim() : "";
-  if (model) {
-    if (model.length > 200) return undefined;
-    next.sttModel = model;
-  }
   const language = typeof raw.language === "string" ? raw.language.trim() : "";
   if (language) {
     if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(language)) return undefined;
@@ -262,9 +207,4 @@ export function normalizeVoiceSettings(input: unknown): VoiceSettings | undefine
   }
   if (typeof raw.autoSend === "boolean") next.autoSend = raw.autoSend;
   return Object.keys(next).length > 0 ? next : undefined;
-}
-
-/** A voice STT provider is configured when endpoint and model are present. */
-export function isVoiceSttConfigured(settings: VoiceSettings | null | undefined): boolean {
-  return Boolean(settings?.sttBaseUrl && settings?.sttModel);
 }

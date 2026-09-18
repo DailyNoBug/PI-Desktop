@@ -139,9 +139,25 @@ pi.speech.registerAdapter(adapter: {
 pi.speech.unregisterAdapter(protocol: string): Promise<void>
 ```
 
-The handle stays in the plugin process. Built-in protocol ids `openai_audio`
-and `openai_chat_audio` are reserved. HTTP plans are executed by the host with
-the bound provider key and must stay on that origin.
+The handle stays in the plugin process. There are no built-in protocol ids any
+more — every speech protocol is plugin-registered. HTTP plans are executed by
+the host with the bound provider key and must stay on that origin.
+
+### rpc (`plugin.rpc`)
+```ts
+pi.rpc.register(handler: (method: string, params?: Record<string, unknown>) => unknown): Promise<void>
+pi.rpc.unregister(): Promise<void>
+```
+
+Requires the medium-risk `plugin.rpc` permission. One handler per plugin: the
+host delivers renderer-originated management calls from the
+`pi-desktop/plugin/rpc` IPC channel (main-window sender only) as
+`(method, params)` and returns the handler's reply to the renderer; params and
+reply must be JSON-serializable and each call runs under the host's command
+budget. Unload, disable, or crash unregisters the handler. The bundled
+`pi.local-voice` plugin — whose `status` / `models.list` / `models.download` /
+`models.remove` / `models.setActive` methods power the Settings Voice card —
+is the in-repo example (ADR 0297).
 
 ### ui
 
@@ -1224,6 +1240,7 @@ The desktop plugin runtime now implements the MVP host API surface used by local
   bounded by `manifest.fs` (ADR 0088)
 - `agent.registerTool` / `unregisterTool` / `agent.complete`
 - `speech.registerAdapter` / `unregisterAdapter` (`speech.adapter.register`)
+- `rpc.register` / `unregister` (`plugin.rpc`; renderer management calls, ADR 0297)
 - `models.list`, `session.getLlmContext`
 - `clipboard.*`, `shell.openExternal`, `net.fetch`
 - `browser.*` (guest CDP; `browser.cdp`)

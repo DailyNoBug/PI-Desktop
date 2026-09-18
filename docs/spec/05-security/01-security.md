@@ -62,7 +62,7 @@ Required (all **implemented**):
 - Electron fuses (`runAsNode`, `nodeCliInspect` off) at package time
 - `webSecurity` assertions in an automated security e2e
 
-### Microphone permission (voice dictation, D439 / ADR 0296)
+### Microphone permission (voice dictation, D451 / ADR 0297)
 
 - The default session's permission handlers allow `media` only when the
   requesting webContents is the main window's, and only when every requested
@@ -71,12 +71,12 @@ Required (all **implemented**):
 - Plugin partitions and work-panel views keep their existing deny-all
   permission handlers, so no other frame can acquire capture devices.
 - Captured dictation audio is memory-only and never persisted or logged; the
-  recorder timer, the IPC validation, and the sidecar each enforce the 120 s /
-  20 MiB caps.
-- The STT API key lives under the secret-ref `voice/stt` in the host secret
-  store (see [14-secrets-storage](../03-runtime/14-secrets-storage.md)); it is
-  resolved by Electron main only and handed to the agent sidecar per call, so
-  it never reaches the renderer, and the shared redaction policy applies to it.
+  recorder timer and the IPC validation each enforce the 120 s / 20 MiB caps.
+- Captured audio stays in renderer/main memory and is handed only to the
+  local-voice plugin process (`speech.handle`, mono PCM 16 kHz). Model
+  weights are the only network touchpoint (the Hugging Face domains declared
+  in the plugin manifest); transcription itself performs zero network I/O,
+  and no API key exists on the dictation path.
 
 ## 3. Secrets
 
