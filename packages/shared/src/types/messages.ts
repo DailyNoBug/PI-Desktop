@@ -1,6 +1,7 @@
 /** Shared public types grouped by the owning application domain. */
 import type { SessionMessageOrigin } from "../session-collaboration.js";
 import type { AppError } from "../errors.js";
+import type { HostedSearch } from "../native-web-search.js";
 
 export type UiMessageRole = "user" | "assistant" | "system" | "tool";
 
@@ -77,6 +78,8 @@ export type UiMessage = {
   steering?: boolean;
   /** Model reasoning kept separate from the answer text. */
   thinking?: string;
+  /** Provider-native web search captured for this assistant turn. */
+  hostedSearch?: HostedSearch;
   createdAt: string;
   status?: "streaming" | "complete" | "error" | "aborted";
   /** Provider/model that produced this assistant turn, when known. */

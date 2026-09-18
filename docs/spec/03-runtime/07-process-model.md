@@ -123,7 +123,9 @@ start its local service. Windows 11 ARM64 systems run this x64 package through
 the operating system's x64 emulation; native Windows ARM64 artifacts are not
 currently published.
 
-Supervision parameters (implemented in Electron main):
+Supervision parameters (the transports, restart policy, and turn lifecycle are
+`packages/host-runtime`, ADR 0284; Electron main adapts them and owns the
+renderer-facing status):
 
 - Child exit rejects all in-flight RPCs for that child immediately (no 130s timeout wait).
 - An NDJSON request line over 64 MiB is drained and answered with `LIMIT_EXCEEDED`; it does not end the stdin reader (ADR 0216). Electron rejects the same size before writing stdin (ADR 0217).

@@ -34,6 +34,11 @@ export type UserMcpClient = Pick<
 
 export type UserMcpClientConfig = ConstructorParameters<typeof McpServerClient>[0];
 
+export type UserMcpOAuthHandler = {
+  getValidAccessToken: (serverId: string) => Promise<string | null>;
+  hasOAuth: (serverId: string) => Promise<boolean>;
+};
+
 export type UserMcpRuntimeOptions = {
   /**
    * How a connection is made.
@@ -45,6 +50,7 @@ export type UserMcpRuntimeOptions = {
    * servers.
    */
   createClient: (config: UserMcpClientConfig) => UserMcpClient;
+  oauth?: UserMcpOAuthHandler;
   audit?: (entry: Record<string, unknown>) => void;
   log?: (level: "info" | "warn" | "error", message: string, data?: unknown) => void;
   connectTimeoutMs?: number;
@@ -56,6 +62,7 @@ type Entry = {
   client: UserMcpClient;
   status: McpServerStatus;
   connecting?: Promise<McpTool[]>;
+  oauthToken?: string | null;
 };
 
 /**
@@ -208,7 +215,21 @@ export class UserMcpRuntime {
       });
     }
     // Do not retry tools/call: a failed response may have followed a mutation.
-    return entry.client.callTool(found.toolName, args);
+    try {
+      return await entry.client.callTool(found.toolName, args);
+    } catch (error) {
+      const msg = (error as Error).message || "";
+      if (msg.includes("401") || (error as { status?: number }).status === 401) {
+        entry.status = {
+          ...entry.status,
+          state: "failed",
+          authRequired: true,
+          message: msg.slice(0, 500),
+          updatedAt: Date.now(),
+        };
+      }
+      throw error;
+    }
   }
 
   /**
@@ -233,6 +254,16 @@ export class UserMcpRuntime {
     this.entries.delete(serverId);
     await this.connect(record);
     return this.statusFor(serverId);
+  }
+
+  /** Drop a cached connection and tools for a server. */
+  invalidate(serverId: string): void {
+    const existing = this.entries.get(serverId);
+    if (existing) {
+      existing.client.close();
+      this.entries.delete(serverId);
+    }
+    this.discoveredTools.delete(serverId);
   }
 
   /** Drop every connection, e.g. on quit. */
@@ -260,14 +291,30 @@ export class UserMcpRuntime {
   }
 
   private async connect(record: McpServerRecord): Promise<McpTool[]> {
-    const existing = this.entries.get(record.id);
+    let oauthToken: string | null = null;
+    if (record.transport === "http" && this.options.oauth) {
+      try {
+        oauthToken = await this.options.oauth.getValidAccessToken(record.id);
+      } catch {
+        oauthToken = null;
+      }
+    }
+
+    let existing = this.entries.get(record.id);
+    if (existing && record.transport === "http" && existing.oauthToken !== oauthToken) {
+      existing.client.close();
+      this.entries.delete(record.id);
+      existing = undefined;
+    }
+
     if (existing?.connecting) return existing.connecting;
     if (existing?.client.isConnected()) return existing.client.getTools();
     // A server that already failed its handshake this run stays failed until the
     // user edits it or asks for a test, so every session assembly does not pay
     // the connect timeout again.
     if (existing?.status.state === "failed") return [];
-    const entry = existing ?? this.createEntry(record);
+
+    const entry = existing ?? this.createEntry(record, oauthToken);
     entry.connecting = this.handshake(record, entry).finally(() => {
       entry.connecting = undefined;
     });
@@ -294,15 +341,19 @@ export class UserMcpRuntime {
         toolCount: tools.length,
         toolNames: tools.map((tool) => tool.name),
         updatedAt: Date.now(),
+        authRequired: false,
       };
       return tools;
     } catch (error) {
+      const msg = (error as Error).message || "";
+      const is401 = msg.includes("401");
       entry.status = {
         serverId: record.id,
         state: "failed",
         toolCount: 0,
-        message: (error as Error).message.slice(0, 500),
+        message: msg.slice(0, 500),
         updatedAt: Date.now(),
+        authRequired: is401,
       };
       this.options.log?.("warn", "user mcp server failed to connect", {
         serverId: record.id,
@@ -312,7 +363,11 @@ export class UserMcpRuntime {
     }
   }
 
-  private createEntry(record: McpServerRecord): Entry {
+  private createEntry(record: McpServerRecord, oauthToken?: string | null): Entry {
+    const headers = {
+      ...(record.headers ?? {}),
+      ...(oauthToken ? { Authorization: `Bearer ${oauthToken}` } : {}),
+    };
     const client = this.options.createClient({
       // No plugin owns this server; `rootPath` is only the child's cwd, and the
       // user's own command may live anywhere on the machine.
@@ -326,9 +381,9 @@ export class UserMcpRuntime {
         args: record.args ?? [],
         env: record.env ?? {},
         url: record.url,
-        headers: record.headers ?? {},
+        headers,
       },
-      values: record.transport === "stdio" ? (record.env ?? {}) : (record.headers ?? {}),
+      values: record.transport === "stdio" ? (record.env ?? {}) : headers,
       audit: this.options.audit,
       auditScope: "mcp",
       connectTimeoutMs: this.options.connectTimeoutMs,
@@ -337,6 +392,7 @@ export class UserMcpRuntime {
     const entry: Entry = {
       record,
       client,
+      oauthToken,
       status: {
         serverId: record.id,
         state: "idle",

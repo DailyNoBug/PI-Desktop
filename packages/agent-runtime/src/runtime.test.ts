@@ -12,6 +12,7 @@ import {
   type RuntimeMatchConfig,
   type RuntimeProviderConfig,
 } from "./runtime.js";
+import { COMPACTION_SUMMARY_MAX_RETRIES } from "./compaction-summary-input.js";
 import type { ProjectInstructions } from "./project-instructions.js";
 import { classifyAgentError } from "./agent-errors.js";
 import {
@@ -89,9 +90,11 @@ vi.mock("./subagent.js", async (importOriginal) => {
 });
 import {
   DEFAULT_SUBAGENT_IDLE_TIMEOUT_SECONDS,
+  MAX_RESUMABLE_CHAINS_PER_AGENT,
   MAX_SUBAGENT_CONCURRENCY,
 } from "@pi-desktop/shared";
 import type {
+  AgentEventEnvelope,
   ContextCompactionRecord,
   ContextCompactionSettings,
   CommandShellOption,
@@ -1129,13 +1132,35 @@ describe("DesktopAgentRuntime configuration matching", () => {
     });
     expect(lastExecute()).toMatchObject({ args: { path: "src/canonical.ts" } });
 
+    // Extra path spellings weaker models reach for (issue #454): every one of
+    // these folds onto `path` so the model does not silently fall back to Bash
+    // when its tokenizer prefers a non-canonical argument name.
+    for (const alias of ["filepath", "filePath", "filename", "fileName", "file"]) {
+      await tool("Read").execute(`read-${alias}`, {
+        [alias]: `src/${alias}.ts`,
+      });
+      expect(lastExecute()).toMatchObject({
+        toolName: "Read",
+        args: { path: `src/${alias}.ts` },
+      });
+      const seen = lastExecute().args as Record<string, unknown>;
+      expect(seen[alias]).toBeUndefined();
+    }
+
     // Neither spelling present still fails, and before any host execution.
+    // The message now names the accepted aliases and shows a minimal example
+    // so the next call can self-correct instead of falling back to shell.
     await expect(
       tool("Read").execute("read-missing", { limit: 5 }),
-    ).rejects.toMatchObject({ errorCode: "INVALID_ARGUMENT" });
+    ).rejects.toMatchObject({
+      errorCode: "INVALID_ARGUMENT",
+      message: expect.stringMatching(
+        /`path` is required.*(file_path|filepath).*Example.*"path"/s,
+      ),
+    });
     expect(
       host.call.mock.calls.filter((call: unknown[]) => call[0] === "tools.execute"),
-    ).toHaveLength(3);
+    ).toHaveLength(3 + 5);
 
     await runtime.dispose();
   });
@@ -2877,6 +2902,228 @@ describe("DesktopAgentRuntime thinking configuration", () => {
 });
 
 describe("DesktopAgentRuntime session collaboration provenance", () => {
+  const completionOrigin: SessionMessageOrigin = {
+    messageId: "completion-1", sourceSessionId: "sender", sourceTitle: "Worker",
+    targetSessionId: "session-1", kind: "completion", replyToMessageId: "task-1",
+  };
+  const eventsOf = (onEvent: ReturnType<typeof vi.fn>) =>
+    onEvent.mock.calls.map(([envelope]) => (envelope as AgentEventEnvelope).event);
+  const emptyModelResponse = expect.objectContaining({
+    type: "error", error: expect.objectContaining({ code: "EMPTY_MODEL_RESPONSE" }),
+  });
+
+  it.each([
+    { content: [] },
+    { content: [{ type: "text", text: " \n " }] },
+    { content: [{ type: "thinking", thinking: "Already handled." }] },
+  ])(
+    "accepts a silent completion notice without exempting the following human prompt (%j)", async ({ content }) => {
+    const onEvent = vi.fn();
+    const runtime = createRuntime({ onEvent });
+    const agent = (runtime as any).agent;
+    const handle = (runtime as any).handleAgentEvent.bind(runtime);
+    const silent = assistantMessage({ content });
+    const respond = async () => {
+      // pi appends the reply to its transcript before notifying listeners.
+      agent.state.messages = [...agent.state.messages, silent];
+      await handle({ type: "agent_start" });
+      await handle({ type: "message_start", message: silent });
+      await handle({ type: "message_end", message: silent });
+      await handle({ type: "turn_end" });
+      await handle({ type: "agent_end", messages: [] });
+    };
+    agent.prompt = vi.fn(respond);
+    agent.continue = vi.fn(respond);
+    agent.waitForIdle = vi.fn(async () => undefined);
+    try {
+      await runtime.prompt({ text: "Task completed", sessionMessage: completionOrigin }, "notice-user", "notice-turn");
+      expect(agent.continue).not.toHaveBeenCalled();
+      const notices = eventsOf(onEvent);
+      expect(notices.filter((event) => event.type === "agent_end")).toHaveLength(1);
+      expect(notices.some((event) => event.type === "error")).toBe(false);
+      expect(notices).toContainEqual(expect.objectContaining({
+        type: "message_end", message: expect.objectContaining({ status: "complete" }),
+      }));
+      // Accepted silence is not resent: neither the runtime entries nor pi's
+      // transcript carry an empty assistant into the next request.
+      expect((runtime as any).fullEntries).toHaveLength(0);
+      expect(agent.state.messages.some((message: { role: string }) => message.role === "assistant")).toBe(false);
+      expect(buildSessionContext((runtime as any).fullEntries).messages).toEqual([]);
+      onEvent.mockClear();
+      await runtime.prompt("Please answer", "human-user", "human-turn");
+      expect(agent.continue).toHaveBeenCalledOnce();
+      expect(eventsOf(onEvent)).toContainEqual(emptyModelResponse);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it.each(["task", "message", "wrong-session", "unlinked", "text-only", "steered"])(
+    "retains empty-response recovery for %s input", async (kind) => {
+      const onEvent = vi.fn();
+      const runtime = createRuntime({ onEvent });
+      const agent = (runtime as any).agent;
+      const handle = (runtime as any).handleAgentEvent.bind(runtime);
+      const silent = assistantMessage({ content: [] });
+      const respond = async () => {
+        await handle({ type: "agent_start" });
+        await handle({ type: "message_start", message: silent });
+        await handle({ type: "message_end", message: silent });
+        await handle({ type: "turn_end" });
+        await handle({ type: "agent_end", messages: [] });
+      };
+      agent.prompt = vi.fn(async () => {
+        if (kind === "steered") {
+          // Steering that pi injects before the first reply: the reply answers
+          // the user, so the notice exception no longer applies to it.
+          agent.state.isStreaming = true;
+          runtime.steer({ text: "Please answer now" }, "notice-turn", {
+            id: "steering", role: "user", content: "Please answer now",
+            status: "complete", createdAt: new Date().toISOString(),
+          });
+          agent.state.isStreaming = false;
+          const [queued] = [...(runtime as any).pendingSteering.keys()];
+          await handle({ type: "message_start", message: queued });
+          await handle({ type: "message_end", message: queued });
+        }
+        await respond();
+      });
+      agent.continue = vi.fn(respond);
+      agent.waitForIdle = vi.fn(async () => undefined);
+      const origin: SessionMessageOrigin = {
+        ...completionOrigin,
+        targetSessionId: kind === "wrong-session" ? "other-session" : "session-1",
+        kind: kind === "task" || kind === "message" ? kind : "completion",
+      };
+      if (kind === "unlinked") delete origin.replyToMessageId;
+      try {
+        await runtime.prompt(kind === "text-only" ? formatSessionMessage("Task completed", origin)
+          : { text: "Task completed", sessionMessage: origin }, "user", "notice-turn");
+        expect(agent.continue).toHaveBeenCalledOnce();
+        expect(eventsOf(onEvent)).toContainEqual(emptyModelResponse);
+      } finally { await runtime.dispose(); }
+    },
+  );
+
+  it("spends the notice exception on a tool batch so the post-tool reply keeps recovery", async () => {
+    const onEvent = vi.fn();
+    const runtime = createRuntime({ onEvent });
+    const agent = (runtime as any).agent;
+    const handle = (runtime as any).handleAgentEvent.bind(runtime);
+    const toolBatch = assistantMessage({
+      content: [{ type: "toolCall", id: "call-1", name: "Read", arguments: {} }],
+      stopReason: "toolUse",
+    });
+    const silent = assistantMessage({ content: [] });
+    agent.prompt = vi.fn(async () => {
+      await handle({ type: "agent_start" });
+      await handle({ type: "message_start", message: toolBatch });
+      await handle({ type: "message_end", message: toolBatch });
+      await handle({ type: "message_start", message: silent });
+      await handle({ type: "message_end", message: silent });
+      await handle({ type: "turn_end" });
+      await handle({ type: "agent_end", messages: [] });
+    });
+    agent.continue = vi.fn(async () => {
+      await handle({ type: "agent_start" });
+      await handle({ type: "message_start", message: silent });
+      await handle({ type: "message_end", message: silent });
+      await handle({ type: "turn_end" });
+      await handle({ type: "agent_end", messages: [] });
+    });
+    agent.waitForIdle = vi.fn(async () => undefined);
+    try {
+      await runtime.prompt({ text: "Task completed", sessionMessage: completionOrigin }, "notice-user", "notice-turn");
+      // The model did work and then said nothing about it: D193 applies.
+      expect(agent.continue).toHaveBeenCalledOnce();
+      expect(eventsOf(onEvent)).toContainEqual(emptyModelResponse);
+    } finally { await runtime.dispose(); }
+  });
+
+  it("keeps the notice exception for the retried attempt after a transient stream failure", async () => {
+    const onEvent = vi.fn();
+    const runtime = createRuntime({ onEvent });
+    const agent = (runtime as any).agent;
+    const handle = (runtime as any).handleAgentEvent.bind(runtime);
+    const failed = assistantMessage({ content: [], stopReason: "error" });
+    (failed as { errorMessage?: string }).errorMessage = "terminated";
+    const silent = assistantMessage({ content: [] });
+    agent.prompt = vi.fn(async () => {
+      agent.state.messages = [{ role: "user", content: "Task completed", timestamp: 1 }, failed];
+      await handle({ type: "message_start", message: failed });
+      await handle({ type: "message_end", message: failed });
+      await handle({ type: "turn_end" });
+      await handle({ type: "agent_end", messages: [] });
+    });
+    agent.continue = vi.fn(async () => {
+      agent.state.messages = [...agent.state.messages, silent];
+      await handle({ type: "agent_start" });
+      await handle({ type: "message_start", message: silent });
+      await handle({ type: "message_end", message: silent });
+      await handle({ type: "turn_end" });
+      await handle({ type: "agent_end", messages: [] });
+    });
+    agent.waitForIdle = vi.fn(async () => undefined);
+    try {
+      await runtime.prompt({ text: "Task completed", sessionMessage: completionOrigin }, "notice-user", "notice-turn");
+      // One provider retry, then the silent notice reply is accepted as-is.
+      expect(agent.continue).toHaveBeenCalledOnce();
+      const events = eventsOf(onEvent);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
+      expect(events).toContainEqual(expect.objectContaining({
+        type: "message_end", message: expect.objectContaining({ status: "complete" }),
+      }));
+      expect(agent.state.messages.some((message: { role: string }) => message.role === "assistant")).toBe(false);
+    } finally { await runtime.dispose(); }
+  });
+
+  it("answers user steering after a silent notice reply with full recovery", async () => {
+    const onEvent = vi.fn();
+    const runtime = createRuntime({ onEvent });
+    const agent = (runtime as any).agent;
+    const handle = (runtime as any).handleAgentEvent.bind(runtime);
+    const silent = assistantMessage({ content: [] });
+    agent.prompt = vi.fn(async () => {
+      agent.state.messages = [...agent.state.messages, silent];
+      await handle({ type: "agent_start" });
+      await handle({ type: "message_start", message: silent });
+      // The user types while the notice reply streams; pi injects the
+      // steering message after this reply and streams another one.
+      agent.state.isStreaming = true;
+      runtime.steer({ text: "Please answer now" }, "notice-turn", {
+        id: "steering", role: "user", content: "Please answer now",
+        status: "complete", createdAt: new Date().toISOString(),
+      });
+      await handle({ type: "message_end", message: silent });
+      const [queued] = [...(runtime as any).pendingSteering.keys()];
+      agent.state.messages = [...agent.state.messages, queued];
+      await handle({ type: "message_start", message: queued });
+      await handle({ type: "message_end", message: queued });
+      agent.state.messages = [...agent.state.messages, silent];
+      await handle({ type: "message_start", message: silent });
+      await handle({ type: "message_end", message: silent });
+      agent.state.isStreaming = false;
+      await handle({ type: "turn_end" });
+      await handle({ type: "agent_end", messages: [] });
+    });
+    agent.continue = vi.fn(async () => {
+      await handle({ type: "agent_start" });
+      await handle({ type: "message_start", message: silent });
+      await handle({ type: "message_end", message: silent });
+      await handle({ type: "turn_end" });
+      await handle({ type: "agent_end", messages: [] });
+    });
+    agent.waitForIdle = vi.fn(async () => undefined);
+    try {
+      await runtime.prompt({ text: "Task completed", sessionMessage: completionOrigin }, "notice-user", "notice-turn");
+      // The notice reply spent the exception silently; the reply to the user
+      // still gets its one re-run and then the visible error.
+      expect(agent.continue).toHaveBeenCalledOnce();
+      expect(eventsOf(onEvent)).toContainEqual(emptyModelResponse);
+    } finally { await runtime.dispose(); }
+  });
+
   it("frames live input and restored history identically without changing human input", async () => {
     const origin: SessionMessageOrigin = {
       messageId: "delivery-1", sourceSessionId: "sender", sourceTitle: "Coordinator",
@@ -6803,6 +7050,636 @@ describe("DesktopAgentRuntime subagents", () => {
 
     await runtime.dispose();
   });
+
+  describe("resume (ADR 0279)", () => {
+    /** Rows a delegate left in the transcript, tagged with its `Task` call. */
+    function delegateRow(
+      id: string,
+      parentToolCallId: string,
+      overrides: Partial<UiMessage> = {},
+    ): UiMessage {
+      return {
+        id,
+        role: "assistant",
+        content: "reading src/app.ts",
+        createdAt: "2026-08-06T00:00:01.000Z",
+        status: "complete",
+        parentToolCallId,
+        agentName: "explorer",
+        ...overrides,
+      };
+    }
+
+    async function startTask(
+      runtime: DesktopAgentRuntime,
+      toolCallId: string,
+      args: Record<string, unknown>,
+    ) {
+      return taskTool(runtime).execute(toolCallId, args);
+    }
+
+    it("seeds a resumed run with the chain's prior messages and keeps its model", async () => {
+      const history: UiMessage[] = [
+        delegateRow("child-1", "task-1"),
+        {
+          id: "tool-1",
+          role: "tool",
+          content: "",
+          createdAt: "2026-08-06T00:00:02.000Z",
+          toolCallId: "read-1",
+          toolName: "Read",
+          toolArgs: { path: "src/app.ts" },
+          toolResult: {
+            content: [{ type: "text", text: "line one\nline two" }],
+          },
+          toolStatus: "success",
+          parentToolCallId: "task-1",
+          agentName: "explorer",
+        },
+      ];
+      const runtime = createRuntime({ subagents: [explorer], history });
+      (runtime as any).transcriptHistory.push({
+        id: "task-1",
+        role: "tool",
+        content: "",
+        createdAt: "2026-08-06T00:00:00.000Z",
+        toolCallId: "task-1",
+        toolName: "Task",
+        toolArgs: { agent: "explorer", task: "Explore the parser." },
+        toolResult: { details: { delegationId: "del-1", agent: "explorer" } },
+        toolStatus: "success",
+      });
+      (runtime as any).delegationChains.hydrate(
+        (await import("./delegation-history.js")).rebuildChainsFromTranscript(
+          (runtime as any).transcriptHistory,
+        ),
+      );
+
+      subagentRuns.calls.length = 0;
+      subagentRuns.deferred = true;
+      const started = await startTask(runtime, "task-2", {
+        agent: "explorer",
+        task: "Now cover the lexer.",
+        resume: "del-1",
+      });
+      subagentRuns.deferred = false;
+
+      expect((started.details as any).resumedFrom).toBe("del-1");
+      expect(subagentRuns.calls).toHaveLength(1);
+      const options = subagentRuns.calls[0];
+      // The resumed delegate replays the original brief plus its own rows; the
+      // new brief is the user turn `prompt()` adds, not part of the seed.
+      expect(options.task).toBe("Now cover the lexer.");
+      expect(options.initialMessages[0]).toMatchObject({
+        role: "user",
+        content: [{ type: "text", text: "Explore the parser." }],
+      });
+      expect(
+        options.initialMessages.some(
+          (message: any) =>
+            message.role === "assistant" &&
+            message.content.some(
+              (block: any) => block.type === "toolCall" && block.name === "Read",
+            ),
+        ),
+      ).toBe(true);
+      const internals = runtime as any;
+      const delegationId = (started.details as any).delegationId as string;
+      const record = internals.delegations.get(delegationId);
+      expect(record.resumedFrom).toBe("del-1");
+      expect(record.delegateSessionId).toBe("del-1");
+      // The chain owns its calls now (ADR 0279); the id resolves to both.
+      expect(internals.delegationChains.lookup(delegationId).toolCallIds).toEqual([
+        "task-1",
+        "task-2",
+      ]);
+
+      await runtime.dispose();
+    });
+
+    it("rejects a model override on resume", async () => {
+      const history: UiMessage[] = [delegateRow("child-1", "task-1")];
+      const runtime = createRuntime({ subagents: [explorer], history });
+      (runtime as any).transcriptHistory.push({
+        id: "task-1",
+        role: "tool",
+        content: "",
+        createdAt: "2026-08-06T00:00:00.000Z",
+        toolCallId: "task-1",
+        toolName: "Task",
+        toolArgs: { agent: "explorer", task: "Explore." },
+        toolResult: { details: { delegationId: "del-1" } },
+        toolStatus: "success",
+      });
+
+      subagentRuns.calls.length = 0;
+      const result = await startTask(runtime, "task-2", {
+        agent: "explorer",
+        task: "More.",
+        resume: "del-1",
+        model: "local/local-model",
+      });
+
+      expect(String((result.details as any).error)).toContain(
+        "cannot change its model",
+      );
+      expect(subagentRuns.calls).toHaveLength(0);
+      await runtime.dispose();
+    });
+
+    it("reports an unknown resume id without starting a delegate", async () => {
+      const runtime = createRuntime({ subagents: [explorer] });
+      subagentRuns.calls.length = 0;
+      const result = await startTask(runtime, "task-1", {
+        agent: "explorer",
+        task: "Continue.",
+        resume: "missing",
+      });
+      const message = String((result.details as any).error);
+      expect(message).toContain("Unknown delegation");
+      expect(message).toContain("No reusable subagent sessions");
+      expect(subagentRuns.calls).toHaveLength(0);
+      await runtime.dispose();
+    });
+
+    it("refuses to resume a running delegation", async () => {
+      const runtime = createRuntime({ subagents: [explorer] });
+      subagentRuns.calls.length = 0;
+      subagentRuns.deferred = true;
+      const first = await startTask(runtime, "task-1", {
+        agent: "explorer",
+        task: "Find it.",
+      });
+      const delegationId = (first.details as any).delegationId as string;
+      const second = await startTask(runtime, "task-2", {
+        agent: "explorer",
+        task: "Again.",
+        resume: delegationId,
+      });
+      expect(String((second.details as any).error)).toContain("still running");
+      expect(subagentRuns.calls).toHaveLength(1);
+      subagentRuns.resolveRun?.({
+        agentName: "explorer",
+        status: "completed",
+        report: "done",
+        turns: 1,
+        toolCalls: 0,
+      });
+      subagentRuns.deferred = false;
+      await runtime.dispose();
+    });
+
+    it("marks a chain resumable only after it settles", async () => {
+      const runtime = createRuntime({ subagents: [explorer] });
+      subagentRuns.calls.length = 0;
+      subagentRuns.deferred = true;
+      const started = await startTask(runtime, "task-1", {
+        agent: "explorer",
+        task: "Find it.",
+      });
+      const delegationId = (started.details as any).delegationId as string;
+      const internals = runtime as any;
+      expect(
+        internals.delegationChains.lookup(delegationId).latestStatus,
+      ).toBe("running");
+      subagentRuns.resolveRun?.({
+        agentName: "explorer",
+        status: "completed",
+        report: "done",
+        turns: 1,
+        toolCalls: 0,
+      });
+      await vi.waitFor(() => {
+        expect(
+          internals.delegationChains.lookup(delegationId).latestStatus,
+        ).toBe("completed");
+      });
+      subagentRuns.deferred = false;
+      await runtime.dispose();
+    });
+
+    it("lists a settled delegation in the parent's system prompt", async () => {
+      const runtime = createRuntime({ subagents: [explorer] });
+      subagentRuns.calls.length = 0;
+      subagentRuns.deferred = true;
+      const started = await startTask(runtime, "task-1", {
+        agent: "explorer",
+        task: "Find it.",
+        description: "find the bug",
+      });
+      const delegationId = (started.details as any).delegationId as string;
+      subagentRuns.resolveRun?.({
+        agentName: "explorer",
+        status: "completed",
+        report: "done",
+        turns: 1,
+        toolCalls: 0,
+      });
+      await vi.waitFor(() => {
+        expect((runtime as any).agent.state.systemPrompt).toContain(
+          `explorer / ${delegationId}: find the bug`,
+        );
+      });
+      subagentRuns.deferred = false;
+      await runtime.dispose();
+    });
+
+    /** A `Task` row a restart rebuilds its chains from. */
+    function restartedTaskRow(
+      taskCallId: string,
+      delegationId: string,
+      details: Record<string, unknown> = {},
+    ): UiMessage {
+      return {
+        id: `row-${taskCallId}`,
+        role: "tool",
+        content: "",
+        createdAt: "2026-08-06T00:00:00.000Z",
+        toolCallId: taskCallId,
+        toolName: "Task",
+        toolArgs: { agent: "explorer", task: "Explore the parser." },
+        toolResult: {
+          details: { delegationId, agent: "explorer", ...details },
+        },
+        toolStatus: "success",
+      };
+    }
+
+    /** The envelope shape a delegate's own `SubagentRun` sends. */
+    function delegateEnvelope(
+      parentToolCallId: string,
+      event: Record<string, unknown>,
+    ): AgentEventEnvelope {
+      return {
+        sessionId: "session-1",
+        turnId: "turn-1",
+        ts: Date.now(),
+        event: event as unknown as AgentEventEnvelope["event"],
+        parentToolCallId,
+        agentName: "explorer",
+      };
+    }
+
+    it("records a delegate's reads in-session so the same session can resume them", async () => {
+      const runtime = createRuntime({ subagents: [explorer] });
+      const internals = runtime as any;
+      subagentRuns.calls.length = 0;
+      subagentRuns.instances.length = 0;
+      subagentRuns.result = undefined;
+      subagentRuns.deferred = true;
+
+      const started = await startTask(runtime, "task-1", {
+        agent: "explorer",
+        task: "Find it.",
+        description: "find the bug",
+      });
+      const delegationId = (started.details as any).delegationId as string;
+      // A live delegate's tool events reach the runtime through the Task wiring.
+      const onEvent = subagentRuns.calls[0].onEvent as (
+        envelope: AgentEventEnvelope,
+      ) => void;
+      onEvent(
+        delegateEnvelope("task-1", {
+          type: "tool_start",
+          toolCallId: "read-1",
+          toolName: "Read",
+          args: { path: "src/deep.ts" },
+        }),
+      );
+      onEvent(
+        delegateEnvelope("task-1", {
+          type: "tool_end",
+          toolCallId: "read-1",
+          result: { content: [{ type: "text", text: "line one\nline two" }] },
+          isError: false,
+        }),
+      );
+
+      // The row a later resume replays keeps the call's arguments.
+      const row = (internals.transcriptHistory as UiMessage[]).find(
+        (entry) => entry.toolCallId === "read-1",
+      );
+      expect(row).toMatchObject({
+        role: "tool",
+        toolName: "Read",
+        toolArgs: { path: "src/deep.ts" },
+        parentToolCallId: "task-1",
+        agentName: "explorer",
+      });
+      expect(internals.delegationChains.lookup(delegationId)).toMatchObject({
+        readFiles: ["src/deep.ts"],
+        readLineCount: 2,
+      });
+
+      subagentRuns.resolveRun?.({
+        agentName: "explorer",
+        status: "completed",
+        report: "done",
+        turns: 1,
+        toolCalls: 1,
+      });
+      await vi.waitFor(() => {
+        expect(internals.agent.state.systemPrompt).toContain(
+          "Files read: src/deep.ts",
+        );
+      });
+      expect(internals.agent.state.systemPrompt).not.toContain(
+        "Files read: none recorded",
+      );
+      expect(
+        internals.delegationChains
+          .resumableList({ runningDelegationIds: new Set() })
+          .find(
+            (chain: { latestDelegationId: string }) =>
+              chain.latestDelegationId === delegationId,
+          )?.readFiles,
+      ).toEqual(["src/deep.ts"]);
+
+      // No restart in between: the same runtime resumes and replays that read.
+      subagentRuns.calls.length = 0;
+      const resumed = await startTask(runtime, "task-2", {
+        agent: "explorer",
+        task: "Now the rest.",
+        resume: delegationId,
+      });
+      expect((resumed.details as any).resumedFrom).toBe(delegationId);
+      expect(subagentRuns.calls).toHaveLength(1);
+      const initial = subagentRuns.calls[0].initialMessages as Array<any>;
+      expect(
+        initial.some(
+          (message: any) =>
+            message.role === "assistant" &&
+            message.content.some(
+              (block: any) =>
+                block.type === "toolCall" && block.arguments?.path === "src/deep.ts",
+            ),
+        ),
+      ).toBe(true);
+
+      subagentRuns.deferred = false;
+      await runtime.dispose();
+    });
+
+    it("refuses to resume a chain a restart rebuilt from a stopped Task row", async () => {
+      const history: UiMessage[] = [
+        restartedTaskRow("task-1", "del-1", { status: "stopped" }),
+        delegateRow("child-1", "task-1"),
+      ];
+      const runtime = createRuntime({ subagents: [explorer], history });
+      subagentRuns.calls.length = 0;
+      subagentRuns.deferred = false;
+
+      const result = await startTask(runtime, "task-2", {
+        agent: "explorer",
+        task: "Continue.",
+        resume: "del-1",
+      });
+
+      expect(String((result.details as any).error)).toContain(
+        'ended as "stopped"',
+      );
+      expect(String((result.details as any).error)).toContain("cannot be resumed");
+      expect(subagentRuns.calls).toHaveLength(0);
+      await runtime.dispose();
+    });
+
+    it("resumes a chain a restart rebuilt from a completed Task row", async () => {
+      const history: UiMessage[] = [
+        restartedTaskRow("task-1", "del-1", { status: "completed" }),
+        delegateRow("child-1", "task-1"),
+      ];
+      const runtime = createRuntime({ subagents: [explorer], history });
+      subagentRuns.calls.length = 0;
+      subagentRuns.result = undefined;
+      subagentRuns.deferred = false;
+
+      const result = await startTask(runtime, "task-2", {
+        agent: "explorer",
+        task: "Continue.",
+        resume: "del-1",
+      });
+
+      expect((result.details as any).error).toBeUndefined();
+      expect((result.details as any).resumedFrom).toBe("del-1");
+      expect(subagentRuns.calls).toHaveLength(1);
+      expect(subagentRuns.calls[0].initialMessages).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it("keeps a resumed chain on its recorded model after the session model moved", async () => {
+      const remote = {
+        ...provider,
+        id: "remote",
+        name: "Remote",
+        modelId: "remote-model",
+        modelConfig: undefined,
+      };
+      const moved = { ...provider, modelId: "next-model", modelConfig: undefined };
+      const history: UiMessage[] = [
+        restartedTaskRow("task-1", "del-1", {
+          status: "completed",
+          modelId: "remote-model",
+        }),
+        delegateRow("child-1", "task-1"),
+      ];
+      const runtime = createRuntime({
+        provider: moved,
+        subagents: [explorer],
+        history,
+        subagentProviders: { "remote/remote-model": remote },
+        subagentModelKeys: ["remote/remote-model"],
+      });
+      subagentRuns.calls.length = 0;
+      subagentRuns.deferred = true;
+
+      const result = await startTask(runtime, "task-2", {
+        agent: "explorer",
+        task: "Continue.",
+        resume: "del-1",
+      });
+
+      // The session model is no reason to refuse: the chain keeps its own.
+      expect((result.details as any).error).toBeUndefined();
+      expect((result.details as any).resumedFrom).toBe("del-1");
+      expect(subagentRuns.calls[0].provider).toBe(remote);
+
+      subagentRuns.deferred = false;
+      await runtime.dispose();
+    });
+
+    it("continues a chain whose recorded binding is gone and reports the change", async () => {
+      const onEvent = vi.fn();
+      const history: UiMessage[] = [
+        restartedTaskRow("task-1", "del-1", {
+          status: "completed",
+          modelId: "gone-model",
+        }),
+        delegateRow("child-1", "task-1"),
+      ];
+      const runtime = createRuntime({ subagents: [explorer], history, onEvent });
+      const internals = runtime as any;
+      subagentRuns.calls.length = 0;
+      subagentRuns.instances.length = 0;
+      subagentRuns.deferred = true;
+
+      const args = { agent: "explorer", task: "Continue.", resume: "del-1" };
+      const result = await startTask(runtime, "task-2", args);
+      const delegationId = (result.details as any).delegationId as string;
+
+      // Refusing would strand the chain forever, so it continues on the
+      // definition's current binding and records what it left behind.
+      expect((result.details as any).error).toBeUndefined();
+      expect((result.details as any).resumedFrom).toBe("del-1");
+      expect(subagentRuns.calls[0].provider).toBe(provider);
+      expect(internals.delegations.get(delegationId).modelChangedFrom).toBe(
+        "gone-model",
+      );
+
+      // …and the parent sees it on the settled Task row.
+      const handle = internals.handleAgentEvent.bind(runtime);
+      await handle({
+        type: "tool_execution_start",
+        toolName: "Task",
+        toolCallId: "task-2",
+        args,
+      });
+      await handle({
+        type: "tool_execution_end",
+        toolName: "Task",
+        toolCallId: "task-2",
+        result,
+        isError: false,
+      });
+      subagentRuns.resolveRun?.({
+        agentName: "explorer",
+        status: "completed",
+        report: "done",
+        turns: 1,
+        toolCalls: 0,
+      });
+      await vi.waitFor(() => {
+        const snapshots = onEvent.mock.calls
+          .map(([envelope]) => envelope as any)
+          .filter(
+            (envelope) =>
+              envelope.event.type === "message_end" &&
+              envelope.event.message.role === "tool",
+          );
+        expect(snapshots).toHaveLength(1);
+      });
+      const snapshot = onEvent.mock.calls
+        .map(([envelope]) => envelope as any)
+        .find(
+          (envelope) =>
+            envelope.event.type === "message_end" &&
+            envelope.event.message.role === "tool",
+        );
+      expect(snapshot.event.message.toolResult.details).toMatchObject({
+        delegationId,
+        status: "completed",
+        modelChangedFrom: "gone-model",
+      });
+
+      subagentRuns.deferred = false;
+      await runtime.dispose();
+    });
+
+    it("drops a chain whose rows are gone and keeps its id out of the reusable list", async () => {
+      const history: UiMessage[] = [
+        restartedTaskRow("task-1", "del-1", { status: "completed" }),
+        restartedTaskRow("task-9", "del-2", { status: "completed" }),
+        delegateRow("child-2", "task-9"),
+      ];
+      const runtime = createRuntime({ subagents: [explorer], history });
+      const internals = runtime as any;
+      subagentRuns.calls.length = 0;
+      subagentRuns.deferred = false;
+      expect(internals.delegationChains.lookup("del-2")).toBeDefined();
+
+      const result = await startTask(runtime, "task-2", {
+        agent: "explorer",
+        task: "Continue.",
+        resume: "del-1",
+      });
+      const message = String((result.details as any).error);
+
+      expect(message).toContain('Delegation "del-1" has no recorded history');
+      // The chain is dropped before the message is composed, so the id it
+      // names can never come back as its own suggestion (ADR 0279 §4).
+      expect(message).not.toContain("Reusable: explorer / del-1");
+      expect(message.split("Reusable: ")[1]).toBe("explorer / del-2.");
+      expect(internals.delegationChains.lookup("del-1")).toBeUndefined();
+      expect(
+        internals.delegationChains
+          .resumableList({ runningDelegationIds: new Set() })
+          .map((chain: { latestDelegationId: string }) => chain.latestDelegationId),
+      ).toEqual(["del-2"]);
+      expect(subagentRuns.calls).toHaveLength(0);
+      await runtime.dispose();
+    });
+
+    it("keeps a running chain in the registry when a sibling settles", async () => {
+      const runtime = createRuntime({ subagents: [explorer] });
+      const internals = runtime as any;
+      subagentRuns.calls.length = 0;
+      subagentRuns.instances.length = 0;
+      subagentRuns.result = undefined;
+      subagentRuns.deferred = true;
+
+      const startedIds: string[] = [];
+      const startOne = async (toolCallId: string) => {
+        const result = await startTask(runtime, toolCallId, {
+          agent: "explorer",
+          task: "Find it.",
+        });
+        startedIds.push((result.details as any).delegationId as string);
+      };
+      const settleNewest = async () => {
+        subagentRuns.instances[subagentRuns.instances.length - 1].resolve({
+          agentName: "explorer",
+          status: "completed",
+          report: "done",
+          turns: 1,
+          toolCalls: 0,
+        });
+        await vi.waitFor(() => {
+          expect(
+            internals.delegations.get(startedIds[startedIds.length - 1]).status,
+          ).toBe("completed");
+        });
+      };
+
+      // The chain that stays running is the oldest of the four, so a plain LRU
+      // would evict it and strand the delegate still writing into it.
+      await startOne("task-run");
+      for (const toolCallId of ["task-a", "task-b", "task-c"]) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await startOne(toolCallId);
+        await settleNewest();
+      }
+
+      const runningId = startedIds[0];
+      expect(internals.delegationChains.lookup(runningId)).toMatchObject({
+        latestStatus: "running",
+      });
+      expect(internals.delegationChains.lookup(startedIds[1])).toBeUndefined();
+      expect(internals.delegationChains.lookup(startedIds[2])).toBeDefined();
+      expect(internals.delegationChains.lookup(startedIds[3])).toBeDefined();
+      expect(
+        internals.delegationChains
+          .resumableList({ runningDelegationIds: new Set([runningId]) })
+          .map((chain: { latestDelegationId: string }) => chain.latestDelegationId),
+      ).toEqual([startedIds[3], startedIds[2]]);
+      expect(
+        [startedIds[1], startedIds[2], startedIds[3]].filter((id) =>
+          internals.delegationChains.lookup(id),
+        ),
+      ).toHaveLength(MAX_RESUMABLE_CHAINS_PER_AGENT);
+
+      subagentRuns.deferred = false;
+      await runtime.dispose();
+    });
+  });
 });
 
 describe("DesktopAgentRuntime deferred tool restore (#225)", () => {
@@ -6981,6 +7858,308 @@ describe("DesktopAgentRuntime compaction request headers", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.headers).toEqual({ "X-Team": "platform" });
+    await runtime.dispose();
+  });
+});
+
+describe("DesktopAgentRuntime compaction summary retry and sizing (#543, ADR 0282)", () => {
+  /** The shape `prepareCompaction` returns for a single-turn history. */
+  function preparation(messagesToSummarize: unknown[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "older task context" }],
+      timestamp: 1,
+    },
+  ]) {
+    return {
+      messagesToSummarize,
+      turnPrefixMessages: [],
+      retainedTail: [],
+      isSplitTurn: false,
+      tokensBefore: 240_000,
+      fileOps: {
+        read: new Set<string>(),
+        edited: new Set<string>(),
+        written: new Set<string>(),
+      },
+      settings: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
+    };
+  }
+
+  function providerError(errorMessage: string) {
+    return {
+      ...assistantMessage({ content: [], stopReason: "error" }),
+      errorMessage,
+    };
+  }
+
+  /** Scripted `completeSimple` responses; the recorder returns them in order. */
+  function scriptSummaryRequests(runtime: DesktopAgentRuntime, responses: unknown[]) {
+    const calls: unknown[] = [];
+    (runtime as any).models = {
+      completeSimple: async (_model: unknown, _context: unknown, options: unknown) => {
+        calls.push(options);
+        const next = responses.shift();
+        if (!next) throw new Error("unexpected summary request");
+        return next;
+      },
+    };
+    return calls;
+  }
+
+  function toolResultOf(text: string, index: number) {
+    return {
+      role: "toolResult" as const,
+      toolCallId: `tool-${index}`,
+      toolName: "Read",
+      content: [{ type: "text" as const, text }],
+      isError: false,
+      timestamp: index + 2,
+    };
+  }
+
+  it("retries a transient summary failure and installs the real summary", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntime();
+      const calls = scriptSummaryRequests(runtime, [
+        providerError("503 Service Unavailable"),
+        assistantMessage({ content: [{ type: "text", text: "Older work." }] }),
+      ]);
+
+      const pending = (runtime as any).generateCompaction(
+        preparation(),
+        new AbortController().signal,
+      );
+      await vi.runAllTimersAsync();
+      const result = await pending;
+
+      expect(calls).toHaveLength(2);
+      expect(result.ok).toBe(true);
+      expect(result.value.summary).toContain("Older work.");
+      await runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry a deterministic provider rejection", async () => {
+    const runtime = createRuntime();
+    const calls = scriptSummaryRequests(runtime, [
+      providerError("Invalid API key"),
+    ]);
+
+    const result = await (runtime as any).generateCompaction(
+      preparation(),
+      new AbortController().signal,
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe("summarization_failed");
+    await runtime.dispose();
+  });
+
+  it("gives up after the bounded retry budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntime();
+      const calls = scriptSummaryRequests(
+        runtime,
+        Array.from({ length: COMPACTION_SUMMARY_MAX_RETRIES + 1 }, () =>
+          providerError("upstream connect error or disconnect/reset before headers"),
+        ),
+      );
+
+      const pending = (runtime as any).generateCompaction(
+        preparation(),
+        new AbortController().signal,
+      );
+      await vi.runAllTimersAsync();
+      const result = await pending;
+
+      expect(calls).toHaveLength(COMPACTION_SUMMARY_MAX_RETRIES + 1);
+      expect(result.ok).toBe(false);
+      expect(result.error.code).toBe("summarization_failed");
+      await runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops retrying when the compaction is aborted during the backoff", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntime();
+      const calls = scriptSummaryRequests(runtime, [
+        providerError("503 Service Unavailable"),
+        assistantMessage({ content: [{ type: "text", text: "never sent" }] }),
+      ]);
+      const controller = new AbortController();
+
+      const pending = (runtime as any).generateCompaction(
+        preparation(),
+        controller.signal,
+      );
+      await vi.advanceTimersByTimeAsync(500);
+      controller.abort();
+      await vi.runAllTimersAsync();
+      const result = await pending;
+
+      expect(calls).toHaveLength(1);
+      expect(result.ok).toBe(false);
+      expect(result.error.code).toBe("aborted");
+      await runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sizes the budget guard on the serialized prompt, not the raw tool output", async () => {
+    const runtime = createRuntime();
+    // 128k window: the raw estimate of one 600k-character tool result is
+    // 150k tokens and used to fail the guard outright; pi caps the result at
+    // 2 000 characters when it serializes the prompt, so the request fits.
+    const budget = { hardLimit: 111_616, requestHeadroom: 16_384 };
+    const input = preparation([
+      { role: "user", content: "read the log", timestamp: 1 },
+      toolResultOf("x".repeat(600_000), 0),
+    ]);
+
+    expect((runtime as any).compactionSummaryWouldExceedBudget(input, budget)).toBe(
+      false,
+    );
+    expect((runtime as any).fitSummaryInputToBudget(input, budget)).toBe(input);
+    await runtime.dispose();
+  });
+
+  it("reduces an oversized prompt once before giving up on the summary", async () => {
+    const runtime = createRuntime();
+    // 8k window leaves ~4-6k tokens for the prompt; 15 capped tool results
+    // serialize to ~30k characters and overshoot, the reduced prefixes fit.
+    const budget = { hardLimit: 6_000, requestHeadroom: 2_000 };
+    const input = preparation(
+      Array.from({ length: 15 }, (_, index) => toolResultOf("y".repeat(5_000), index)),
+    );
+
+    expect((runtime as any).compactionSummaryWouldExceedBudget(input, budget)).toBe(true);
+    const fitted = (runtime as any).fitSummaryInputToBudget(input, budget);
+    expect(fitted).toBeDefined();
+    expect(fitted).not.toBe(input);
+    expect(fitted.messagesToSummarize).toHaveLength(15);
+    for (const message of fitted.messagesToSummarize) {
+      expect(message.content[0].text.length).toBeLessThan(600);
+    }
+    // The original preparation is untouched: the checkpoint still files the
+    // complete messages behind its boundary.
+    expect((input.messagesToSummarize[0] as any).content[0].text).toHaveLength(5_000);
+    await runtime.dispose();
+  });
+
+  it("falls back only when even the reduced prompt cannot fit", async () => {
+    const runtime = createRuntime();
+    const budget = { hardLimit: 6_000, requestHeadroom: 2_000 };
+    const userText = preparation(
+      Array.from({ length: 15 }, (_, index) => ({
+        role: "user",
+        content: "u".repeat(5_000),
+        timestamp: index + 1,
+      })),
+    );
+    // User text is never reduced, so there is no second attempt to make.
+    expect((runtime as any).fitSummaryInputToBudget(userText, budget)).toBeUndefined();
+
+    const tooManyResults = preparation(
+      Array.from({ length: 120 }, (_, index) => toolResultOf("z".repeat(5_000), index)),
+    );
+    expect(
+      (runtime as any).fitSummaryInputToBudget(tooManyResults, budget),
+    ).toBeUndefined();
+    await runtime.dispose();
+  });
+
+  it("sends the reduced prompt to the model instead of skipping the summary", async () => {
+    const constrainedProvider: RuntimeProviderConfig = {
+      ...provider,
+      modelConfig: {
+        ...provider.modelConfig!,
+        contextWindow: 32_000,
+        maxTokens: 4_096,
+      },
+    };
+    const host = { call: vi.fn().mockResolvedValue(undefined) };
+    const runtime = createRuntime({ host, provider: constrainedProvider });
+    const resultCount = 60;
+    const toolCalls = Array.from({ length: resultCount }, (_, index) => ({
+      type: "toolCall" as const,
+      id: `tool-${index}`,
+      name: "Read",
+      arguments: { path: `large-${index}.txt` },
+    }));
+    const carrier = {
+      ...assistantMessage({ content: toolCalls, stopReason: "toolUse" }),
+      usage: {
+        ...assistantMessage({ content: [] }).usage,
+        input: 80_000,
+        totalTokens: 80_000,
+      },
+    };
+    const results = Array.from({ length: resultCount }, (_, index) =>
+      toolResultOf("r".repeat(5_000), index),
+    );
+    (runtime as any).fullEntries = [
+      {
+        type: "message",
+        id: "old-user",
+        seq: 0,
+        parentId: null,
+        timestamp: Date.parse("2026-09-18T00:00:00Z"),
+        message: { role: "user", content: "inspect the repository", timestamp: 1 },
+      },
+      {
+        type: "message",
+        id: "carrier",
+        seq: 1,
+        parentId: "old-user",
+        timestamp: Date.parse("2026-09-18T00:00:01Z"),
+        message: carrier,
+      },
+      ...results.map((message, index) => ({
+        type: "message",
+        id: message.toolCallId,
+        seq: index + 2,
+        parentId: index === 0 ? "carrier" : results[index - 1].toolCallId,
+        timestamp: Date.parse("2026-09-18T00:00:02Z") + index,
+        message,
+      })),
+    ];
+    const generate = vi
+      .spyOn(runtime as any, "generateCompaction")
+      .mockResolvedValue({
+        ok: true,
+        value: { summary: "Sixty reads, summarized.", tokensBefore: 80_000 },
+      });
+
+    const build = await (runtime as any).buildCheckpoint(
+      new AbortController().signal,
+      "active_turn",
+    );
+
+    expect(build.ok).toBe(true);
+    expect(generate).toHaveBeenCalledTimes(1);
+    const sent = generate.mock.calls[0]?.[0] as any;
+    const sentResults = sent.messagesToSummarize.filter(
+      (message: any) => message.role === "toolResult",
+    );
+    expect(sentResults).toHaveLength(resultCount);
+    for (const message of sentResults) {
+      expect(message.content[0].text.length).toBeLessThan(600);
+    }
+    // The checkpoint itself still covers every message and carries no
+    // fallback marker: this was a real summary, not retained-tail recovery.
+    expect(build.checkpoint.throughMessageId).toBe(`tool-${resultCount - 1}`);
+    expect(build.checkpoint.summary).toContain("Sixty reads, summarized.");
+    expect(build.checkpoint.details).not.toHaveProperty("fallback");
     await runtime.dispose();
   });
 });

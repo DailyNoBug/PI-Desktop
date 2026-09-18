@@ -15,7 +15,7 @@
 | `Cmd/Ctrl + Shift + P` | Open command palette | Global (D014) |
 | `Cmd/Ctrl + N` | New chat/session | Global |
 | `Cmd/Ctrl + O` | Open project | Global |
-| `Cmd/Ctrl + W` | Show or hide the window (toggle) | Global (D438); hides to the tray, never quits |
+| `Alt + Shift + W` | Show or hide the window (toggle) | OS-global (D439); hides to the tray, never quits |
 | `Cmd/Ctrl + ,` | Open settings | Global |
 | `Cmd/Ctrl + B` | Toggle sidebar | Global |
 | `Cmd/Ctrl + J` | Toggle work panel | Global; active session |
@@ -74,13 +74,16 @@
   the panel's normal activation instead of issuing a second application
   activation or window-stack move. The launcher always opens on the display
   nearest the pointer.
-- The window visibility key is one toggle (`Cmd/Ctrl + W`): a visible, focused
-  window hides to the tray, and anything else — hidden, minimized, or behind
-  another application — is shown and focused. Hiding never enters the close
-  path, so it raises no close-behaviour prompt, destroys nothing, and never
-  quits the app. The retired `Cmd/Ctrl + Shift + W` summon chord is not
-  registered, and stored `closeWindow`/`summonWindow` overrides are folded into
-  the toggle when the map is read (D438).
+- The window visibility key is one toggle (`Alt + Shift + W`): a visible,
+  focused window hides to the tray, and anything else — hidden, minimized, or
+  behind another application — is shown and focused. Hiding never enters the
+  close path, so it raises no close-behaviour prompt, destroys nothing, and
+  never quits the app. The key is globally registered, so it deliberately
+  avoids `Cmd/Ctrl + W`, which macOS spends on its own close-window command and
+  which would be taken from every application if the app claimed it. The
+  retired `Cmd/Ctrl + Shift + W` summon chord is not registered either, and
+  stored `closeWindow`/`summonWindow` overrides are folded into the toggle when
+  the map is read (D438, D439).
 
 ### 1.5 Plugin launcher shortcuts
 
@@ -224,6 +227,14 @@ may be retained while exactly one workspace supplies the visible shell context.
 - **Archive** is non-destructive. Archived rows are hidden by default,
   available through Show archived, and restorable. Archiving does not cancel
   a turn or delete a transcript.
+- **Delete** removes a session or a project permanently and takes two clicks:
+  the first arms the overflow item and relabels it (`nav.deleteTaskConfirm` /
+  `project.deleteMenuConfirm`), and only the second click removes the row. The
+  arm expires on its own, so a row never stays one stray click away from a
+  permanent delete, and the folder on disk is never touched. A project whose
+  turn is still live still opens the confirmation dialog that names those
+  sessions and stops them first; an idle project is removed on that second
+  click.
 - **Create branch** snapshots an idle conversation's complete active
   transcript into an independent session in the same project/Temporary scope.
   The command is disabled while the source runs. Success selects the child and
@@ -513,10 +524,10 @@ may be retained while exactly one workspace supplies the visible shell context.
 - Settings → Info and application-menu checks share one typed update state.
   Manual checks expose up-to-date or error feedback; automatic failures do not
   open a toast or ambient banner.
-- Manual delivery (`darwin`, non-AppImage Linux, and Windows portable runs
+- Manual delivery (non-AppImage Linux and Windows portable runs
   with `PORTABLE_EXECUTABLE_FILE`) stops at `available` and
-  offers the fixed GitHub Releases page. In-app delivery (Windows NSIS and
-  Linux AppImage readiness builds) automatically advances through
+  offers the fixed GitHub Releases page. In-app delivery (packaged macOS,
+  Windows NSIS, and Linux AppImage) automatically advances through
   `downloading` to the stable `downloaded` state.
 - `downloaded` remains actionable until Restart to update or normal app quit;
   later scheduled/manual checks do not replace it with `checking`.
@@ -539,9 +550,9 @@ may be retained while exactly one workspace supplies the visible shell context.
   The current release and a discovered available release are identified with
   compact badges. The list scrolls independently, closes by its close control,
   Escape, or the backdrop, and restores focus to the invoking control.
-- D126 tag releases publish all platform manifests and installers. Windows
-  NSIS and Linux AppImage therefore use the in-app lane; macOS and Linux deb/rpm
-  remain notify-and-link delivery modes.
+- D126 tag releases publish all platform manifests and installers. Packaged
+  macOS, Windows NSIS, and Linux AppImage use the in-app lane; Linux deb/rpm
+  and Windows portable remain notify-and-link delivery modes.
 
 ## 2. Streaming message behavior
 
@@ -767,17 +778,19 @@ may be retained while exactly one workspace supplies the visible shell context.
 
 - Tool activity starts as a lightweight collapsed row; failed calls open
   automatically so the error remains local to its invocation.
-- Consecutive tool activity is wrapped in one processing group. Its header
-  updates elapsed time once per second while active, freezes after the next
-  transcript message, and exposes the number of contained steps. The latest
-  action remains in the activity rows or dedicated runtime indicator; no
-  additional status capsule is rendered.
-- While the turn is active, the latest processing group opens automatically so
-  its activity list is visible, but tool-call details remain collapsed by
-  default. The latest thinking row opens automatically while it streams. When
-  the activity settles, only automatic thinking disclosures close. A click or
-  keyboard activation on a group, row, or collapse rail makes that disclosure
-  user-owned; stream updates and completion never override it.
+- One assistant turn has one process disclosure containing thinking, tool calls
+  and intermediate progress text. The trailing answer streams outside it;
+  later activity moves that text into the process. The header updates elapsed
+  time once per second while active and shows the visible step count.
+- Detailed mode opens the active process and retains the latest thinking row's
+  automatic disclosure. Completed process areas collapse unless a click,
+  keyboard activation or search reveal has taken ownership. Tool details keep
+  their individual controls. Failed tool calls open an unclaimed active process so
+  their errors stay visible.
+- Compact thinking mode shows only a status indicator while reasoning streams;
+  when answer text starts or reasoning ends, the thought row disappears. Tools
+  and progress text remain accessible, and a completed thinking-only process
+  leaves no header. Neither mode changes stored reasoning.
 - A failed row is invocation-local truth and remains visible immediately. The
   containing group reports processing duration only and settles as processed,
   even when a later call recovers. Terminal turn failure is derived only from
@@ -1354,8 +1367,17 @@ Project drag/drop follows these patterns:
   the conversation, or activates and toggles the project group, exactly as a
   click on the title does; a no-hover pointer gets the controls revealed so it
   never meets a hidden target.
+- Project headers and conversation rows (project, pinned and standalone) use
+  the same full-row hover surface, radius and transition. The title button is
+  transparent; hover never draws a nested title tile. The selected conversation
+  keeps its selected fill on hover. A current workspace uses only the project
+  dot, not another selected background; folding a selected child or leaving the
+  chat page never promotes its project to a selected navigation item.
+- Keyboard focus keeps its outline independently of selection. The add and
+  overflow buttons retain local hover feedback, and drag-target paint takes
+  precedence over ordinary header hover.
 - Hover paint belongs to the pointer that caused it. When the window loses
-  focus the row and the project title drop their hover background and their
+  focus the row and the project header drop their hover background and their
   revealed actions hide, so nothing is left lit or armed after the window
   returns; moving the pointer over the row again re-arms it.
 - Revealed actions become clickable the moment the row is hovered or focused,

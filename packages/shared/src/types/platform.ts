@@ -35,9 +35,10 @@ export type HostStatusEvent = {
 
 /**
  * How app updates are delivered on this install:
- *  - in-app: electron-updater downloads and installs (Windows NSIS, Linux AppImage)
+ *  - in-app: electron-updater downloads and installs (Windows NSIS, Linux
+ *    AppImage, packaged macOS)
  *  - manual: we only detect new versions and link to the releases page
- *    (unsigned macOS builds, Linux deb)
+ *    (Linux deb/rpm, Windows portable)
  *  - disabled: development / unpackaged build
  */
 export type UpdateMode = "in-app" | "manual" | "disabled";

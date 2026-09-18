@@ -57,6 +57,7 @@ Examples:
 - `pi-desktop/project/open`
 - `pi-desktop/project/pickFolders`
 - `pi-desktop/project/clone`
+- `pi-desktop/project/cloneCheckout`
 - `pi-desktop/project/openFolder`
 - `pi-desktop/project-group/list`
 - `pi-desktop/project-group/create`
@@ -670,7 +671,8 @@ type AgentEvent =
      willRetry: boolean; fallback?: "retained_tail";
      mark?: { id: string; throughMessageId: string;
               generation: number; summaryTokens: number;
-              summarized: boolean };
+              summarized: boolean;
+              fallback?: "retained_tail" };
      error?: { code: string; message: string } }
  | { type: "error"; error: AppError }
  | { type: "status"; status: AgentStatus };
@@ -724,7 +726,9 @@ renderer's whole view of that compaction: `id`, the `throughMessageId` anchor th
 transcript row sits after, `generation` (how many checkpoints this session has
 installed), `summaryTokens` (the summary's estimated context cost), and
 `summarized` (`false` when the window rolled over without asking the model for a
-summary). The record itself is not carried — its summary and retained tail are
+summary), and `fallback` (`"retained_tail"` when summary generation failed and
+the checkpoint carries only a recovery notice plus a retained tail; the row
+labels it as a failed summary, never as a summary of N tokens). The record itself is not carried — its summary and retained tail are
 far larger than an event should be — and is instead read from
 `SessionDetail.compactions` on session open or fork.
 
@@ -841,7 +845,7 @@ and a shown notification restores/shows and focuses the window before emitting
 `activated`. No permission, scheduled-reminder, or plugin source enters the
 task notification contract. Native delivery is best-effort; the durable
 inbox remains authoritative when the OS suppresses a banner. On Windows,
-Electron Main registers `com.pi-desktop.app` as the process AppUserModelID
+Electron Main registers `net.aiuo.pi-desktop` as the process AppUserModelID
 before readiness and before any window is created. The ID matches the NSIS
 package identity so notification attribution, notification settings, taskbar
 grouping, and installed shortcuts resolve to `PI-Desktop`, never the stock
@@ -1258,6 +1262,10 @@ authorization code. `accountLabel` is a display string.
   changing the active workspace
 - `project/clone({ url })`: pick a parent directory, `git clone` the URL into
   it, and return the cloned workspace (the renderer then activates it)
+- `project/cloneCheckout({ url, parentPath })`: `git clone` a public remote
+  into an explicit parent folder and return `{ path, name }` without changing
+  the active workspace; the Create project dialog uses it before it creates the
+  logical project group
 - `project/openFolder(path)`: open a known project directory in the system file
   manager
 - `project/get()`: current workspace
@@ -1420,6 +1428,27 @@ filters disabled records, so a disabled project record still shadows a global
 one. The desktop-only `mcp/test` IPC action forces one connection test and
 returns its status to the MCP editor.
 
+Desktop-only channels scan configuration written by other agent tools on the
+same machine — Claude Desktop (`claude_desktop_config.json` on macOS, Windows
+and Linux), Claude Code (`~/.claude.json` and `~/.claude/settings.json` merged),
+Cursor global and per-project `mcp.json`, Codex (`~/.codex/config.toml`
+`[mcp_servers.*]`), opencode (`~/.config/opencode/opencode.json` `mcp` map) —
+so the user can review and batch-import into this app's MCP list. ChatGPT
+desktop is listed as a placeholder because it has no public configuration path
+yet.
+
+- `pi-desktop/mcp/importScan` — `{ projectPath? }` →
+  `{ candidates: ExternalMcpCandidate[], sources: ExternalMcpSourceReport[] }`.
+  Missing files, ENOENT and parse errors surface on `sources[].error`; one bad
+  source never fails the scan. Per-source de-duplication keeps the cross-source
+  copies so the user can pick which install to import.
+- `pi-desktop/mcp/importRun` — `{ items: ExternalMcpImportItem[] }` →
+  `{ imported, skipped, failed }`. Main calls `mcp.upsert` once per item,
+  omitting `disabled` from the server payload and following up with
+  `mcp.setEnabled({ enabled: false })` when the source marked the server
+  disabled. One failure never blocks the rest; conflicts land in `skipped`
+  and every other error lands in `failed`.
+
 ```ts
 type McpServerStatus = {
  serverId: string
@@ -1449,8 +1478,12 @@ one-liner.
 - `skills.list({ level, projectPath? })` → `{ skills: UserSkillRecord[] }`
 - `skills.active({ projectPath? })` → the effective runtime list
 - `skills.create(skill)`
-- `skills.import({ path, level, projectPath? })` — one source file is physically
-  copied into the selected `.agents/skills` directory
+- `skills.import({ path, level, projectPath?, shape?, mode?, id?, name?, description? })`
+  — imports one Markdown skill. `shape` is `"file"` (default when `path` is a
+  regular file) or `"dir"` (Anthropic-style `<name>/SKILL.md` plus resources).
+  `mode` is `"copy"` (default, byte-for-byte replica so a moved or deleted
+  source cannot break the skill) or `"link"` (symlink so external edits appear
+  on the next scan; `SKILL_INVALID` if the OS or file system refuses a symlink).
 - `skills.update({ id, ...skill })`
 - `skills.read({ id, level?, projectPath? })` → `{ skill, body }`
 - `skills.remove({ id, level?, projectPath? })`
@@ -1461,6 +1494,25 @@ Only the description enters the prompt, and the body is fetched when the model
 invokes `Skill` (D174). A missing file is removed from the list and its local
 state is pruned during the next scan.
 
+Desktop-only channels scan skill folders written by other agent tools on this
+machine — `~/.claude/skills/`, `<project>/.claude/skills/`, and the app's own
+`~/.agents/skills/` (or `PI_DESKTOP_AGENTS_DIR/skills/`) plus its project
+equivalent — so the user can review candidates and batch-import them. Both the
+single-file (`<id>.md`) and Anthropic-style directory (`<name>/SKILL.md`)
+shapes are detected.
+
+- `pi-desktop/skill/importScan` — `{ projectPath? }` →
+  `{ candidates: ExternalSkillCandidate[], sources: ExternalSkillSourceReport[] }`.
+  Missing directories and read errors surface on `sources[].error`; one failing
+  source never aborts the scan. Candidates from `~/.agents/skills/` carry an
+  "already in current registry" warning so the UI can filter or highlight them.
+- `pi-desktop/skill/importRun` — `{ level, projectPath?, mode?, items }` →
+  `{ imported, skipped, failed }`. Main calls `skills.import` once per item,
+  passing `path = shape==="dir" ? rootDir : sourcePath` and forwarding `mode`
+  and per-item `id`/`name`/`description`. A conflict lands in `skipped` and
+  every other error lands in `failed`; one failure never blocks the rest. Batch
+  import is still bounded by `MAX_SKILLS` (128 per level).
+
 Desktop-only skill market channels (not host RPC) live on Electron IPC:
 
 - `pi-desktop/skill/market/search` — `{ query, sources[] }` →
@@ -1468,18 +1520,23 @@ Desktop-only skill market channels (not host RPC) live on Electron IPC:
   builtin-safe catalog JSON and GitHub repo SKILL.md scans. Source URLs must pass
   the public-HTTPS policy (ADR 0243). One failing source is dropped; the rest
   still return. `failureKinds` maps each name in `failedSources` to `policy`
-  (the public-network guard judged the target and refused it, so the request
-  never left the process), `unresolved` (the local DNS lookup returned no answer,
-  so no address was judged — a resolver or proxy condition, not a verdict on the
-  source), or `network`. `failureDetails` carries the same keys with the host
-  that actually failed, the guard's own `reason`, the class of the refused
-  address, and the route that address was judged on (`proxied`, `direct`, or
-  `unknown` when the transport reported no readable route, ADR 0272), which is
-  what lets the panel name *what* was refused instead of only which source went
-  quiet.
-  `NETWORK_POLICY_BLOCKED` and an unanswered resolver as `NETWORK_RESOLVE_FAILED`
-  (spec 08 §3.1); the install sheet classifies a failed preview on those two
-  codes.
+  (the guard judged the target's own non-public address and refused it),
+  `fake-ip` (it judged a fake-IP placeholder the local proxy invented for the
+  name — Clash's `198.18.0.0/15`; still refused on a direct or unreadable route,
+  where the guard fails closed and this app would dial that address itself, but a
+  condition of the local network rather than a fact about the source),
+  `unresolved` (the local DNS lookup returned no answer, so no address was
+  judged), or `network`.
+  `failureDetails` carries the same keys with the host that actually failed, the
+  address it resolved to, the guard's own `reason`, that address's class, and the
+  route the guard judged it on (`proxied`, `direct`, or `unknown` when the
+  transport reported no readable route, ADR 0272), which is what lets the panel
+  name *what* was refused — "your proxy answered github.com with 198.18.0.1" —
+  instead of only which source went quiet. A judged refusal and a fake-IP refusal
+  both surface as `NETWORK_POLICY_BLOCKED` (both are refusals the guard decided),
+  and an unanswered resolver as `NETWORK_RESOLVE_FAILED` (spec 08 §3.1); the
+  install sheet classifies a failed preview on those codes together with the
+  structured `reason`.
 - `pi-desktop/skill/market/fetch` — `{ entry }` → `{ name?, description?, body, resources? }`.
   Main fetches the document over the same policy, splits frontmatter, and may
   attach sibling `.md` files from a jsDelivr listing. The renderer installs
@@ -1496,6 +1553,35 @@ Desktop-only MCP market channels (not host RPC) live on Electron IPC:
   each resolved public address, follows only bounded HTTPS redirects, and keeps
   cursor state for browse and server-side search. One failed source does not
   discard successful sources; the response and caches are bounded.
+
+### MCP OAuth (ADR 0283)
+
+Browser-based OAuth 2.1 authentication for HTTP MCP servers is handled in the Electron main process via non-blocking IPC invocations and an event stream:
+
+- `pi-desktop/mcp/oauth/start({ id, level?, projectPath? }) -> { ok: true, loginId }`
+  Initiates OAuth metadata discovery and PKCE authorization code flow. Returns immediately; user browser navigation and callback exchange proceed asynchronously in the background.
+- `pi-desktop/mcp/oauth/cancel({ loginId?, id? }) -> { ok: boolean }`
+  Aborts an in-flight authorization attempt, tears down the local loopback HTTP server, and cancels pending timers.
+- `pi-desktop/mcp/oauth/event` streams `McpOAuthLoginEvent` to the renderer:
+
+```ts
+type McpOAuthLoginEvent = {
+  loginId: string;
+  serverId: string;
+} & (
+  | { kind: "authUrl"; url: string; instructions?: string; opened: boolean }
+  | { kind: "progress"; message: string }
+  | { kind: "done"; status: McpServerStatus }
+  | { kind: "error"; message: string }
+  | { kind: "cancelled" }
+);
+```
+
+#### Status and Token Storage
+- `McpServerStatus` includes:
+  - `hasOauth: boolean` — whether the server has an encrypted OAuth secret stored in host-core (`secret:mcp:<serverId>:oauth`).
+  - `authRequired: boolean` — flags that a connection attempt or `tools/call` returned HTTP 401 Unauthorized and user re-authentication is required.
+- OAuth tokens (`accessToken`, `refreshToken`, `expiresAt`, `resource`, `clientId`, `redirectUris`) are persisted exclusively in host-core encrypted secrets under `secret:mcp:<serverId>:oauth` and never exposed to the renderer. Authorization-server endpoints must be HTTPS (loopback HTTP is the only exception). Token-endpoint error bodies stay in main-process logs and are not copied into renderer events.
 
 ## 12c. Subagent API (D202)
 
@@ -1937,6 +2023,17 @@ attachments. Electron main resolves the provider/model and credentials, so the
 renderer never receives a secret. Empty drafts, slash-command drafts, missing
 models, and provider failures return the common `Result` error envelope.
 
+### speech/getStatus, speech/transcribe, speech/synthesize
+
+```ts
+speech/getStatus() -> SpeechStatus
+speech/transcribe({ sessionId?, path, mimeType?, language? }) -> { text }
+speech/synthesize({ sessionId?, text, voice?, format? }) -> { path, mimeType, dataUrl? }
+```
+
+Host speech is independent of chat. Bindings live on `AppSettings.speech`.
+Audio bytes never enter the renderer. See spec `20-speech.md`.
+
 ### app/openFeedback (D313)
 
 ```ts
@@ -2066,7 +2163,7 @@ event, so an external Agent can create a session, open a project, or submit a
 prompt while the visible desktop follows the same state. A control-server
 startup failure is logged and does not prevent the desktop from launching.
 
-## 13e. Voice dictation API (D439 / ADR 0279)
+## 13e. Voice dictation API (D439 / ADR 0296)
 
 Three invoke channels under `pi-desktop/voice/*` carry batch speech-to-text
 from the composer to an OpenAI-compatible transcription endpoint. All three

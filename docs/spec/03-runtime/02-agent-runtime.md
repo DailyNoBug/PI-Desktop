@@ -248,7 +248,7 @@ started on and a proxy is never silently dropped.
 
 ### 5e. Silent-turn recovery
 
-A turn that ends with no tool call and no visible assistant text is invisible
+An ordinary turn that ends with no tool call and no visible assistant text is invisible
 to the user: reasoning is never rendered, so a conclusion written only there
 did not arrive. 15 of 255 recorded sessions ended a turn that way, and the
 user's only recourse was typing "继续".
@@ -289,7 +289,35 @@ If the re-run is silent too, the turn ends as a visible assistant error with
 retriable `EMPTY_MODEL_RESPONSE`, which gives the transcript its normal retry
 action. No empty assistant message is persisted in either case.
 
-Decision D193; see E2E-146.
+A Host-ledger completion notice (ADR 0239, D446) is the narrow exception:
+its prompt already permits no acknowledgement. Main resolves the queued message
+by ID, verifies its target session, and constructs provenance from the ledger.
+The runtime accepts silence only for `kind: completion` targeting the current
+session with nonempty message and reply-to IDs. A silent notice reply emits its
+normal completed message and terminal lifecycle without a recovery request or
+`EMPTY_MODEL_RESPONSE`. Provider errors and aborts retain their normal handling,
+and a provider retry of the same attempt keeps the exception. The original
+task/result is not rewritten, and completion notices never request another
+callback.
+
+The exception covers exactly the notice's own reply: the first settled
+assistant response of the run spends it, whether that response is silent,
+textual, or a tool batch. A reply that follows tool results is therefore
+ordinary work under this section, and the exception is revoked as soon as an
+accepted steering message enters the model context, so a reply to the user
+keeps its full re-run and error path. Every new run recomputes it from the
+prompt's provenance. Ordinary user input, task/message deliveries, copied
+source framing, and restored history cannot enable it.
+
+An accepted silent reply is still not worth resending. Main persists it as an
+empty completed row (the transcript hides it and the host stores no text), but
+the runtime keeps it out of its entries and out of pi's transcript state, and
+the context projection drops any assistant with no content blocks, exactly as
+a restored transcript already did. The next provider request therefore carries
+no empty assistant message.
+
+Decision D193 and D446 (ADR 0239 amendment); see E2E-146 and
+E2E-SESSION-completion-notice-allows-silence.
 
 ### 5e.1. Progress-only recovery for approved Plan/Goal execution
 
@@ -435,18 +463,27 @@ tokens, capped at half the hard budget so retention alone cannot fill a small
 window and leave the summary no room. None of these values are configurable.
 
 The incoming user prompt participates in budgeting before the first provider
-request. If normal compaction fails during an automatic threshold or overflow
-recovery, the runtime persists a short recovery checkpoint with the previous
-summary (when available) and an aggressively bounded applicable tail. The
-complete transcript remains durable and visible, while the next model request
-receives only that recovery checkpoint and applicable tail. The lifecycle event marks
-this as `fallback: "retained_tail"` so the renderer can show a warning rather
-than a false success. If the fallback cannot be prepared, persisted, or kept
-below the safe budget, the user row and an assistant error remain durable and
-no provider request starts. Provider-reported context overflow is the last
-recovery layer: omit the failed assistant from model context, compact once,
-and retry once. A second overflow remains terminal. Bedrock's
-`prompt is too long: N tokens > M maximum` form maps to this path.
+request. The automatic summary request retries transient provider failures
+under a bounded pi-ai retry policy (3 retries, 2s/4s/8s backoff, cancelled by
+Stop); deterministic failures such as quota or auth return at once. The
+preflight guard sizes the prompt pi actually serializes — tool results already
+capped — rather than the raw messages, and when that prompt still exceeds the
+window it tries exactly one reduced input (tool results cut to a short prefix,
+thinking dropped, no message removed) before giving up on the summary (ADR
+0282). If normal compaction still fails during an automatic threshold or
+overflow recovery, the runtime persists a short recovery checkpoint with the
+previous summary (when available) and an aggressively bounded applicable tail.
+The complete transcript remains durable and visible, while the next model
+request receives only that recovery checkpoint and applicable tail. The
+lifecycle event marks this as `fallback: "retained_tail"`, and the checkpoint's
+mark carries the same `fallback`, so the renderer shows a warning and labels
+the transcript row as a failed summary rather than a false success. If the
+fallback cannot be prepared, persisted, or kept below the safe budget, the user
+row and an assistant error remain durable and no provider request starts.
+Provider-reported context overflow is the last recovery layer: omit the failed
+assistant from model context, compact once, and retry once. A second overflow
+remains terminal. Bedrock's `prompt is too long: N tokens > M maximum` form
+maps to this path.
 
 Automatic protection is always enabled and is not user-configurable. The
 runtime still accepts a construction-time override that disables it, used by
@@ -647,7 +684,7 @@ intentional override.
 mode and only when the catalog is non-empty, and all four belong to the Agent
 core set rather than the on-demand catalog of §7.1:
 
-- `Task(agent, task, description?, model?)` — validates its arguments (an
+- `Task(agent, task, description?, model?, resume?)` — validates its arguments (an
   unknown `agent`, an empty `task`, an unresolvable model pin and a definition
   whose tools are all unavailable each return a tool error explaining the
   failure rather than throwing), starts the delegate **in the background**, and
@@ -769,6 +806,62 @@ retain their existing `failed` and `aborted` outcomes. A terminal parent error
 also aborts leftover delegates,
 skips the resume prompt, and returns the session to idle so Continue is not
 `AGENT_BUSY` (D352).
+
+**Resumable delegations (ADR 0279).** `Task` accepts an optional `resume`
+parameter carrying the `delegationId` of a settled delegation in the same
+conversation. The resumed delegate is a new `SubagentRun` seeded with the
+chain's prior messages — the original `task` brief plus every row the chain
+produced — and then prompted with the new `task`, so a delegate that already
+read or changed a file continues from that context instead of starting cold.
+Seeding is transcript-backed: the chain's rows are exactly those carrying
+`parentToolCallId` for one of the chain's `Task` calls, and they are converted
+into provider messages with the delegate's own binding (a pinned delegation
+model is not the session model). Nothing is kept warm in memory and no new
+event type, storage schema, or tool parameter is introduced.
+
+A chain is the sequence of `Task` calls that share one delegate session: the
+first call, plus every later call that passed the earlier `delegationId` as
+`resume`. The runtime rebuilds the chain index from the persisted transcript at
+launch — each `Task` row carries its own `delegationId` and settled status in
+`toolResult.details` and the resumed id in `toolArgs.resume`, with the agent
+name normalized on rebuild — so resumability survives a sidecar restart.
+Chain identity (`delegateSessionId`) stays internal; the parent only
+ever passes a `delegationId`, and the reverse map resolves it.
+
+Only `completed` and `failed` chains are resumable; `stopped` and `aborted` runs
+are terminal and revive only by starting a new delegation, and a run the app
+closed while it still worked rebuilds as `interrupted`, which is not resumable
+either. A chain whose read-only tool output exceeds `MAX_RESUMABLE_READ_LINES`
+(50000) leaves the reusable list without an in-chain trim, so a resume never
+silently drops history. The registry keeps at most
+`MAX_RESUMABLE_CHAINS_PER_AGENT` (2) reusable chains per definition name and
+evicts least-recently-active ones whenever a delegation settles; a chain that is
+still working is never evicted, so the bound counts reusable chains and a live
+chain may sit above it until it settles.
+
+Resume is strictly same-session and never queues: resuming a running
+delegation is a tool error telling the parent to converge with `TaskWait`
+first, and a chain has at most one live record at a time. `model` and `resume`
+together are rejected, and a resumed run keeps the chain's recorded binding:
+the `providerId/modelId` key it resolved is preferred, a chain rebuilt from the
+transcript is matched by model id, and when nothing resolves it the run
+continues on the definition's current binding and records the previous model id
+as `modelChangedFrom` in its lifecycle details. Changing models on purpose means
+starting a new delegation. An unknown id, an id belonging to another definition,
+a non-resumable status, an over-budget chain, and a chain whose rows are gone
+each return a tool error naming the reason and, for an unknown id, the reusable
+ids when there are any.
+
+The parent discovers reusable chains through the system prompt, which lists
+each chain's latest `delegationId`, its objective, and up to
+`MAX_RESUMABLE_LISTED_FILES` (8) of the files it read (with a `(+N more)`
+suffix past that). The list is recomposed when a delegation settles, around the
+existing prompt sections. A resumed run is an ordinary delegation for
+`MAX_SUBAGENT_CONCURRENCY`, `TaskWait`, `TaskList`, `TaskStop`, and lifecycle
+snapshots. The immediate `Task` result and the lifecycle details add
+`resumedFrom` for audit; the transcript renders a chain as one continuous
+multi-turn conversation under its latest `Task` card, with no separate
+"resumed" marker.
 
 **Model pins.** `model: <provider>/<model>` in the frontmatter is resolved once
 per launch in Electron main, where credentials and the models.dev snapshot live, against

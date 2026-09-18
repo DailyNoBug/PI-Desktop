@@ -9,8 +9,6 @@
   display: flex;
   justify-content: center;
   width: 100%;
-  container-type: inline-size;
-  container-name: composer-stack;
 }
 
 /* Thread mode: floating bottom dock. The transcript already reserves the
@@ -46,6 +44,8 @@
   flex-direction: column;
   align-items: stretch;
   gap: 0;
+  container-type: inline-size;
+  container-name: composer-stack;
   transition: width var(--chat-width-transition, var(--motion-duration-normal) var(--motion-ease-out));
 }
 
@@ -366,7 +366,12 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 0 0 auto;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.composer-right {
+  justify-content: flex-end;
 }
 
 .composer-right .context-inspector-trigger {
@@ -394,6 +399,18 @@
   color: var(--ds-text-primary);
 }
 
+.composer-toolbar .icon-btn.composer-web-search-on,
+.composer-toolbar .icon-btn.composer-web-search-on:hover,
+.composer-right .icon-btn.composer-web-search-on,
+.composer-right .icon-btn.composer-web-search-on:hover {
+  color: var(--color-success);
+}
+:root[data-theme="dark"] .composer-toolbar .icon-btn.composer-web-search-on,
+:root[data-theme="dark"] .composer-toolbar .icon-btn.composer-web-search-on:hover,
+:root[data-theme="dark"] .composer-right .icon-btn.composer-web-search-on,
+:root[data-theme="dark"] .composer-right .icon-btn.composer-web-search-on:hover {
+  color: var(--color-success);
+}
 .icon-btn.active {
   background: var(--ds-bg-active);
   color: var(--ds-text-primary);

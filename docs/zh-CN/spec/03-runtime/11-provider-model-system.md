@@ -576,6 +576,9 @@ UI 可能会显示层级提示，但默认情况下不得硬阻止未知模型�
 
 目录条目还可以额外固定模型级 wire API（例如 `api: "openai-responses"`）。存在时它优先于 provider 级 `apiStyle`，因此 `opencode_go` 下的 responses-only 模型会走 Responses adapter 而非 Chat Completions；没有模型级固定时保持 provider 级风格不变。
 
+Composer 的联网搜索开关按**解析后的线路 API**决定能否挂厂商托管搜索工具，而不是服务显示名或模型 ID：`anthropic_messages` 附加 `web_search_20250305`，Responses 附加 `{ type: "web_search" }`。`chat_completions` 默认不挂，xAI（`vendorKey` xai / `api.x.ai`）除外，走 `search_parameters`。开关写入设置 `nativeWebSearchEnabled`（缺省关闭）。搜索结果作为助手回合的 hostedSearch 活动行展示，可展开看来源。正文超链接仅在 `#cite=N` 或与来源 URL 主机+路径匹配时替换为引用徽章；同主机不同路径保持普通链接。来源 favicon 只从该 origin 的 `/favicon.ico` 加载，不得把来源 hostname 发给第三方 favicon 服务。
+
+
 ### 16.1 Responses 流终止（pi-ai 补丁）
 
 OpenAI Responses 适配器必须把 `response.completed`（以及

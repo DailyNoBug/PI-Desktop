@@ -208,26 +208,38 @@ test("release matrix packages both native macOS architectures", () => {
   assert.match(releaseWorkflowSource, /Merge macOS updater metadata[\s\S]*?ruby/);
 });
 
-test("macOS release signing is opt-in and disabled by default", () => {
+test("macOS release signing is required on tag pushes", () => {
   assert.match(
     releaseWorkflowSource,
-    /workflow_dispatch:\s+inputs:\s+sign_macos:[\s\S]*?default:\s*false[\s\S]*?type:\s*boolean/,
+    /workflow_dispatch:\s+inputs:\s+sign_macos:[\s\S]*?default:\s*true[\s\S]*?type:\s*boolean/,
+  );
+  assert.ok(
+    releaseWorkflowSource.includes(
+      "MACOS_SIGN_RELEASE: ${{ (github.event_name != 'workflow_dispatch' || inputs.sign_macos == true) && secrets.APPLE_ID != '' }}",
+    ),
+    "tag pushes sign when signing secrets exist; repos without the secrets fall back to the unsigned ad-hoc-sealed lane",
   );
 
   const unsignedBlock = releaseWorkflowSource.match(
     /- name: Package unsigned macOS installer[\s\S]*?(?=\n      - name:)/,
   )?.[0];
-  assert.ok(unsignedBlock, "default unsigned macOS package step is missing");
-  assert.match(unsignedBlock, /inputs\.sign_macos != true/);
+  assert.ok(unsignedBlock, "unsigned macOS debug package step is missing");
+  assert.match(unsignedBlock, /env\.MACOS_SIGN_RELEASE != 'true'/);
   assert.match(unsignedBlock, /CSC_IDENTITY_AUTO_DISCOVERY:\s*'false'/);
   assert.doesNotMatch(unsignedBlock, /CSC_LINK:|CSC_KEY_PASSWORD:|APPLE_/);
   assert.doesNotMatch(unsignedBlock, /forceCodeSigning|notarize/);
 
+  assert.match(
+    releaseWorkflowSource,
+    /Require macOS signing and notarization secrets[\s\S]*?Missing GitHub Actions secrets for macOS signing/,
+  );
+  assert.match(releaseWorkflowSource, /APPLE_TEAM_ID is not DUV63RKYTW/);
+
   const signedBlock = releaseWorkflowSource.match(
     /- name: Package signed and notarized macOS installer[\s\S]*?(?=\n      - name:)/,
   )?.[0];
-  assert.ok(signedBlock, "explicit signed macOS package step is missing");
-  assert.match(signedBlock, /inputs\.sign_macos == true/);
+  assert.ok(signedBlock, "signed macOS package step is missing");
+  assert.match(signedBlock, /env\.MACOS_SIGN_RELEASE == 'true'/);
   for (const secret of [
     "CSC_LINK",
     "CSC_KEY_PASSWORD",
@@ -237,11 +249,19 @@ test("macOS release signing is opt-in and disabled by default", () => {
   ]) {
     assert.match(signedBlock, new RegExp(`${secret}:\\s*\\$\\{\\{\\s*secrets\\.${secret}\\s*\\}\\}`));
   }
+  assert.match(
+    signedBlock,
+    /CSC_NAME: "Developer ID Application: XingYu Liu \(DUV63RKYTW\)"/,
+  );
+  assert.match(
+    signedBlock,
+    /-c\.mac\.identity="Developer ID Application: XingYu Liu \(DUV63RKYTW\)"/,
+  );
   assert.match(signedBlock, /-c\.mac\.forceCodeSigning=true/);
   assert.match(signedBlock, /-c\.mac\.notarize=true/);
   assert.match(
     releaseWorkflowSource,
-    /Staple macOS installer ticket[\s\S]*?if: matrix\.platform == 'macos' && inputs\.sign_macos == true[\s\S]*?Verify signed and notarized macOS installer/,
+    /Staple macOS installer ticket[\s\S]*?if: matrix\.platform == 'macos' && env\.MACOS_SIGN_RELEASE == 'true'[\s\S]*?Verify signed and notarized macOS installer/,
   );
 });
 
@@ -250,6 +270,7 @@ test("the signed local macOS lane selects the native runner architecture", () =>
   assert.match(releaseMacScriptSource, /MAC_ARCH="\$\{MAC_ARCH:-\$DEFAULT_MAC_ARCH\}"/);
   assert.match(releaseMacScriptSource, /must match the host/);
   assert.match(releaseMacScriptSource, /electron-builder --mac "--\$\{MAC_ARCH\}"/);
+  assert.match(releaseMacScriptSource, /XingYu Liu \(DUV63RKYTW\)/);
   assert.doesNotMatch(
     releaseMacScriptSource,
     /-c\.(?:dmg|zip)\.artifactName/,

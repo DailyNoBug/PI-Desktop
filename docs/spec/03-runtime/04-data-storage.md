@@ -223,6 +223,21 @@ CREATE TABLE kv (
 | `plugin:<id>` | per-plugin settings; uninstall = `DELETE WHERE ns = ?` |
 | `projectMemory` | durable user-authored context keyed by canonical project path; structured values contain `format: "entries-v1"`, visual `entries`, derived `content`, and `updatedAt` |
 
+The app settings JSON optionally stores `thinkingDisplayMode` (`detailed` or
+`compact`). Missing values retain detailed presentation. This additive display
+preference neither rewrites stored reasoning nor changes the database schema.
+
+The same blob optionally stores the prompt-enhancement overrides
+`promptEnhancementCustomTemplate` (the switch that decides whether a stored
+template applies), `promptEnhancementUserTemplate`,
+`promptEnhancementProviderId`, `promptEnhancementModelId`, and
+`promptEnhancementThinkingLevel` (ADR 0121). An absent or blank user template means the
+built-in default applies, so clearing the field stores no key rather than an
+empty string. A non-blank user template must contain the draft variable and stay
+within `PROMPT_ENHANCEMENT_TEMPLATE_MAX_LENGTH`; host-core rejects a write that
+breaks either rule and drops any stored `promptEnhancementSystemPrompt`, which is
+no longer read. No schema version bump is required.
+
 New config domains (e.g. MCP servers) start as a namespace; they graduate to
 tables only when they need relations or indexes.
 
@@ -707,7 +722,7 @@ stream (as today) with `text = NULL`.
 ```sql
 CREATE TABLE messages (
   mid          INTEGER PRIMARY KEY,             -- stable rowid: FTS anchor, VACUUM-safe
-  id           TEXT NOT NULL UNIQUE,            -- caller-facing uuid (optimistic UI)
+  id           TEXT NOT NULL UNIQUE,            -- caller-facing uuid (optimistic UI); colliding provider toolCallIds remap to {sessionId}:{id} (D444)
   session_id   TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   turn_id      TEXT REFERENCES turns(id) ON DELETE SET NULL,
   seq          INTEGER NOT NULL,                -- per-session ordinal
@@ -1414,7 +1429,11 @@ line and search text, retaining sequence, owning turn and every other row.
 Late partial snapshots and duplicate terminal snapshots cannot overwrite the
 settled result. Recovery promotes the latest checkpoint in that same position.
 The outbox likewise keeps a newer snapshot that replaces an append while its
-host call is still pending. No schema migration is required.
+host call is still pending. If `messages.id` already belongs to another
+session, the host remaps to `{sessionId}:{id}` before any JSONL write; a
+replay of the original id is a no-op against that remapped row. The outbox
+treats `UNIQUE constraint failed: messages.id` as an ack and keeps draining
+(D444). No schema migration is required.
 
 ## 12. Native Pi session authority (ADR 0254)
 

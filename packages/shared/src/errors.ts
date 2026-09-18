@@ -80,6 +80,9 @@ export const ErrorCodes = {
   STREAM_FAILED: "STREAM_FAILED",
   EMPTY_MODEL_RESPONSE: "EMPTY_MODEL_RESPONSE",
   PROMPT_ENHANCEMENT_EMPTY: "PROMPT_ENHANCEMENT_EMPTY",
+  SPEECH_NOT_CONFIGURED: "SPEECH_NOT_CONFIGURED",
+  SPEECH_PROTOCOL_UNSUPPORTED: "SPEECH_PROTOCOL_UNSUPPORTED",
+  SPEECH_INPUT_TOO_LARGE: "SPEECH_INPUT_TOO_LARGE",
   SUBAGENT_IDLE_TIMEOUT: "SUBAGENT_IDLE_TIMEOUT",
   SUBAGENT_DURATION_TIMEOUT: "SUBAGENT_DURATION_TIMEOUT",
   WORKSPACE_REQUIRED: "WORKSPACE_REQUIRED",
@@ -196,6 +199,31 @@ export const ErrorCodes = {
   REMOTE_PROJECT_PERMISSION_DENIED: "REMOTE_PROJECT_PERMISSION_DENIED",
   REMOTE_PROJECT_INVALID_PATH: "REMOTE_PROJECT_INVALID_PATH",
   REMOTE_RECONNECT_EXHAUSTED: "REMOTE_RECONNECT_EXHAUSTED",
+  /**
+   * Remote Host connection codes (D448 / ADR 0284). The desktop adapter and
+   * the `pi-host` bootstrap classify a remote failure by these, never by
+   * matching message text.
+   */
+  /** The transport to a paired Host dropped; the Host itself may still be running. */
+  HOST_DISCONNECTED: "HOST_DISCONNECTED",
+  /** Installing or starting `pi-host` over the bootstrap channel failed. */
+  HOST_BOOTSTRAP_FAILED: "HOST_BOOTSTRAP_FAILED",
+  /** The paired Host runs a different release than this client. */
+  HOST_VERSION_MISMATCH: "HOST_VERSION_MISMATCH",
+  /** The device credential was refused by the Host. */
+  REMOTE_AUTH_FAILED: "REMOTE_AUTH_FAILED",
+  /** The RACP connection could not be established. */
+  REMOTE_CONNECTION_FAILED: "REMOTE_CONNECTION_FAILED",
+  /** The transport's port forward could not be set up. */
+  REMOTE_FORWARD_FAILED: "REMOTE_FORWARD_FAILED",
+  /** A Host-side path does not exist. */
+  REMOTE_PATH_NOT_FOUND: "REMOTE_PATH_NOT_FOUND",
+  /** A Host-side path is outside what the principal may reach. */
+  REMOTE_PATH_FORBIDDEN: "REMOTE_PATH_FORBIDDEN",
+  PAIRING_FAILED: "PAIRING_FAILED",
+  PAIRING_TOKEN_EXPIRED: "PAIRING_TOKEN_EXPIRED",
+  /** The Host does not advertise the capability the operation needs. */
+  CAPABILITY_UNAVAILABLE: "CAPABILITY_UNAVAILABLE",
   // Host-core RPC detail codes (spec 06 §7, 08 §3.1/§3.6). Electron surfaces
   // them unchanged through `AppError.code`.
   INVALID_PARAMS: "INVALID_PARAMS",
@@ -210,6 +238,18 @@ export const ErrorCodes = {
   PLUGIN_MARKET_INVALID: "PLUGIN_MARKET_INVALID",
   PLUGIN_MARKET_UNTRUSTED_HOST: "PLUGIN_MARKET_UNTRUSTED_HOST",
   PLUGIN_MARKET_YANKED: "PLUGIN_MARKET_YANKED",
+  /** The platform has the version and is not offering it yet. */
+  PLUGIN_MARKET_NOT_PUBLISHED: "PLUGIN_MARKET_NOT_PUBLISHED",
+  /** The plugin was withdrawn from the platform. */
+  PLUGIN_MARKET_ARCHIVED: "PLUGIN_MARKET_ARCHIVED",
+  /** The platform does not have that plugin or version. */
+  PLUGIN_MARKET_NOT_FOUND: "PLUGIN_MARKET_NOT_FOUND",
+  /** The download endpoint asked the client to wait before asking again. */
+  PLUGIN_MARKET_RATE_LIMITED: "PLUGIN_MARKET_RATE_LIMITED",
+  /** No distribution target can serve the package. */
+  PLUGIN_MARKET_NO_SOURCE: "PLUGIN_MARKET_NO_SOURCE",
+  /** The user cancelled an install while it was downloading. */
+  PLUGIN_CANCELLED: "PLUGIN_CANCELLED",
   MCP_INVALID: "MCP_INVALID",
   SKILL_INVALID: "SKILL_INVALID",
   SUBAGENT_INVALID: "SUBAGENT_INVALID",

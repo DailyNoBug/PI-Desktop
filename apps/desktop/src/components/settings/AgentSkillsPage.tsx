@@ -237,15 +237,19 @@ export function AgentSkillsPage() {
     }
   };
 
-  const importSkill = async (level: AgentCapabilityLevel = targetLevel) => {
+  const importSkill = async (
+    level: AgentCapabilityLevel = targetLevel,
+    sourceKind: "file" | "dir" = "file",
+  ) => {
     if (level === "project" && !selectedProjectPath) {
       showToast(t("settings.selectProjectFirst"), { variant: "error" });
       return;
     }
-    setBusyId("import");
+    setBusyId(sourceKind === "dir" ? "import-dir" : "import");
     try {
       const result = await api.importUserSkill({
         level,
+        sourceKind,
         ...(level === "project" && selectedProjectPath
           ? { projectPath: selectedProjectPath }
           : {}),
@@ -462,18 +466,32 @@ export function AgentSkillsPage() {
       ? t("settings.capabilityCreateInProject")
       : t("settings.capabilityCreateInGlobal");
   const importButton = (level: AgentCapabilityLevel) => (
-    <CapabilityButton
-      busy={busyId === "import"}
-      title={
-        level === "project"
-          ? t("settings.capabilityImportToProject")
-          : t("settings.capabilityImportToGlobal")
-      }
-      onClick={() => void importSkill(level)}
-    >
-      <IconDownload size={14} />
-      {t("settings.importSkill")}
-    </CapabilityButton>
+    <>
+      <CapabilityButton
+        busy={busyId === "import"}
+        title={
+          level === "project"
+            ? t("settings.capabilityImportToProject")
+            : t("settings.capabilityImportToGlobal")
+        }
+        onClick={() => void importSkill(level, "file")}
+      >
+        <IconDownload size={14} />
+        {t("settings.importSkillFile")}
+      </CapabilityButton>
+      <CapabilityButton
+        busy={busyId === "import-dir"}
+        title={
+          level === "project"
+            ? t("settings.capabilityImportToProject")
+            : t("settings.capabilityImportToGlobal")
+        }
+        onClick={() => void importSkill(level, "dir")}
+      >
+        <IconDownload size={14} />
+        {t("settings.importSkillDir")}
+      </CapabilityButton>
+    </>
   );
 
   const marketButton = (

@@ -62,7 +62,7 @@ Required (all **implemented**):
 - Electron fuses (`runAsNode`, `nodeCliInspect` off) at package time
 - `webSecurity` assertions in an automated security e2e
 
-### Microphone permission (voice dictation, D439 / ADR 0279)
+### Microphone permission (voice dictation, D439 / ADR 0296)
 
 - The default session's permission handlers allow `media` only when the
   requesting webContents is the main window's, and only when every requested
@@ -186,16 +186,16 @@ explicit local/LAN endpoints; the market path does not widen that policy.
   GitHub's latest stable release rather than a same-channel prerelease pin.
 - Feed manifests bind artifacts with electron-builder hashes. An error,
   unavailable feed, hash mismatch, or invalid updater state must not install.
-- Packaged macOS is manual-only: it detects a release and opens the fixed
-  releases page, but never downloads or installs it in-app. Enabling a signed
-  macOS in-app channel requires a later explicit decision and qualification.
+- Packaged macOS, Windows NSIS, and Linux AppImage download and install in-app
+  from the GitHub Releases feed. Linux deb/rpm and Windows portable detect a
+  release and open the fixed releases page.
 - D126 tag releases publish Windows NSIS and Linux AppImage installers with
   their update manifests, plus Linux deb/rpm packages and a Windows portable
   exe. The NSIS and AppImage artifacts activate the existing in-app lanes.
   The portable exe uses notify-and-link delivery and does not write
-  `latest.yml`. macOS tag artifacts
-  are Developer ID-signed, notarized, and stapled before upload; rollback and
-  staged-rollout qualification remain release follow-ups.
+  `latest.yml`. macOS tag artifacts are Developer ID-signed, notarized, and
+  stapled before upload; rollback and staged-rollout qualification remain
+  release follow-ups.
 - The client carries no GitHub token. A private or otherwise unreachable feed
   fails closed; automatic failures stay ambient and explicit checks expose the
   error.
@@ -204,7 +204,7 @@ explicit local/LAN endpoints; the market path does not widen that policy.
   the manual `com.apple.quarantine` command and says signed/notarized builds do
   not need it. The ZIP package also includes the executable helper, which
   searches only `/Applications/PI-Desktop.app` and `~/Applications/PI-Desktop.app`,
-  verifies `CFBundleIdentifier` is `com.pi-desktop.app`, removes only
+  verifies `CFBundleIdentifier` is `net.aiuo.pi-desktop`, removes only
   `com.apple.quarantine` recursively when present, and opens the app. It accepts
   no arbitrary path, uses no privilege escalation, and is not a substitute for
   Developer ID signing or notarization.

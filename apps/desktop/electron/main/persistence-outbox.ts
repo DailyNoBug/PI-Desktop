@@ -41,13 +41,17 @@ export class PersistenceOutbox {
     await this.loaded;
     const existing = this.entries.findIndex((item) => item.key === entry.key);
     if (existing >= 0) this.entries[existing] = entry;
-    else if (this.entries.length >= MAX_ENTRIES) {
-      this.logger("error", "session persistence outbox is full", {
-        size: this.entries.length,
-        max: MAX_ENTRIES,
-      });
-      return;
-    } else this.entries.push(entry);
+    else {
+      if (this.entries.length >= MAX_ENTRIES) await this.flush(getHost);
+      if (this.entries.length >= MAX_ENTRIES) {
+        this.logger("error", "session persistence outbox is full", {
+          size: this.entries.length,
+          max: MAX_ENTRIES,
+        });
+        return;
+      }
+      this.entries.push(entry);
+    }
     await this.persist();
     void this.flush(getHost);
   }
@@ -89,11 +93,17 @@ export class PersistenceOutbox {
           turnId: current.turnId,
         });
       } catch (error) {
-        this.logger("warn", "session persistence flush paused", {
+        if (!isDuplicateMessageIdError(error)) {
+          this.logger("warn", "session persistence flush paused", {
+            key: current.key,
+            data: String(error),
+          });
+          return;
+        }
+        this.logger("warn", "session persistence flush skipped duplicate message id", {
           key: current.key,
           data: String(error),
         });
-        return;
       }
       // A newer snapshot may have replaced this key while the host wrote it.
       // Only remove the exact entry acknowledged by that write.
@@ -140,4 +150,8 @@ export class PersistenceOutbox {
     this.persistChain = write.catch(() => undefined);
     await write;
   }
+}
+
+function isDuplicateMessageIdError(error: unknown): boolean {
+  return /UNIQUE constraint failed: messages\.id/i.test(String(error));
 }

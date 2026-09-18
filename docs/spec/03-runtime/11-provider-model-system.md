@@ -653,6 +653,20 @@ A catalog entry may additionally pin a model-level wire API (for example,
 through the Responses adapter instead of Chat Completions. Without a
 model-level pin the provider-wide style applies unchanged.
 
+Composer native web search follows the **resolved wire API**, not the vendor
+label or model id: `anthropic_messages` attaches `web_search_20250305`,
+Responses attaches `{ type: "web_search" }`. Chat Completions stays off
+except xAI (`vendorKey` xai / `api.x.ai`), which attaches
+`search_parameters`. The Composer globe writes `nativeWebSearchEnabled`
+(default off). Search results render as a hostedSearch activity row on
+the assistant turn and can be expanded to show sources. Inline citation
+badges replace a markdown link only when its href is `#cite=N` or matches
+a source URL by host and path; a same-host different-path link stays an
+ordinary hyperlink. Source favicons load only from that origin's
+`/favicon.ico`; the renderer must not send source hostnames to a
+third-party favicon service.
+
+
 This is the **universal escape hatch** guaranteeing market coverage beyond native integrations.
 
 ### 16.1 Responses stream termination (pi-ai patch)

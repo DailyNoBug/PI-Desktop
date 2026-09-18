@@ -466,22 +466,23 @@ electron PI-Desktop-<version>-linux-x64.asar
 </details>
 
 <details>
-<summary><strong>macOS 未签名版本说明</strong></summary>
+<summary><strong>macOS 首次启动说明</strong></summary>
 
 <br />
 
-当前 tagged-release workflow 默认发布未签名的 macOS 构建。
+GitHub Release 上的正式 macOS 构建已使用 Developer ID 签名、公证并装订。将 `PI-Desktop.app` 移到 `/Applications` 后应可直接打开。
 
-如果你确认安装包来自可信的 PI-Desktop Release：
+本地或未签名的调试构建仍可能带有 Apple 隔离属性。如果 macOS 提示 App 已损坏或无法打开：
 
-1. 将 `PI-Desktop.app` 移动到 `/Applications`
-2. 如果 macOS 提示 App 已损坏或无法打开，运行：
+1. 确认安装包来自可信的 PI-Desktop 来源
+2. 将 `PI-Desktop.app` 移动到 `/Applications`
+3. 运行：
 
 ```bash
 xattr -r -d com.apple.quarantine /Applications/PI-Desktop.app
 ```
 
-3. 再次打开 PI-Desktop
+4. 再次打开 PI-Desktop
 
 DMG 内包含 `If app won't open, read this.txt`。
 
@@ -491,11 +492,13 @@ ZIP 包也包含 `PI-Desktop-macOS-open.command`，在应用移动到 Applicatio
 
 **不要对来源不可信的 App 使用。**
 
-使用 `sign_macos: true` 手动触发发布流程时，可以通过 Developer ID 对 macOS 产物完成签名、公证与 stapling；已签名版本不需要这套 fallback。
+已签名并公证的版本不需要这套 fallback。
 
 </details>
 
-### Windows 代码签名
+### 代码签名
+
+macOS GitHub Release 产物使用 Developer ID Application `XingYu Liu (DUV63RKYTW)` 签名，并由 Apple 公证。
 
 PI-Desktop 的 Windows Release 使用 [SignPath.io](https://signpath.io/) 提供的免费代码签名服务，并通过 [SignPath Foundation](https://signpath.org/) 的证书完成签名。
 
@@ -596,7 +599,7 @@ PI-Desktop 在此基础上增加了：
 
 PI-Desktop 目前仍处于 Early Preview，并在高频迭代。
 
-当前 **0.14.x** 已包含：
+当前 **0.15.x** 已包含：
 
 - Desktop Shell
 - Streaming Agent Runtime
@@ -765,6 +768,18 @@ PI-Desktop 前后经过大量模型共同参与开发、重构、Review、设计
 ## 社区
 
 - [Linux.Do](https://linux.do/) — 欢迎讨论、反馈、分享使用体验。
+
+---
+
+## Star History
+
+<a href="https://star-history.com/#vastsa/PI-Desktop&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=vastsa/PI-Desktop&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=vastsa/PI-Desktop&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=vastsa/PI-Desktop&type=Date" />
+ </picture>
+</a>
 
 ---
 

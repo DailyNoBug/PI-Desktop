@@ -78,11 +78,19 @@ manifest that lists entries without the permission is invalid
 Plugins → "Import pi extension" opens a native picker (main owns the path,
 D344) for an explicit local file or directory. Main copies the selected
 source under `<dataDir>/plugins/imported/<slug>/src/`, writes a generated
-no-op `main.js` and a manifest with id `imported.<slug>` (a unique suffix is
+CommonJS no-op `main.cjs` and a manifest with id `imported.<slug>` (a unique suffix is
 added for repeated imports), and registers the directory through the existing
 local-plugin flow. The confirmation before the picker remains the trust
 decision; the generated manifest declares the permissions needed by its actual
-contributions.
+contributions. The manifest's `main` points to `main.cjs` regardless of the
+source package's `type`; both copied package declarations retain their module
+semantics. Loading an imported plugin whose `main` is the generated CommonJS
+`main.js` wrapper rewrites that file in place to `main.cjs` and updates the
+manifest; copied package files, grants, and activation scope stay as they are.
+The rewrite matches only the generated no-op (including the original comment
+text). A customized `main.js` is left untouched. Re-importing without removal
+creates a separate plugin with a unique suffix; it does not copy grants or
+activation scope from the older copy.
 
 For extension files and packages without `pi.skills`, entry discovery keeps
 the existing `pi-coding-agent` rules: `package.json` `pi.extensions`, otherwise

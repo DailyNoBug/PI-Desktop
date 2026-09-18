@@ -155,6 +155,8 @@ pub struct UiMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub hosted_search: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
@@ -337,6 +339,20 @@ pub(crate) fn ui_to_record(message: &UiMessage) -> (MessageRecord, Option<String
     if let Some(thinking) = &message.thinking {
         blocks.push(json!({ "type": "thinking", "text": thinking }));
     }
+    if let Some(hosted_search) = &message.hosted_search {
+        let mut block = serde_json::Map::new();
+        block.insert("type".into(), json!("hostedSearch"));
+        if let Some(obj) = hosted_search.as_object() {
+            for (key, value) in obj {
+                if key != "type" {
+                    block.insert(key.clone(), value.clone());
+                }
+            }
+        } else {
+            block.insert("value".into(), hosted_search.clone());
+        }
+        blocks.push(Value::Object(block));
+    }
     let text = if message.role == "tool" {
         let mut block = serde_json::Map::new();
         block.insert("type".into(), json!("tool_call"));
@@ -466,6 +482,10 @@ pub(crate) fn record_to_ui(record: MessageRecord) -> UiMessage {
         })
         .collect::<Vec<_>>();
     let thinking = (!thinking.is_empty()).then(|| thinking.concat());
+    let hosted_search = blocks
+        .iter()
+        .find(|b| b.get("type").and_then(|t| t.as_str()) == Some("hostedSearch"))
+        .cloned();
     let is_error = record.is_error.then_some(true);
     let attachments = blocks
         .iter()
@@ -507,6 +527,7 @@ pub(crate) fn record_to_ui(record: MessageRecord) -> UiMessage {
             steering,
             created_at: record.created_at,
             thinking,
+            hosted_search: hosted_search.clone(),
             status,
             model_id,
             provider_id,
@@ -555,6 +576,7 @@ pub(crate) fn record_to_ui(record: MessageRecord) -> UiMessage {
             steering,
             created_at: record.created_at,
             thinking,
+            hosted_search: hosted_search.clone(),
             status,
             model_id,
             provider_id,
@@ -964,7 +986,31 @@ pub fn restore_orphaned_session(db: &Database, session_id: &str) -> Result<bool>
     if !path.exists() {
         return Ok(false);
     }
-    let records = dedupe_records(transcripts::read_transcript(db.data_dir(), session_id)?);
+    let read = transcripts::read_transcript_with_compactions(db.data_dir(), session_id)?;
+    let mut records = dedupe_records(read.messages);
+    let mut remapped = false;
+    for record in &mut records {
+        if let Some(owner) = message_owner(db, &record.id)? {
+            if owner != session_id {
+                record.id = namespaced_message_id(session_id, &record.id);
+                remapped = true;
+            }
+        }
+    }
+    if remapped {
+        let header = records
+            .first()
+            .map(|record| record.created_at.clone())
+            .unwrap_or_else(|| ms_to_ts(now_ms()));
+        transcripts::write_transcript_with_compactions(
+            db.data_dir(),
+            session_id,
+            &header,
+            &records,
+            &read.compactions,
+        )?;
+        invalidate_transcript_layout(session_id);
+    }
     let created_at = records
         .first()
         .map(|record| ts_to_ms(&record.created_at))
@@ -1718,9 +1764,11 @@ pub fn append_message(
 ) -> Result<()> {
     let message = crate::session_collaboration::prepare_append(db, session_id, message, turn_id)?;
     let session_created = ensure_session_for_append(db, session_id)?;
-    let (record, text) = ui_to_record(&message);
+    let (mut record, text) = ui_to_record(&message);
     // Electron may replay an outbox entry after a host restart. Message ids
-    // are globally unique, so an existing row is already the durable result.
+    // are globally unique, so an existing row in this session is already the
+    // durable result. Provider toolCallIds are not globally unique: a collision
+    // with another session is remapped before any transcript write (D444).
     // A steering input reserves its preceding streaming assistant's position;
     // only a terminal assistant snapshot may replace that provisional row.
     if message_indexed(db, session_id, &record.id)? {
@@ -1742,6 +1790,22 @@ pub fn append_message(
             return Ok(());
         }
     } else {
+        if let Some(owner) = message_owner(db, &record.id)? {
+            if owner != session_id {
+                let original_id = record.id.clone();
+                record.id = namespaced_message_id(session_id, &record.id);
+                if message_indexed(db, session_id, &record.id)? {
+                    return Ok(());
+                }
+                // Old hosts wrote JSONL then failed UNIQUE. Replaying that
+                // leftover must not append a second remapped line (D444).
+                if transcript_contains_id(db, session_id, &original_id)? {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+        }
         append_record(
             db,
             session_id,
@@ -1796,6 +1860,29 @@ fn message_indexed(db: &Database, session_id: &str, message_id: &str) -> Result<
         )
         .optional()?;
     Ok(existing.is_some())
+}
+
+/// Session that currently owns this globally unique message id, if any.
+fn message_owner(db: &Database, message_id: &str) -> Result<Option<String>> {
+    let owner: Option<String> = db
+        .conn()
+        .query_row(
+            "SELECT session_id FROM messages WHERE id = ?1",
+            params![message_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(owner)
+}
+
+fn namespaced_message_id(session_id: &str, message_id: &str) -> String {
+    format!("{session_id}:{message_id}")
+}
+
+fn transcript_contains_id(db: &Database, session_id: &str, message_id: &str) -> Result<bool> {
+    Ok(transcripts::read_transcript(db.data_dir(), session_id)?
+        .iter()
+        .any(|record| record.id == message_id))
 }
 
 fn streaming_assistant_indexed(db: &Database, session_id: &str, message_id: &str) -> Result<bool> {
@@ -3348,6 +3435,7 @@ mod tests {
             steering: None,
             created_at: ts.into(),
             thinking: None,
+            hosted_search: None,
             status: None,
             model_id: None,
             provider_id: None,
@@ -3846,6 +3934,7 @@ mod tests {
             steering: None,
             created_at: "2025-05-01T00:00:02Z".into(),
             thinking: None,
+            hosted_search: None,
             status: Some("complete".into()),
             model_id: None,
             provider_id: None,
@@ -3940,6 +4029,94 @@ mod tests {
             )
             .unwrap();
         assert_eq!(last_seq, 2);
+    }
+
+    #[test]
+    fn append_message_remaps_ids_owned_by_another_session() {
+        let db = test_db();
+        let first = create_session(&db, None, None, None, None, None).unwrap();
+        let second = create_session(&db, None, None, None, None, None).unwrap();
+        let colliding = user_msg("call_421522", "first", "2026-09-16T15:42:41Z");
+        append_message(&db, &first.id, &colliding, None).unwrap();
+        append_message(&db, &second.id, &colliding, None).unwrap();
+
+        let first_detail = get_session(&db, &first.id).unwrap().unwrap();
+        let second_detail = get_session(&db, &second.id).unwrap().unwrap();
+        assert_eq!(first_detail.messages[0].id, "call_421522");
+        assert_eq!(
+            second_detail.messages[0].id,
+            format!("{}:call_421522", second.id)
+        );
+        assert_eq!(second_detail.messages[0].content, "first");
+
+        append_message(&db, &second.id, &colliding, None).unwrap();
+        assert_eq!(
+            get_session(&db, &second.id)
+                .unwrap()
+                .unwrap()
+                .messages
+                .len(),
+            1
+        );
+        assert_eq!(
+            transcripts::read_transcript(db.data_dir(), &second.id)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn append_message_does_not_duplicate_a_unique_failed_jsonl_leftover() {
+        let db = test_db();
+        let first = create_session(&db, None, None, None, None, None).unwrap();
+        let second = create_session(&db, None, None, None, None, None).unwrap();
+        let colliding = user_msg("call_421522", "leftover", "2026-09-16T15:42:41Z");
+        append_message(&db, &first.id, &colliding, None).unwrap();
+        let (record, _) = ui_to_record(&colliding);
+        transcripts::append_message(db.data_dir(), &second.id, &second.created_at, &record)
+            .unwrap();
+        append_message(&db, &second.id, &colliding, None).unwrap();
+        assert_eq!(
+            transcripts::read_transcript(db.data_dir(), &second.id)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            get_session(&db, &second.id)
+                .unwrap()
+                .unwrap()
+                .messages
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn restore_orphaned_session_remaps_ids_owned_by_another_session() {
+        let db = test_db();
+        let first = create_session(&db, None, None, None, None, None).unwrap();
+        let second = create_session(&db, None, None, None, None, None).unwrap();
+        let colliding = user_msg("call_421522", "orphan", "2026-09-16T15:42:41Z");
+        append_message(&db, &first.id, &colliding, None).unwrap();
+        let (record, _) = ui_to_record(&colliding);
+        transcripts::append_message(db.data_dir(), &second.id, &second.created_at, &record)
+            .unwrap();
+        db.conn()
+            .execute("DELETE FROM sessions WHERE id = ?1", params![second.id])
+            .unwrap();
+        assert!(restore_orphaned_session(&db, &second.id).unwrap());
+        let restored = get_session(&db, &second.id).unwrap().unwrap();
+        assert_eq!(restored.messages.len(), 1);
+        assert_eq!(
+            restored.messages[0].id,
+            format!("{}:call_421522", second.id)
+        );
+        assert_eq!(
+            get_session(&db, &first.id).unwrap().unwrap().messages[0].id,
+            "call_421522"
+        );
     }
 
     #[test]
@@ -4186,6 +4363,7 @@ mod tests {
             steering: None,
             created_at: "2025-05-01T00:00:01Z".into(),
             thinking: Some("first plan\nsecond plan".into()),
+            hosted_search: None,
             status: Some("complete".into()),
             model_id: Some("model-1".into()),
             provider_id: Some("provider-1".into()),

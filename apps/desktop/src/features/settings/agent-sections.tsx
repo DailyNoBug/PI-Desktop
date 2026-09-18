@@ -3,7 +3,18 @@ import { useTranslation } from "react-i18next";
 import type { AgentInstructionFile } from "@pi-desktop/shared";
 import { useAppStore } from "../../stores/app-store";
 import { api } from "../../lib/api";
-import type { ImportCandidate, ModelConfigImportCandidate } from "../../lib/api";
+import type {
+  ImportCandidate,
+  ModelConfigImportCandidate,
+  ExternalSkillCandidate,
+  ExternalSkillImportItem,
+  ExternalSkillScanResult,
+  ExternalSkillSourceKind,
+  ExternalMcpCandidate,
+  ExternalMcpImportItem,
+  ExternalMcpScanResult,
+  ExternalMcpSourceKind,
+} from "../../lib/api";
 import { useUpdateState } from "../../hooks/use-update-state";
 import {
   DEFAULT_IMPORT_GROUP_BY,
@@ -197,6 +208,8 @@ export function ImportSection() {
     <div className="settings-stack">
       <SessionImportPanel />
       <ModelConfigImportPanel />
+      <SkillsScanImportPanel />
+      <McpScanImportPanel />
     </div>
   );
 }
@@ -673,3 +686,407 @@ export function ModelConfigImportPanel() {
  * which is also what unlocks F12 and the macOS View ▸ developer tools item
  * (enforced in the main process, not here).
  */
+
+// ---------------------------------------------------------------------------
+// Scan skills / MCP servers from other agent tools on this machine.
+// ---------------------------------------------------------------------------
+
+const SKILL_SOURCE_KEY: Record<ExternalSkillSourceKind, string> = {
+  "claude-user": "settings.importAgentScanSourceClaudeUser",
+  "claude-project": "settings.importAgentScanSourceClaudeProject",
+  "pi-user": "settings.importAgentScanSourcePiUser",
+  "pi-project": "settings.importAgentScanSourcePiProject",
+};
+
+const MCP_SOURCE_KEY: Record<ExternalMcpSourceKind, string> = {
+  "claude-desktop": "settings.importAgentScanSourceClaudeDesktop",
+  "claude-code": "settings.importAgentScanSourceClaudeCode",
+  "cursor-global": "settings.importAgentScanSourceCursorGlobal",
+  "cursor-project": "settings.importAgentScanSourceCursorProject",
+  codex: "settings.importAgentScanSourceCodex",
+  opencode: "settings.importAgentScanSourceOpenCode",
+  "chatgpt-desktop": "settings.importAgentScanSourceChatgpt",
+};
+
+function groupBySource<C extends { source: string }>(
+  candidates: C[],
+): Array<{ id: string; items: C[] }> {
+  const map = new Map<string, C[]>();
+  for (const c of candidates) {
+    const bucket = map.get(c.source);
+    if (bucket) bucket.push(c);
+    else map.set(c.source, [c]);
+  }
+  return Array.from(map.entries()).map(([id, items]) => ({ id, items }));
+}
+
+export function SkillsScanImportPanel() {
+  const { t } = useTranslation();
+  const showToast = useAppStore((s) => s.showToast);
+  const [result, setResult] = useState<ExternalSkillScanResult | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState<"copy" | "link">("copy");
+  const [scanning, setScanning] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  const keyOf = (c: ExternalSkillCandidate) => `${c.source}:${c.sourcePath}`;
+
+  const scan = async () => {
+    setScanning(true);
+    try {
+      const res = await api.scanExternalSkills();
+      setResult(res);
+      setSelected(new Set());
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), { variant: "error" });
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const runImport = async () => {
+    if (!result) return;
+    const items: ExternalSkillImportItem[] = result.candidates
+      .filter((c) => selected.has(keyOf(c)))
+      .map((c) => ({
+        source: c.source,
+        sourcePath: c.sourcePath,
+        shape: c.shape,
+        rootDir: c.rootDir,
+        id: c.id,
+        name: c.name,
+        description: c.description,
+      }));
+    if (items.length === 0) return;
+    setImporting(true);
+    try {
+      const res = await api.runExternalSkillsImport({
+        level: "global",
+        mode,
+        items,
+      });
+      showToast(
+        t("settings.importAgentScanResult", {
+          imported: res.imported.length,
+          skipped: res.skipped.length,
+          failed: res.failed.length,
+        }),
+        { variant: res.failed.length > 0 ? "error" : "success" },
+      );
+      // Refresh scan so already-imported rows disappear next round.
+      await scan();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), { variant: "error" });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const toggle = (k: string, on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(k);
+      else next.delete(k);
+      return next;
+    });
+
+  const groups = useMemo(() => groupBySource(result?.candidates ?? []), [result]);
+  const allKeys = useMemo(
+    () => (result?.candidates ?? []).map(keyOf),
+    [result],
+  );
+  const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k));
+
+  return (
+    <>
+      <SettingsCard title={t("settings.importAgentSkillsTitle")}>
+        <div className="settings-description">
+          {t("settings.importAgentSkillsDesc")}
+        </div>
+        <SettingsRow title={t("settings.importScan")}>
+          <Button variant="secondary" disabled={scanning} onClick={() => void scan()}>
+            {scanning ? t("settings.importScanning") : t("settings.importScan")}
+          </Button>
+        </SettingsRow>
+        <SettingsRow title={t("settings.importAgentScanMode")}>
+          <SettingsMenuSelect
+            label={t("settings.importAgentScanMode")}
+            value={mode}
+            onChange={(id) => setMode(id as "copy" | "link")}
+            options={[
+              { id: "copy", label: t("settings.importAgentScanModeCopy") },
+              { id: "link", label: t("settings.importAgentScanModeLink") },
+            ]}
+          />
+          <div className="settings-hint">
+            {t("settings.importAgentScanModeHint")}
+          </div>
+        </SettingsRow>
+      </SettingsCard>
+
+      {result !== null && (
+        <SettingsCard>
+          {result.candidates.length === 0 ? (
+            <div className="settings-empty">{t("settings.importAgentScanNone")}</div>
+          ) : (
+            <>
+              <div className="import-toolbar">
+                <label className="import-select-all">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    aria-label={t("settings.importSelectAll")}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setSelected(on ? new Set(allKeys) : new Set());
+                    }}
+                  />
+                  <span>
+                    {t("settings.importAgentScanFoundSkills", {
+                      count: result.candidates.length,
+                    })}
+                    {selected.size > 0
+                      ? ` · ${t("settings.importSelectedCount", { count: selected.size })}`
+                      : ""}
+                  </span>
+                </label>
+                <Button
+                  variant="primary"
+                  disabled={importing || selected.size === 0}
+                  onClick={() => void runImport()}
+                >
+                  {importing
+                    ? t("settings.importing")
+                    : t("settings.importSelected", { count: selected.size })}
+                </Button>
+              </div>
+              <div className="import-groups">
+                {groups.map((g) => (
+                  <div key={g.id} className="import-group">
+                    <div className="import-group-header">
+                      <span className="import-group-title">
+                        {t(
+                          SKILL_SOURCE_KEY[g.id as ExternalSkillSourceKind] ??
+                            "settings.importSourcePi",
+                        )}
+                      </span>
+                      <Badge tone="neutral">{g.items.length}</Badge>
+                    </div>
+                    <div className="import-group-body">
+                      {g.items.map((c) => {
+                        const k = keyOf(c);
+                        return (
+                          <label key={k} className="import-row">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(k)}
+                              onChange={(e) => toggle(k, e.target.checked)}
+                            />
+                            <span className="import-row-main">
+                              <span className="import-row-title">{c.name || c.id}</span>
+                              <span className="import-row-meta">
+                                {c.description || c.sourcePath}
+                              </span>
+                            </span>
+                            <Badge
+                              tone={c.shape === "dir" ? "success" : "neutral"}
+                            >
+                              {c.shape === "dir"
+                                ? t("settings.importAgentScanShapeDir")
+                                : t("settings.importAgentScanShapeFile")}
+                            </Badge>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </SettingsCard>
+      )}
+    </>
+  );
+}
+
+export function McpScanImportPanel() {
+  const { t } = useTranslation();
+  const showToast = useAppStore((s) => s.showToast);
+  const [result, setResult] = useState<ExternalMcpScanResult | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [scanning, setScanning] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  const keyOf = (c: ExternalMcpCandidate) => `${c.source}:${c.id}`;
+
+  const scan = async () => {
+    setScanning(true);
+    try {
+      const res = await api.scanExternalMcp();
+      setResult(res);
+      setSelected(new Set());
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), { variant: "error" });
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const runImport = async () => {
+    if (!result) return;
+    const items: ExternalMcpImportItem[] = result.candidates
+      .filter((c) => selected.has(keyOf(c)))
+      .map((c) => ({
+        source: c.source,
+        sourcePath: c.sourcePath,
+        id: c.id,
+        rawKey: c.rawKey,
+        label: c.label,
+        description: c.description,
+        transport: c.transport,
+        command: c.command,
+        args: c.args,
+        env: c.env,
+        url: c.url,
+        headers: c.headers,
+        disabled: c.disabled,
+      }));
+    if (items.length === 0) return;
+    setImporting(true);
+    try {
+      const res = await api.runExternalMcpImport({ items });
+      showToast(
+        t("settings.importAgentScanResult", {
+          imported: res.imported.length,
+          skipped: res.skipped.length,
+          failed: res.failed.length,
+        }),
+        { variant: res.failed.length > 0 ? "error" : "success" },
+      );
+      await scan();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), { variant: "error" });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const toggle = (k: string, on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(k);
+      else next.delete(k);
+      return next;
+    });
+
+  const groups = useMemo(() => groupBySource(result?.candidates ?? []), [result]);
+  const allKeys = useMemo(
+    () => (result?.candidates ?? []).map(keyOf),
+    [result],
+  );
+  const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k));
+
+  return (
+    <>
+      <SettingsCard title={t("settings.importAgentMcpTitle")}>
+        <div className="settings-description">
+          {t("settings.importAgentMcpDesc")}
+        </div>
+        <SettingsRow title={t("settings.importScan")}>
+          <Button variant="secondary" disabled={scanning} onClick={() => void scan()}>
+            {scanning ? t("settings.importScanning") : t("settings.importScan")}
+          </Button>
+        </SettingsRow>
+      </SettingsCard>
+
+      {result !== null && (
+        <SettingsCard>
+          {result.candidates.length === 0 ? (
+            <div className="settings-empty">{t("settings.importAgentScanNone")}</div>
+          ) : (
+            <>
+              <div className="import-toolbar">
+                <label className="import-select-all">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    aria-label={t("settings.importSelectAll")}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setSelected(on ? new Set(allKeys) : new Set());
+                    }}
+                  />
+                  <span>
+                    {t("settings.importAgentScanFoundMcp", {
+                      count: result.candidates.length,
+                    })}
+                    {selected.size > 0
+                      ? ` · ${t("settings.importSelectedCount", { count: selected.size })}`
+                      : ""}
+                  </span>
+                </label>
+                <Button
+                  variant="primary"
+                  disabled={importing || selected.size === 0}
+                  onClick={() => void runImport()}
+                >
+                  {importing
+                    ? t("settings.importing")
+                    : t("settings.importSelected", { count: selected.size })}
+                </Button>
+              </div>
+              <div className="import-groups">
+                {groups.map((g) => (
+                  <div key={g.id} className="import-group">
+                    <div className="import-group-header">
+                      <span className="import-group-title">
+                        {t(
+                          MCP_SOURCE_KEY[g.id as ExternalMcpSourceKind] ??
+                            "settings.importSourcePi",
+                        )}
+                      </span>
+                      <Badge tone="neutral">{g.items.length}</Badge>
+                    </div>
+                    <div className="import-group-body">
+                      {g.items.map((c) => {
+                        const k = keyOf(c);
+                        return (
+                          <label key={k} className="import-row">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(k)}
+                              onChange={(e) => toggle(k, e.target.checked)}
+                            />
+                            <span className="import-row-main">
+                              <span className="import-row-title">
+                                {c.label || c.id}
+                              </span>
+                              <span className="import-row-meta">
+                                {c.description ||
+                                  c.command ||
+                                  c.url ||
+                                  c.sourcePath}
+                              </span>
+                            </span>
+                            <Badge
+                              tone={c.transport === "http" ? "warning" : "neutral"}
+                            >
+                              {c.transport === "http"
+                                ? t("settings.importAgentScanTransportHttp")
+                                : t("settings.importAgentScanTransportStdio")}
+                            </Badge>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </SettingsCard>
+      )}
+    </>
+  );
+}

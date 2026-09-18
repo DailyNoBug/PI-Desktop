@@ -104,6 +104,9 @@ locale 声明。扩展页、插件启动器和市场（从 catalog 条目读取�
    系统语言）。存储行保留作者原文，因此切换语言只改变读取结果，绝不改写注册表。
 4. 该块是展示元数据。格式错误（不是 locale → 对象的对象）会让 manifest 校验失败；
    条目里未知的 locale 与未知字段一律忽略。
+5. 该块只服务身份文案（`name`、`description`、`safetyNotes`）。插件自有文案——面板、
+   视图、widget、生成式设置、toast、运行时命令标题——不在这里翻译。宿主只发布当前
+   语言（`pi.app.getLocale`、`appearance:changed`），由插件自行本地化（ADR 0280）。
 
 ## 4. 贡献
 
@@ -145,7 +148,7 @@ type PluginAgentToolContrib = {
 
 type PluginSettingContrib = {
  key: string;
- title: string;
+ title: string; // 作者语言；生成式设置面板不做本地化
  description?: string;
  type: "string" | "number" | "boolean" | "select" | "json" | "shortcut";
  default?: unknown;
@@ -281,8 +284,10 @@ type PluginPermission =
  | "session.read.own"
  | "session.update.own"
  | "session.delete.own"
+ | "usage.read"
  | "audio.capture.background"
  | "audio.playback.background"
+ | "speech.adapter.register"
  | "keyboard.globalShortcut"
  | "net.websocket";
 ```

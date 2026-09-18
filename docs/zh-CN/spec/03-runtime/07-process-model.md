@@ -97,7 +97,7 @@ Windows 安装包目标为 x64。Windows host-core 使用
 系统通过操作系统的 x64 模拟运行该 x64 安装包；目前不发布原生 Windows ARM64
 工件。
 
-监管参数（在Electron main中实现）：
+监管参数（传输、重启策略与回合生命周期位于 `packages/host-runtime`，ADR 0284；Electron main 适配它们并负责面向渲染层的状态）：
 
 - 子进程退出立即拒绝该子进程的所有正在进行的 RPC（无 130 秒超时等待）。
 - 超过 64 MiB 的 NDJSON 请求行以 `LIMIT_EXCEEDED` 应答，不结束 stdin 读取器（ADR 0216）。Electron 在写入 stdin 前拒绝同样大小的载荷（ADR 0217）。

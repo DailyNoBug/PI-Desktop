@@ -30,9 +30,16 @@ PluginManager
 ### plugin domain
 - `plugin/list`
 - `plugin/detail`
-- `plugin/loadDev`
-- `plugin/reload` — resolve the registered plugin path, reload it in Electron
-  main, and refresh the development-plugin permission ceiling
+- `plugin/loadDev` — open the folder picker and return what the folder
+  *declares* as a permission review; nothing is registered yet
+- `plugin/loadDevConfirm` — the answer to that review: register the folder as a
+  development plugin and load it with the accepted permissions, which become
+  the ceiling every later hot reload is measured against
+- `plugin/reload` — resolve the registered plugin path, compare the manifest
+  against the recorded approval, and either reload in Electron main or return a
+  review when the manifest now asks for more
+- `plugin/reloadConfirm` — the answer to that review: reload under the accepted
+  permissions and refresh the development-plugin permission ceiling
 - `plugin/installFromPath` ✅
 - `plugin/installFromPackage` ✅
 - `plugin/enable`

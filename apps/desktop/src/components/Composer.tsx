@@ -12,12 +12,14 @@ import type {
   PermissionMode,
 } from "@pi-desktop/shared";
 import {
+  supportsNativeWebSearch,
   initialThinkingLevelForBinding,
   modelIdsMatch,
   normalizeLargePasteThreshold,
   stripInlineComposerFileReferenceTokens,
 } from "@pi-desktop/shared";
 import { useAppStore } from "../stores/app-store";
+import { api } from "../lib/api";
 import { latestTurnContextInspector } from "../lib/latest-turn-context";
 import { isActivePlanExecution } from "../lib/plan-mode-state";
 import { headAsk, queuedAskCount } from "../lib/pending-asks";
@@ -123,6 +125,7 @@ export function Composer({
     [liveMessages, providerModels, providers, sessionCompactions],
   );
   const configureActiveSession = useAppStore((s) => s.configureActiveSession);
+  const nativeWebSearchEnabled = useAppStore((s) => Boolean(s.settings?.nativeWebSearchEnabled));
   const showToast = useAppStore((s) => s.showToast);
   const composerPrefill = useAppStore((s) => s.composerPrefill);
   const clearComposerPrefill = useAppStore((s) => s.clearComposerPrefill);
@@ -441,7 +444,6 @@ export function Composer({
     submit,
   } = submitController;
 
-
   const composerAc = useComposerAutocomplete({
     value,
     cursor,
@@ -657,6 +659,29 @@ export function Composer({
             hasDraftContent={hasDraftContent}
             abort={abort}
             submit={submit}
+            nativeWebSearchEnabled={nativeWebSearchEnabled}
+            nativeWebSearchSupported={supportsNativeWebSearch({
+              apiStyle: provider?.apiStyle,
+              vendorKey: provider?.vendorKey,
+              baseUrl: provider?.baseUrl,
+            })}
+
+
+            onToggleNativeWebSearch={() => {
+              const settings = useAppStore.getState().settings;
+              if (!settings) return;
+              const next = {
+                ...settings,
+                nativeWebSearchEnabled: !settings.nativeWebSearchEnabled,
+              };
+              void api.setSettings(next).then(() => {
+                useAppStore.setState({ settings: next });
+              }).catch((error) => {
+                showToast(error instanceof Error ? error.message : String(error), {
+                  variant: "error",
+                });
+              });
+            }}
           />
         </div>
       </div>

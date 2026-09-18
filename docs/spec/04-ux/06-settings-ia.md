@@ -10,7 +10,19 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   shows a compact loading/failure state with a retry action instead of an empty
   section.
 
-- Left settings rail only (sidebar surface `#f4f4f4` light / `#000` dark), **~275px** (Codex gold at 1200-wide)
+- Left settings rail only, **275px**, using the same `sidebar-surface` material
+  as the main sidebar: native vibrancy with shared tint/sheen on macOS, opaque
+  `--ds-bg-sidebar` on Windows/Linux, and shared optional background imagery.
+  macOS settings-wrapper ancestry is transparent; the content pane and its
+  titlebar remain opaque. Only a nested settings content enter wrapper plays a
+  route animation; the scrolling inner pane, rail, and backing never fade or
+  translate. That entrance is opacity-only. Settings dialogs and sheets portal
+  to a viewport-fixed `#pi-desktop-overlays` host on the document element and
+  cover the full window, including the rail.
+- Returning to the app restores the prior sidebar collapsed/expanded state
+  without a sidebar entrance animation or a width ramp. Real toggle and
+  automatic collapse/restore transitions on the visible shell still animate;
+  initial presentation and route restoration do not.
 - Top of rail: traffic-light clearance and the pill **Search settings…**
 - The **Back to app** (`返回应用`) action is pinned to the foot of the rail, not
   the top: it keeps its chevron + label form as a 32px control, and it shares
@@ -128,14 +140,45 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   control column.
 - **Defaults** card: the host-backed default operating mode (Agent / Plan / Goal),
   command shell selection, Link open destination, context usage display
-  (remaining or used), Enter-to-send control, and the large text paste
+  (remaining or used), thinking display mode, Enter-to-send control, and the large text paste
   threshold. Link open destination uses the Work panel browser by default
-  and can route plain HTTP(S) link clicks to the system browser. Context
+  and routes chat, transcript, and plugin HTTP(S) clicks to the system
+  browser when set to Default OS browser. Plugin/settings clicks that want
+  the work panel return to chat first so the dock is visible, without
+  recording a navigation hop; a missing session falls back to the OS
+  browser. Workspace HTML preview, BrowserPreview, OAuth, and Feedback
+  keep their existing destinations. Context
   usage display controls whether the composer toolbar context ring and its
   popover lead with the remaining or the used capacity figure; the default
   is remaining. The threshold controls when a text-only paste becomes a
   temporary session-scratch file; it defaults to 600 characters and accepts
   integer values from 1 through 1,000,000.
+- **Prompt enhancement** is a card controlling the Composer's Enhance prompt
+  action (ADR 0121). It carries a `Use a custom template` switch and the settings
+  icon button the subagent rows use for editing, which opens an editor sheet
+  (the subagent editor's pattern). The switch gates whether a stored template
+  applies, is disabled until one is saved, and turns on when a template is
+  saved; turning it off keeps the stored text. The sheet holds the user-template
+  editor, which shows the built-in default text when no override is stored and
+  offers an insert action for the draft variable; a save that would leave the
+  template without that variable is refused. The system prompt is built in and
+  exposes no field. Settings search indexes the card, its switch, and the
+  template row.
+- **Enhancement prompt** is its own card on the Models tab, below Defaults,
+  because both fields are model decisions and the model picker needs the
+  title/value/control shape the Defaults rows do not have. Its `Default model`
+  row uses the same anchored, searchable menu as the Defaults card's row; empty
+  means "follow the Composer's current model". Two rows therefore read `Default
+  model`, distinguished by their card headings. The reasoning row is a menu
+  select listing the levels the selected model actually supports (the row is
+  disabled when it supports none), defaults to Off, and has no
+  follow-the-session entry. Settings search indexes the card and both rows.
+- **Thinking display mode** uses a menu select with Detailed (default) and
+  Compact. Detailed retains reasoning text; Compact shows only an active
+  thinking indicator and hides finished thought rows. The global preference
+  persists as `thinkingDisplayMode` in host-owned settings; missing values use
+  Detailed. It affects presentation only, not model reasoning configuration.
+  Settings search indexes the row and both mode names.
 - The **Command shell** row in Defaults uses the host-discovered catalog of native
   PowerShell 5.1, PowerShell 7, cmd, Git Bash, and Bash with IDs
   `windows-powershell`, `windows-pwsh`, `cmd`, `git-bash`, and
@@ -155,8 +198,13 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   Manual `/compact` remains available from the command palette for an idle
   session; the transcript shows where each compaction happened and the context
   usage inspector shows whether a checkpoint is installed.
+- **Voice** card: default ASR and TTS bindings (`AppSettings.speech`). Each
+  role picks an existing provider, a protocol (`openai_audio` /
+  `openai_chat_audio` plus plugin adapters), and a model id. TTS may set a
+  voice. Unconfigured roles disable the matching Composer action. Whisper / TTS
+  models do not appear in the chat model picker. See spec `20-speech.md`.
 
-Token usage is **not a Settings destination** (D335 / D430 / ADR 0273). The
+Token usage is **not a Settings destination** (D335 / D430 / ADR 0290). The
 expanded sidebar footer Activity icon, directly right of Settings, opens a
 read-only fourteen-day
 completed-turn summary from host-owned history
@@ -186,15 +234,15 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     on Windows/Linux; its native global registration follows the same override.
     An unbound launcher disables Electron registration, the Windows host hook,
     and the focused-window fallback
-  - the window-visibility row is one toggle on `Cmd/Ctrl + W`: it hides a
+  - the window-visibility row is one toggle on `Alt + Shift + W`: it hides a
     visible, focused window to the tray and brings a hidden or minimized window
     back. It is the only window key — the retired `Cmd/Ctrl + Shift + W` summon
-    row is gone — and a stored `closeWindow`/`summonWindow` override is folded
-    into it when the map is read (D438)
+    row is gone — and it avoids `Cmd/Ctrl + W` because macOS spends that chord
+    on its own close-window command; a stored `closeWindow`/`summonWindow`
+    override is folded into it when the map is read (D438, D439)
   - the `voiceDictation` action (default `Mod + Shift + V`, agent group)
     toggles composer dictation and follows the same override, conflict, and
-    restore rules as the rest of the shared shortcut map (D439 / ADR 0279)
-
+    restore rules as the rest of the shared shortcut map (D439 / ADR 0296)
 
 ### Model configuration (`agent` tab)
 - **Defaults** card: a compact settings row shows the provider name and exact
@@ -235,7 +283,7 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     row and keeps the global default model in sync when that account is selected
   - Test connection resolves the account's OAuth authorization and reports a
     transient success or failure without probing the provider with an API key
-- **Voice dictation** card (D439 / ADR 0279): one card with the STT endpoint
+- **Voice dictation** card (D439 / ADR 0296): one card with the STT endpoint
   (an OpenAI-compatible base URL; plain `http://` is accepted only on
   loopback), the transcription model, a write-only API key stored under the
   `voice/stt` secret ref and never shown raw after save, an optional language
@@ -656,7 +704,11 @@ system while preserving their different data ownership:
 6. General shows the host-backed Appearance card; the AI destination shows
    Permissions and Defaults, including the Command shell row; the
    Shortcuts destination shows the Keyboard shortcuts card; Info shows the
-   Developer card. No additional settings destinations are rendered. Token
+   Developer card. Plugin-contributed destinations, when present, appear after
+   every core group under Extensions. Each destination is a renderer-composited
+   sandboxed surface: it preserves the existing Settings rail, titlebar,
+   Windows/Linux minimize/maximize controls, native drag/resize regions, and
+   content geometry. Token
    usage lives in plugin `pi.token-insights`, not Settings.
 7. Provider secrets never display raw key values
 8. Model configuration shows compact Defaults, separate vendor accounts, the
@@ -726,7 +778,7 @@ the current window width:
 | Token | Value |
 |---|---|
 | Rail width | ~275px (`--ds-settings-nav-width`, shared by the rail and the top band inset) |
-| Rail light bg | `#f4f4f4` |
+| Rail surface | Shared sidebar material; light opaque fallback `#f3f3f3`, native glass on macOS |
 | Top band | content pane only, inset by the rail width; rail keeps its own surface |
 | Active nav pill | denser 6px/10px pad, ~8px radius, gray mix on rail |
 | Section title | 28px / 560, first baseline ~y70 |

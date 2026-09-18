@@ -54,23 +54,24 @@ The application categories are:
 - `diagnostics` — blocked navigation, menu, template, and outbound-fetch
   diagnostics. The skill market's two channels record one
   `skillMarket.sourceFailed` / `skillMarket.documentFailed` record per source
-  or document that produced nothing, with `source`, `host`, `kind` and — for a
-  guard refusal — `reason`, `addressKind` and `route` in `data`. `kind` is
-  `policy` when the guard judged the target, `unresolved` when the local
-  resolver returned no answer, and `network` otherwise; `code` is
-  `NETWORK_POLICY_BLOCKED` for the first and `NETWORK_RESOLVE_FAILED` for the
-  second, so one log line separates "the address is not public" from "the
-  resolver answered nothing". `reason` names the guard's own branch
-  (`url-syntax`, `resolve-failed`, `non-public-address`, `redirect-limit`),
-  `addressKind` the class of the refused address (`benchmark` for a TUN fake-IP,
-  `private` for RFC1918), and `route` the route that address was judged on
-  (`proxied`, `direct`, or `unknown` when the transport reported no readable
-  route), so a fake-IP refusal on a direct route reads apart from one on a route
-  nobody could read (ADR 0272). The record carries the host name, that class and
-  that route only — never the address, the URL, its path, query or credentials —
-  because a catalog source URL is user-supplied, the refused host is the whole
-  diagnostic value, and the class is what tells a resolver artifact from a real
-  private target (issue #419).
+  or document that produced nothing, with `source`, `host`, `kind`, `address`
+  and — for a guard refusal — `reason`, `addressKind` and `route` in `data`. `kind`
+  is `policy` when the guard judged the target's own address, `fake-ip` when it
+  judged a placeholder the local proxy invented for the name (Clash's
+  `198.18.0.0/15`), `unresolved` when the local resolver returned no answer, and
+  `network` otherwise; `code` is `NETWORK_POLICY_BLOCKED` for the first two and
+  `NETWORK_RESOLVE_FAILED` for the third, so one log line separates "the address
+  is not public" from "a proxy answered with a fake-IP" from "the resolver
+  answered nothing". `reason` names the guard's own branch (`url-syntax`,
+  `resolve-failed`, `non-public-address`, `redirect-limit`), `addressKind` the
+  class of the refused address (`benchmark` for a TUN fake-IP, `private` for
+  RFC1918), and `route` the route that address was judged on (`proxied`, `direct`,
+  or `unknown` when the transport reported no readable route), so a fake-IP
+  refusal on a direct route reads apart from one on a route nobody could read
+  (ADR 0272). The record carries the host name, the address it resolved to, that
+  class and that route — never the URL, its path, query or credentials — because a
+  catalog source URL is user-supplied and the refused host and address are the
+  whole diagnostic value (issue #419).
 - `remote` — SSH connection stages, pairing, bootstrap, remote provider sync,
   and remote project lifecycle records; secrets and credentials are never included
 - `runtime` — host/sidecar lifecycle, uncategorized child output, and

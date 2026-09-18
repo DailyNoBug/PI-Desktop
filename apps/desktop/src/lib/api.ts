@@ -12,6 +12,11 @@ import type {
   AgentPromptResponse,
   PromptEnhancementRequest,
   PromptEnhancementResponse,
+  SpeechStatus,
+  SpeechSynthesizeRequest,
+  SpeechSynthesizeResult,
+  SpeechTranscribeRequest,
+  SpeechTranscribeResult,
   SessionSummarizeTitleRequest,
   SessionSummarizeTitleResponse,
   AgentStopResponse,
@@ -44,20 +49,23 @@ import type {
   McpServerInput,
   McpServerRecord,
   McpServerStatus,
+  McpOAuthLoginEvent,
   OnboardingState,
   OAuthLoginEvent,
   OAuthRespondInput,
   OAuthStartResult,
   OAuthVendor,
   PluginSummary,
+  PluginPermissionReview,
   PluginSettingDefinition,
   PluginServiceStatus,
   PluginViewMeta,
-  PluginSettingsDestinationMeta,
+  PluginScenicThemesDestinationMeta,
   PluginTheme,
   MarketPluginSummary,
   MarketPluginDetail,
   PluginInstallResult,
+  PluginInstallProgress,
   ProjectRecord,
   ProjectGroupRecord,
   ProjectMemory,
@@ -100,6 +108,9 @@ import type {
   PlanResolutionResult,
   PlanningStateEvent,
   PlansPendingResult,
+  RemoteHostPairRequest,
+  RemoteHostPairResult,
+  RemoteHostSummary,
   UpdateState,
   WindowControlAction,
   CloseBehavior,
@@ -114,9 +125,11 @@ import {
   normalizeLargePasteThreshold,
   normalizeMode,
   normalizeNetworkProxy,
-   resolveFontScale,
-   VOICE_STT_SECRET_REF,
+  resolveFontScale,
+  normalizeChatContentMaxWidth,
+  VOICE_STT_SECRET_REF,
   validateNetworkProxy,
+  validateSpeechSettings,
 } from "@pi-desktop/shared";
 
 export type ImportSource = "claude-code" | "opencode" | "codex" | "pi";
@@ -147,6 +160,130 @@ export interface ImportRunResult {
   imported: number;
   skipped: number;
   failed: number;
+}
+
+// --- External skill / MCP scan-and-import ---------------------------------
+// Renderer-side mirrors of the electron-main scanner output so the panel does
+// not have to import from `electron/`. Keep the field names in sync with
+// `apps/desktop/electron/main/importers/agent-*-scan.ts`.
+
+export type ExternalSkillSourceKind =
+  | "claude-user"
+  | "claude-project"
+  | "pi-user"
+  | "pi-project";
+
+export interface ExternalSkillCandidate {
+  source: ExternalSkillSourceKind;
+  sourcePath: string;
+  rootDir?: string;
+  shape: "file" | "dir";
+  id: string;
+  name: string;
+  description: string;
+  bytes: number;
+  warnings: string[];
+}
+
+export interface ExternalSkillSourceReport {
+  kind: ExternalSkillSourceKind | "error";
+  path: string;
+  exists: boolean;
+  error?: string;
+  count: number;
+}
+
+export interface ExternalSkillScanResult {
+  candidates: ExternalSkillCandidate[];
+  sources: ExternalSkillSourceReport[];
+}
+
+export interface ExternalSkillImportItem {
+  source: ExternalSkillSourceKind;
+  sourcePath: string;
+  shape: "file" | "dir";
+  rootDir?: string;
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface ExternalSkillImportPayload {
+  level: "global" | "project";
+  projectPath?: string;
+  mode?: "copy" | "link";
+  items: ExternalSkillImportItem[];
+}
+
+export interface ExternalSkillImportRunResult {
+  imported: Array<{ item: ExternalSkillImportItem; skill: UserSkillRecord }>;
+  skipped: Array<{ item: ExternalSkillImportItem; reason: string }>;
+  failed: Array<{ item: ExternalSkillImportItem; error: string }>;
+}
+
+export type ExternalMcpSourceKind =
+  | "claude-desktop"
+  | "claude-code"
+  | "cursor-global"
+  | "cursor-project"
+  | "codex"
+  | "opencode"
+  | "chatgpt-desktop";
+
+export interface ExternalMcpCandidate {
+  source: ExternalMcpSourceKind;
+  sourcePath: string;
+  id: string;
+  rawKey: string;
+  label?: string;
+  description?: string;
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  disabled?: boolean;
+  warnings: string[];
+}
+
+export interface ExternalMcpSourceReport {
+  kind: ExternalMcpSourceKind | "error";
+  path: string;
+  exists: boolean;
+  error?: string;
+  count: number;
+}
+
+export interface ExternalMcpScanResult {
+  candidates: ExternalMcpCandidate[];
+  sources: ExternalMcpSourceReport[];
+}
+
+export interface ExternalMcpImportItem {
+  source: ExternalMcpSourceKind;
+  sourcePath: string;
+  id: string;
+  rawKey: string;
+  label?: string;
+  description?: string;
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  disabled?: boolean;
+}
+
+export interface ExternalMcpImportPayload {
+  items: ExternalMcpImportItem[];
+}
+
+export interface ExternalMcpImportRunResult {
+  imported: Array<{ item: ExternalMcpImportItem; server: McpServerRecord }>;
+  skipped: Array<{ item: ExternalMcpImportItem; reason: string }>;
+  failed: Array<{ item: ExternalMcpImportItem; error: string }>;
 }
 
 declare global {
@@ -230,10 +367,20 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
 }
 
 export function validateSettingsWrite(settings: AppSettings): AppSettings {
+  if (
+    settings.thinkingDisplayMode !== undefined &&
+    settings.thinkingDisplayMode !== "detailed" &&
+    settings.thinkingDisplayMode !== "compact"
+  ) {
+    throw Object.assign(new Error("thinkingDisplayMode is invalid"), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
   const value = settings as AppSettings & {
     defaultCommandShell?: unknown;
     largePasteThreshold?: unknown;
     fontScale?: unknown;
+    chatContentMaxWidth?: unknown;
     networkProxy?: unknown;
   };
   if (
@@ -261,6 +408,14 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
       errorCode: "INVALID_PARAMS",
     });
   }
+  if (Object.prototype.hasOwnProperty.call(value, "chatContentMaxWidth")) {
+    const next = normalizeChatContentMaxWidth(value.chatContentMaxWidth);
+    if (next === undefined || next !== value.chatContentMaxWidth) {
+      throw Object.assign(new Error("chatContentMaxWidth is invalid"), {
+        errorCode: "INVALID_PARAMS",
+      });
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(value, "networkProxy")) {
     const proxy = validateNetworkProxy(value.networkProxy);
     if (!proxy.ok) {
@@ -269,6 +424,11 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
       });
     }
     value.networkProxy = proxy.value;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "speech")) {
+    (value as AppSettings).speech = validateSpeechSettings(
+      (value as { speech?: unknown }).speech,
+    );
   }
   return settings;
 }
@@ -559,6 +719,11 @@ export const api = {
       IPC.invoke.projectClone,
       { url },
     ),
+  cloneProjectInto: (url: string, parentPath: string) =>
+    invoke<{ path: string; name: string }>(IPC.invoke.projectCloneCheckout, {
+      url,
+      parentPath,
+    }),
   pickFiles: () =>
     invoke<{ token: string | null; canceled?: boolean }>(IPC.invoke.composerPickFiles),
   getDroppedFilePath: (file: File) =>
@@ -702,6 +867,11 @@ export const api = {
     invoke<AgentPromptResponse>(IPC.invoke.agentPrompt, req),
   enhancePrompt: (req: PromptEnhancementRequest) =>
     invoke<PromptEnhancementResponse>(IPC.invoke.promptEnhance, req),
+  speechStatus: () => invoke<SpeechStatus>(IPC.invoke.speechGetStatus),
+  speechTranscribe: (req: SpeechTranscribeRequest) =>
+    invoke<{ text: string }>(IPC.invoke.speechTranscribe, req),
+  speechSynthesize: (req: SpeechSynthesizeRequest) =>
+    invoke<SpeechSynthesizeResult>(IPC.invoke.speechSynthesize, req),
   compact: (req: AgentCompactRequest) =>
     invoke<AgentCompactResponse>(IPC.invoke.agentCompact, req),
   abort: (sessionId: string) =>
@@ -748,8 +918,24 @@ export const api = {
     invoke<PlanResolutionResult>(IPC.invoke.plansResolve, resolution),
   listPlugins: () =>
     invoke<{ plugins: PluginSummary[] }>(IPC.invoke.pluginList),
-  loadDevPlugin: () => invoke(IPC.invoke.pluginLoadDev),
-  reloadPlugin: (id: string) => invoke(IPC.invoke.pluginReload, id),
+  /**
+   * Picking a folder only reports what it declares; the load happens in
+   * `confirmLoadDevPlugin` once the user has seen that.
+   */
+  loadDevPlugin: () =>
+    invoke<{ canceled?: boolean; review?: PluginPermissionReview }>(
+      IPC.invoke.pluginLoadDev,
+    ),
+  confirmLoadDevPlugin: (input: { path: string; grantedPermissions: string[] }) =>
+    invoke(IPC.invoke.pluginLoadDevConfirm, input),
+  /**
+   * A manifest that asks for more than the current approval comes back as a
+   * `review` instead of a reload, so the page asks before anything is granted.
+   */
+  reloadPlugin: (id: string) =>
+    invoke<{ review?: PluginPermissionReview }>(IPC.invoke.pluginReload, id),
+  confirmReloadPlugin: (input: { id: string; grantedPermissions: string[] }) =>
+    invoke(IPC.invoke.pluginReloadConfirm, input),
   createPluginFromTemplate: (template: string) =>
     invoke<{
       canceled?: boolean;
@@ -757,6 +943,7 @@ export const api = {
       name?: string;
       dir?: string;
       files?: string[];
+      review?: PluginPermissionReview;
     }>(IPC.invoke.pluginCreateFromTemplate, { template }),
   installPluginFromPath: () => invoke(IPC.invoke.pluginInstallFromPath),
   installPluginFromPackage: () => invoke(IPC.invoke.pluginInstallFromPackage),
@@ -809,12 +996,31 @@ export const api = {
   /** Force one handshake and report what happened, for the editor's test button. */
   testMcpServer: (id: string, query?: Partial<AgentCapabilityQuery>) =>
     invoke<{ status: McpServerStatus }>(IPC.invoke.mcpTest, { id, ...query }),
+  /** Launch browser-based OAuth 2.1 authorization flow for an HTTP MCP server. */
+  startMcpOAuth: (id: string, query?: Partial<AgentCapabilityQuery>) =>
+    invoke<{ ok: boolean; loginId: string }>(IPC.invoke.mcpOauthStart, { id, ...query }),
+  cancelMcpOAuth: (payload: { loginId?: string; id?: string }) =>
+    invoke<{ ok: boolean }>(IPC.invoke.mcpOauthCancel, payload),
   /** Accept a pasted `mcpServers` block; bad entries are reported, not fatal. */
   importMcpServers: (text: string) =>
     invoke<{
       imported: McpServerRecord[];
       failed: Array<{ id: string; reason: string }>;
     }>(IPC.invoke.mcpImport, { text }),
+  /**
+   * Scan third-party AI-tool config files for MCP server definitions. The
+   * scanner never throws; a source that failed to read is reported with an
+   * `error` on its row and a zero count.
+   */
+  scanExternalMcp: (query?: { projectPath?: string }) =>
+    invoke<ExternalMcpScanResult>(IPC.invoke.mcpImportScan, query ?? {}),
+  /**
+   * Import each candidate through `mcp.upsert` one at a time; a `disabled`
+   * item is turned off with `mcp.setEnabled` after it is written. One failure
+   * never aborts the batch.
+   */
+  runExternalMcpImport: (payload: ExternalMcpImportPayload) =>
+    invoke<ExternalMcpImportRunResult>(IPC.invoke.mcpImportRun, payload),
   /** Query the configured market sources; `failedSources` names dead ones. */
   searchMcpMarketRegistry: (query: string, sources: MarketSource[], options?: { more?: boolean }) =>
     invoke<{ entries: McpCatalogEntry[]; failedSources?: string[]; exhausted?: boolean }>(
@@ -831,19 +1037,18 @@ export const api = {
        * Why each named source failed, so the market can explain a policy/DNS
        * refusal instead of reporting every source as merely unreachable.
        */
-      failureKinds?: Record<string, "policy" | "unresolved" | "network">;
+      failureKinds?: Record<string, "policy" | "fake-ip" | "unresolved" | "network">;
       /**
-      /**
-       * The host and the guard's own reason behind each failed source. Without
-       * it the panel can say a source was refused but not *what* was refused,
-       * and a policy refusal is a statement about one address. `route` adds
-       * which route the guard judged that address on, so a fake-IP refusal on a
-       * direct route reads apart from one on a proxied route (issue #419,
-       * ADR 0272).
+       * The host, the address it resolved to, and the guard's own reason behind
+       * each failed source. Without them the panel can say a source was refused
+       * but not *what* was refused — and `198.18.0.1` is what tells a user their
+       * proxy is in fake-IP mode. `route` adds which route the guard judged that
+       * address on, so a fake-IP refusal on a direct route reads apart from one
+       * on a proxied route (issue #419, ADR 0272).
        */
       failureDetails?: Record<
         string,
-        { host?: string; reason?: string; addressKind?: string; route?: string }
+        { host?: string; address?: string; reason?: string; addressKind?: string; route?: string }
       >;
     }>(IPC.invoke.skillMarketSearch, { query, sources }),
   /** Fetch one catalog document (frontmatter split off) for preview/install. */
@@ -858,9 +1063,30 @@ export const api = {
     invoke<{ skills: UserSkillRecord[] }>(IPC.invoke.skillList, query),
   createUserSkill: (skill: UserSkillInput) =>
     invoke<{ skill: UserSkillRecord }>(IPC.invoke.skillCreate, skill),
-  /** Opens a native picker for one file; `canceled` when the user backed out. */
-  importUserSkill: (query?: AgentCapabilityQuery) =>
-    invoke<{ canceled?: boolean; skill?: UserSkillRecord }>(IPC.invoke.skillImport, query),
+  /**
+   * Opens a native picker for one file or (when `sourceKind === "dir"`) a
+   * folder; `canceled` when the user backed out. `mode: "link"` swaps copy
+   * for a symlink import.
+   */
+  importUserSkill: (
+    query?: AgentCapabilityQuery & {
+      sourceKind?: "file" | "dir";
+      mode?: "copy" | "link";
+    },
+  ) => invoke<{ canceled?: boolean; skill?: UserSkillRecord }>(IPC.invoke.skillImport, query),
+  /**
+   * Scan third-party AI-tool skill directories. The scanner never throws;
+   * a source that failed to read is reported with an `error` on its row.
+   */
+  scanExternalSkills: (query?: { projectPath?: string }) =>
+    invoke<ExternalSkillScanResult>(IPC.invoke.skillImportScan, query ?? {}),
+  /**
+   * Import each candidate through `skills.import` one at a time. `mode`
+   * defaults to `"copy"`; a `dir` shape sends its `rootDir` as the source
+   * path so host-core knows it is a `<name>/SKILL.md` skill.
+   */
+  runExternalSkillsImport: (payload: ExternalSkillImportPayload) =>
+    invoke<ExternalSkillImportRunResult>(IPC.invoke.skillImportRun, payload),
   updateUserSkill: (id: string, skill: Omit<UserSkillInput, "id">) =>
     invoke<{ skill: UserSkillRecord }>(IPC.invoke.skillUpdate, { id, ...skill }),
   /** The record plus the document body, for the editor. */
@@ -941,7 +1167,8 @@ export const api = {
   togglePluginLauncher: () => invoke(IPC.invoke.pluginLauncherToggle),
   dismissPluginLauncher: () => invoke(IPC.invoke.pluginLauncherDismiss),
   listPluginThemes: () => invoke<PluginTheme[]>(IPC.invoke.pluginThemes),
-  listPluginSettingsDestinations: () => invoke<PluginSettingsDestinationMeta[]>(IPC.invoke.pluginSettingsDestinations),
+  listPluginScenicThemesDestinations: () => invoke<PluginScenicThemesDestinationMeta[]>(IPC.invoke.pluginScenicThemesDestinations),
+  setPluginScenicThemeBlur: (pluginId: string, themeId: string, blur: number) => invoke(IPC.invoke.pluginScenicThemesSetBlur, { pluginId, themeId, blur }),
   listPluginServices: () => invoke<PluginServiceStatus[]>(IPC.invoke.pluginServices),
   /**
    * Work panel views, already filtered by permission, activation scope, and
@@ -974,12 +1201,6 @@ export const api = {
       visible,
       sessionId,
     }),
-  pluginSettingsViewOpen: (pluginId: string, destinationId: string) =>
-    invoke(IPC.invoke.pluginSettingsViewOpen, { pluginId, destinationId }),
-  pluginSettingsViewSetBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
-    invoke(IPC.invoke.pluginSettingsViewSetBounds, bounds),
-  pluginSettingsViewSetVisible: (pluginId: string, destinationId: string, visible: boolean) =>
-    invoke(IPC.invoke.pluginSettingsViewSetVisible, { pluginId, destinationId, visible }),
   marketRefresh: (force = true) =>
     invoke<{
       providerId: string;
@@ -1015,6 +1236,9 @@ export const api = {
       IPC.invoke.marketApplyUpdates,
       { onlyAuto },
     ),
+  /** Ask the running install to stop. Only a download can be interrupted. */
+  marketCancelInstall: (id: string) =>
+    invoke<{ cancelled: boolean; id: string }>(IPC.invoke.marketCancelInstall, { id }),
   /** Import a pi CLI extension file or directory as a development plugin (spec 16 §3). */
   importPiExtension: () =>
     invoke<
@@ -1212,6 +1436,12 @@ export const api = {
       listener(payload as OAuthLoginEvent),
     );
   },
+  onMcpOAuth: (listener: (event: McpOAuthLoginEvent) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.mcpOauth, (payload) =>
+      listener(payload as McpOAuthLoginEvent),
+    );
+  },
   onExtensionPrompt: (listener: (prompt: TrustedExtensionUiPrompt) => void) => {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.extensionsUiPrompt, (payload) =>
@@ -1244,6 +1474,17 @@ export const api = {
       listener((payload as { notification: AppNotification }).notification),
     );
   },
+
+  // --- Remote hosts (R2b pairing UX) -----------------------------------------
+  /** Paired remote `pi-host` list, redacted so no device token reaches here. */
+  listRemoteHosts: () =>
+    invoke<{ hosts: RemoteHostSummary[] }>(IPC.invoke.remoteHostList),
+  /** Exchange `ppt1.` pairing token for a durable device token and connect. */
+  pairRemoteHost: (request: RemoteHostPairRequest) =>
+    invoke<RemoteHostPairResult>(IPC.invoke.remoteHostPair, request),
+  /** Close and drop a paired host by its stable routing key. */
+  removeRemoteHost: (hostKey: string) =>
+    invoke<{ ok: true }>(IPC.invoke.remoteHostRemove, { hostKey }),
   onSessionsChanged: (
     listener: (event: {
       reason?: string;
@@ -1278,6 +1519,13 @@ export const api = {
       listener(payload as UpdateState),
     );
   },
+  onPluginInstallProgress: (listener: (event: PluginInstallProgress) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.pluginInstallProgress, (payload) =>
+      listener(payload as PluginInstallProgress),
+    );
+  },
+
   onPluginChanged: (
     listener: (event: { reason?: string; pluginId?: string }) => void,
   ) => {

@@ -20,5 +20,7 @@ export * from "./stream-coalescer.js";
 export * from "./extensions/index.js";
 export { startAuthenticatedProxyRelay } from "./authenticated-proxy-relay.js";
 export type { AuthenticatedProxyRelay } from "./authenticated-proxy-relay.js";
- export * from "./voice/openai-compatible-stt.js";
- export * from "./voice/voice-transcription-service.js";
+export * from "./voice/openai-compatible-stt.js";
+export * from "./voice/voice-transcription-service.js";
+
+export * from "./speech/index.js";

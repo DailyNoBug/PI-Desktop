@@ -43,6 +43,15 @@ Main risks:
    delivery ledger, permission ceiling, turn binding, callback, cancellation,
    and transcript provenance.
 
+### Host-rendered scenic Settings destinations
+
+`contributes.scenicThemes` is data only. The host validates both grants,
+same-plugin theme ownership, declared preview assets, and the exact bounded
+`--nexus-backdrop-blur` variable before it renders cards in Extensions. A plugin
+cannot supply Settings HTML, CSS, JavaScript, selectors, DOM, arbitrary actions,
+or direct renderer IPC. The host owns the transparent canvas, layout, focus,
+native controls, titlebar, Apply action, and lifecycle fallback to General.
+
 Clipboard history is host-owned and remains in the Electron main process only.
 It is never written to the plugin data directory or the host database. The host
 records explicit clipboard writes and user-initiated Composer paste events; it
@@ -397,7 +406,7 @@ stream, so there is no keylogger-shaped surface and no way to see the keys the
 user types. A plugin may only map an accelerator to one of its own registered
 commands, and an accelerator the OS reserves, that PI-Desktop itself currently
 spends (the plugin-launcher and window-toggle bindings, `Alt+Space` and
-`Mod+W` by default; a user rebinding one frees it for plugins), or that
+`Alt+Shift+W` by default; a user rebinding one frees it for plugins), or that
 another plugin holds is refused with
 `LIMIT_EXCEEDED` (at most 8 per plugin) instead of being taken over. A trigger
 runs exactly that one command. Register, unregister, and trigger are audited

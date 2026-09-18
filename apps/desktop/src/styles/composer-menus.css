@@ -30,6 +30,11 @@
   color: color-mix(in oklab, var(--gray-0) 78%, transparent);
 }
 
+:root[data-theme="dark"] .composer-toolbar .icon-btn.composer-web-search-on,
+:root[data-theme="dark"] .composer-toolbar .icon-btn.composer-web-search-on:hover {
+  color: var(--color-success);
+}
+
 :root[data-theme="dark"] .empty-hero-icon {
   color: var(--gray-0);
   opacity: 1;
@@ -37,6 +42,8 @@
 
 .composer-model-thinking {
   position: relative;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 
 /* Permission-mode chip menu (D115): anchored left above the mode chips. */

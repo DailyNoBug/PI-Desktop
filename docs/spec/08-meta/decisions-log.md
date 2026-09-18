@@ -9,8 +9,9 @@ This log freezes previously open questions into concrete decisions.
 > Fork note: the fork's own decisions originally took the D404 - D409 and
 > ADR 0230 - 0235 numbers that merged main had already assigned. They were
 > renumbered against merged main to D430 - D435 and ADR 0266 - 0271, and
-> once more — after a later upstream sync claimed ADR 0266 - 0272 — to
-> ADR 0273 - 0278, so the text below keeps the fork wording under the new ids.
+> again — after a later upstream sync claimed ADR 0266 - 0272 — to
+> ADR 0273 - 0279; this sync brought upstream ADRs 0273 - 0289, so they now sit
+> at ADR 0290 - 0296. The text below keeps the fork wording under the new ids.
 
 ## A. High-priority architecture decisions
 
@@ -28,7 +29,10 @@ This log freezes previously open questions into concrete decisions.
 | D010 | First release platform | **macOS arm64 only** | Focus acceptance and packaging |
 | D373 | Remote Agent Control host boundary | *(amended by D374 and D375)* **Remote control (post-MVP) runs through a logical Agent Host that owns Sessions, Turns, event cursors, approvals, attachments, workspace policy, and crash recovery; a production Gateway owns identity, routing, rate limits, revocation, and audit, and the Agent Host connects outbound. The existing Electron IPC, `host.proxy`, and host-core stdio boundaries are never exposed.** | A remote surface needs its own boundary rather than a tunnel into local IPC or the host-core stdio contract (ADR 0205, E2E-221 through E2E-230) |
 | D374 | Remote Agent Control v1 target amendments | **Amend D373 / ADR 0205: `RACP-WS` is the only normative v1 binding (`RACP-HTTP` is the browser profile, `RACP-GRPC` is reserved); typebox in `packages/shared` is the single contract source; the headless `packages/agent-host` module is the first deliverable and is shared by desktop IPC, local MCP, and RACP; cursors are `{ epoch, sequence }` with ephemeral deltas; the turn queue moves into the Host; host-core exposes `permissions.pending`; remote approvals carry the full local decision vocabulary under a default `ask` ceiling; browser clients use a cookie profile; the first deployment is single-tenant.** | Reviewing the D373 draft against the shipped desktop found the remote approval vocabulary narrower than the local contracts, pending requests held as connection state, per-token deltas exhausting the replay window, and more bindings than v1 can carry (ADR 0205) |
-| D434 | Remote SSH Agent Runtime | **Implement Remote SSH as a `pi-host` runtime on the user's Linux machine, reached only by loopback `RACP-WS` over system OpenSSH; Electron Main owns SSH/pairing/bootstrap/reconnect and renderer routing; `ssh://` project URIs distinguish remote roots; remote session/tool/secret state is authoritative on the Host.** | Remote coding requires one execution boundary beside the workspace; forwarding individual commands or mirroring the repository would split filesystem, shell, session, and recovery authority (ADR 0277) |
+| D434 | Remote SSH Agent Runtime | **Implement Remote SSH as a `pi-host` runtime on the user's Linux machine, reached only by loopback `RACP-WS` over system OpenSSH; Electron Main owns SSH/pairing/bootstrap/reconnect and renderer routing; `ssh://` project URIs distinguish remote roots; remote session/tool/secret state is authoritative on the Host.** | Remote coding requires one execution boundary beside the workspace; forwarding individual commands or mirroring the repository would split filesystem, shell, session, and recovery authority (ADR 0294) |
+| D447 | Headless runtime boundary | **Amend ADR 0205 rollout R2 prerequisites (ADR 0284): the Electron-independent runtime layer under the Agent Host module lives in `packages/host-runtime` — the host-core and sidecar stdio transports, the restart supervisor (process-model §4 policy), the durable turn lifecycle (`RuntimeService` as the module's `RuntimePort`: `session.beginTurn` → user row → prompt → `session.endTurn`, abort lock, stale-terminal guard, single-flight finalization), transcript persistence with the D299 checkpoint, a headless launch resolver over host-core's own registries, approved Plan/Goal dispatch (D189), and the host-core adapters for `SessionPort` / `QueueStore` / `permissions.pending`. Electron main keeps thin adapters (binary and bundle locations, `ELECTRON_RUN_AS_NODE`, redacted stderr, schema/glibc diagnoses, renderer status pushes) and its own local prompt path. `TurnStartRequest` gains an optional `userMessageId`. No IPC, sidecar, host-core, Plugin SDK, default, or persisted-data change.** | `pi-host` must run the same lifecycle invariants as the desktop without Electron; a second implementation of abort locks, stale terminal events, and queue release after durable settlement would drift from the one the desktop already fixed |
+| D448 | RACP-WS transport and device pairing | **Amend ADR 0205 rollout R2 (ADR 0285): `packages/racp` holds both ends of the normative `RACP-WS` binding. `RacpServer` dispatches every catalog operation through its role rule onto the Agent Host module and a `RacpHostOperations` interface the Host implements; `RacpClient` correlates requests, answers server-initiated requests, tracks the last durable cursor per session, reconnects with bounded backoff, and fails the dropped connection's in-flight calls with `HOST_DISCONNECTED` instead of re-sending them. Authentication is the header profile with Host-issued `pdt1.` device tokens and single-use, expiring `ppt1.` pairing tokens (hashed, constant-time compared; never in a URL); `connection/pair` mints an `owner` device. `connection/pair`, `project/register`, `project/browse`, `server.hostId`, the `events/closed` notification, and the codes `PAIRING_FAILED`, `PAIRING_TOKEN_EXPIRED`, `CAPABILITY_UNAVAILABLE`, `REMOTE_PATH_NOT_FOUND`, `REMOTE_PATH_FORBIDDEN`, `HOST_DISCONNECTED`, `HOST_BOOTSTRAP_FAILED`, `HOST_VERSION_MISMATCH`, `REMOTE_AUTH_FAILED`, `REMOTE_CONNECTION_FAILED`, `REMOTE_FORWARD_FAILED` join the contract (spec §14a). The bind refuses non-loopback addresses; attachments and the tool relay are advertised unavailable.** | The SSH-tunnel topology needs a server `pi-host` can bind and a client the desktop can run, with the pairing the security spec describes; the conformance behaviors that need no machine boundary become package tests |
+| D450 | Signed macOS GitHub Releases | **Amend D078 / ADR 0022: GitHub tag releases Developer ID-sign, notarize (`notarytool` via electron-builder 26), staple, and Gatekeeper-verify macOS DMG/ZIP before upload, using identity `Developer ID Application: XingYu Liu (DUV63RKYTW)` / team `DUV63RKYTW` from Actions secrets (`CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`). Missing secrets fail the job. Local unsigned packaging without a certificate remains. `workflow_dispatch` may set `sign_macos: false` only for unsigned debug artifacts. Packaged macOS uses in-app `electron-updater` (ZIP + merged `latest-mac.yml`); Linux deb/rpm and Windows portable stay notify-and-link. No afterPack/afterSign adhoc codesign (ADR 0278).** | Production DMGs must open without a Gatekeeper warning, and signed macOS installs can download and restart into a new tag. See ADR 0289, E2E-196c, E2E-067A. |
 
 ## B. Secondary implementation defaults
 
@@ -90,8 +94,10 @@ This log freezes previously open questions into concrete decisions.
 | D406 | Keep macOS DMG opening guidance text-only | **Amend D371 / ADR 0204: macOS DMGs expose the opening-help note as `If app won't open, read this.txt` and no longer include the executable `PI-Desktop-macOS-open.command`. macOS ZIP packages retain both the note and the helper. The note provides the narrow Terminal fallback for trusted unsigned builds; signed and notarized builds do not need it. See ADR 0232 and E2E-196b.** | The DMG should keep the normal app-to-Applications flow focused while still giving users a visible, actionable answer when an unsigned app does not open. |
 | D407 | Restore archived projects after session import | **Additive renderer behavior for issue #250: when a core or plugin import adds a new project-bound session, the import-triggered session refresh normalizes its project path and clears the renderer's archived presentation state for that project. Pathless sessions, skipped imports, historical plugin paths without an active binding, and ordinary refreshes leave archive state unchanged. Host project rows, IPC channels, plugin methods, storage schema, and data formats do not change. See ADR 0236 and E2E-257.** | The host can successfully materialize an imported session under a project while the renderer still hides that project's sidebar row as archived. Restoring only the newly imported binding makes the result discoverable without weakening deliberate archive choices during ordinary refreshes (issue #250). |
 | D408 | Prioritize MainChat in the three-column shell | **Amend ADR 0226 / ADR 0151 / ADR 0033 for issue #267: MainChat keeps a hard 450px minimum, the work panel is capped by the live budget (`client width - 450px - expanded sidebar`, with no fixed maximum), and the expanded sidebar yields at that threshold — including while `sidebar-out` still occupies flex space. A manual sidebar reopen spends panel width first and otherwise targets 460px; closing the panel restores only a sidebar the layout collapsed. The native window never changes: the reservation seam stays at zero and no geometry is applied. Preview mode temporarily unmounts MainChat and uses a window-level chrome row; collapsed-sidebar macOS preview reserves 88px, or 8px in fullscreen, for traffic lights (D433). See ADR 0238 and E2E-LAYOUT-three-column-width-priority.** | The fixed client area had no explicit width priority, so the side docks could pin MainChat to its floor and leave the composer unusable. Making the yield order explicit keeps the chat readable inside the fixed window without reintroducing native window growth (issue #267). |
-| D409 | Host-owned session collaboration messages | **Amend ADR 0237 / ADR 0165 / ADR 0213: Rust host-core owns a durable session-collaboration ledger keyed by message id and real source/target Session IDs. Plugin-mediated `spawn`, `send`, `status`, `result`, and `cancel` operations use the reviewed desktop-control gateway; the sender is bound to the active plugin Agent tool invocation, target turns retain their existing configuration, and each delivery is claimed by its actual durable turn. Completion callbacks are durable, at-most-once, and reference the settled turn. Provenance is persisted with transcript rows and cannot be forged, stripped, or edited through regeneration. The additive schema v16 migration retains queued work across restart without unattended replay, applies permission ceilings and bounded autonomous hops, and keeps the existing Task family unchanged. See ADR 0239 and E2E-PLUGIN-session-orchestrator-real-workers.** | The plugin's prior create/prompt polling path could infer neither a durable turn outcome nor a safe bidirectional sender identity. A host-owned ledger makes delivery, provenance, callback, cancellation, and restart behavior auditable without restoring the withdrawn A2A protocol. |
+| D409 | Host-owned session collaboration messages | *(amended by D446)* **Amend ADR 0237 / ADR 0165 / ADR 0213: Rust host-core owns a durable session-collaboration ledger keyed by message id and real source/target Session IDs. Plugin-mediated `spawn`, `send`, `status`, `result`, and `cancel` operations use the reviewed desktop-control gateway; the sender is bound to the active plugin Agent tool invocation, target turns retain their existing configuration, and each delivery is claimed by its actual durable turn. Completion callbacks are durable, at-most-once, and reference the settled turn. Provenance is persisted with transcript rows and cannot be forged, stripped, or edited through regeneration. The additive schema v16 migration retains queued work across restart without unattended replay, applies permission ceilings and bounded autonomous hops, and keeps the existing Task family unchanged. See ADR 0239 and E2E-PLUGIN-session-orchestrator-real-workers.** | The plugin's prior create/prompt polling path could infer neither a durable turn outcome nor a safe bidirectional sender identity. A host-owned ledger makes delivery, provenance, callback, cancellation, and restart behavior auditable without restoring the withdrawn A2A protocol. |
 | D410 | Independent session discovery and navigable collaboration projections | **Amend ADR 0239: add the reviewed read operation `session/collaboration/list`, bounded to 100 non-deleted Agent sessions and redacted to Session IDs, titles, status, updated time, readable provider/model labels, and bounded creation links. Extend the sidebar projection with readable model labels and at most eight created-session references. Render creator/created-session references as keyboard-focusable navigation buttons; independent sessions do not receive fabricated creator links. No renderer storage ownership or collaboration mutation boundary changes. See ADR 0240, E2E-SESSION-independent-top-level-communication, and E2E-SESSION-hover-card-model-and-links.** | Existing Session IDs were valid send targets but could be undiscoverable when they were not created by the plugin, while the hover card exposed only IDs and non-interactive provenance. A bounded host directory and navigable projection make durable sessions communicable and explainable without exposing transcripts or credentials. |
+| D446 | Silent completion notices | **Amend D409 / ADR 0239 and the D193 silent-turn contract for issue #504: the first settled assistant reply to a current Host-resolved completion notice may end with no visible text and no tool call without silent-turn recovery or `EMPTY_MODEL_RESPONSE`. The exception is spent by that reply (silent, textual, or a tool batch), survives a provider retry of the same attempt, and is revoked once accepted user steering enters the model context. Only provenance Main resolved from the Host ledger enables it (`kind: completion`, the current target session, nonempty message and reply-to IDs); prompt text, plugin content, task/message deliveries, and restored history cannot. An accepted silent reply is persisted as an empty completed row but is excluded from runtime entries and model context, as a restored transcript already is. See the ADR 0239 amendment and E2E-SESSION-completion-notice-allows-silence.** | The completion prompt already says no acknowledgement is needed, yet the runtime retried the silence and reported a failure after a task that had succeeded (issue #504). Bounding the exception to one ledger-verified reply keeps ordinary prompts, deliveries, tool work, and user steering under D193, and keeping the empty reply out of context avoids a provider rejecting the next request. |
+| D447 | Stage Manager bounds watchdog is macOS-only | **The permanent 1.5s `boundsWatchdog` in `bootstrap/window.ts` runs on macOS alone; every other platform clears the interval on its first tick. Its two inputs are macOS-only (the `/tmp/pi-window-bounds` CG helper, and a "window smaller than 500x400" test the 1040x700 minimum window size makes unreachable), so elsewhere it could never recover anything and only called `window.setAlwaysOnTop(false)` forever. On Linux/X11 that repeats a `_NET_WM_STATE` removal, and Mutter answers it by raising the window (`meta_window_unmake_above` calls `meta_window_raise` unconditionally), so the app yanked itself back to the top of the stack about 1.5s after the user focused another window even though `_NET_WM_STATE` never carried `_NET_WM_STATE_ABOVE`. macOS Stage Manager recovery is unchanged. See D039, D053, D083 and US-UI-19.** | A window that re-raises itself over whatever the user just focused is not usable, and the interval had no purpose off macOS; the fix removes the message instead of teaching each platform to tolerate it. |
 | D413 | Skill market public-HTTPS catalog fetch | **Additive: Settings → Skills Market discovers SKILL.md catalogs in Electron main under a shared public-HTTPS policy (syntactic public host + DNS classification + per-hop redirect re-validation). The renderer does not fetch. Install remains `skills.create`. Catalog ids match host `valid_capability_id`. Expanded documents over 128 KiB are refused. Builtin titles are English. See ADR 0243, E2E-SKILL-MARKET-*, issue #287.** | Community skill discovery needs main-process egress without a plugin-marketplace host allowlist, and copied classifiers would collide with the MCP market. |
 | D421 | Native Pi session continuation | **Amend baseline D007: discover Pi v3 sessions as source-discriminated projections and continue them through coding-agent `AgentSession`/`SessionManager` against their canonical JSONL. Rust remains authoritative for Desktop SQLite/transcripts. Native continuation requires exact saved provider/auth, project trust, canonical path/header identity, and a cooperative lease plus byte/leaf validation; failures remain browseable/read-only. First slice excludes native rename/delete/move/revisions/Plan/Goal/queue/collaboration; the 2026-09-14 ADR 0254 amendment adds native fork with exact stream re-keying and inode-tracked publication; the side-chat panel it added is retired by ADR 0268. See ADR 0254 and E2E-SESSION-native-pi-*.** | Importing a flattened copy cannot preserve Pi's tree or make later Desktop turns visible to Pi Web. |
 | D412 | Delta-only coalesced streaming updates | **Amend the local `message_update` contract: append-only streaming frames carry `stream: delta` plus `deltaText`/`deltaThinking` (and reset flags) without growing `content`/`thinking`. Runtime coalesces those frames every 16ms and flushes before semantic boundaries. AgentHost, inflight checkpoints, and the renderer apply deltas; `message_start`/`message_end` remain full snapshots. Transcript activity parts keep object identity when only the tail token changes. Protocol version stays 11. See ADR 0242, E2E-STREAM-long-turn-keeps-realtime, and issue #299.** | Each token re-serialized the full assistant snapshot across sidecar, AgentHost, and IPC, so a long turn cost O(n²) bytes and backlogged later short chunks. |
@@ -100,10 +106,10 @@ This log freezes previously open questions into concrete decisions.
 | D420 | Structured, bounded, and redacted process logs | **Amend ADR 0046 / ADR 0212: every app/host/agent NDJSON record has a stable event and top-level correlation fields. A normal tool call emits one completion/failure record, while an unexpected sidecar exit emits interruption records for active tools; the tool protocol and transcript remain unchanged. Central logging redacts credentials and local paths, bounds structured data to 8 KiB, summarizes tool results instead of copying output, and mirrors the same sanitized record to development console output.** | The old `tool start` / `tool end` rows were redundant and unclear, while free-form child/error details could leak secrets or consume unbounded storage. |
 | D422 | Host turn-end event for plugins | **`session:turnEnded` is a host event with payload `{ sessionId, turnId, reason }` (`completed` / `aborted` / `error`), broadcast once per turn actually started by `session.beginTurn` at the end of turn teardown, after the durable `session.endTurn` attempt. The emitted `turnId` is the identity the terminal runtime event carried rather than whichever turn is active, and the plugin tool context's `turnId` is populated with the same value. There is no ack and no replay: a live subscribed plugin receives it once, delivery that races a crash, reload, or host quit is not guaranteed, and receiving it does not mean every in-flight tool of that turn has exited, so cleanup must be serialised or scoped by `turnId`. No new permission is required, and no published host emits it yet (0.14.8 does not include it). See ADR 0252.** | Plugins driving a GUI had to guess turn completion with idle timers, which fire mid-turn and again after the turn ends. A host-owned once-per-turn terminal event with an explicit turn identity lets a plugin settle exactly once, and the same identity in the tool context lets it correlate late tool results. |
 | D423 | Remove the subagent turn limit | **Amend D328 / ADR 0062 / ADR 0063 / ADR 0119 / ADR 0126 / ADR 0166 / ADR 0210: `maxTurns` and `MAX_SUBAGENT_MAX_TURNS` leave the definition type, the frontmatter parser and its clamp/invalid warnings, `UserSubagentRecord` / `UserSubagentInput`, the host-core registry (record, input, frontmatter parse, document render, `MAX_TURNS_CEILING`), the five built-in documents, `SUBAGENT_PRESETS`, and the Subagent editor. A delegate ends only when it finishes, when the parent calls `TaskStop`, when the user Stops, or when a terminal parent error aborts it (ADR 0189). `maxTurns` / `max-turns` / `max_turns` in an existing document is now an unrecognized frontmatter key and is ignored like any other unknown key: no error, no warning, no definition-load failure, and no rewrite of the user's file. The `truncated` value leaves `SubagentRunStatus`, the renderer's `SubagentOutcome` union, the `chat.subagentStatus` catalog entry in every locale, and the delegation topology's warnings count; `timed_out` stays. No protocol version, schema version, or storage change. See ADR 0253, E2E-155, and E2E-SUBAGENT-legacy-turn-limit-frontmatter-is-ignored.** | The parent cannot see a delegate's live work, so it cannot size a turn cap, and the shipped 60 / 50 / 40 / 80 backstops had no derivation. The cap's only effect was to kill a delegate mid-task and surface it as `truncated` with a partial report — a state neither the user nor the parent model can resume. |
-| D430 | Sidebar token usage summary | **Amend D335 / ADR 0173: the expanded sidebar footer places an Activity icon directly right of Settings. It opens a read-only popover of fourteen local-calendar day buckets from host token history, including range total, completed turns, daily distribution, and today input/output/cache/reasoning totals. Settings remains without a Usage destination; Token Insights remains the full dashboard. No protocol, storage schema, or message-usage ownership change. See ADR 0273.** | Recent PI-Desktop consumption was hidden behind a separate dashboard even though the host already owned the completed-turn rollup. |
-| D431 | Bundled Git work panel | **Amend D154 / ADR 0104 / ADR 0170: pi.git is an ordinary default-enabled, disableable bundled view with structured git.read and git.write host APIs. Fixed Electron-Main operations cover status, branches, scoped diffs, stage/unstage/discard, branches, commit, push, and pull with validation, bounds, timeouts, serialization, audits, and native confirmation for destructive or branch-changing operations. No arbitrary Git argv, remote, credential, or host capability is exposed. See ADR 0274 and E2E-265.** | Source-control status and actions belonged beside other work-panel tools without weakening plugin isolation or exposing arbitrary shell commands. |
-| D432 | Tree review and AI Git commit messages | **Amend D431 / ADR 0274: Git change sections render collapsible directory trees; file review opens side-by-side red/green diffs by default; and the commit box has an explicit AI action using public models.list and agent.complete with bounded current Git context. Generated text only fills the editable commit field. See ADR 0275 and E2E-266.** | Flat rows did not scale to deep workspaces, unified-only diffs did not support old/new review, and users needed a bounded AI-generated commit message without broad host context. |
-| D433 | Window-sized Git review modal | **Amend D432 / ADR 0275: active docked views with ui.view may enter a host-owned window-modal placement through fixed view.prepareModal and view.setModal channels. The host computes and owns geometry and lifecycle; plugins cannot supply bounds. Git review spans an inset application-window surface while the changed-file tree stays anchored in the work panel. See ADR 0276 and E2E-266.** | A dialog inside a docked WebContentsView remained clipped to the right panel, but allowing plugins to resize native views would have crossed the placement boundary. |
+| D430 | Sidebar token usage summary | **Amend D335 / ADR 0173: the expanded sidebar footer places an Activity icon directly right of Settings. It opens a read-only popover of fourteen local-calendar day buckets from host token history, including range total, completed turns, daily distribution, and today input/output/cache/reasoning totals. Settings remains without a Usage destination; Token Insights remains the full dashboard. No protocol, storage schema, or message-usage ownership change. See ADR 0290.** | Recent PI-Desktop consumption was hidden behind a separate dashboard even though the host already owned the completed-turn rollup. |
+| D431 | Bundled Git work panel | **Amend D154 / ADR 0104 / ADR 0170: pi.git is an ordinary default-enabled, disableable bundled view with structured git.read and git.write host APIs. Fixed Electron-Main operations cover status, branches, scoped diffs, stage/unstage/discard, branches, commit, push, and pull with validation, bounds, timeouts, serialization, audits, and native confirmation for destructive or branch-changing operations. No arbitrary Git argv, remote, credential, or host capability is exposed. See ADR 0291 and E2E-265.** | Source-control status and actions belonged beside other work-panel tools without weakening plugin isolation or exposing arbitrary shell commands. |
+| D432 | Tree review and AI Git commit messages | **Amend D431 / ADR 0291: Git change sections render collapsible directory trees; file review opens side-by-side red/green diffs by default; and the commit box has an explicit AI action using public models.list and agent.complete with bounded current Git context. Generated text only fills the editable commit field. See ADR 0292 and E2E-266.** | Flat rows did not scale to deep workspaces, unified-only diffs did not support old/new review, and users needed a bounded AI-generated commit message without broad host context. |
+| D433 | Window-sized Git review modal | **Amend D432 / ADR 0292: active docked views with ui.view may enter a host-owned window-modal placement through fixed view.prepareModal and view.setModal channels. The host computes and owns geometry and lifecycle; plugins cannot supply bounds. Git review spans an inset application-window surface while the changed-file tree stays anchored in the work panel. See ADR 0293 and E2E-266.** | A dialog inside a docked WebContentsView remained clipped to the right panel, but allowing plugins to resize native views would have crossed the placement boundary. |
 
 
 | D244 | Compact context usage summary | **Amend D103 / D184 / ADR 0047: keep the context inspector's remaining-capacity trigger, used/window counts, turn total, completed-turn speed, exact provider values, aggregate tool types/calls/tokens, and checkpoint summary, but render them as a short summary. Remove the per-tool rows, share bars, source badges, explanatory estimate paragraph, and used-capacity meter from the default panel. No protocol, storage, runtime accounting, or model metadata changes.** *(Amended by D347: the trigger moves to the composer toolbar.)* | The prior diagnostic layout made a routine capacity check tall and visually dense. Keeping the aggregate signal while removing drill-down chrome makes the default status surface scannable without changing the underlying usage data. See ADR 0103 and E2E-060d / US-UI-61. |
@@ -123,6 +129,7 @@ This log freezes previously open questions into concrete decisions.
 | D341 | Per-provider custom HTTP headers | **Amend D339 / ADR 0176: each AI-service and OAuth row stores optional `config_json.headers`. Empty / `{}` keeps adapter defaults. A non-empty map is last-writer on that row's outbound HTTP (turns, subagents, one-shots, discovery, connection test, OAuth refresh) via a fetch wrapper plus stream-option headers. Leftover `userAgent` migrates to `headers["User-Agent"]`. Max 32 headers; key ≤ 256 bytes; value ≤ 4096 bytes; no CR/LF; reserved auth/hop-by-hop/routing keys rejected. Compact KeyValueRows Advanced UI; first OAuth login does not collect headers. `matches()` includes the map. No schema/protocol bump.** | Users needed arbitrary non-secret headers, not only User-Agent. See ADR 0178 and E2E-005G. |
 | D242 | Builtin subagents inherit the parent permission mode | **Builtin subagents use the default `permission: inherit` behavior. The builtin `fixer` no longer overrides the parent session, so `auto` covers its in-root and explicit external-path calls without a second authorization card; explicit non-`inherit` scopes on eligible builtin or user definitions remain intentional overrides.** | The observed popup came from the builtin `fixer` replacing an `auto` parent with `accept-edits`; inheriting the parent fixes the UX without weakening host-core containment or external-path permission rules (ADR 0100). |
 | D241 | Titled Settings navigation clusters | **Keep the eight-destination Settings directory flat and searchable, but render four non-interactive localized group headings — Personal / 个人 (Basics, AI, Shortcuts), Agent / 智能体 (Instructions, Model configuration), Workspace / 工作区 (Import, Project archive), and About / 关于 (Info). Headings use whitespace for separation and no divider lines. Empty groups disappear with filtered search. This supersedes only D238's prohibition on group headings; destination order, IDs, search ownership, and marketplace placement remain unchanged.** | The flat rows became visually dense without scan landmarks. Muted headings restore grouping while preserving one-level navigation and the existing destination ownership. |
+| D442 | Marketplace download requests carry a device identifier | **Amend D238: the official plugin channel resolves every install and update through `POST /api/v1/download/resolve` and sends a stable `deviceId` — the SHA-256 digest of a platform machine identifier, or a locally persisted random id when none is readable. The client tries the returned mirrors in order, verifies `sha256` and `sizeBytes` before extracting, never caches the answer, and falls back to the catalog's own package URL only when the platform could not be reached. The GitHub and CNB backup channels and `custom` keep the existing static relative-URL resolution. See ADR 0276 and E2E-PLUGIN-official-channel-resolves-through-the-platform.** | The platform needs one stable installation identity to count a download once and to rate-limit per device instead of per source address; the value is a digest, so no machine code leaves the machine, and no new UI surface is introduced. |
 
 ## D. Codex visual parity decisions (0.3.5+)
 
@@ -179,7 +186,7 @@ Gold source: local Codex electron captures; latest row wins where rows conflict.
 
 | ID | Topic | Decision | Rationale |
 |---|---|---|---|
-| D078 | macOS signing lanes | **Static configuration does not embed a certificate identity, so local builds without a configured certificate remain unsigned. Release lanes require Developer ID signing and Apple notarization; CI receives certificate material through Actions secrets and rejects unstapled artifacts.** | Contributors can package without credentials while published macOS artifacts satisfy Gatekeeper. See 06-delivery/06-release-runbook. |
+| D078 | macOS signing lanes | *(amended by D450 / ADR 0289)* **Static configuration does not embed a certificate identity, so local builds without a configured certificate remain unsigned. Official GitHub tag releases require Developer ID signing and Apple notarization; CI receives certificate material through Actions secrets and rejects unstapled artifacts.** | Contributors can package without credentials while published macOS artifacts satisfy Gatekeeper. See 06-delivery/06-release-runbook. |
 | D079 | App icon / brand mark v1 | *(renderer asset path refined by D221)* **`build/icon_1024.png` is the canonical PI-Desktop logo; `scripts/make-icon.py` derives `build/icon.icns` without overwriting the PNG; packaged macOS builds, `pnpm dev`, and renderer chrome reuse those assets** | Keep one visual identity across development, renderer, and packaged lanes while preventing the derivation script from restoring the obsolete generated mark |
 | D080 | Backend supervision | **Child exit rejects in-flight RPCs immediately; backoff restarts (0.5s→4s, max 3 per 2min); `hostStatus` events drive renderer degradation UI** | Crash recovery without hangs; fail visible, not silent |
 | D081 | Renderer sandbox | **`sandbox: true` with fully bundled CJS preload; production CSP drops `unsafe-eval` and localhost connect-src** | Electron security baseline; verified by `test:e2e:boot` |
@@ -271,6 +278,7 @@ Gold source: local Codex electron captures; latest row wins where rows conflict.
 | D317 | Live/durable transcript merge keeps chronological order | **Amend ADR 0120 / D261 / ADR 0137 in the renderer: `mergeLiveSessionMessages` stitches a bounded durable `session.get` page onto the live snapshot in chronological order. Live rows older than the page stay before it; an optimistic user row or in-flight assistant/tool tail stays after it. Completed overlapping ids still prefer the durable row. Live-only rows are never appended after the durable page. A previously appended older prefix is healed back in front when its `createdAt` precedes the page. Renderer only: no IPC, storage, host-protocol, or pagination change.** *(amended by D324)* | A session that stayed open past the newest-100 page accumulated hundreds of live rows. Revalidation used the durable page as the array prefix and appended the rest, so D261's trailing mounted window painted old history and hid the just-sent prompt while the turn kept running. Abort then idle reload showed only the durable page, which is why the messages appeared to come back after Stop plus another switch. |
 | D324 | Idle session switch keeps a not-yet-flushed completed tail | **Amend D317 / ADR 0137 in the renderer: `selectSession` stitches the bounded durable page onto the live snapshot whenever the session is running or still has live provenance (`liveSessionTranscripts`). A completed assistant/tool row that the durable page does not yet contain stays. Live provenance is cleared only once that page already contains every live id, not merely because the turn ended. Renderer only: no IPC, storage, host-protocol, or pagination change.** | User prompts persist before the model runs; assistant/tool rows go through the async outbox and land after `message_end`. After `agent_end`, idle revalidation used the durable page only and dropped replies that were already on screen (issue #41). |
 | D327 | Completed replies survive process restart | **Amend D299 / ADR 0153 / ADR 0041: the finished `message_end` snapshot is checkpointed before the outbox append; `completed`/`error` `session.endTurn` deletes `.inflight.json` only when that id is already indexed; boot recovery skips completed leftovers so the outbox can append first; handshake awaits that drain then `session.recoverInflightMessages` promotes any leftover as `complete`. Additive RPC, no protocol or schema version change.** | The same user-only transcript as issue #41 after a full quit (issue #42): user rows are durable before the model runs, assistant/tool rows sit in the outbox, and D324's live merge does not survive process teardown. |
+| D444 | Cross-session message id collision remaps; outbox UNIQUE is not a pause | **Amend ADR 0041 / D327: `session.appendMessage` still treats an id already indexed in the same session as a no-op (or a terminal-assistant replacement of a streaming row). If that globally unique `messages.id` already belongs to another session, the host remaps to `{sessionId}:{id}` before writing JSONL or the index, and a later replay of the original id is also a no-op against the remapped row. Electron's persistence outbox treats `UNIQUE constraint failed: messages.id` as an idempotent ack and continues draining, so one colliding toolCallId cannot stall every later assistant/tool row or fill the 1024-entry cap. No protocol or schema version change.** | Provider tool rows used `toolCallId` (e.g. `call_421522`) as `messages.id`. Those ids are not globally unique. A collision failed SQLite after the JSONL write, the FIFO outbox paused on that head, later rows from every session never persisted, and a quit showed earlier history as gone (issue #523). |
 | D328 | Parent-judged subagent lifetime | **Amend ADR 0089 / ADR 0119 / ADR 0129: idle and duration watchdogs are not armed; parent `agent_end` does not abort running delegates; the runtime keeps the durable turn open and prompts the parent with reports when they finish. `TaskWait` timeout and `TaskList` return a heartbeat (agent, status, elapsed, turns, last tool). Only `TaskStop` and user Stop abort a delegate. Explicit `maxTurns` and the concurrency cap of 10 stay. Runtime only: no IPC, storage, or host-protocol change.** *(amended by D352: a terminal parent error does abort leftover delegates and returns the session to idle)* | The parent cannot see live delegate work and treats `TaskWait` expiry as permission to finish, after which abort-on-end killed the unfinished job. Waiting is an event loop; models are not. |
 | D352 | Parent fatal error aborts leftover delegates | **Amend D328 / ADR 0166: parent idle still keeps the durable turn open and does not abort running delegates. A terminal parent provider/stream error (including exhausted HTTP 429), overflow-recovery failure, mutation-budget termination, or rejected prompt aborts leftover delegates, skips the D328 resume prompt, and emits `agent_end`. `isRunning` does not count leftover delegates after that error, so Continue is not `AGENT_BUSY`. A later `agent_end` must not overwrite the failed TurnOutcomeCard. Each new parent prompt bumps a turn epoch and only auto-resumes delegates started in that turn. Runtime and renderer only: no IPC, storage, or host-protocol change.** | After a parent 429 the UI showed Continue while a Gemini (or other) subagent kept the sidecar busy, so the next prompt was `session already has an active turn`. See ADR 0189 and E2E-155. |
 | D354 | Label both macOS release architectures | **Amend D353 / ADR 0145: both native macOS release lanes pass target-specific electron-builder patterns. Public assets are `PI-Desktop-<version>-arm64.dmg` / `PI-Desktop-<version>-arm64-mac.zip` and `PI-Desktop-<version>-x64.dmg` / `PI-Desktop-<version>-x64-mac.zip`. Generated per-architecture updater feeds retain these URLs and checksums. This changes release asset naming only; updater ownership, signing, and delivery mode remain unchanged.** | The arm64 asset `PI-Desktop-0.14.4.dmg` did not identify its architecture, while the x64 lane used a different `Intel` convention. Both public architectures need self-describing, standard labels. |
@@ -329,6 +337,7 @@ Gold source: local Codex electron captures; latest row wins where rows conflict.
 | D369 | Effective subagent thinking metadata | *(amended by D395)* **The immediate `Task` result, `SubagentRunResult`, and lifecycle snapshots carry the effective `modelId` and `thinkingLevel` passed to each child run; the topology node and side-dock header show the raw canonical non-`off` level after the model name, while `off`, `omit`, and unsupported reasoning stay model-only. No host protocol, storage schema, provider request, or lifecycle behavior change.** | Delegation cards need the level actually sent after the target model clamps it, not a value re-derived from the parent or the definition (ADR 0202, ADR 0221, E2E-219) |
 
 | D395 | Canonical thinking-level values in the UI | **Amend D369 / ADR 0202: Composer, model configuration, and delegation surfaces render `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` directly instead of translating them. Remove these values from every locale catalog; effective metadata, clamping, provider requests, protocol, and storage remain unchanged. See ADR 0221 and E2E-219.** | Thinking levels are stable protocol values, and locale-specific labels made the same provider/runtime setting vary across the application. |
+| D445 | Compaction summary retries and is right-sized before retained-tail recovery | **Amend ADR 0049 decision 1 / D203: the automatic summary request carries a bounded pi-ai `RetryPolicy` (3 retries, 2s/4s/8s backoff, abort-aware; pi-ai classifies what is transient). The preflight guard sizes the prompt pi actually serializes (tool results capped at 2 000 chars) instead of summing raw message estimates. When that prompt still exceeds the window, exactly one reduced input is tried (tool results cut to a 500-char prefix, thinking dropped, no message removed) before the retained-tail fallback runs. `ContextCompactionMark` gains an additive `fallback?: "retained_tail"` derived from persisted `details.fallback`; the transcript row labels such checkpoints as a failed summary instead of `summary ≈N tokens`. No record schema, protocol version, or host-core change. See ADR 0282 and E2E-084.** | Issue #543: six of ten checkpoints on a real long session were the ~112-token recovery notice. The summary request had no retry, the raw-size guard skipped summaries that would have fit, and the row presented every fallback as a successful summary. |
 
 ## N. Notification decisions
 
@@ -364,7 +373,7 @@ Gold source: local Codex electron captures; latest row wins where rows conflict.
 | D121 | Branded macOS development host | **`pnpm dev` on macOS launches electron-vite through a fingerprinted, ad-hoc-signed PI-Desktop copy of the installed Electron host bundle under `.cache/electron-dev/`. The generated bundle changes only development host metadata, executable name, bundle identifier, and the ICNS resource; it never mutates `node_modules`. Windows/Linux keep the stock development executable, while packaged lanes remain electron-builder-owned.** | AppKit ignores runtime app-name/menu overrides for the top-level application identity and takes the native menu name and About icon from the host bundle; a branded development host is required for parity with packaged PI-Desktop. |
 | D129 | Menu-free Windows/Linux window chrome | **The application menu is a macOS system-menu surface only. Windows/Linux retain the shared frameless 46px titlebar and renderer-drawn minimize/maximize-or-restore/close controls, but render no File/Edit/View/Window/Help menu inside the window and reserve no left-side titlebar space for one. Existing application, editing, zoom, fullscreen, and close shortcuts remain available through renderer/native web-content handling; update checks remain reachable from Settings -> Info. This supersedes only the Windows/Linux renderer-menubar portions of D118 and ADR 0021.** | An in-window desktop menu duplicates macOS-specific system-menu chrome, consumes navigation space, and does not belong in PI-Desktop's frameless Windows/Linux titlebar. |
 | D130 | Sidebar-footer notification entry | **The durable notification Bell moves from the main titlebar to the separate `32px` action at the right of the expanded sidebar footer, replacing D113's Help shortcut. Its unread badge and complete D117 inbox behavior remain unchanged; the popover opens above and to the right of the footer, and no duplicate Bell remains in the main titlebar. This supersedes only the entry-location clauses of D113 and D117.** | Notification history belongs with the persistent local profile controls and the footer position keeps the main titlebar quiet while preserving a compact, familiar status entry. |
-| D141 | Canonical Windows native application identity | **Electron Main sets the product name before readiness and registers `com.pi-desktop.app` as the Windows process AppUserModelID before creating any window. That ID is the existing electron-builder/NSIS application ID; Windows packaging explicitly retains `PI-Desktop` for the executable and Start menu shortcut. Native notification attribution, notification settings, taskbar grouping, installed shortcuts, and packaged executable identity must expose `PI-Desktop`, not the stock Electron host. D121 remains unchanged: Windows development may use the stock Electron executable while its OS-facing runtime identity uses the canonical AUMID.** | `app.setName` changes Electron's internal name but not the Windows identity used by notifications and shell integration. One stable ID across runtime and packaging prevents both the observed notification-source leak and adjacent shell-brand drift without changing the published NSIS upgrade identity. |
+| D141 | Canonical Windows native application identity | *(amended by D443)* **Electron Main sets the product name before readiness and registers `com.pi-desktop.app` as the Windows process AppUserModelID before creating any window. That ID is the existing electron-builder/NSIS application ID; Windows packaging explicitly retains `PI-Desktop` for the executable and Start menu shortcut. Native notification attribution, notification settings, taskbar grouping, installed shortcuts, and packaged executable identity must expose `PI-Desktop`, not the stock Electron host. D121 remains unchanged: Windows development may use the stock Electron executable while its OS-facing runtime identity uses the canonical AUMID.** | `app.setName` changes Electron's internal name but not the Windows identity used by notifications and shell integration. One stable ID across runtime and packaging prevents both the observed notification-source leak and adjacent shell-brand drift without changing the published NSIS upgrade identity. |
 | D204 | Empty home task-entry surface | *(supersedes D111's non-docked home-composer clause and its contextual quick-action clauses; starter-grid amendment in D205 is superseded by D206)* **The empty chat home keeps the restrained hero and optional first-run checklist in the scrollable content region. The home composer is a bottom-reserved sibling of the scroller, remains visible at the bottom of the chat surface, and never covers the content.** | The direct composer remains the stable primary action and the flow layout preserves checklist reachability in short windows (ADR 0066). |
 | D205 | ChatGPT-inspired empty-home guidance | *(superseded by D206)* **The empty chat home adds a compact four-card developer starter grid between the hero and optional checklist: Explore a codebase, Build a feature, Fix a bug, and Review a change. Each localized card only prefills and focuses the bottom composer; it never sends a prompt or creates a turn. The bottom-reserved composer and single scrollable home flow from D204 remain unchanged.** | The previous hero-only middle left too much unused space and offered no starting cues. ChatGPT's clear empty-state hierarchy improves first-task discoverability while developer-specific prompts keep the surface purposeful rather than promotional. |
 | D206 | Remove empty-home developer starter cards | **The empty chat home does not render developer starter cards, starter glyphs, or a contextual quick-action row. It keeps the restrained hero, short supporting line, optional onboarding checklist, and D204's bottom-reserved composer; task entry starts directly in the composer. This supersedes D205 without changing D204's scroll and bottom-reservation layout.** | Review confirmed that the direct composer is the preferred task-entry surface and that the cards add an unnecessary decision layer to the empty home. |
@@ -456,7 +465,8 @@ section mirrors only marketplace/catalog items still blocking nothing.
 | D126 | Three-platform release delivery (lifts D010) | *(amended by D364)* **Tag builds publish every artifact the matrix produces to the GitHub Release: macOS dmg/zip (arm64), Windows NSIS x64, Linux AppImage + deb (x64), each with blockmaps and the platform's `latest*.yml` electron-updater feed. Publishing the feeds activates D120's in-app update lanes for Windows NSIS and Linux AppImage; macOS stays in notify-and-link mode until a signed channel is qualified. The NSIS artifact name is pinned space-free (`PI-Desktop-Setup-${version}.${ext}`) because GitHub asset URLs mangle spaces. D010's macOS-only scope is lifted per the baseline-bump rule (baseline `0.4.7`); the release pipeline itself was qualified end-to-end on v0.1.1-rc.1/v0.1.1.** | The pipeline builds and validates all three platforms on every tag anyway; keeping installers as expiring Actions artifacts (90-day retention) withheld them from users without adding safety. Publishing the update feeds is the point of shipping: platforms with in-app lanes update silently, and future platform regressions surface through real installs instead of unused artifacts. |
 | D364 | Windows portable exe without installer | **Amend D120 / D126 / ADR 0022: tag builds publish a Windows x64 portable exe `PI-Desktop-Portable-${version}.exe` alongside the NSIS installer `PI-Desktop-Setup-${version}.exe`. The portable target does not write `latest.yml`. Packaged portable runs (`PORTABLE_EXECUTABLE_FILE`) use notify-and-link delivery. NSIS installs keep in-app download and quit-and-install. Data stays in the existing application data directory. Portable requests user execution level.** | Company environments that whitelist a single executable cannot run the NSIS installer. Applying the NSIS updater to a portable run would install the app, so portable stays manual (ADR 0197, E2E-211). |
 | D260 | Release documentation is a version surface | **A stable version bump must update every version-bearing surface before the tag: the shipped-locale in-app changelog and its test list, every workspace `package.json` including `docs/package.json` (a third workspace root `scripts/release.mjs` previously skipped), the Cargo workspace version and `host-core` lockfile entry, `APP_VERSION`, and the `<major>.<minor>.x` release line stated in `README.md` and `README.zh-CN.md`. `scripts/check-release-docs.mjs` verifies all of them; `scripts/release.mjs` runs it after bumping and refuses to commit or tag while any surface disagrees, with `--skip-docs-check` reserved for deliberate non-release bumps. Extends D164.** | The in-app changelog gate alone left published documentation behind: the READMEs still advertised the `0.5.x` line at `0.10.8`, and `docs/package.json` sat at `0.5.8`. A tag is irreversible, so the check runs before the tag exists rather than as review etiquette. |
-| D371 | Explicit unsigned macOS first-launch helper | *(amended by D406)* **Every macOS distribution ships an executable `PI-Desktop-macOS-open.command`, placed on the DMG in a visible first-launch row below the drag-to-Applications gesture. It searches only `/Applications/PI-Desktop.app` and `~/Applications/PI-Desktop.app`, verifies `CFBundleIdentifier` is `com.pi-desktop.app`, removes only `com.apple.quarantine` when present, and opens the app. It never uses `sudo`, accepts no arbitrary path, and does not replace Developer ID signing or notarization.** | The unsigned macOS lane can be blocked by quarantine with a misleading damaged-app message, and the terminal-only `xattr -cr` note was broader than the launch failure requires (ADR 0204, E2E-196b) |
+| D371 | Explicit unsigned macOS first-launch helper | *(amended by D406 and D443)* **Every macOS distribution ships an executable `PI-Desktop-macOS-open.command`, placed on the DMG in a visible first-launch row below the drag-to-Applications gesture. It searches only `/Applications/PI-Desktop.app` and `~/Applications/PI-Desktop.app`, verifies `CFBundleIdentifier` is `net.aiuo.pi-desktop`, removes only `com.apple.quarantine` when present, and opens the app. It never uses `sudo`, accepts no arbitrary path, and does not replace Developer ID signing or notarization.** | The unsigned macOS lane can be blocked by quarantine with a misleading damaged-app message, and the terminal-only `xattr -cr` note was broader than the launch failure requires (ADR 0204, E2E-196b) |
+| D443 | Canonical application ID and macOS codesign identifier | **Amend D141 / D371 / ADR 0204: the application ID is `net.aiuo.pi-desktop` (`APP_ID`, electron-builder `appId`, macOS `CFBundleIdentifier`, Windows AppUserModelID). Development macOS hosts use `net.aiuo.pi-desktop.dev`. Do not adhoc-sign the unsigned pack in `afterPack`/`afterSign`: nested Electron helpers are still unsigned and `codesign` fails with `code object is not signed at all`. See ADR 0278 and issue #524.** | The owner domain is `net.aiuo.pi-desktop`. Binding the unsigned outer identifier is deferred until a helper-safe pack path exists. |
 
 ## V. Extension activation decisions
 
@@ -4580,8 +4590,9 @@ D193, and D194.
 
 ## 2026-09-10 — Plan-safe plugin actions and summon-window shortcut (D384)
 
-*(superseded by D438 for the summon-window shortcut; the plan-safe plugin
-action opt-in below stays)*
+*(the summon-window half is superseded by D438, which replaced the pair, and by
+D439, which moved the toggle off the macOS close-window chord; the plan-safe
+plugin-action opt-in below stays)*
 
 - Plan and Goal modes could not invoke plugin tools at all, even for
   read-only actions like fetching a URL through the bundled Browser
@@ -4596,6 +4607,9 @@ action opt-in below stays)*
   declares `["navigate", "snapshot", "screenshot", "console"]`; the
   mutating actions stay Agent-only. The shortcut catalog gains
   `summonWindow` (`Mod+Shift+W`) in the `window` group, paired with
+  `closeWindow` (`Mod+W`), and the desktop main process registers it
+  through `globalShortcut` and the native menu. See ADR 0211 and
+  E2E-PLAN-005.
 
 ## 2026-09-17 — One window toggle replaces the summon/close pair (#360, D438)
 
@@ -4606,13 +4620,13 @@ action opt-in below stays)*
   so D438 supersedes exactly that half of D384; the plan-safe plugin-action
   opt-in from the same decision is untouched. The numbering skips D435 and D437,
   which other in-flight work already claims.
-- The catalog ships one `toggleWindow` id in the `window` group, default
-  `Mod+W` on every platform. `closeWindow` and `summonWindow` leave
-  `KEYBOARD_SHORTCUT_IDS`, so the retired `Mod+Shift+W` chord is spent on
-  nothing: it is not a shipped default, not registered with `globalShortcut`,
-  not a settings row, and not a menu accelerator. The plugin shortcut registry
-  therefore now refuses `Alt+Space` and `Mod+W`, and the freed `Mod+Shift+W`
-  becomes available to plugins.
+- The catalog ships one `toggleWindow` id in the `window` group, and
+  `closeWindow` and `summonWindow` leave `KEYBOARD_SHORTCUT_IDS`, so neither
+  retired chord is spent on anything: neither is a shipped default, registered
+  with `globalShortcut`, a settings row, or a menu accelerator, and the freed
+  `Mod+Shift+W` becomes available to plugins again. D439 later moved the
+  toggle's own default off `Mod+W`, which D438 had chosen; the merged id, the
+  toggle semantics, and the migration below are unchanged by that.
 - Pressing the key is a decision, not a close. `windowToggleAction` hides a
   visible, focused window through `Window.hide()` and otherwise shows and
   focuses it (hidden, minimized, or behind another application all count as
@@ -4629,7 +4643,7 @@ action opt-in below stays)*
   no surface can act on the retired ids. The rules are ordered and idempotent:
   an existing `toggleWindow` override wins unchanged; otherwise the first
   retired entry that carries a *binding* wins, `closeWindow` first because
-  `Mod+W` is the key the toggle keeps; a retired entry that is only `null` is
+  hiding is the toggle's primary job; a retired entry that is only `null` is
   honoured when no binding competes, so an explicit unbind is never replaced by
   a shipped default; and a stored value equal to its own retired default carries
   no intent (the settings UI deletes overrides that match a shipped default), so
@@ -4645,9 +4659,37 @@ action opt-in below stays)*
   `07-plugins/04-plugin-security.md`, `03-runtime/01-ipc-protocol.md`
   (`NATIVE_MENU_ACTIONS`), E2E-072, and
   `apps/desktop/test/window-toggle-shortcut.test.mjs`.
-  `closeWindow` (`Mod+W`), and the desktop main process registers it
-  through `globalShortcut` and the native menu. See ADR 0211 and
-  E2E-PLAN-005.
+
+## 2026-09-17 — The window toggle avoids the macOS close-window chord (#360, D439)
+
+- D438 merged the pair onto `Mod+W`, but that binding cannot be the default of a
+  *process-wide* accelerator: macOS spends `Cmd+W` on its own close-window
+  command, so claiming it globally takes the chord away from every other
+  application instead of only closing this window. `Mod+W` is therefore the one
+  key the toggle must not hold.
+- The catalog now ships `toggleWindow` on `Alt+Shift+W` — no platform modifier,
+  so it is one chord on macOS, Windows, and Linux — which collides with no
+  shipped default, no reserved editing chord, and no platform command. The
+  merge, the hide/show semantics, and the fold of the retired
+  `closeWindow`/`summonWindow` overrides stay exactly as D438 defined them.
+- On macOS `Mod+W` is now also refused to plugins (`isReservedKeybinding`), so
+  the platform keeps the chord it owns even though the app no longer uses it.
+- A stored `toggleWindow` value that only repeats a default this release ships
+  or already superseded carries no user intent, so the fold drops it: a profile
+  that persisted the short-lived `Mod+W` default moves to `Alt+Shift+W` instead
+  of freezing the macOS chord, while a real rebind (`Ctrl+Alt+T`) and an
+  explicit unbind (`null`) survive untouched, and a retired customization still
+  wins over a dropped superseded default.
+- The number is D439 because D435 and D437 were already claimed by other
+  in-flight work. **Note**: this log currently carries two `D438` entries — the
+  window-toggle merge above (#360, the pre-rebind decision) and the Git-checkout
+  decision (ADR 0273) near the end of the file. The latter was appended after the
+  toggle's D438 had merged, so its number needs to move to D440 or the next free
+  id; this entry does not rewrite another decision's text.
+- See ADR 0211 (amended again), `04-ux/09-interaction-patterns.md` §1.1 and
+  §1.4, `04-ux/06-settings-ia.md` (shortcuts tab), `07-plugins/03-plugin-api.md`,
+  `07-plugins/04-plugin-security.md`, E2E-072, and
+  `apps/desktop/test/window-toggle-shortcut.test.mjs`.
 
 ## 2026-09-10 — Remove diagnostic timing log streams (D385)
 
@@ -4866,7 +4908,7 @@ action opt-in below stays)*
 
 - D335 left recent PI-Desktop consumption visible only through the Token
   Insights plugin, while the host already owned the completed-turn rollup.
-- Decision D430 / ADR 0273 amends D335: the expanded sidebar footer has an
+- Decision D430 / ADR 0290 amends D335: the expanded sidebar footer has an
   Activity icon directly right of Settings. It opens a read-only popover that
   requests fourteen local-calendar day buckets from `stats.getTokenUsageHistory`
   and shows the range total, completed turns, daily distribution, and today's
@@ -4881,7 +4923,7 @@ action opt-in below stays)*
 - The right work panel gains a default bundled `pi.git` plugin with a `changes`
   view using the host `branch` icon. The plugin is ordinary, enabled by default,
   disableable, and declares only `ui.view`, `git.read`, and `git.write`.
-- Decision D431 / ADR 0274 adds a structured, allowlisted Git boundary in
+- Decision D431 / ADR 0291 adds a structured, allowlisted Git boundary in
   Electron Main. `git.read` exposes current status, branches, and scoped file
   diffs; `git.write` exposes fixed stage, unstage, discard, branch, commit,
   push, and pull operations. Paths are validated, output and file counts are
@@ -4900,7 +4942,7 @@ action opt-in below stays)*
 
 - D431's flat change rows made deep workspaces harder to scan, and its unified
   default did not match the requested old/new review posture.
-- Decision D432 / ADR 0275 amends D431: each Git section renders collapsible
+- Decision D432 / ADR 0292 amends D431: each Git section renders collapsible
   directory trees with aggregated descendant counts, while file clicks open the
   existing overlay in side-by-side mode with red old-side and green new-side
   rows; unified mode remains an explicit toggle.
@@ -4918,7 +4960,7 @@ action opt-in below stays)*
 
 - D432's review dialog remained clipped to the docked `WebContentsView`, even
   though the requested review posture needed an application-window dialog.
-- Decision D433 / ADR 0276 adds fixed `view.prepareModal` and `view.setModal`
+- Decision D433 / ADR 0293 adds fixed `view.prepareModal` and `view.setModal`
   panel channels under `ui.view`. Only the active docked view may use them; the
   host computes every rectangle, keeps the dock geometry authoritative, pushes
   resize updates, and restores docked placement whenever the view is hidden,
@@ -4929,7 +4971,7 @@ action opt-in below stays)*
 
 ## 2026-09-12 — Remote SSH Agent Runtime (D434)
 
-- Decision D434 / ADR 0277 implements the Remote SSH milestone on the D373
+- Decision D434 / ADR 0294 implements the Remote SSH milestone on the D373
   boundary: a Linux `pi-host` runs the headless Agent Host module, host-core,
   and agent sidecar beside the remote workspace.
 - Electron Main resolves system OpenSSH configuration, bootstraps and pairs the
@@ -4945,7 +4987,7 @@ action opt-in below stays)*
 
 ## 2026-09-14 — Managed SSH password authentication (D435)
 
-- Decision D435 / ADR 0278 amends ADR 0277's manual-connection credential UX:
+- Decision D435 / ADR 0295 amends ADR 0294's manual-connection credential UX:
   a managed connection explicitly selects SSH agent, password, or one identity
   file. Password and identity are alternatives; agent remains the default.
 - Identity selection uses a Main-owned native file picker and stores only the
@@ -5850,7 +5892,7 @@ that was sitting at the bottom — including after the turn had finished.
   the bytes through a new additive IPC domain — `pi-desktop/voice/capabilities`,
   `pi-desktop/voice/transcribe`, `pi-desktop/voice/cancel` — validated with the
   shared typebox schema. No audio ever rides `agent/prompt`, and the renderer
-  never addresses an STT endpoint (ADR 0279).
+  never addresses an STT endpoint (ADR 0296).
 - Electron main resolves the trusted config (`AppSettings.voice`: endpoint,
   model, language, default-off `autoSend`) and the API key (secret-ref
   `voice/stt` in the host secret store, read via `secrets.getForRuntime`) and
@@ -5873,5 +5915,288 @@ that was sitting at the bottom — including after the turn had finished.
   window's webContents and only for audio-only requests; camera/video and
   every other frame are denied, and plugin/work-panel partitions keep their
   deny-all handlers. A transcription failure is isolated from agent runtimes
-  (E2E-269). No protocol or storage-schema change; ADR 0279 records the
+  (E2E-269). No protocol or storage-schema change; ADR 0296 records the
   future voice-control extension points.
+## 2026-09-17 — A git checkout is a Create project source (D438)
+
+- The Create project dialog only collected a project name and local folders
+  (ADR 0233), and the home switcher's Clone git project entry renders inside the
+  hero of a project-bound session. A fresh installation therefore had to open an
+  unrelated local folder before any repository could be cloned.
+- The dialog now owns a source selector with two equal peers: This computer and
+  Git repository. The git source keeps the one name field (seeded from the
+  repository name until the user types), adds a repository URL field and one
+  clone destination row, and parses URLs with the switcher's `parseGitCloneUrl`
+  rules, so private, loopback, link-local, credential-bearing, and malformed
+  remotes keep Create disabled (ADR 0247).
+- Main exposes additive `project/cloneCheckout({ url, parentPath })`: it clones
+  into the explicit parent folder and returns `{ path, name }` without touching
+  the active workspace and without opening a picker. `project/clone` keeps its
+  native-picker behavior for the home switcher.
+- Project creation is unchanged: both sources call one project-slice helper,
+  `project-group/create` still writes the only durable record, and a checkout
+  becomes the primary root of the same logical group (ADR 0233).
+- Renderer plus one narrow main-process capability: no protocol, schema, host
+  RPC, permission, storage, or preference change. See ADR 0273,
+  `03-runtime/01-ipc-protocol.md` §9, `04-ux/08-component-spec.md`, and E2E-258.
+
+## 2026-09-16 — Draggable chat content width (D439)
+
+- The centered conversation band, empty-home stack, and composer share one
+  preferred max width, default 760px, persisted as
+  `AppSettings.chatContentMaxWidth`. Dual edge handles (invisible at rest;
+  a short primary-ink capsule on hover, slightly stronger while dragging)
+  change that width together so the column stays centered. Drag floor is 560px.
+
+- The live used width is `min(available pane minus 24px gutters, preferred)`,
+  so a squeezed sidebar or work panel compresses the band without rewriting
+  the preference. The collapsed-sidebar 640px ceiling is removed.
+- Assistant, tool, and decision rows follow the band. User plates stay
+  `min(82%, 600px)`. Renderer only. See ADR 0277, E2E-208, and
+  E2E-CHAT-content-width-handles.
+
+## 2026-09-17 — Session and project rows delete on the second click (D441)
+
+- The sidebar's session item and both project menus (sidebar and Projects index)
+  removed the row on the first click of Delete. Every other destructive row
+  action — the settings provider rows, vendor accounts, and the capability
+  tables — arms first and relabels the control, so the two most destructive
+  actions were the only ones that fired on a single click.
+- `hooks/use-armed-delete.ts` now owns that pattern for the whole renderer: one
+  `ARMED_DELETE_MS` (3200ms) expiry and one `useArmedDelete()`. The capability
+  pages keep importing it from `AgentCapabilityLayout`, which re-exports the
+  shared hook instead of holding a second copy with a timeout of its own, so the
+  pattern cannot drift between the settings rows and the two menus.
+- A session item arms on `session.id`; both project menus arm on a
+  `project:`-prefixed key, so a session and a project can never share an arm. An
+  armed item carries `data-armed="true"`, a danger wash, and the label
+  `nav.deleteTaskConfirm` / `project.deleteMenuConfirm` ("Delete?" / "确认删除？")
+  in all eight catalogs. The menu stays open between the two clicks, and an
+  outside press, Escape, or the expiry clears the arm without removing anything.
+- Amends D431 for the idle case: a project whose turn is still live still opens
+  `ProjectDeleteDialog`, which names those sessions and stops them before it
+  deletes, and the host's 1008 / `CONFLICT` refusal is still mapped to
+  `project.deleteRunningBlocked` on both paths. A project with no live turn is
+  removed by the same store action the dialog used, with the same success toast,
+  so its second click is the confirmation the user already gave.
+- The number is D441 because D438 was already claimed twice — by the
+  window-toggle merge (#360, D438 with the D439 rebind) and by the
+  Git-checkout decision (ADR 0273), which this log flags to move to D440.
+  This entry does not rewrite another decision's text.
+- Renderer only: no protocol, storage, host, permission, or migration change,
+  and no new default. The folder on disk is still never touched. See
+  `04-ux/09-interaction-patterns.md`, D421, D431,
+  `06-delivery/04-e2e-test-plan.md`
+  E2E-PROJECT-delete-removes-project-and-owned-sessions, and
+  `apps/desktop/test/two-step-delete.test.mjs`.
+
+## 2026-09-16 — The sidebar list rhythm is 1px / 2px / 8px
+
+- The sidebar's session lists had no rhythm to read. Rows and group headers sat
+  flush inside a group (a 0 gap), two project groups sat 2px apart, and the only
+  air was the 4px above a section label. Adjacent 28px rows painted rounded
+  hover fills that touched, so two rows read as one block, a collapsed group sat
+  as far from its neighbour as an expanded group with ten rows under it, and a
+  section label was closer to the rows above it than to the rows it introduces.
+- The lists now state one ladder: rows sit 1px apart, a project group header and
+  a section label sit 2px above their first row, a sidebar section sits 8px
+  below the one above it, and an expanded project group carries an 8px tail.
+- That tail belongs to the expanded group itself, so the spacing is decided by
+  the preceding group alone: an expanded group is followed by 8px whether the
+  next group is expanded or collapsed, and a collapsed group by 1px either way.
+  The scroller's own gap stays a uniform 1px and the difference lives in the
+  group body's inset, which leaves with the rows. Collapsing a group therefore
+  cannot fork the spacing on a neighbour's state, and cannot snap its own tail.
+- The dated labels inside a project group are ordinary rows of that rhythm
+  rather than a second level of groups: they keep no state, no disclosure, and
+  no `aria-expanded`, and their own inset becomes a symmetric 4px instead of 6px
+  above and 2px below, so a label no longer outweighs the 1px row gap it sits in.
+- `space-0.25` (1px) joins the spacing scale as the hairline step for dense list
+  rhythms; the settings rail already used 1px between its navigation items. The
+  section-gap rule no longer claims the sidebar, which has its own rhythm.
+- Two row budgets follow the pitch: the pinned body still shows eight rows
+  (233px, was 224px) and the standalone Sessions body still shows five (146px,
+  was 140px), because the 28px row grid no longer fits its own gaps inside the
+  old numbers.
+- Renderer only: no protocol, storage, host, permission, or migration change.
+  See `04-ux/07-ui-design-system.md` §6.1 and §13, and
+  `04-ux/08-component-spec.md` §6.2 and §6.6.
+
+## 2026-09-16 — The sidebar project group folds as one grid row
+
+- The rhythm above shipped with the group fold animating `max-height: 2000px →
+  0` over the 300ms slow duration, plus a separate 200ms opacity fade and a
+  padding transition. A `max-height` curve spends most of its length above the
+  content, so the visible move was a short snap at the end, and the shorter
+  opacity curve emptied the group roughly two thirds of the way through: the
+  rows disappeared first and the empty box closed afterwards. Collapsing a
+  project read as two separate animations.
+- The group body is now a one-row grid whose row animates `1fr` → `0fr` over the
+  200ms normal duration. Every frame is a real fraction of the group's measured
+  height, so the fold is a single continuous motion, and `opacity` stays 1 for
+  the whole fold — the rows leave by being clipped, not by fading.
+- The body is three layers: the grid, a clip with `min-height: 0` and
+  `overflow: hidden`, and the list that owns the 1px row gap and the fixed
+  2px / 7px inset. The inset has to sit inside the clip, because vertical
+  padding on the animating box holds a `0fr` row open and leaves the group's
+  tail behind after its rows are gone.
+- A folded group keeps its rows mounted inside the `0fr` row, so it is `inert`
+  as well as `aria-hidden` and leaves the tab order. Under
+  `prefers-reduced-motion: reduce` the fold keeps both endpoints and runs in a
+  near-zero duration.
+- The scroll budgets, the indent, the pinned and standalone lists, and the
+  shared `.sidebar-session-group-body` flex column are unchanged; only the
+  project body folds as a grid.
+- Renderer only: no protocol, storage, host, permission, or migration change.
+  See `04-ux/08-component-spec.md` §6.2 and
+  `06-delivery/04-e2e-test-plan.md` E2E-LAYOUT-sidebar-project-group-fold.
+
+## 2026-09-17 — Sidebar selection is distinct from workspace context
+
+- Project headers and project, pinned and standalone conversation rows share
+  one row-level hover surface, radius and transition. Project title buttons
+  stay transparent; selected conversation paint takes precedence over hover.
+- A project is a workspace/disclosure control, not a separate selected page.
+  The current workspace keeps its dot and all existing workspace behavior but
+  no persistent row fill, including when no conversation is selected. The
+  renderer marks that context with `data-current-workspace`, not an `active`
+  project class. Session selection remains chat-page-aware and follows the
+  destination immediately while a switch is pending.
+- Folding a selected conversation does not transfer selection to its project.
+  Keyboard focus retains its outline, action buttons retain local feedback,
+  window blur releases hover without clearing selection, and drop-target paint
+  takes precedence over hover.
+- Renderer presentation only: no persistence, workspace activation, permissions
+  or protocol changes. See `04-ux/01-ui-ia.md`, `04-ux/08-component-spec.md`,
+  `04-ux/09-interaction-patterns.md` §9.1c and
+  E2E-LAYOUT-sidebar-row-states in `06-delivery/04-e2e-test-plan.md`.
+
+## 2026-09-17 — Settings shares sidebar material and restores layout without entrance
+
+- Main and settings navigation now share `sidebar-surface`: the same opaque
+  color/image fallback on Windows/Linux and the existing native vibrancy plus
+  tint/sheen on macOS. Settings wrapper ancestry allows that native material
+  through, while its content pane and content-column titlebar remain opaque.
+  Only the inner settings content animates, not the navigation backing.
+- Built-in settings rail colors no longer diverge from the sidebar. Legacy
+  `--ds-settings-rail-bg` remains an optional shared fallback; a canonical
+  `--ds-bg-sidebar` override wins. No theme or native-window API changes.
+- Sidebar mounting no longer implies expansion. A dedicated transition hook
+  distinguishes visible collapsed-state changes from route restoration. Only
+  real collapse/expand changes animate; settings navigation cancels unfinished
+  phases, and returning restores the retained width/state without replaying
+  `sidebar-in`. Animation-end guards, scoped timeout cleanup, auto-restore and
+  reduced motion remain supported. Boot presentation uses the existing splash
+  reveal instead of a second sidebar width animation.
+- No changes to item indentation, widths, workspace state, data or permissions.
+  See `04-ux/06-settings-ia.md`, `04-ux/07-ui-design-system.md`,
+  `04-ux/08-component-spec.md` and E2E-LAYOUT-sidebar-settings in
+  `06-delivery/04-e2e-test-plan.md`.
+
+## 2026-09-17 — A route surface stops holding a stacking context after its entrance
+
+- The plugin install consent modal — and the plugin detail sheet with it — painted
+  under the opaque 46px titlebar band, so the band was not covered by the modal's
+  scrim and the band's controls stayed clickable. A route page is authored inside
+  `.route-surface`, whose entrance animation carried
+  `animation-fill-mode: both`: the fill kept the finished entrance "in effect"
+  for as long as the page was mounted, and therefore kept the surface a stacking
+  context, so an overlay rendered inside the page could not paint above the
+  chrome.
+- `.route-surface` and `.settings-content-enter` no longer carry `forwards` /
+  `both` on their entrance (`apps/desktop/src/styles/chat-shell.css`). The
+  entrance ends on the element's own state, so the fill was redundant; without it
+  the surface stops holding a stacking context once the entrance finishes, and an
+  overlay authored inside a route page paints above the titlebar band again. The
+  keyframes stay opacity-only and the entrance still plays.
+- The plugin detail sheet keeps reserving `--ds-toolbar-height` at its top
+  (`apps/desktop/src/styles/plugins.css`), because on Windows/Linux the
+  renderer-drawn window controls own that top-right corner at `z-index: 200` and
+  stay above any overlay's z-index.
+- The plugin overlays returned to `z-dialog` (40) from their off-scale `80` and
+  `60` (`plugins.css`, and the release-notes overlay with them): once the route
+  surface stopped trapping them they competed in the root stacking context, and
+  at 80 they covered the leaf popups (60) and toasts (50) a dialog raises from
+  inside itself — the install dialog's "copied" toast among them. A source test
+  pins that relationship now.
+- Renderer only: no IPC, storage, schema, protocol, or plugin-SDK change, and no
+  new default. See `04-ux/07-ui-design-system.md` §9,
+  `apps/desktop/test/settings-dialog-overlay.test.mjs`, and
+  `06-delivery/04-e2e-test-plan.md` E2E-LAYOUT-three-column-width-priority (its
+  four overlay assertions live in `scripts/e2e-three-column-layout.mjs`).
+- Not done, and recorded as a follow-up: true modality — inertness, focus
+  containment, shortcut stand-down — needs these overlays on the browser's top
+  layer (`<dialog>.showModal()`). That is blocked until the popups, tooltips, and
+  toasts they open, which are portaled to `document.body`, also move to the top
+  layer, because top-layer content paints above them and makes them unusable; an
+  attempt was withdrawn for exactly that reason.
+
+## 2026-09-18 — Prompt enhancement ships a substantive rewrite with user-overridable templates (D447)
+
+- The default enhancement prompt moves from one conservative sentence to a
+  structured system prompt plus a templated user message: role, analysis,
+  rewrite principles, an explicit do-not list, language-following rules that
+  forbid language meta notes, a length brake (about twice the draft; no 800-character cap), and an output contract. The old
+  `If the draft is already good, return it with at most minor polish` clause is
+  removed: it made the action look inert on short drafts, which is the reported
+  complaint.
+- Two constraints the old prompt lacked are now explicit: code, commands, file
+  paths, identifiers, API names, and other proper nouns must be reproduced
+  exactly, and the answer must not open with a language meta note such as
+  "The draft is in Chinese". Both are default-value decisions, not
+  implementation details, because they change what every user receives.
+- The user template becomes an `AppSettings` override
+  (`promptEnhancementUserTemplate`) with its default in
+  `packages/shared/src/prompt-enhancement.ts`; a blank override means "use the
+  default", and editing the field back to the exact default text clears the
+  override instead of freezing a copy. Storing the default text as a user value
+  was rejected: a later improvement to the default would then never reach those
+  users.
+- The system prompt stays built in and is not user-editable. It carries rules
+  the spec and E2E scenario assert, so a stored override could silently remove
+  one; host-core drops such a value if an older build wrote it. Editing the
+  system prompt remains a source change with a spec update.
+- The user template carries `{{draft}}`. host-core rejects a non-blank user
+  template without it, and each template must stay within
+  `PROMPT_ENHANCEMENT_TEMPLATE_MAX_LENGTH`; main falls back to the default if an
+  unusable value ever reaches the runtime. One matching pair of wrapping
+  quotation marks is stripped from the model's answer.
+- The settings surface is one row with a `Use a custom template` switch and the
+  subagent rows' edit icon button, opening an editor sheet, rather than inline
+  textareas or a row of labelled actions: the AI settings tab stays compact and
+  the row reads as one control cluster. The switch, not the text, decides whether
+  a stored template applies, so turning it off preserves the user's text. It is
+  enabled only once a usable template exists and saving one turns it on, because
+  an always-enabled switch would choose between two identical states before any
+  template was written.
+- `promptEnhancementProviderId` / `promptEnhancementModelId` let the rewrite run
+  on a model other than the conversation's. An unresolvable pin falls back to
+  the Composer's current model with a warning rather than failing the action.
+- The enhancement model and reasoning level move to Settings -> Models, in a
+  dedicated `Enhancement prompt` card below Defaults, whose model row is titled
+  `Default model` like the Defaults card's row (the card heading separates them). Both are decisions about which model
+  runs the rewrite, and the model page already owns the one model picker a user
+  learns; the prompt card keeps only the prompt. The enhancement-model row reuses
+  the default-model row's anchored menu rather than introducing a second picker.
+- The enhancement reasoning row lists only the levels the selected model actually
+  supports, resolved the same way a turn resolves them (binding `thinkingLevels`,
+  then the live catalog, then the provider default), and is disabled when the
+  model supports none. An earlier revision offered the full canonical ladder
+  regardless of model, which is wrong for a model without reasoning. Switching
+  model re-clamps and rewrites the stored level, so a persisted level is always
+  runnable.
+- The enhancement reasoning level becomes configurable and defaults to `off`; it
+  never inherits the conversation's effort. A rewrite rarely benefits from
+  reasoning, and reasoning is the slow path, so "follow the session" would
+  silently opt every enhancement on a reasoning model into the slowest setting.
+  The level is clamped by the resolved model's capabilities.
+- One enhancement request is bounded by a 60-second ceiling: expiry aborts the
+  in-flight call (best-effort) and races the promise so the renderer is released,
+  then fails with `TIMEOUT` instead of retrying on the session model. The
+  provider retry budget can already spend about a minute, the renderer has no
+  cancel, and a hidden second attempt would double the wait. This is a behavior
+  change for a slow provider: the action now fails visibly instead of hanging.
+- No IPC method, process boundary, storage ownership, or security boundary
+  changes; the existing `prompt/enhance` payload is unchanged. See
+  `04-ux/12-prompt-enhancement.md` §3 and §5, ADR 0121, and
+  `06-delivery/04-e2e-test-plan.md` E2E-259.

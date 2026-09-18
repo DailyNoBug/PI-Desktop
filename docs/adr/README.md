@@ -70,7 +70,7 @@ Each ADR includes:
 | 0046 | Categorized process log files | Accepted |
 | 0047 | Context usage inspector with exact and estimated token sources | Accepted |
 | 0048 | Lazy per-turn tool activation | Accepted |
-| 0049 | Recover automatic context compaction failures with a retained tail | Accepted |
+| 0049 | Recover automatic context compaction failures with a retained tail | Accepted (preflight guard amended by ADR 0282) |
 | 0050 | Bounded provider stream recovery and diagnostics | Accepted |
 | 0051 | Isolate host RPC stdio from the Tokio blocking pool | Accepted |
 | 0052 | Plan operating state and approval boundary | Superseded by 0053 |
@@ -142,7 +142,7 @@ Each ADR includes:
 | 0118 | Keep queued prompts renderer-owned and stop runs at turn boundaries | Accepted |
 | 0119 | Event-Driven Subagent Timeouts | Accepted for implementation (killing policy amended by 0166; `maxTurns` clauses withdrawn by 0253) |
 | 0120 | Bounded Session History Windows | Accepted |
-| 0121 | Keep Composer prompt enhancement one-shot and main-owned | Accepted |
+| 0121 | Keep Composer prompt enhancement one-shot and main-owned | Accepted (D447; issue #14 / #562) |
 | 0122 | Reserve native width while the work panel is visible | Superseded by 0151 |
 | 0123 | Use native taskbar minimize for Windows/Linux window controls | Accepted |
 | 0124 | Bind Temporary Sessions to Their Own Scratch Workspace | Accepted |
@@ -261,7 +261,7 @@ Each ADR includes:
 | 0236 | Restore archived projects when session import adds a bound session | Accepted |
 | 0237 | Keep Session Orchestration in an Official Plugin | Accepted |
 | 0238 | Prioritize MainChat in the three-column shell | Accepted (amends ADR 0226) |
-| 0239 | Host-owned session collaboration messages | Accepted (amends ADR 0237 / 0165 / 0213) |
+| 0239 | Host-owned session collaboration messages | Accepted (amends ADR 0237 / 0165 / 0213; amended by D446) |
 | 0240 | Independent session discovery and navigable collaboration projections | Accepted (amends ADR 0239) |
 | 0241 | Ship the file view as a vendored, updatable plugin | Accepted (supersedes ADR 0105; issue #304) |
 | 0242 | Delta-only coalesced streaming updates | Accepted (amends 0127 / 0130 / 0149 / 0153; issue #299) |
@@ -299,16 +299,37 @@ Each ADR includes:
 | 0270 | [Builtin subagents can be switched off](0270-builtin-subagents-can-be-disabled.md) | Accepted for implementation (amends ADR 0063; ADR 0112) |
 | 0271 | [Rebuild the shared provider transport after repeated unanswered failures](0271-provider-transport-rebuild.md) | Accepted for implementation (issue #234) |
 | 0272 | [Judge a public-network address on the route the request will dial](0272-connection-time-public-network-route.md) | Accepted for implementation (amends ADR 0243; issue #419 / PR #473) |
-| 0273 | [Sidebar token usage summary](0273-sidebar-token-usage-summary.md) | Accepted (amends 0173; D430) |
-| 0274 | [Bundled Git work panel](0274-bundled-git-work-panel.md) | Accepted (D431; amended by 0275 / D432) |
-| 0275 | [Tree review and AI commit messages in Git](0275-git-ai-commit-messages.md) | Accepted (D432) |
-| 0276 | [Window-sized plugin view modals](0276-window-sized-plugin-view-modals.md) | Accepted (D433) |
-| 0277 | [Remote SSH Agent Runtime](0277-remote-ssh-agent-runtime.md) | Accepted for implementation (D434) |
-| 0278 | [Managed SSH password authentication](0278-managed-ssh-password-auth.md) | Accepted (D435) |
-| 0279 | [Voice dictation, phase 1](0279-voice-dictation-phase-1.md) | Accepted for implementation (D439) |
+| 0273 | [Git checkout as a Create project source](0273-git-checkout-create-project-source.md) | Accepted for implementation (amends ADR 0233; ADR 0247) |
+| 0274 | [A development plugin is reviewed before it is loaded](0274-development-plugin-permission-review.md) | Accepted for implementation (amends ADR 0005) |
+| 0275 | [A floating widget placement for plugin panels](0275-plugin-panel-floating-widget.md) | Accepted for implementation (amends ADR 0093 §4; ADR 0092 / ADR 0110) |
+| 0276 | [Official plugin channel and backup channels](0276-official-plugin-channel-and-backup-channels.md) | Accepted for implementation (amends ADR 0102; D442) |
+| 0277 | [Draggable chat content width](0277-draggable-chat-content-width.md) | Accepted (D439) |
+| 0278 | [Canonical application ID `net.aiuo.pi-desktop`](0278-canonical-application-id.md) | Accepted (D443; amends D141 / D371 / ADR 0204; issue #524) |
+| 0279 | [Resumable subagent delegations](0279-resumable-subagent-delegations.md) | Accepted for implementation (amends ADR 0062; ADR 0089; issue #513) |
+| 0280 | [Plugin-owned UI localizes from the host locale](0280-plugin-owned-ui-localizes-from-host-locale.md) | Accepted (amends ADR 0267; ADR 0159) |
+| 0281 | [Host speech capability](0281-host-speech-capability.md) | Accepted for implementation (amends ADR 0257) |
+| 0282 | [Retry and right-size the compaction summary before retained-tail recovery](0282-compaction-summary-retry-and-sizing.md) | Accepted (amends ADR 0049; issue #543) |
+| 0283 | [Remote MCP server OAuth 2.1 authentication](0283-remote-mcp-oauth.md) | Accepted |
+| 0284 | [Headless runtime boundary in `packages/host-runtime`](0284-headless-runtime-boundary.md) | Accepted for implementation (D447; ADR 0205 R2 prerequisite) |
+| 0285 | [`RACP-WS` transport in `packages/racp`](0285-racp-ws-transport.md) | Accepted for implementation (D448; ADR 0205 R2) |
+| 0286 | [Remote-host desktop kernel](0286-remote-host-desktop-kernel.md) | Accepted for implementation (D449; ADR 0205 R2) |
+| 0287 | [Host-rendered plugin scenic Settings surfaces](0287-host-rendered-plugin-scenic-settings-surfaces.md) | Accepted for implementation |
+| 0288 | [Package-local theme assets remain available](0288-package-local-theme-assets.md) | Accepted for implementation (amends ADR 0255) |
+| 0289 | [Signed macOS GitHub Releases and in-app update delivery](0289-signed-macos-github-releases.md) | Accepted (D450; amends ADR 0022 / 0145 / 0191 / 0204 / D078) |
+| turn-process-and-thinking-display | [Turn process and thinking presentation](turn-process-and-thinking-display.md) | Accepted |
+| 0290 | [Sidebar token usage summary](0290-sidebar-token-usage-summary.md) | Accepted (amends 0173; D430) |
+| 0291 | [Bundled Git work panel](0291-bundled-git-work-panel.md) | Accepted (D431; amended by 0292 / D432) |
+| 0292 | [Tree review and AI commit messages in Git](0292-git-ai-commit-messages.md) | Accepted (D432) |
+| 0293 | [Window-sized plugin view modals](0293-window-sized-plugin-view-modals.md) | Accepted (D433) |
+| 0294 | [Remote SSH Agent Runtime](0294-remote-ssh-agent-runtime.md) | Accepted for implementation (D434) |
+| 0295 | [Managed SSH password authentication](0295-managed-ssh-password-auth.md) | Accepted (D435) |
+| 0296 | [Voice dictation, phase 1](0296-voice-dictation-phase-1.md) | Accepted for implementation (D439) |
 
-The fork's own decisions originally took the 0230 - 0235 range that merged main
-had already assigned, so they were renumbered to 0266 - 0271 (D430 - D435)
-against merged main. A later upstream sync then claimed 0266 - 0272 for its own
-records, so the fork's six decisions moved once more, to 0273 - 0278, keeping
-their decision IDs D430 - D435 unchanged.
+> The fork's own decisions originally took the 0230 - 0235 range that merged main
+> had already assigned, so they were renumbered to D430 - D435 and ADR 0266 - 0271
+> against merged main. A later upstream sync then claimed ADR 0266 - 0272, so the
+> fork's records moved to ADR 0273 - 0279; this sync brought upstream ADRs
+> 0273 - 0289, so they moved once more, to ADR 0290 - 0296. Decision IDs stay
+> unchanged throughout. Note upstream independently reused decision id D439 for
+> its window-toggle and chat-content-width records; the fork's D439 remains
+> voice dictation.

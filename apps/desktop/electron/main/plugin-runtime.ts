@@ -74,13 +74,14 @@ import {
   type PluginServiceStatus,
   type PluginSettingDefinition,
   type PluginWorkspaceInfo,
+  BUILTIN_SPEECH_PROTOCOL_IDS,
 } from "@pi-desktop/shared";
 import {
   previewFile,
   resolveRealPathForCreateWithinRoot,
   resolveRealPathWithinRoot,
   resolveWithinRoot,
-} from "./fs-panel";
+} from "@pi-desktop/host-runtime";
 import { McpServerClient, type McpServerClientOptions } from "./plugin-mcp";
 import { PluginToolInvocations, type PluginToolInvocation } from "./plugin-tool-invocations";
 import { DevPluginWatcher, type DevPluginWatcherDeps } from "./plugin-watcher";
@@ -101,6 +102,7 @@ import {
   type PluginShortcutEntry,
   type PluginShortcutRegistry,
 } from "./plugin-shortcut-registry";
+import { repairImportedExtensionWrapper } from "./imported-plugin-wrapper";
 
 export type RegisteredCommand = {
   id: string;
@@ -203,6 +205,16 @@ export type PluginPanelRequest = {
   htmlPath: string;
   locale?: string;
   theme?: "light" | "dark";
+  /**
+   * `"panel"` (default) keeps the 46px host drag band and its capsule.
+   * `"widget"` is the transparent floating placement: no band, no capsule, a
+   * whole-window drag map, and a host context menu instead of the capsule.
+   */
+  shape?: "panel" | "widget";
+  /** Floating widget placement only: keep the surface above other windows. */
+  alwaysOnTop?: boolean;
+  /** Overrides the per-shape default: panels are resizable, widgets are not. */
+  resizable?: boolean;
   /** The plugin's egress allowlist; the panel session is confined to it. */
   netDomains?: readonly string[];
   /** Allows the isolated panel to request microphone audio, never camera access. */
@@ -293,8 +305,9 @@ export type PluginHostServices = {
   /**
    * The appearance the host is currently showing (palette, language, active
    * plugin theme). Panels and plugin processes read it through `app.getAppearance`;
-   * the host broadcasts `appearance:changed` to open panels and docked views
-   * when it changes. Workspace switches push `workspace:changed` the same way.
+   * the host broadcasts `appearance:changed` to open panels, docked views, and
+   * loaded plugin processes when it changes (ADR 0280). Workspace switches push
+   * `workspace:changed` the same way.
    */
   getAppearance?: () => PluginAppearance;
   /**
@@ -466,6 +479,10 @@ export type PluginHostServices = {
   project?: {
     create: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
   };
+  /** Read-only completed-turn facts served by host-core's usage domain. */
+  usage?: {
+    listTurns: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
+  };
 };
 
 /** Host APIs a plugin process may reach. Anything else does not exist (spec 04 §2). */
@@ -556,6 +573,7 @@ const HOST_API_ALLOWLIST = new Set([
   "session.importBatch",
   "session.rename",
   "session.delete",
+  "usage.listTurns",
   "agent.complete",
   "keyboard.registerGlobalShortcut",
   "keyboard.unregisterGlobalShortcut",
@@ -938,6 +956,81 @@ function normalizePluginSessionInput(
   return { ...(input as Record<string, unknown>) };
 }
 
+/**
+ * Bounds for the read-only usage fact listing. The host RPC re-checks the
+ * same windows, so a caller that skips this main-process side still cannot
+ * widen the scan (spec 07-plugins/03 §usage).
+ */
+const PLUGIN_USAGE_MAX_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
+const PLUGIN_USAGE_DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Absent/null keeps the host default; anything else must be an integer. */
+function pluginUsageProjectId(value: Record<string, unknown>): number | undefined {
+  const raw = value.projectId;
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "number" || !Number.isInteger(raw)) {
+    throw apiError("INVALID_PARAMS", "projectId must be an integer");
+  }
+  return raw;
+}
+
+/**
+ * Mirrors the host-side validation for `usage.listTurns`: absent/null fields
+ * stay absent (the host applies the 30-day default window and 200-row page),
+ * and anything out of range is rejected here so a plugin sees a plain
+ * INVALID_PARAMS instead of a host round-trip. Implied bounds (now / now-30d)
+ * are used only to check order and the 365-day cap.
+ */
+function normalizePluginUsageListTurnsInput(input: unknown): Record<string, unknown> {
+  if (input === undefined || input === null) return {};
+  if (typeof input !== "object" || Array.isArray(input)) {
+    throw apiError("INVALID_PARAMS", "usage input must be an object");
+  }
+  const value = input as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  const intField = (key: string): number | undefined => {
+    const raw = value[key];
+    if (raw === undefined || raw === null) return undefined;
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
+      throw apiError("INVALID_PARAMS", `${key} must be a non-negative integer`);
+    }
+    normalized[key] = raw;
+    return raw;
+  };
+  const fromMs = intField("fromMs");
+  const toMs = intField("toMs");
+  const resolvedTo = toMs ?? Date.now();
+  const resolvedFrom = fromMs ?? resolvedTo - PLUGIN_USAGE_DEFAULT_WINDOW_MS;
+  if (resolvedTo < resolvedFrom) {
+    throw apiError("INVALID_PARAMS", "toMs must be >= fromMs");
+  }
+  if (resolvedTo - resolvedFrom > PLUGIN_USAGE_MAX_WINDOW_MS) {
+    throw apiError("INVALID_PARAMS", "usage window must span at most 365 days");
+  }
+  if (value.sessionId !== undefined && value.sessionId !== null) {
+    if (typeof value.sessionId !== "string" || !value.sessionId.trim()) {
+      throw apiError("INVALID_PARAMS", "sessionId must be a non-empty string");
+    }
+    normalized.sessionId = value.sessionId;
+  }
+  const projectId = pluginUsageProjectId(value);
+  if (projectId !== undefined) normalized.projectId = projectId;
+  if (value.cursor !== undefined && value.cursor !== null) {
+    if (typeof value.cursor !== "string") {
+      throw apiError("INVALID_PARAMS", "cursor must be a string");
+    }
+    if (value.cursor) normalized.cursor = value.cursor;
+  }
+  if (value.limit !== undefined && value.limit !== null) {
+    const limit = value.limit;
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 500) {
+      throw apiError("INVALID_PARAMS", "limit must be an integer between 1 and 500");
+    }
+    normalized.limit = limit;
+  }
+  return normalized;
+}
+
 /** Key for the per-service supervision map. */
 function serviceStateKey(pluginId: string, serviceId: string): string {
   return `${pluginId}:${serviceId}`;
@@ -992,7 +1085,7 @@ function readDeclaredAccess(pluginPath: string): {
  * through review rather than being reasoned about, because deciding whether one
  * glob covers another is not something to guess at behind the gateway.
  */
-function widenedFsScope(ceiling: PluginFsPolicy, next: PluginFsPolicy): string[] {
+export function widenedFsScope(ceiling: PluginFsPolicy, next: PluginFsPolicy): string[] {
   const added: string[] = [];
   for (const mode of ["read", "write", "delete"] as const) {
     const before = ceiling[mode];
@@ -1012,8 +1105,32 @@ function widenedFsScope(ceiling: PluginFsPolicy, next: PluginFsPolicy): string[]
 }
 
 /**
+ * Manifest and folded access a development plugin directory declares right now,
+ * for the permission review that has to happen before it is loaded. The same
+ * read a reload performs, plus the identity the review UI needs to name it
+ * before its first load.
+ */
+export function readDevPluginDeclaration(pluginPath: string): {
+  manifest: PluginManifest;
+  permissions: string[];
+  fs: PluginFsPolicy;
+} {
+  const manifestPath = join(pluginPath, "manifest.json");
+  if (!existsSync(manifestPath)) {
+    throw new Error("PLUGIN_INVALID: manifest.json missing");
+  }
+  const raw = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
+  const validated = validateManifest(raw);
+  if (!validated.ok || !validated.manifest) {
+    throw new Error(`PLUGIN_INVALID: ${validated.error}`);
+  }
+  const access = readDeclaredAccess(pluginPath);
+  return { manifest: validated.manifest, permissions: access.permissions, fs: access.fs };
+}
+
+/**
  * `realpath` with the input as its own fallback, for a path that may not exist
- * yet. Containment is decided by `fs-panel`'s checks; this only exists so the
+ * yet. Containment is decided by the host-runtime workspace-files checks; this only exists so the
  * relative path we compare scopes against is expressed in the same terms.
  */
 function realpathOrSelf(path: string): string {
@@ -1045,7 +1162,7 @@ export function resolveInsidePlugin(pluginPath: string, relative: string): strin
  * referencing one is refused instead of served from a half-honoured list.
  */
 function resolveThemeAssets(
-  _pluginPath: string,
+  pluginPath: string,
   declared: readonly string[],
 ): { files: Map<string, string>; dropped: number } {
   const files = new Map<string, string>();
@@ -1053,16 +1170,15 @@ function resolveThemeAssets(
   let total = 0;
   let dropped = 0;
   for (const asset of declared) {
-    // A theme asset is an absolute path; `normalizeThemeAssetPath` rejects
-    // package-relative references, so nothing is resolved against the package
-    // root any more. The plugin is the one naming the file.
     const normalized = normalizeThemeAssetPath(asset);
-    if (!normalized) {
+    if (!normalized || normalized.split("/").includes("node_modules")) {
       dropped += 1;
       continue;
     }
-    const absolute = normalized;
-    if (!existsSync(absolute)) {
+    const absolute = isExternalThemeAssetPath(normalized)
+      ? normalized
+      : resolveInsidePlugin(pluginPath, normalized);
+    if (!absolute || !existsSync(absolute)) {
       dropped += 1;
       continue;
     }
@@ -1139,9 +1255,65 @@ const spawnUtilityProcess: PluginProcessSpawner = async ({ pluginId, entry }) =>
   };
 };
 
+const SPEECH_HTTP_PARSE = new Set([
+  "bytes",
+  "json-text",
+  "json-path",
+  "openai-transcription",
+  "openai-chat-audio",
+]);
+
+function parseSpeechAdapterReply(value: unknown): {
+  kind: "text" | "audio" | "http";
+  text?: string;
+  mimeType?: string;
+  data?: string;
+  call?: Record<string, unknown>;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw apiError("INVALID_ARGUMENT", "speech adapter reply is invalid");
+  }
+  const record = value as Record<string, unknown>;
+  if (record.kind === "text") {
+    const text = typeof record.text === "string" ? record.text.trim() : "";
+    if (!text) throw apiError("PROVIDER_ERROR", "speech adapter returned empty text");
+    return { kind: "text", text };
+  }
+  if (record.kind === "audio") {
+    const data = typeof record.data === "string" ? record.data.trim() : "";
+    const mimeType =
+      typeof record.mimeType === "string" && record.mimeType.trim()
+        ? record.mimeType.trim()
+        : "application/octet-stream";
+    if (!data) throw apiError("PROVIDER_ERROR", "speech adapter returned empty audio");
+    return { kind: "audio", mimeType, data };
+  }
+  if (record.kind === "http") {
+    const call = record.call;
+    if (!call || typeof call !== "object" || Array.isArray(call)) {
+      throw apiError("INVALID_ARGUMENT", "speech adapter http call is invalid");
+    }
+    const spec = call as Record<string, unknown>;
+    if (typeof spec.url !== "string" || !spec.url.trim()) {
+      throw apiError("INVALID_ARGUMENT", "speech adapter http call is invalid");
+    }
+    if (typeof spec.parse !== "string" || !SPEECH_HTTP_PARSE.has(spec.parse)) {
+      throw apiError("INVALID_ARGUMENT", "speech adapter http parse is invalid");
+    }
+    return { kind: "http", call: spec };
+  }
+  throw apiError("INVALID_ARGUMENT", "speech adapter reply kind is invalid");
+}
+
 export class PluginRuntime {
   private commands = new Map<string, RegisteredCommand>();
   private tools = new Map<string, RegisteredPluginTool>();
+  private speechAdapters = new Map<string, {
+    protocol: string;
+    label: string;
+    roles: Array<"transcribe" | "synthesize">;
+    pluginId: string;
+  }>();
   private skills = new Map<string, RegisteredPluginSkill>();
   private agentExtensions = new Map<string, RegisteredAgentExtension>();
   private themes = new Map<string, RegisteredPluginTheme>();
@@ -1252,6 +1424,44 @@ export class PluginRuntime {
     return [...loaded.permissions].some((permission) => permission.startsWith("fs."));
   }
 
+  getSpeechAdapter(protocol: string) {
+    return this.speechAdapters.get(protocol);
+  }
+
+  listSpeechAdapters() {
+    return [...this.speechAdapters.values()].map((entry) => ({
+      id: entry.protocol,
+      label: entry.label,
+      roles: [...entry.roles],
+      source: "plugin" as const,
+      pluginId: entry.pluginId,
+    }));
+  }
+
+  async runSpeechAdapter(
+    job: { binding: { protocol: string } } & Record<string, unknown>,
+    payload: Record<string, unknown>,
+  ) {
+    const adapter = this.speechAdapters.get(String(job.binding.protocol));
+    if (!adapter) {
+      throw apiError("SPEECH_PROTOCOL_UNSUPPORTED", `unknown speech protocol: ${job.binding.protocol}`);
+    }
+    const loaded = this.loaded.get(adapter.pluginId);
+    if (!loaded?.child || loaded.disposing) {
+      throw apiError("NOT_FOUND", `plugin not loaded: ${adapter.pluginId}`);
+    }
+    const reply = await this.sendToChild(
+      loaded,
+      {
+        t: "call",
+        method: "speech.handle",
+        payload: { protocol: adapter.protocol, ...payload, role: (job as { role?: string }).role },
+      },
+      60_000,
+    );
+    return parseSpeechAdapterReply(reply);
+  }
+
   /** ExtensionAPI modules from loaded plugins holding `agent.extension`. */
   getAgentExtensions(): RegisteredAgentExtension[] {
     return [...this.agentExtensions.values()].sort((a, b) => a.id.localeCompare(b.id));
@@ -1357,7 +1567,26 @@ export class PluginRuntime {
     return this.loaded.get(pluginId);
   }
 
-  /** Return the manifest-backed settings view for the installed-plugin UI. */
+  /**
+   * Read a persisted declared variable without exposing the plugin's private
+   * settings record. Host-rendered scenic destinations use this only after
+   * validating the matching declaration themselves.
+   */
+  getThemeVariableValue(pluginId: string, themeId: string, name: string): unknown {
+    const loaded = this.loaded.get(pluginId);
+    if (!loaded) return undefined;
+    return this.readThemeVariableValues(loaded, themeId)[name];
+  }
+
+  async setScenicThemeBlur(pluginId: string, themeId: string, blur: number): Promise<void> {
+    const loaded = this.loaded.get(pluginId);
+    if (!loaded || !loaded.permissions.has("ui.theme")) {
+      throw apiError("PERMISSION_DENIED", "ui.theme");
+    }
+    await this.hostApi(loaded).themes.setVariables(themeId, { "--nexus-backdrop-blur": blur });
+  }
+
+  /** Manifest settings as the installed-plugin sheet reads them. Titles stay the author's language; plugin-owned UI localizes via `app.getLocale` / `appearance:changed` (ADR 0280). */
   async getPluginSettings(pluginId: string): Promise<PluginSettingDefinition[]> {
     const loaded = this.loaded.get(pluginId);
     if (!loaded) throw apiError("NOT_FOUND", `plugin not loaded: ${pluginId}`);
@@ -1504,6 +1733,8 @@ export class PluginRuntime {
     if (!existsSync(manifestPath)) {
       throw new Error("PLUGIN_INVALID: manifest.json missing");
     }
+    // Generated no-op `main.js` wrappers fail under package `"type":"module"`.
+    repairImportedExtensionWrapper(pluginPath);
     const raw = JSON.parse(readFileSync(manifestPath, "utf8"));
     const validated = validateManifest(raw);
     if (!validated.ok || !validated.manifest) {
@@ -1683,6 +1914,18 @@ export class PluginRuntime {
     return this.watcher.isWatching(pluginId);
   }
 
+  /**
+   * The approval a development plugin is loaded under: the permission set and
+   * the file scope the user accepted when they last reviewed it, or null when
+   * the plugin is not watched. Both the hot reload and the manual reload measure
+   * a manifest edit against this record, never against the manifest itself —
+   * the manifest is the request, this is the answer.
+   */
+  devApproval(pluginId: string): { permissions: string[]; fs: PluginFsPolicy } | null {
+    const dev = this.devPlugins.get(pluginId);
+    return dev ? { permissions: [...dev.permissions], fs: dev.fs } : null;
+  }
+
   /** Stop every watch; called on app quit alongside the other subsystems. */
   disposeWatchers(): void {
     this.watcher.disposeAll();
@@ -1766,7 +2009,7 @@ export class PluginRuntime {
       const widened = widenedFsScope(dev.fs, declaredAccess.fs);
       if (added.length || widened.length) {
         throw new Error(
-          `PERMISSION_DENIED: manifest now requests ${[...added, ...widened].join(", ")}; load the plugin again to review`,
+          `PERMISSION_DENIED: manifest now requests ${[...added, ...widened].join(", ")}; reload it from the Plugins page to review`,
         );
       }
       // Grants follow the manifest downwards, never upwards: a permission the
@@ -2416,6 +2659,51 @@ export class PluginRuntime {
         this.tools.delete(pluginToolName(pluginId, String(args[0] ?? "")));
         return { ok: true };
       }
+      case "speech.registerAdapter": {
+        this.assertPermission(loaded, "speech.adapter.register");
+        const descriptor = (args[0] ?? {}) as {
+          protocol?: string;
+          label?: string;
+          roles?: unknown;
+        };
+        const protocol = String(descriptor.protocol ?? "").trim();
+        if (!/^[a-z][a-z0-9._-]{0,63}$/.test(protocol)) {
+          throw apiError("INVALID_ARGUMENT", "speech protocol is invalid");
+        }
+        if ((BUILTIN_SPEECH_PROTOCOL_IDS as readonly string[]).includes(protocol)) {
+          throw apiError("CONFLICT", "speech protocol is reserved");
+        }
+        const existing = this.speechAdapters.get(protocol);
+        if (existing && existing.pluginId !== pluginId) {
+          throw apiError("CONFLICT", `speech protocol in use: ${protocol}`);
+        }
+        const roles = Array.isArray(descriptor.roles)
+          ? descriptor.roles.filter((role): role is "transcribe" | "synthesize" =>
+              role === "transcribe" || role === "synthesize",
+            )
+          : [];
+        if (roles.length === 0) throw apiError("INVALID_ARGUMENT", "speech roles are required");
+        this.speechAdapters.set(protocol, {
+          protocol,
+          label: String(descriptor.label ?? protocol),
+          roles: [...new Set(roles)],
+          pluginId,
+        });
+        this.services.audit?.({
+          pluginId,
+          api: "speech.registerAdapter",
+          ok: true,
+          ts: Date.now(),
+          protocol,
+        });
+        return { ok: true };
+      }
+      case "speech.unregisterAdapter": {
+        const protocol = String(args[0] ?? "").trim();
+        const existing = this.speechAdapters.get(protocol);
+        if (existing?.pluginId === pluginId) this.speechAdapters.delete(protocol);
+        return { ok: true };
+      }
       case "models.list": {
         this.assertPermission(loaded, "models.list");
         const models = (await this.services.listModels?.()) ?? [];
@@ -2515,6 +2803,17 @@ export class PluginRuntime {
           throw apiError("UNSUPPORTED", "host api not available: session.delete");
         }
         return this.services.session.delete(loaded.manifest.id, input);
+      }
+      case "usage.listTurns": {
+        // Read-only completed-turn facts (spec 07-plugins/03 §usage): flat
+        // counters and identifiers, no message body, no write path. Every
+        // dashboard shape stays the plugin's own computation.
+        this.assertPermission(loaded, "usage.read");
+        const input = normalizePluginUsageListTurnsInput(args[0]);
+        if (!this.services.usage?.listTurns) {
+          throw apiError("UNSUPPORTED", "host api not available: usage.listTurns");
+        }
+        return this.services.usage.listTurns(loaded.manifest.id, input);
       }
       case "agent.complete": {
         return this.runAgentComplete(loaded, (args[0] ?? {}) as PluginCompleteInput);
@@ -2812,6 +3111,9 @@ export class PluginRuntime {
     }
     for (const [name, tool] of this.tools) {
       if (tool.pluginId === pluginId) this.tools.delete(name);
+    }
+    for (const [protocol, adapter] of this.speechAdapters) {
+      if (adapter.pluginId === pluginId) this.speechAdapters.delete(protocol);
     }
     for (const [id, skill] of this.skills) {
       if (skill.pluginId === pluginId) this.skills.delete(id);
@@ -4692,6 +4994,9 @@ export class PluginRuntime {
                 this.services.getLocale?.(),
                 loaded.manifest.name,
               ),
+            shape: loaded.manifest.ui?.shape,
+            alwaysOnTop: loaded.manifest.ui?.alwaysOnTop,
+            resizable: loaded.manifest.ui?.resizable,
             width: loaded.manifest.ui?.width ?? 480,
             height: loaded.manifest.ui?.height ?? 360,
             htmlPath,

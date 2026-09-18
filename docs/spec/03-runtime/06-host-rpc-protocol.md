@@ -16,7 +16,14 @@ MVP transport decision (**D001**):
 
 - Process: Electron main spawns Rust host-core sidecar
 - Channel: child process stdin/stdout
-- Framing: one JSON object per line (NDJSON)
+- Framing: one JSON object per LF-delimited line (NDJSON); CRLF is accepted.
+  U+2028 and U+2029 inside JSON strings are payload, never frame delimiters.
+  All Node stdio readers preserve UTF-8 characters across input chunks and
+  release buffered fragments/listeners on transport close. A final unterminated
+  frame is accepted at EOF for compatibility.
+- Invalid JSON frames produce a diagnostic containing only the byte length,
+  never payload text, before being discarded. Later complete frames remain
+  readable. Existing session text is not rewritten or migrated.
 - Encoding: UTF-8
 - Request/response: JSON-RPC 2.0 style
 
@@ -432,6 +439,9 @@ Electron main after plugin permission and manifest-source checks:
 - `plugin.session.rename` — rename an owned active imported session
 - `plugin.session.delete` — `trash` hides and retains the transcript; `purge`
   removes it and permits re-import
+- `plugin.usage.listTurns` — keyset page of completed-turn facts (identifiers
+  and token counters, never a message body) for non-deleted sessions. Gated
+  in Electron main by `usage.read`. Additive; no protocol version bump.
 - Successful plugin session mutations cause Electron main to emit one
   `sessionsChanged` renderer event; the renderer refreshes the session list,
   and plugins do not emit this UI synchronization event.
@@ -553,14 +563,17 @@ resource exhaustion (`EAGAIN` / `WouldBlock`) with bounded backoff, never
 retries a command after it has started, and reaps timed-out children before
 releasing the execution slot.
 
-`session.appendMessage` is idempotent by message id. Electron main may keep
+`session.appendMessage` is idempotent by message id. An id already indexed in
+another session is remapped to `{sessionId}:{id}` before the JSONL write, and
+a later replay of the original id is a no-op (D444). Electron main may keep
 message appends in its application-owned outbox while host-core is restarting;
-the outbox flushes in order after a successful handshake. A missing sessions
-row is restored from the live JSONL (or created as a stub under the same id
-when the file is gone) so a queued outbox can drain (D318). `session.delete`
-drops that session's outbox entries. In-flight checkpoints never go through
-the outbox: a checkpoint is only meaningful against a live host, and replaying
-one after the final row would be wrong.
+the outbox flushes in order after a successful handshake and treats
+`UNIQUE constraint failed: messages.id` as an ack rather than pausing the
+queue. A missing sessions row is restored from the live JSONL (or created as a
+stub under the same id when the file is gone) so a queued outbox can drain
+(D318). `session.delete` drops that session's outbox entries. In-flight
+checkpoints never go through the outbox: a checkpoint is only meaningful
+against a live host, and replaying one after the final row would be wrong.
 
 ### Permissions
 - `permissions.evaluate`
@@ -1092,6 +1105,12 @@ numeric slot; the string is the contract, the number is transport detail.
 | 1016 | SKILL_INVALID | user skill document failed validation |
 | 1017 | SUBAGENT_INVALID | user subagent document failed validation |
 | 1018 | CAPABILITY_INVALID | agent capability root/scope setting failed validation |
+| 1019 | PLUGIN_CANCELLED | the user cancelled a marketplace install while it was downloading |
+| 1020 | PLUGIN_MARKET_NOT_PUBLISHED | the platform has the version and is not offering it yet |
+| 1021 | PLUGIN_MARKET_ARCHIVED | the plugin was withdrawn from the platform |
+| 1022 | PLUGIN_MARKET_NOT_FOUND | the platform does not have that plugin or version |
+| 1023 | PLUGIN_MARKET_RATE_LIMITED | the download endpoint asked the client to wait |
+| 1024 | PLUGIN_MARKET_NO_SOURCE | no distribution target can serve the package |
 | -32029 | HOST_OVERLOADED | RPC dispatcher capacity exhausted |
 | -32601 | — | unknown method |
 | -32700 | — | unparseable request line |

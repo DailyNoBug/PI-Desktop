@@ -1962,6 +1962,10 @@
           "storageSchemaVersion": {
             "type": "integer",
             "minimum": 1
+          },
+          "hostId": {
+            "type": "string",
+            "minLength": 1
           }
         }
       },

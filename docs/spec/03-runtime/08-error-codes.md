@@ -66,7 +66,7 @@ registered; reserved codes in §3.8 remain intentionally absent from
 | `APPROVAL_STALE` | no | RACP: the approval was already settled or belongs to an older turn |
 | `PAYLOAD_TOO_LARGE` | no | RACP: a frame exceeded the negotiated size bound |
 | `TIMEOUT` | yes | generic timeout |
-| `NETWORK_POLICY_BLOCKED` | no | the main-process public-network guard refused a fetch because it *judged* the target: the URL failed the syntactic public-HTTPS check, or the local DNS lookup returned an address the policy classifies as non-public (ADR 0243). A desktop-only code; a refusal is a verdict, so retrying cannot succeed until the address changes. A resolver that returned no answer at all is `NETWORK_RESOLVE_FAILED` instead (issue #419). |
+| `NETWORK_POLICY_BLOCKED` | no | the main-process public-network guard refused a fetch because it *judged* the target: the URL failed the syntactic public-HTTPS check, or the local DNS lookup returned an address the policy classifies as non-public — including a fake-IP placeholder a local proxy invented (ADR 0243). A desktop-only code; a refusal is a verdict, so retrying cannot succeed until the address changes. A resolver that returned no answer at all is `NETWORK_RESOLVE_FAILED` instead (issue #419). |
 | `NETWORK_RESOLVE_FAILED` | yes | the main-process public-network guard could not classify the target host: the local DNS lookup returned no answer, or threw before returning one. The request is refused exactly as a policy refusal is, but no address was judged, so no page or log may report it as an address-check decision. Distinct from `NETWORK_ERROR`, which is a failure of the request itself. Retriable: a resolver or proxy that starts answering the same host makes the same request succeed (ADR 0243, issue #419). |
 | `HOST_SHUTTING_DOWN` | yes | the host received EOF and is draining; the call was refused rather than started |
 | `RATE_LIMITED` | yes | a per-caller host budget (plugin session import, batch operations) was exceeded inside its window |
@@ -95,11 +95,13 @@ does not turn temporary thread pressure into a host process exit.
 | `CONTEXT_TOO_LARGE` | no | prompt/context still exceeds the safe model budget after recovery, the second provider overflow occurred, or automatic recovery is disabled |
 | `CONTEXT_COMPACTION_FAILED` | no | automatic retained-tail recovery could not prepare, persist, or fit a checkpoint, or manual checkpoint summary generation / durable append failed; the guarded next provider request does not start |
 | `STREAM_FAILED` | yes | provider stream was terminated, closed prematurely, or otherwise ended before a complete response; up to ten same-turn retries may precede the terminal event |
-| `EMPTY_MODEL_RESPONSE` | yes | the model ended its turn with no tool call and no visible text twice: once as streamed, once after the automatic re-run (spec 02-agent-runtime §5e) |
+| `EMPTY_MODEL_RESPONSE` | yes | the model ended its turn with no tool call and no visible text twice: once as streamed, once after the automatic re-run; the first reply to a Host-ledger completion notice is exempt (spec 02-agent-runtime §5e, D446) |
 | `PROMPT_ENHANCEMENT_EMPTY` | no | the one-shot enhancement model returned no text |
+| `SPEECH_NOT_CONFIGURED` | no | host speech ASR or TTS is not bound in settings |
+| `SPEECH_PROTOCOL_UNSUPPORTED` | no | the speech protocol is unknown or does not support this role |
+| `SPEECH_INPUT_TOO_LARGE` | no | speech input exceeds 25 MB |
 | `SUBAGENT_IDLE_TIMEOUT` | no | withdrawn (D328): idle watchdogs are not armed; the code remains for stored results |
 | `SUBAGENT_DURATION_TIMEOUT` | no | withdrawn (D328): duration watchdogs are not armed; the code remains for stored results |
-
 ### 3.3 Workspace / tools / permissions
 
 | code | retriable | meaning |
@@ -114,7 +116,7 @@ does not turn temporary thread pressure into a host process exit.
 | `TOOL_TIMEOUT` | yes | tool execution timeout |
 | `TOOL_FAILED` | maybe | tool executed but failed |
  | `TOOL_ABORTED` | no | the tool was cancelled by a user stop or a turn abort before it finished |
- | `VOICE_NOT_CONFIGURED` | no | dictation requested while no voice STT endpoint/model is configured (ADR 0279) |
+ | `VOICE_NOT_CONFIGURED` | no | dictation requested while no voice STT endpoint/model is configured (ADR 0296) |
  | `VOICE_PAYLOAD_TOO_LARGE` | no | dictation audio exceeded the 20 MiB payload cap |
  | `VOICE_CANCELLED` | no | transcription aborted through `pi-desktop/voice/cancel` |
  | `VOICE_MIC_PERMISSION_DENIED` | no | the OS or session policy denied audio-only microphone capture |
@@ -236,6 +238,12 @@ malformed.
 | `PLUGIN_MARKET_INVALID` | no | the marketplace catalog is malformed or missing required release fields |
 | `PLUGIN_MARKET_UNTRUSTED_HOST` | no | the catalog or package URL is outside the trusted marketplace hosts |
 | `PLUGIN_MARKET_YANKED` | no | the requested release was withdrawn from the catalog |
+| `PLUGIN_MARKET_NOT_PUBLISHED` | no | the platform has the version and is not offering it yet |
+| `PLUGIN_MARKET_ARCHIVED` | no | the plugin was withdrawn from the platform |
+| `PLUGIN_MARKET_NOT_FOUND` | no | the platform does not have that plugin or version |
+| `PLUGIN_MARKET_RATE_LIMITED` | yes | the download endpoint asked the client to wait |
+| `PLUGIN_MARKET_NO_SOURCE` | maybe | no distribution target can serve the package |
+| `PLUGIN_CANCELLED` | no | the user cancelled an install while it was downloading |
 | `MCP_INVALID` | no | a user MCP server definition failed validation |
 | `SKILL_INVALID` | no | a user skill document failed validation |
 | `SUBAGENT_INVALID` | no | a user subagent document failed validation |
@@ -303,6 +311,29 @@ Historical aliases (never use in new code): `PROVIDER_AUTH_FAILED` →
 carries a marker naming which end survived and where the rest is, or reports
 the bounded window in sibling result fields
 (see [16-tool-result-limits](16-tool-result-limits.md)).
+
+### 3.8 Remote control (RACP-WS / SSH bootstrap)
+
+Emitted by the desktop's remote-host client and the `pi-host` server when a
+session lives on a paired remote machine driven over `RACP-WS`
+(see [19-remote-agent-control-protocol](19-remote-agent-control-protocol.md),
+[../05-security/02-remote-control-security](../05-security/02-remote-control-security.md),
+ADR 0285). The renderer never sees the local/remote split beyond a badge; these
+codes surface through the same error object as any other call.
+
+| code | retriable | meaning |
+|---|---|---|
+| `HOST_DISCONNECTED` | yes | the remote host connection dropped; in-flight calls are rejected and the client reconnects and resubscribes by cursor |
+| `HOST_BOOTSTRAP_FAILED` | no | provisioning the remote `pi-host` over SSH failed (download, checksum mismatch, or `install.sh`); `details.reason` names the stage |
+| `HOST_VERSION_MISMATCH` | no | the remote `pi-host` version does not match the desktop; the desktop refuses to drive an incompatible host |
+| `REMOTE_AUTH_FAILED` | no | the device or pairing token was rejected on the RACP-WS upgrade |
+| `REMOTE_CONNECTION_FAILED` | yes | the RACP-WS transport could not connect (non-loopback URL, refused socket) |
+| `REMOTE_FORWARD_FAILED` | yes | the SSH loopback port forward could not be established |
+| `REMOTE_PATH_NOT_FOUND` | no | a remote project/workspace path does not exist on the host |
+| `REMOTE_PATH_FORBIDDEN` | no | a remote path is outside the host's permitted roots |
+| `PAIRING_FAILED` | no | `connection/pair` could not mint a device credential |
+| `PAIRING_TOKEN_EXPIRED` | no | the single-use pairing token expired before pairing completed |
+| `CAPABILITY_UNAVAILABLE` | no | an operation was requested for a capability the host advertised as unavailable (e.g. attachments, tool relay) |
 
 ## 4. Mapping rules
 

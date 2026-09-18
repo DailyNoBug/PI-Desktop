@@ -14,6 +14,18 @@ const stapleScript = new URL(
   import.meta.url,
 );
 
+const SIGNING_IDENTITY = "Developer ID Application: XingYu Liu (DUV63RKYTW)";
+
+async function writeSignedAppFixture(release) {
+  const app = join(release, "mac-arm64", "PI-Desktop.app");
+  const hostCore = join(app, "Contents", "Resources", "bin", "pi-desktop-host-core");
+  const dmg = join(release, "PI-Desktop-0.14.2-arm64.dmg");
+  await mkdir(join(app, "Contents", "Resources", "bin"), { recursive: true });
+  await writeFile(hostCore, "fixture");
+  await writeFile(dmg, "fixture");
+  return { app, dmg };
+}
+
 test("macOS release finalization staples the generated DMG", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "pi-desktop-macos-staple-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -48,16 +60,13 @@ test("macOS release verification requires a notarized Developer ID app and DMG",
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const release = join(root, "release");
-  const app = join(release, "mac-arm64", "PI-Desktop.app");
   const bin = join(root, "bin");
   const staplerLog = join(root, "stapler.log");
-  const dmg = join(release, "PI-Desktop-0.14.2-arm64.dmg");
-  await mkdir(app, { recursive: true });
+  const { app, dmg } = await writeSignedAppFixture(release);
   await mkdir(bin, { recursive: true });
-  await writeFile(dmg, "fixture");
   await writeFile(
     join(bin, "codesign"),
-    "#!/usr/bin/env bash\nif [[ \"$*\" == *\"-dv\"* ]]; then echo 'Authority=Developer ID Application: PI-Desktop (TEAM123)' >&2; fi\nexit 0\n",
+    `#!/usr/bin/env bash\nif [[ "$*" == *"-dv"* ]]; then echo 'Authority=${SIGNING_IDENTITY}' >&2; echo 'flags=0x10000(runtime)' >&2; fi\nexit 0\n`,
   );
   await writeFile(
     join(bin, "spctl"),
@@ -83,6 +92,7 @@ test("macOS release verification requires a notarized Developer ID app and DMG",
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, /Notarized Developer ID/);
   assert.match(result.stdout, /PI-Desktop-0\.14\.2-arm64\.dmg/);
+  assert.match(result.stdout, /host-core sidecar/);
   assert.equal(
     await readFile(staplerLog, "utf8"),
     `stapler validate ${app}\nstapler validate ${dmg}\n`,
@@ -94,14 +104,12 @@ test("macOS release verification rejects a Developer ID app without notarization
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const release = join(root, "release");
-  const app = join(release, "mac-arm64", "PI-Desktop.app");
   const bin = join(root, "bin");
-  await mkdir(app, { recursive: true });
+  await writeSignedAppFixture(release);
   await mkdir(bin, { recursive: true });
-  await writeFile(join(release, "PI-Desktop-0.14.2-arm64.dmg"), "fixture");
   await writeFile(
     join(bin, "codesign"),
-    "#!/usr/bin/env bash\nif [[ \"$*\" == *\"-dv\"* ]]; then echo 'Authority=Developer ID Application: PI-Desktop (TEAM123)' >&2; fi\n",
+    `#!/usr/bin/env bash\nif [[ "$*" == *"-dv"* ]]; then echo 'Authority=${SIGNING_IDENTITY}' >&2; fi\n`,
   );
   await writeFile(
     join(bin, "spctl"),

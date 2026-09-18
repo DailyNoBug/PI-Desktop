@@ -649,7 +649,7 @@ CREATE UNIQUE INDEX idx_session_collaboration_receipt
 ```sql
 CREATE TABLE messages (
   mid          INTEGER PRIMARY KEY,             -- stable rowid: FTS anchor, VACUUM-safe
-  id           TEXT NOT NULL UNIQUE,            -- caller-facing uuid (optimistic UI)
+  id           TEXT NOT NULL UNIQUE,            -- 调用方 uuid（乐观 UI）；撞车的供应商 toolCallId 改写为 {sessionId}:{id}（D444）
   session_id   TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   turn_id      TEXT REFERENCES turns(id) ON DELETE SET NULL,
   seq          INTEGER NOT NULL,                -- per-session ordinal
@@ -1147,6 +1147,14 @@ outbox 排空。渲染器侧的停止绝不重写已有已开始回复的转录
 主机读取设置时会将缺失、格式错误或超出范围的值规范化为 600，设置写入则验证
 1–1,000,000 的整数范围。因此现有数据库会在读取时延迟获得默认值，不需要破坏性
 迁移或第二个设置存储。
+
+同一个应用设置 JSON 还可选存储提示词增强的覆盖值
+`promptEnhancementCustomTemplate`（决定已存模板是否生效的开关）、
+`promptEnhancementUserTemplate`、`promptEnhancementProviderId`、
+`promptEnhancementModelId` 与 `promptEnhancementThinkingLevel`（ADR 0121）。用户模板缺失或为空表示使用内置默认值，
+因此清空字段不会写入空字符串而是不写该键。非空的用户模板必须包含草稿变量，且
+不得超过 `PROMPT_ENHANCEMENT_TEMPLATE_MAX_LENGTH`；host-core 会拒绝违反任一规则的
+写入，并丢弃已不再读取的 `promptEnhancementSystemPrompt`。无需提升 schema 版本。
 - Plan 和 Goal 工件永远不会根据转录内容重建。开
   启动,
   一笔交易标志着每笔 `pending` 批准和每笔 `queued` 或
@@ -1274,4 +1282,6 @@ UI投影损失
 终态助手替换索引中的流式助手。更新仅涉及该转录行和搜索文本，保留顺序、所属回合及
 其他所有行。迟到的部分快照和重复终态快照不能覆盖已落定结果。恢复时在原位置应用
 最新检查点。如果主机调用尚未完成时出现更新的追加快照，outbox 同样保留该快照。
-无需存储架构迁移。
+若 `messages.id` 已属于另一会话，主机在写 JSONL 之前改写为 `{sessionId}:{id}`；
+重放原始 id 对该改写行无操作。outbox 把 `UNIQUE constraint failed: messages.id`
+当作确认并继续排空（D444）。无需存储架构迁移。

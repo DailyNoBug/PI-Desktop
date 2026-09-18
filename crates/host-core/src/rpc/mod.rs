@@ -16,6 +16,7 @@ use crate::notifications;
 use crate::permissions::{PermissionDecision, PermissionEvaluationParams, PermissionManager};
 use crate::plans;
 use crate::plugin_sessions;
+use crate::plugin_usage;
 use crate::providers::{self, DiscoveredModelInput, ProviderCreateInput, ProviderUpdateInput};
 use crate::review;
 use crate::scheduled;
@@ -575,6 +576,36 @@ fn drop_session_side_data(st: &AppState, id: &str) {
 const DEFAULT_LARGE_PASTE_THRESHOLD: i64 = 600;
 const MIN_LARGE_PASTE_THRESHOLD: i64 = 1;
 const MAX_LARGE_PASTE_THRESHOLD: i64 = 1_000_000;
+/// Upper bound for one stored prompt-enhancement template, in characters.
+/// Mirrored by `PROMPT_ENHANCEMENT_TEMPLATE_MAX_LENGTH` in
+/// `packages/shared/src/prompt-enhancement.ts`; keep the two in step.
+const MAX_PROMPT_ENHANCEMENT_TEMPLATE_CHARS: usize = 8000;
+/// The placeholder a usable user template must carry.
+const PROMPT_ENHANCEMENT_DRAFT_VARIABLE: &str = "{{draft}}";
+
+/// A template override is either absent, blank (meaning "use the default"), or
+/// a non-blank string within the length bound; a user template must also carry
+/// the draft variable, or the draft never reaches the model.
+fn prompt_enhancement_template_error(field: &str, value: &Value) -> Option<String> {
+    let Some(text) = value.as_str() else {
+        return Some(format!("{field} must be a string"));
+    };
+    if text.trim().is_empty() {
+        return None;
+    }
+    if text.chars().count() > MAX_PROMPT_ENHANCEMENT_TEMPLATE_CHARS {
+        return Some(format!(
+            "{field} must not exceed {MAX_PROMPT_ENHANCEMENT_TEMPLATE_CHARS} characters"
+        ));
+    }
+    if field == "promptEnhancementUserTemplate" && !text.contains(PROMPT_ENHANCEMENT_DRAFT_VARIABLE)
+    {
+        return Some(format!(
+            "promptEnhancementUserTemplate must contain {PROMPT_ENHANCEMENT_DRAFT_VARIABLE}"
+        ));
+    }
+    None
+}
 
 fn normalize_settings_value(mut value: Value) -> Value {
     if let Some(object) = value.as_object_mut() {
@@ -603,6 +634,25 @@ fn normalize_settings_value(mut value: Value) -> Value {
                 "largePasteThreshold".into(),
                 Value::Number(DEFAULT_LARGE_PASTE_THRESHOLD.into()),
             );
+        }
+        // A blank override means "use the built-in default", and an unusable
+        // one (wrong type, oversized, or a user template without the draft
+        // variable) falls back to the default too, rather than leaving a
+        // prompt that would silently drop the user's draft.
+        // The system prompt is part of the feature contract, not a preference:
+        // an override written by an older build is dropped so the store cannot
+        // hold a value that would never be read.
+        object.remove("promptEnhancementSystemPrompt");
+        let template_field = "promptEnhancementUserTemplate";
+        let unusable_template = match object.get(template_field) {
+            None => false,
+            Some(value) => match prompt_enhancement_template_error(template_field, value) {
+                Some(_) => true,
+                None => value.as_str().is_some_and(|text| text.trim().is_empty()),
+            },
+        };
+        if unusable_template {
+            object.remove(template_field);
         }
     }
     value
@@ -633,6 +683,13 @@ fn validate_settings_value(value: &Value) -> Result<(), JsonRpcError> {
     let Some(object) = value.as_object() else {
         return Ok(());
     };
+    if let Some(template_value) = object.get("promptEnhancementUserTemplate") {
+        if let Some(message) =
+            prompt_enhancement_template_error("promptEnhancementUserTemplate", template_value)
+        {
+            return Err(rpc_err(1002, message, "INVALID_PARAMS"));
+        }
+    }
     if let Some(threshold_value) = object.get("largePasteThreshold") {
         let Some(threshold) = threshold_value.as_i64() else {
             return Err(rpc_err(
@@ -927,7 +984,8 @@ fn resolve_plan_workspace_if_available(
     Ok(resolve_persisted_project_workspace(state, session_id)?.map(PathBuf::from))
 }
 
-async fn emit_notification(tx: &mpsc::UnboundedSender<String>, method: &str, params: Value) {
+/// Push one notification line to the caller's stream.
+fn send_notification(tx: &mpsc::UnboundedSender<String>, method: &str, params: Value) {
     let note = JsonRpcNotification {
         jsonrpc: "2.0",
         method: method.to_string(),
@@ -935,6 +993,71 @@ async fn emit_notification(tx: &mpsc::UnboundedSender<String>, method: &str, par
     };
     if let Ok(raw) = serde_json::to_string(&note) {
         let _ = tx.send(format!("{raw}\n"));
+    }
+}
+
+async fn emit_notification(tx: &mpsc::UnboundedSender<String>, method: &str, params: Value) {
+    send_notification(tx, method, params);
+}
+
+/// Reports install progress to the renderer, and reads the cancel flag.
+///
+/// Throttled on purpose: an install reports every chunk of bytes it sees, and
+/// an interface needs a few of those per second rather than thousands. A phase
+/// change and the terminal report always go through, so a dialog never misses
+/// the transition it is displaying.
+struct RpcInstallObserver {
+    tx: mpsc::UnboundedSender<String>,
+    cancel: crate::plugins::CancelToken,
+    last: Option<std::time::Instant>,
+    last_phase: Option<crate::plugins::InstallPhase>,
+}
+
+impl crate::plugins::InstallObserver for RpcInstallObserver {
+    fn progress(&mut self, event: crate::plugins::InstallProgress) {
+        const MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
+        let phase_changed = self.last_phase != Some(event.phase);
+        let terminal = event.error.is_some();
+        let due = self
+            .last
+            .map(|at| at.elapsed() >= MIN_INTERVAL)
+            .unwrap_or(true);
+        if !phase_changed && !terminal && !due {
+            return;
+        }
+        self.last = Some(std::time::Instant::now());
+        self.last_phase = Some(event.phase);
+        let tried: Vec<Value> = event
+            .tried
+            .iter()
+            .map(|mirror| {
+                json!({
+                    "source": mirror.source,
+                    "url": mirror.url,
+                    "error": mirror.error,
+                })
+            })
+            .collect();
+        send_notification(
+            &self.tx,
+            "plugin.installProgress",
+            json!({
+                "pluginId": event.plugin_id,
+                "version": event.version,
+                "phase": event.phase.as_str(),
+                "source": event.source,
+                "attempt": event.attempt,
+                "attempts": event.attempts,
+                "receivedBytes": event.received_bytes,
+                "totalBytes": event.total_bytes,
+                "tried": tried,
+                "error": event.error,
+            }),
+        );
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
     }
 }
 
@@ -1067,6 +1190,22 @@ fn plugin_err(err: impl ToString) -> JsonRpcError {
         rpc_err(1013, msg, "PLUGIN_PERMISSION_DENIED")
     } else if msg.contains("PLUGIN_NOT_FOUND") {
         rpc_err(1003, msg, "NOT_FOUND")
+    } else if msg.contains("PLUGIN_CANCELLED") {
+        // The user's own action rather than a failure: the surface closes the
+        // dialog quietly instead of reporting an error.
+        rpc_err(1019, msg, "PLUGIN_CANCELLED")
+    } else if msg.contains("PLUGIN_MARKET_NOT_PUBLISHED") {
+        // The platform has the version and is not offering it yet: a state to
+        // report, not a bug to sweep into INTERNAL.
+        rpc_err(1020, msg, "PLUGIN_MARKET_NOT_PUBLISHED")
+    } else if msg.contains("PLUGIN_MARKET_ARCHIVED") {
+        rpc_err(1021, msg, "PLUGIN_MARKET_ARCHIVED")
+    } else if msg.contains("PLUGIN_MARKET_NOT_FOUND") {
+        rpc_err(1022, msg, "PLUGIN_MARKET_NOT_FOUND")
+    } else if msg.contains("PLUGIN_MARKET_RATE_LIMITED") {
+        rpc_err(1023, msg, "PLUGIN_MARKET_RATE_LIMITED")
+    } else if msg.contains("PLUGIN_MARKET_NO_SOURCE") {
+        rpc_err(1024, msg, "PLUGIN_MARKET_NO_SOURCE")
     } else if msg.contains("PLUGIN_NETWORK") {
         rpc_err(1014, msg, "PLUGIN_NETWORK")
     } else {
@@ -1473,16 +1612,26 @@ async fn handle_request(
             let path = crate::db::canonical_project_path(path)
                 .ok_or_else(|| rpc_err(1002, "path required", "INVALID_PARAMS"))?;
             let st = state.lock().await;
-            if st
+            // A path that belongs to a multi-folder project group must stay put:
+            // deleting one root would orphan the rest of the group, so callers
+            // remove the folder from the group first. A single-folder stored
+            // group is just a wrapper around one project, so removing that
+            // project also removes the now-empty group record.
+            if let Some(group) = st
                 .db
-                .path_is_in_stored_project_group(&path)
+                .stored_project_group_for_path(&path)
                 .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?
             {
-                return Err(rpc_err(
-                    1002,
-                    "project belongs to a multi-folder project group; remove the folder from the group first",
-                    "INVALID_PARAMS",
-                ));
+                if group.roots.len() > 1 {
+                    return Err(rpc_err(
+                        1002,
+                        "project belongs to a multi-folder project group; remove the folder from the group first",
+                        "INVALID_PARAMS",
+                    ));
+                }
+                st.db
+                    .delete_project_group_record(&group.id)
+                    .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?;
             }
             let session_ids = st
                 .db
@@ -1655,11 +1804,12 @@ async fn handle_request(
             st.db
                 .set_setting("app", &settings)
                 .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))?;
-            // Re-pin the marketplace source in memory. Fetching here would hold
+            // Re-pin the marketplace channel in memory. Fetching here would hold
             // the state lock behind a remote timeout, so the renderer triggers
-            // `market.refresh` after switching sources.
-            let market_source = crate::plugins::market_source_from_settings(Some(&settings));
-            st.plugins.set_market_source(market_source);
+            // `market.refresh` after switching channels.
+            let (channel, custom_url) =
+                crate::plugins::market_channel_from_settings(Some(&settings));
+            st.plugins.set_market_channel(channel, custom_url);
             // A concrete app language pins the plugin display locale here, so a
             // shell that only writes settings still gets localized plugin rows.
             // `auto` is resolved by the shell and pushed through
@@ -2350,6 +2500,28 @@ async fn handle_request(
                 return Err(rpc_err(1006, "plugin delete rate exceeded", "RATE_LIMITED"));
             }
             plugin_sessions::delete(&st.db, plugin_id, &params).map_err(plugin_session_rpc_err)
+        }
+
+        // Plugin usage is a read-only facts domain: a keyset page of completed
+        // turns from non-deleted sessions, served to plugins that hold
+        // `usage.read` (checked in Electron main before dispatch). The payload
+        // carries counters and titles — never a message body — and Electron
+        // main remains the only caller that can supply pluginId.
+        "plugin.usage.listTurns" => {
+            let plugin_id = params
+                .get("pluginId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| rpc_err(1002, "pluginId required", "INVALID_PARAMS"))?;
+            let st = state.lock().await;
+            let page =
+                plugin_usage::list_turns_page(&st.db, &params).map_err(plugin_session_rpc_err)?;
+            tracing::debug!(
+                method = "plugin.usage.listTurns",
+                plugin_id,
+                count = page["turns"].as_array().map(Vec::len).unwrap_or(0),
+                "plugin usage rpc served"
+            );
+            Ok(page)
         }
 
         "session.beginTurn" => {
@@ -4349,12 +4521,47 @@ async fn handle_request(
                 .get("grantedPermissions")
                 .cloned()
                 .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok());
+            // An install outlives one request from the interface's point of
+            // view: it resolves where the package is, downloads it from one
+            // mirror after another, verifies it and registers it. Every one of
+            // those steps is worth showing, which is what the observer does,
+            // and the token is what the cancel channel flips.
+            let cancel = crate::plugins::CancelToken::default();
+            // Armed outside AppState: cancelInstall must flip this flag while
+            // install still holds the state lock for the download.
+            crate::plugins::progress::arm_active_cancel(&cancel);
+            let mut observer = RpcInstallObserver {
+                tx: tx.clone(),
+                cancel: cancel.clone(),
+                last: None,
+                last_phase: None,
+            };
             let mut st = state.lock().await;
-            let result = st
-                .plugins
-                .install_from_market(id, version, enable, auto_update, granted)
-                .map_err(plugin_err)?;
+            st.plugins.set_install_cancel(Some(cancel));
+            let outcome = st.plugins.install_from_market_observed(
+                id,
+                version,
+                enable,
+                auto_update,
+                granted,
+                &mut observer,
+            );
+            // Whatever happened, nothing is cancellable any more: a token left
+            // in place would answer the next cancel for an install that is
+            // already over.
+            st.plugins.set_install_cancel(None);
+            let result = outcome.map_err(plugin_err)?;
             Ok(json!({ "result": result }))
+        }
+        "market.cancelInstall" => {
+            let id = params
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| rpc_err(1002, "id required", "INVALID_PARAMS"))?;
+            // Do not take AppState: the install holds that lock while bytes
+            // arrive, and waiting on it would make cancel a no-op.
+            let cancelled = crate::plugins::progress::cancel_active_install();
+            Ok(json!({ "cancelled": cancelled, "id": id }))
         }
         "market.checkUpdates" => {
             let refresh_remote = params
@@ -5013,6 +5220,51 @@ mod tests {
             .any(|project| project["path"].as_str() == Some(canonical.as_str())));
     }
 
+    /// A single-folder stored project group is just a wrapper around one
+    /// project. Removing that project must succeed and delete the now-empty
+    /// group record instead of locking the project in place (issue #572).
+    #[tokio::test]
+    async fn projects_remove_deletes_single_folder_stored_group() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let solo_dir = data_dir.path().join("solo");
+        fs::create_dir_all(&solo_dir).unwrap();
+        let mut app_state = AppState::open(data_dir.path()).unwrap();
+        app_state.handshook = true;
+        let solo_path = solo_dir.to_string_lossy().to_string();
+        let group = app_state
+            .db
+            .create_project_group("Solo", std::slice::from_ref(&solo_path))
+            .unwrap();
+        assert!(!group.legacy);
+        assert_eq!(group.roots.len(), 1);
+        let state = Arc::new(Mutex::new(app_state));
+
+        let result = handle_request(
+            state.clone(),
+            "projects.remove",
+            json!({ "path": solo_path }),
+            mpsc::unbounded_channel().0,
+        )
+        .await
+        .expect("a single-folder stored group must be removable");
+        assert_eq!(result["removed"], json!(true));
+
+        let canonical =
+            crate::db::canonical_project_path(&solo_path).expect("canonical project path");
+        let st = state.lock().await;
+        assert!(st
+            .db
+            .stored_project_group_for_path(&canonical)
+            .unwrap()
+            .is_none());
+        assert!(st
+            .db
+            .list_projects()
+            .unwrap()
+            .iter()
+            .all(|project| project.path != canonical));
+    }
+
     /// A running turn owns its session's tools, working directory, and
     /// transcript writes, so the bulk delete waits until the project is idle.
     #[tokio::test]
@@ -5301,6 +5553,235 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn plugin_usage_rpc_serves_read_only_fact_rows() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let mut app_state = AppState::open(data_dir.path()).unwrap();
+        app_state.handshook = true;
+        let state = Arc::new(Mutex::new(app_state));
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        // Three completed turns across two sessions: t2 carries all three
+        // usage_json token kinds, t1 carries none (zeros), and t4 belongs to a
+        // soft-deleted session so it must never appear. Different ended_at
+        // values make the ASC ordering and the cursor page observable.
+        let now = chrono::Utc::now().timestamp_millis();
+        {
+            let st = state.lock().await;
+            let conn = st.db.conn();
+            for (project_id, path, name) in [(1, "/tmp/p1", "P1"), (2, "/tmp/p2", "P2")] {
+                conn.execute(
+                    "INSERT INTO projects (id, path, name, created_at, last_opened_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+                    rusqlite::params![project_id, path, name, now],
+                )
+                .unwrap();
+            }
+            for (id, title, project) in [("s1", "", 1), ("s2", "Big", 2), ("s3", "Trashed", 1)] {
+                conn.execute(
+                    "INSERT INTO sessions (id, title, project_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+                    rusqlite::params![id, title, project, now],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "UPDATE sessions SET deleted_at = ?1 WHERE id = 's3'",
+                rusqlite::params![now],
+            )
+            .unwrap();
+            // (id, session, ended, input, output, usage_json)
+            let turn = |id: &str, session: &str, ended: i64, usage: Option<&str>| {
+                conn.execute(
+                    "INSERT INTO turns (id, session_id, status, provider_id, model_id, input_tokens, output_tokens, usage_json, started_at, ended_at)
+                     VALUES (?1, ?2, 'completed', 'prov', 'model-a', ?3, ?4, ?5, ?6, ?7)",
+                    rusqlite::params![id, session, 100, 200, usage, ended - 1_000, ended],
+                )
+                .unwrap();
+            };
+            turn("t1", "s1", now - 3_000, None);
+            turn(
+                "t2",
+                "s2",
+                now - 2_000,
+                Some(
+                    serde_json::json!({
+                        "cacheReadTokens": 300,
+                        "cacheWriteTokens": 400,
+                        "reasoningTokens": 500
+                    })
+                    .to_string(),
+                )
+                .as_deref(),
+            );
+            turn(
+                "t3",
+                "s2",
+                now - 1_000,
+                Some(r#"{"cacheReadTokens":"bad"}"#),
+            );
+            turn("t4", "s3", now - 500, None);
+        }
+
+        const METHOD: &str = "plugin.usage.listTurns";
+
+        // Missing pluginId is a client error, same as the session domain.
+        let missing = handle_request(state.clone(), METHOD, json!({}), tx.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(missing.code, 1002);
+        assert_eq!(missing.data.unwrap()["errorCode"], "INVALID_PARAMS");
+
+        // Default window covers every turn; ordering is ended_at ASC and the
+        // soft-deleted session's turn is absent.
+        let page = handle_request(
+            state.clone(),
+            METHOD,
+            json!({ "pluginId": "plugin.one" }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        let turns = page["turns"].as_array().unwrap();
+        assert_eq!(turns.len(), 3, "t4 belongs to a trashed session");
+        assert_eq!(turns[0]["turnId"], "t1");
+        assert_eq!(turns[1]["turnId"], "t2");
+        assert_eq!(turns[2]["turnId"], "t3");
+        assert!(page["nextCursor"].is_null(), "no more rows, no cursor");
+        // Row shape: counters and titles only, camelCase, no message fields.
+        assert!(
+            turns[0]["sessionTitle"].is_null(),
+            "empty title maps to null"
+        );
+        assert_eq!(turns[1]["sessionTitle"], "Big");
+        assert_eq!(turns[1]["sessionId"], "s2");
+        assert_eq!(turns[1]["projectId"], 2);
+        assert_eq!(turns[1]["providerId"], "prov");
+        assert_eq!(turns[1]["modelId"], "model-a");
+        assert_eq!(turns[1]["inputTokens"], 100);
+        assert_eq!(turns[1]["outputTokens"], 200);
+        assert_eq!(turns[1]["cacheReadTokens"], 300);
+        assert_eq!(turns[1]["cacheWriteTokens"], 400);
+        assert_eq!(turns[1]["reasoningTokens"], 500);
+        // Missing usage_json yields zeros; a malformed one also yields zeros.
+        assert_eq!(turns[0]["cacheReadTokens"], 0);
+        assert_eq!(turns[0]["reasoningTokens"], 0);
+        assert_eq!(turns[2]["cacheReadTokens"], 0);
+        assert!(turns[0].get("content").is_none());
+        assert!(turns[0].get("messages").is_none());
+
+        // limit truncates and the returned cursor fetches exactly the rest.
+        let page1 = handle_request(
+            state.clone(),
+            METHOD,
+            json!({ "pluginId": "plugin.one", "limit": 2 }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(page1["turns"].as_array().unwrap().len(), 2);
+        let cursor1 = page1["nextCursor"].as_str().unwrap();
+        let page2 = handle_request(
+            state.clone(),
+            METHOD,
+            json!({ "pluginId": "plugin.one", "limit": 2, "cursor": cursor1 }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        let rest = page2["turns"].as_array().unwrap();
+        assert_eq!(rest.len(), 1, "exactly the remaining row");
+        assert_eq!(rest[0]["turnId"], "t3");
+        assert!(page2["nextCursor"].is_null());
+
+        // Filtering: sessionId and projectId narrow the facts.
+        let only_s2 = handle_request(
+            state.clone(),
+            METHOD,
+            json!({ "pluginId": "plugin.one", "sessionId": "s2" }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        let s2_turns = only_s2["turns"].as_array().unwrap();
+        assert_eq!(s2_turns.len(), 2);
+        assert!(s2_turns.iter().all(|t| t["sessionId"] == "s2"));
+
+        let only_p1 = handle_request(
+            state.clone(),
+            METHOD,
+            json!({ "pluginId": "plugin.one", "projectId": 1 }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        let p1_turns = only_p1["turns"].as_array().unwrap();
+        assert_eq!(p1_turns.len(), 1);
+        assert_eq!(p1_turns[0]["sessionId"], "s1");
+
+        // Explicit bounds exclude out-of-window turns.
+        let windowed = handle_request(
+            state.clone(),
+            METHOD,
+            json!({ "pluginId": "plugin.one", "fromMs": now - 1_500, "toMs": now }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        let w = windowed["turns"].as_array().unwrap();
+        assert_eq!(w.len(), 1, "only t3 ended inside the window");
+        assert_eq!(w[0]["turnId"], "t3");
+
+        // Client errors the host must reject: bad cursor, bad limit, bad
+        // window, wrong types.
+        for bad in [
+            json!({ "pluginId": "p", "cursor": "not-a-cursor" }),
+            json!({ "pluginId": "p", "limit": 0 }),
+            json!({ "pluginId": "p", "limit": 501 }),
+            json!({ "pluginId": "p", "limit": "ten" }),
+            json!({ "pluginId": "p", "fromMs": -1 }),
+            json!({ "pluginId": "p", "toMs": "now" }),
+            json!({ "pluginId": "p", "fromMs": now, "toMs": now - 1_000 }),
+            json!({
+                "pluginId": "p",
+                "fromMs": now - 366 * 24 * 3600 * 1000,
+                "toMs": now
+            }),
+            json!({ "pluginId": "p", "fromMs": 0 }),
+            json!({ "pluginId": "p", "sessionId": 7 }),
+            json!({ "pluginId": "p", "sessionId": "" }),
+            json!({ "pluginId": "p", "projectId": "seven" }),
+        ] {
+            let error = handle_request(state.clone(), METHOD, bad.clone(), tx.clone())
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, 1002, "{bad}");
+            assert_eq!(error.data.unwrap()["errorCode"], "INVALID_PARAMS", "{bad}");
+        }
+
+        // Null bounds match omitted bounds; the 365-day window edge is accepted.
+        let null_bounds = handle_request(
+            state.clone(),
+            METHOD,
+            json!({ "pluginId": "plugin.one", "fromMs": null, "toMs": null }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(null_bounds["turns"].as_array().unwrap().len(), 3);
+        let edge = handle_request(
+            state.clone(),
+            METHOD,
+            json!({
+                "pluginId": "plugin.one",
+                "fromMs": now - 365 * 24 * 3600 * 1000,
+                "toMs": now
+            }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(edge["turns"].as_array().unwrap().len(), 3);
     }
 
     fn available_test_shell_id() -> Option<String> {
@@ -5684,6 +6165,108 @@ mod tests {
         );
         assert!(catalog["choices"].is_array());
         assert!(catalog["effective"].is_object() || catalog["effective"].is_null());
+    }
+
+    #[tokio::test]
+    async fn prompt_enhancement_templates_round_trip_and_validate() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let mut app_state = AppState::open(data_dir.path()).unwrap();
+        app_state.handshook = true;
+        let state = Arc::new(Mutex::new(app_state));
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        // Nothing stored yet: the field is absent, so the renderer falls back
+        // to the built-in default.
+        let settings = handle_request(state.clone(), "settings.get", json!({}), tx.clone())
+            .await
+            .unwrap();
+        assert!(settings.get("promptEnhancementUserTemplate").is_none());
+
+        // A custom template and its switch persist unchanged.
+        handle_request(
+            state.clone(),
+            "settings.set",
+            json!({
+                "promptEnhancementCustomTemplate": true,
+                "promptEnhancementUserTemplate": "before {{draft}} after",
+            }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        let stored = handle_request(state.clone(), "settings.get", json!({}), tx.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            stored["promptEnhancementUserTemplate"],
+            "before {{draft}} after"
+        );
+        assert_eq!(stored["promptEnhancementCustomTemplate"], true);
+
+        // A user template without the draft variable would silently drop the
+        // draft, so the write is rejected rather than normalized.
+        let missing_variable = handle_request(
+            state.clone(),
+            "settings.set",
+            json!({ "promptEnhancementUserTemplate": "no placeholder" }),
+            tx.clone(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            missing_variable.data.unwrap()["errorCode"],
+            "INVALID_PARAMS"
+        );
+
+        // An oversized template is rejected too.
+        let oversized = handle_request(
+            state.clone(),
+            "settings.set",
+            json!({ "promptEnhancementUserTemplate": "x".repeat(8001) }),
+            tx.clone(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(oversized.data.unwrap()["errorCode"], "INVALID_PARAMS");
+
+        // The system prompt is not overridable: a write carrying one is dropped
+        // by normalization, so the store cannot hold a value that would never
+        // be read.
+        handle_request(
+            state.clone(),
+            "settings.set",
+            json!({ "promptEnhancementSystemPrompt": "custom system" }),
+            tx.clone(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            handle_request(state.clone(), "settings.get", json!({}), tx.clone())
+                .await
+                .unwrap()
+                .get("promptEnhancementSystemPrompt")
+                .is_none()
+        );
+
+        // Writing a blank value means "restore the default": the override is
+        // dropped rather than persisted as an empty string.
+        handle_request(
+            state.clone(),
+            "settings.set",
+            json!({ "promptEnhancementUserTemplate": "   " }),
+            tx,
+        )
+        .await
+        .unwrap();
+        let cleared = handle_request(
+            state,
+            "settings.get",
+            json!({}),
+            mpsc::unbounded_channel().0,
+        )
+        .await
+        .unwrap();
+        assert!(cleared.get("promptEnhancementUserTemplate").is_none());
     }
 
     #[tokio::test]

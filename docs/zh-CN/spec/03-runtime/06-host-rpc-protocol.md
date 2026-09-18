@@ -19,7 +19,11 @@ MVP 传输决策 (**D001**)：
 
 - 流程：Electron 主要生成 Rust host-core sidecar
 - 通道：子进程 stdin/stdout
-- 成帧：每行一个 JSON 对象 (NDJSON)
+- 成帧：每行一个以 LF 分隔的 JSON 对象（NDJSON）；接受 CRLF。
+  JSON 字符串内的 U+2028 与 U+2029 属于载荷，不是帧分隔符。
+  所有 Node stdio 读取器会跨输入块保留 UTF-8 字符，并在传输关闭时释放缓冲片段和监听器。
+  为兼容起见，EOF 时接受最后一帧未以换行结束的情况。
+- 非法 JSON 帧会先产出仅含字节长度、不含载荷文本的诊断，然后丢弃。后续完整帧仍可读。现有会话文本不会被改写或迁移。
 - 编码：UTF-8
 - Request/response：JSON-RPC 2.0 风格
 
@@ -320,6 +324,9 @@ ids 和非负 `tokensBefore`；它不会插入 message/search 行
   只读取调用插件自己导入且仍处于活动状态的会话
 - `plugin.session.rename` — 重命名自己拥有的活动导入会话
 - `plugin.session.delete` — `trash` 隐藏并保留转录本；`purge` 删除并允许重新导入
+- `plugin.usage.listTurns` — 未删除会话的已完成 turn 事实页（标识符与 token
+  计数，绝不含消息正文）。由 Electron main 用 `usage.read` 鉴权。增量方法，
+  不升协议版本。
 - 插件会话变更成功后，Electron main 发送一次 `sessionsChanged` 渲染器事件，
   渲染器刷新会话列表；插件不发送此 UI 同步事件
 
@@ -394,10 +401,7 @@ off | minimal | low | medium | high | xhigh | max
 在命令启动后重试命令，并在之前获取超时的子命令
 释放执行槽。
 
-`session.appendMessage` 通过消息 ID 是幂等的。 Electron 主要可以保留
-当 host-core 重新启动时，消息会附加到其应用程序拥有的发件箱中；
-握手成功后，发件箱会按顺序冲洗。进行中检查点从不经过发件箱：检查点只对存活的
-主机有意义，在最终行之后重放它是错误的。
+`session.appendMessage` 通过消息 ID 是幂等的。若该 id 已属于另一会话，则在写 JSONL 之前改写为 `{sessionId}:{id}`，之后重放原始 id 为无操作（D444）。Electron 主进程可以在 host-core 重启时把消息留在应用自有 outbox 里；握手成功后按顺序冲洗，并把 `UNIQUE constraint failed: messages.id` 当作确认而不是停整队。进行中检查点从不经过发件箱：检查点只对存活的主机有意义，在最终行之后重放它是错误的。
 
 ### 权限
 - `permissions.evaluate`
@@ -886,6 +890,12 @@ JSON-RPC 错误携带一个数字 `code` 以及 `data.errorCode`，后者是来�
 | 1016 | SKILL_INVALID | 用户技能文档校验失败 |
 | 1017 | SUBAGENT_INVALID | 用户子代理文档校验失败 |
 | 1018 | CAPABILITY_INVALID | Agent 能力 root/scope 设置校验失败 |
+| 1019 | PLUGIN_CANCELLED | 用户在下载过程中取消了市场安装 |
+| 1020 | PLUGIN_MARKET_NOT_PUBLISHED | 平台有该版本但尚未对外提供 |
+| 1021 | PLUGIN_MARKET_ARCHIVED | 插件已被平台下架 |
+| 1022 | PLUGIN_MARKET_NOT_FOUND | 平台没有该插件或该版本 |
+| 1023 | PLUGIN_MARKET_RATE_LIMITED | 下载接口要求客户端等待后重试 |
+| 1024 | PLUGIN_MARKET_NO_SOURCE | 没有任何分发目标能提供该包 |
 | -32029 | HOST_OVERLOADED | RPC 调度程序容量已耗尽 |
 | -32601 | — | 未知方法 |
 | -32700 | — | 无法解析的请求行 |

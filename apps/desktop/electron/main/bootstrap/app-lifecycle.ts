@@ -61,7 +61,6 @@ export type ApplicationLifecycleDependencies = {
   applyCloseBehavior: (behavior: CloseBehavior) => void;
   browserPane: BrowserPane;
   pluginViews: PluginViewHost;
-  pluginSettingsViews: PluginViewHost;
   plugins: PluginRuntime;
   logger: Pick<Logger, "app">;
   refreshReleaseNotes: () => void;
@@ -94,7 +93,6 @@ export function createApplicationLifecycle({
   applyCloseBehavior,
   browserPane,
   pluginViews,
-  pluginSettingsViews,
   plugins,
   logger,
   refreshReleaseNotes,
@@ -273,7 +271,6 @@ export function createApplicationLifecycle({
       createTray,
       browserPane,
       pluginViews,
-      pluginSettingsViews,
       plugins,
       logger,
     });
@@ -538,13 +535,18 @@ export function createApplicationLifecycle({
     return { theme: appearanceState.appThemePreference, base, locale: appearanceState.updaterLocale, pluginTheme };
   }
 
-  /** Push the current appearance to every open plugin panel, when it changed. */
+  /**
+   * Push the current appearance to every open plugin panel and every loaded
+   * plugin process, when it changed. Plugin-owned UI localizes from this
+   * payload (ADR 0280).
+   */
   function broadcastAppearance(): void {
     const appearance = resolveAppearance();
     const signature = JSON.stringify(appearance);
     if (signature === appearanceState.broadcastAppearanceSignature) return;
     appearanceState.broadcastAppearanceSignature = signature;
     broadcastPluginPanelEvent("appearance:changed", appearance);
+    plugins.broadcastEvent("appearance:changed", [appearance]);
   }
 
   function flushPendingApplicationMenuCommands() {

@@ -263,7 +263,10 @@ test("each capability page can create, edit, and delete without leaving settings
     assert.match(source, /settings\.capabilityRemoveConfirm/);
     assert.match(source, /danger: true/);
   }
-  assert.match(layout, /DELETE_CONFIRM_MS/);
+  // The arm and its expiry live in the shared hook the settings pages
+  // re-export from the layout, so one timeout covers every armed delete.
+  assert.match(layout, /export \{ useArmedDelete \} from "\.\.\/\.\.\/hooks\/use-armed-delete"/);
+  assert.match(read("../src/hooks/use-armed-delete.ts"), /ARMED_DELETE_MS/);
   assert.match(styles, /\.agent-capability-menu button\.danger\s*\{/);
 });
 
@@ -294,9 +297,11 @@ test("revealing a skill carries the level so project skills resolve", () => {
 test("skill import is one native file and is copied through the host", () => {
   assert.notEqual(skillImport, "", "skill import handler should be present");
   assert.match(skillImport, /properties:\s*\["openFile"\]/);
-  assert.doesNotMatch(skillImport, /properties:\s*\[[^\]]*(?:multiSelections|openDirectory)/);
+  // Scan-and-import (a separate `skillImportScan` handler) opens a directory,
+  // but the single-file skill-import branch must never do that or select many.
+  assert.doesNotMatch(skillImport, /properties:\s*\[[^\]]*multiSelections/);
   assert.match(skillImport, /host\.call\("skills\.import"/);
-  assert.match(read("../../../crates/host-core/src/user_skills.rs"), /fs::copy\(&source_path, &target\)/);
+  assert.match(read("../../../crates/host-core/src/user_skills.rs"), /fs::copy\(source, target\)/);
 });
 
 test("MCP management reuses the validated modal and blocks same-level duplicates", () => {
@@ -442,4 +447,13 @@ test("the move action offers a level only when there is a destination", () => {
     assert.match(source, /moveTarget\[level === "global" \? "project" : "global"\]/);
     assert.match(source, /showToast\(t\("settings\.selectProjectFirst"\)/);
   }
+});
+
+test("MCP OAuth subscribe is owned by a ref cleaned up on unmount", () => {
+  const mcpIpc = readMainModuleSync("ipc/mcp-ipc.ts");
+  assert.match(mcp, /pendingOAuthRef/);
+  assert.match(mcp, /useEffect\(\(\) => \{/);
+  assert.match(mcp, /pendingOAuthRef\.current\?\.unsubscribe\(\)/);
+  assert.match(mcp, /api\.onMcpOAuth\(/);
+  assert.match(mcpIpc, /oauth\.start\(server\.id, server\.url, server\)/);
 });

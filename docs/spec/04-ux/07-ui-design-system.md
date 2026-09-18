@@ -119,7 +119,7 @@ Codex as a visual reference. The identity contract is deliberately small:
   name, version, and canonical icon; no stock Electron name or icon is visible.
   Development launches use a generated branded host bundle because AppKit
   reads this identity from the host bundle rather than Electron runtime APIs.
-- On Windows, Electron Main registers the canonical `com.pi-desktop.app`
+- On Windows, Electron Main registers the canonical `net.aiuo.pi-desktop`
   AppUserModelID before readiness. The runtime ID, packaged executable name,
   and NSIS shortcut identity stay aligned so native notifications,
   notification settings, and taskbar groups identify the app as `PI-Desktop`
@@ -416,6 +416,7 @@ Weights use `--font-weight-*` tokens only (Codex uses variable-font intermediate
 
 | Token | Value | Usage |
 |---|---|---|
+| `space-0.25` | 1px | Hairline row gaps in dense list rhythms (sidebar session rows, settings rail items) |
 | `space-0.5` | 2px | Tight inline gaps |
 | `space-1` | 4px | Icon-text gaps, badge padding |
 | `space-1.5` | 6px | Compact inner padding |
@@ -571,7 +572,7 @@ floating layers where an edge is an elevation cue rather than a partition.
 | Tile | `--ds-tile` (3.5% text mix); hover `--ds-tile-hover` (6%); deep `--ds-tile-deep` (8%) | Panels, list rows, cards, form fields, chips, code blocks, empty states |
 | Raised | `--ds-raised` + `--ds-raised-shadow` | The active pill of a segmented control, a disclosed detail block, a recorder keycap |
 | Dock | `--ds-bg-dock` (the column), `--ds-bg-dock-raised` (its header and viewer strips) | The work-panel column and the bars inside it. Both are tokens, not literals, so a contributed theme can move them (D419) |
-| Settings rail | `--ds-settings-rail-bg` (light `#f4f4f4`, dark `#000000`) | Full-window settings navigation column |
+| Sidebar / settings rail | `--ds-bg-sidebar` (opaque fallback: light `#f3f3f3`, dark `#000000`), `--ds-bg-sidebar-image`, shared macOS glass tint/sheen | One `sidebar-surface` material for both navigation columns; content stays opaque |
 | Settings search | `--ds-settings-field-bg` (light `#ffffff`, dark `#212121`) | Search pill on the settings rail |
 | Active settings item | `--ds-settings-nav-active` (light 12% `#1a1c1f` mixed over white; dark 10% `--gray-0` over transparent) | Selected navigation pill |
 | Inset search | `--ds-field-inset-bg`, `--ds-field-inset-focus-bg` (light `#f3f3f3` / white; dark 5% / 7% primary-text mix over transparent) | Plugin search and Agent capability search, including focus |
@@ -582,6 +583,15 @@ floating layers where an edge is an elevation cue rather than a partition.
 | Tool output | `--ds-tool-row-bg` (light 2% `#1a1c1f`, dark `--ds-tile`) | Tool result and error output blocks in the transcript |
 | Disabled send chip | `--ds-send-disabled-bg`, `--ds-send-disabled-fg` (light `#8e8e90` / `#ffffff`; dark 18% text mix / 70% `--gray-900`) | The composer's disabled send button |
 | Composer placeholder | `--ds-placeholder-ink` (light `#4a4c4f`, dark 42% white) | Input and placeholder ink in both composer states |
+
+Main and settings navigation share the same material, not just matching colors.
+The legacy `--ds-settings-rail-bg` remains readable with the shared built-in
+palette and supplies the sidebar color fallback, including theme overrides.
+An explicit `--ds-bg-sidebar` override takes precedence. This preserves legacy
+color reads and inputs without retaining
+an independent settings-only plate or creating a circular alias. On macOS the
+shared tint derives from that color; on other platforms the shared plate is
+opaque. Background imagery uses `--ds-bg-sidebar-image` for both rails.
 
 The dark composer shell consumes `--ds-bg-elevated-primary` directly; light
 continues to use `--ds-bg-composer`. Switch on-state knobs consume
@@ -817,8 +827,8 @@ model):
 - Column `flex: 1; min-height: 0; overflow: hidden`
 - Inner scroller (`.home-scroll`) is the only vertical overflow surface for
   the hero and optional checklist
-- Stack (`.home-stack-inner`) uses content width **`min(100%, 768px)`** in the
-  expanded shell and **`min(100%, 640px)`** while the sidebar is collapsed,
+- Stack (`.home-stack-inner`) uses content width
+  **`min(100%, var(--chat-content-max-width))`** (default 760px, D439),
   with **`gap: 16px`** (workstation ceiling), and auto margins to center the
   column when the viewport is tall
 - The content order is **hero → optional onboarding checklist**. Task entry
@@ -857,6 +867,10 @@ model):
   hairline stroke plus the restrained `--elevation-prominent` shadow provides
   separation; the transcript reserves the measured dock height instead of
   painting a full-width gradient veil.
+- In-transcript message-edit uses `--ds-tile-deep` and `--ds-composer-radius`
+  with no outer shadow. The row's paint containment and the transcript
+  scroller would clip a composer lift. Focus uses an inset 2px accent ring
+  so the cue stays inside the plate.
 - Dark elevated shell reads as elevated-primary (`#212121f5` / gray-800 96%)
   on `#181818` with standard elevation-prominent
 - Starter cards use a two-column grid at workstation widths and collapse to
@@ -1009,6 +1023,13 @@ Rules:
   renderer layer, so no `z-index` in the table above can raise a popover over
   them. A body-portaled popover clamps to the conversation pane, which ends
   where the work panel begins, instead of to the viewport.
+- A route surface holds no stacking context once its entrance animation
+  finishes, so an overlay authored inside a route page — a modal, a sheet, or
+  their scrims — covers the titlebar band without any `z-index` juggling. On
+  Windows/Linux the renderer-drawn window controls stay above renderer overlays.
+  Route overlays therefore sit on `z-dialog` (40): a leaf popup (60) or a toast
+  (50) a dialog raises — portaled to `document.body`, so in that same stacking
+  context — keeps painting above the dialog's scrim and keeps taking clicks.
 
 ## 10. Layout shell metrics
 
@@ -1026,7 +1047,7 @@ Codex parity decisions (D034/D070) supersede any older value here.
 | Composer shell minimum | ~80px | One-line draft + toolbar padding |
 | Composer toolbar | MainChat `≥450px` | Left/right control groups stay on one row and do not shrink; mode/permission labels stay single-line and ellipsize |
 | Composer draft height | 1–7 text lines | Auto-grow; internal scroll beyond line 7 |
-| Chat message max width | 720px assistant / 560px user plate | Prevent eye-span over-stretch; user turns stay compact |
+| Chat message max width | 760px default band (user-resizable, min 560px) / 600px user plate | Band follows `min(pane, preferred)`; user turns stay compact |
 | Window min width | 1040px | Enforced by Electron for the whole app; opening the panel never changes native bounds |
 | Window min height | 700px | Enforced by Electron |
 
@@ -1217,12 +1238,13 @@ Full component contract and usage rules: [08-component-spec.md §17](08-componen
 |---|---|
 | **Base padding 8px (space-2)** | Default inner padding for list items, form groups |
 | **Message gap 10px** | Between chat message rows — denser WorkBuddy-like transcript |
-| **Section gap 16px (space-4)** | Between distinct UI sections (sidebar sections, settings groups) |
+| **Section gap 16px (space-4)** | Between distinct UI sections (destination pages, settings groups, page-level blocks) |
 | **Panel gap 0px** | Panels touch edge-to-edge with border-subtle separator — no gutters |
 | **Compact list rows 28px height** | Sidebar session items, settings list rows |
+| **Sidebar rhythm 1px / 2px / 8px** | Sidebar lists: 1px between rows, 2px from a group header or section label to its first row, 8px after an expanded project group and between sidebar sections (1px when the preceding group is collapsed) |
 | **Button rows 32px height** | Standard buttons |
 | **Never exceed 24px vertical gap** | Even for "breathing room" — this is a workstation |
-| **Max content width 720px** | Chat messages, tool disclosure rows — prevent over-wide eye-span |
+| **Max content width 760px default** | Chat band is user-resizable (min 560px); user plates stay compact |
 
 ## 14. Do / Don't
 
@@ -1278,7 +1300,7 @@ Full component contract and usage rules: [08-component-spec.md §17](08-componen
 - Floating composer plate: Codex elevated-primary (`#212121f5` / `color-mix(gray-800 96%, transparent)`) with standard elevation-prominent (`0 0 0 .5px` stroke + `0 3px 7.5px #0000000a` + `0 0 20px #0000000d`); no heavier night-only lift
 - Light workspace chips capsule: elevated gray `#f4f4f4` (not pure white-on-white)
 - Combined workspace chips: elevated translucent plate over main, not flat main gray
-- Stage Manager: host re-asserts min bounds while collapsed (permanent watchdog)
+- Stage Manager (macOS only): host re-asserts min bounds while collapsed (permanent watchdog). The watchdog does not run on Windows/Linux, so no platform re-layers its own window unprompted (D447)
 
 ## Destination pages
 
@@ -1292,7 +1314,7 @@ Full component contract and usage rules: [08-component-spec.md §17](08-componen
   the only counts on the page. It has no hero block, no decorative gradient,
   and no page-level counter run
 - **Settings**: full-page Codex shell per D063/D090/D133/D166 (275px compact
-  eight-destination rail, `#f4f4f4` light, elevated content cards, Back to app);
+  navigation rail sharing the main sidebar material, elevated content cards, Back to app);
   per D092, the content cards fill the pane width available from the current
   window instead of retaining D070's fixed 720px cap — the earlier in-shell
   200px rail and broad grouped directory are superseded

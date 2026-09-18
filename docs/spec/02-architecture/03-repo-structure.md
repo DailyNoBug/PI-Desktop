@@ -36,7 +36,9 @@ PI-Desktop/
 │ ├── shared/                 # IPC/protocol contracts, error codes, changelog
 │ ├── i18n/                   # shipped UI catalogs plus locale helpers
 │ ├── agent-runtime/          # pi sidecar and runtime wrapper (bundled into the app)
-│ ├── agent-host/             # headless Host session/turn/approval module
+│ ├── agent-host/             # headless Agent Host module: admission, queue, approvals, event log
+│ ├── host-runtime/           # Electron-independent runtime: stdio transports, supervisor, turn lifecycle
+│ ├── racp/                   # RACP-WS server and client, device-token pairing
 │ ├── pi-host/                # Linux remote Host process and bundle entry
 │ ├── plugin-sdk/             # plugin author types and validators
 │ └── plugin-devkit/          # pi-plugin CLI: scaffold, check, pack, publish

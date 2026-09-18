@@ -104,6 +104,21 @@ match `electron/main/index.ts` by source pattern and must be repointed.
 Deliver the first remote topology (`02-architecture/05-remote-agent-control.md`
 §5.2): the desktop as Remote Client of a headless Host on another machine.
 
+R2 lands in two ordered slices so the desktop-side kernel can ship, be
+tested, and stay dead code until the full topology is ready:
+
+- **R2a — Desktop kernel (delivered, ADR 0286).** The single interception
+  seam, the transport-agnostic backend, the event bridge, the coordinator, an
+  encrypted-at-rest registry, and the boot hook. With an empty registry
+  (default install) the kernel is a full no-op; the router has no remote
+  backends, every renderer call still hits the local handler byte-for-byte.
+  Every subsystem has a `node --test` fixture that exercises it against a
+  fake — or, for the RACP adapter, against the real in-memory harness in
+  `@pi-desktop/racp/test-harness`.
+- **R2b — Pairing, SSH bootstrap, terminal, and reverse tool relay.** The
+  remaining bullets below. R2's exit criteria stay unchanged and land with
+  R2b; R2a alone is not user-visible and does not attempt them.
+
 Deliverables:
 
 - the `pi-host` bundle: the module, the Node pi sidecar, and the platform's
@@ -400,9 +415,28 @@ Recorded on the `feat/remote-agent-host` branch, 2026-09-10:
   composer pushes through `agent/queue/push`, mirrors
   `agent/event/queueChanged`, and "send now" is `turn/prioritize` plus a
   graceful stop.
-- R1 open: a runtime-level per-turn permission ceiling (a capped turn
-  currently fails closed in the bridge).
-- R2 in progress (D434 / ADR 0277): the loopback `RACP-WS` server/client with
+- R1 partial (2026-09-18): the runtime-level per-turn permission ceiling is
+  plumbed end-to-end (`AgentPromptRequest.permissionMode` → agent-ipc →
+  `RuntimeService.startTurn` → sidecar `agent.prompt`), and the bridge no
+  longer fails closed on every session/effective-mode mismatch. A widening
+  request (effective more permissive than session) is still refused as
+  defence-in-depth; a narrower ceiling is forwarded and recorded by the
+  sidecar as a documented stub. Turn-scoped enforcement in host-core
+  (`session.beginTurn` accepting an override) is the remaining piece, so a
+  narrower ceiling on a local turn does not yet clamp tool decisions.
+- R2 started (2026-09-18, D447 / ADR 0284): `packages/host-runtime` holds the
+  Electron-independent runtime layer — the host-core and sidecar stdio
+  transports, the restart supervisor, `RuntimeService` (the module's
+  `RuntimePort` with the durable turn lifecycle), transcript persistence, a
+  headless launch resolver, and approved Plan/Goal dispatch — and Electron
+  main runs on it through thin adapters.
+- R2 (2026-09-18, D448 / ADR 0285): `packages/racp` holds the `RACP-WS`
+  server and client cores, the `ws` binding on loopback, and device-token
+  pairing; handshake, authorization, idempotency, queue order, approvals,
+  cursor replay, eviction, epoch change, slow clients, and reconnect without
+  duplicate execution are package tests. The `pi-host` bundle, the SSH
+  bootstrap, and the desktop adapter are not started.
+- Remote SSH line (D434 / ADR 0294), in progress: the loopback `RACP-WS` server/client with
   one-time pairing and cursor replay, the Linux `packages/pi-host` runtime,
   workspace boundary and checksummed x64/arm64 release bundles, and Electron
   Main's SSH discovery/bootstrap/port-forward/reconnect supervisor plus

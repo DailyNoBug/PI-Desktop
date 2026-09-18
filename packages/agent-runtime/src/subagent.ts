@@ -26,6 +26,7 @@ import {
   type AfterToolCallContext,
   type AfterToolCallResult,
   type AgentEvent,
+  type AgentMessage,
   type AgentTool,
 } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -129,6 +130,12 @@ export type SubagentRunOptions = {
     context: AfterToolCallContext,
   ) => SubagentToolOutcome | undefined;
   signal?: AbortSignal;
+  /**
+   * Prior chain messages that seed this run (ADR 0279). Omitted for a cold
+   * start. The original `task` is still passed to `prompt()` as the new user
+   * turn; these messages are everything that came before it.
+   */
+  initialMessages?: AgentMessage[];
 };
 
 /**
@@ -179,7 +186,8 @@ function boundedReport(value: string): string {
 
 export { addUsage };
 
-/** One delegate execution. Instances are single-use. */
+/** One delegate execution. A resumed run is still a new instance; it is
+ * seeded with the prior chain's messages rather than kept warm in memory. */
 export class SubagentRun {
   private readonly agent: Agent;
   private readonly opts: SubagentRunOptions;
@@ -219,7 +227,7 @@ export class SubagentRun {
         model: binding.model,
         tools: opts.tools,
         thinkingLevel: binding.agentThinkingLevel,
-        messages: [],
+        messages: opts.initialMessages ? [...opts.initialMessages] : [],
       },
       toolExecution: "sequential",
     });

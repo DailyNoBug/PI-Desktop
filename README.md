@@ -364,15 +364,15 @@ The target distribution still needs the required native host and packaged resour
 </details>
 
 <details>
-<summary><strong>macOS unsigned-build notes</strong></summary>
+<summary><strong>macOS first-launch notes</strong></summary>
 
 <br />
 
-The tagged-release workflow publishes unsigned macOS artifacts by default.
+Official GitHub Release macOS builds are Developer ID-signed, notarized, and stapled. After moving `PI-Desktop.app` to `/Applications`, the app should open without extra steps.
 
-For a trusted unsigned install, move `PI-Desktop.app` to `/Applications` and open it. If macOS reports the app as damaged or refuses to open it:
+Local or unsigned debug builds can still carry Apple's quarantine attribute. If macOS reports the app as damaged or refuses to open it:
 
-1. Confirm the app came from a trusted PI-Desktop release.
+1. Confirm the app came from a trusted PI-Desktop source.
 2. Move `PI-Desktop.app` to `/Applications`.
 3. Run:
 
@@ -386,11 +386,13 @@ The DMG includes `If app won't open, read this.txt`. The ZIP also includes `PI-D
 
 The command only removes Apple's quarantine attribute. Do not use it for an untrusted app.
 
-A manually dispatched run with `sign_macos: true` signs, notarizes, and staples macOS artifacts with Developer ID credentials before publication; signed builds do not need this fallback.
+Signed and notarized builds do not need this fallback.
 
 </details>
 
 ### Code signing
+
+macOS GitHub Release artifacts are signed with Developer ID Application `XingYu Liu (DUV63RKYTW)` and notarized by Apple.
 
 Windows releases of PI-Desktop are digitally signed with free code signing provided by [SignPath.io](https://signpath.io/), using a certificate from the [SignPath Foundation](https://signpath.org/).
 
@@ -454,7 +456,7 @@ The desktop application also uses technologies including Electron, React, TypeSc
 
 PI-Desktop is an early preview under active development.
 
-The current **0.14.x** line includes the desktop shell, streaming agent runtime, Agent / Plan / Goal workflows, permission-aware workspace tools, projects and sessions, session imports, local MCP control, MCP / Skills / Subagents, background delegation, multi-provider model configuration, plugins and marketplace support, context checkpoints, notifications, release notes, and cross-platform packaging.
+The current **0.15.x** line includes the desktop shell, streaming agent runtime, Agent / Plan / Goal workflows, permission-aware workspace tools, projects and sessions, session imports, local MCP control, MCP / Skills / Subagents, background delegation, multi-provider model configuration, plugins and marketplace support, context checkpoints, notifications, release notes, and cross-platform packaging.
 
 Current priorities include:
 
@@ -589,6 +591,18 @@ This project was created with the models below.
 ## Community
 
 - [Linux.Do](https://linux.do/) — Share, discuss, and follow development with the community.
+
+---
+
+## Star History
+
+<a href="https://star-history.com/#vastsa/PI-Desktop&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=vastsa/PI-Desktop&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=vastsa/PI-Desktop&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=vastsa/PI-Desktop&type=Date" />
+ </picture>
+</a>
 
 ---
 

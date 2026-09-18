@@ -13,6 +13,7 @@ A plugin can contribute one or more of these capabilities:
 |---|---|---|
 | Command | An explicit action in global search | `contributes.commands`, `pi.commands.register` |
 | Panel | A small isolated HTML interface | `ui.panel`, `ui.panel` permission, `window.pluginBridge` |
+| Floating widget | A transparent, frameless companion window — a round orb, not a rectangle | `ui.panel` permission, `"ui": { "shape": "widget" }`, `window.pluginBridge` |
 | Work panel view | An interface docked in the app's right work panel | `contributes.views`, `ui.view` permission, `window.pluginBridge` |
 | Agent tool | A function the Agent can call | `contributes.agentTools`, `pi.agent.registerTool` |
 | One-shot completion | A host-owned completion against the user's models | `pi.models.list`, `pi.session.getLlmContext`, `pi.agent.complete` |
@@ -217,6 +218,27 @@ anchor it below the host drag band instead of using `top: 0`:
 The host does not inject a panel title. Keep the 46px drag band in mind for
 viewport-height calculations as well:
 `height: calc(100dvh - var(--pi-plugin-titlebar-height, 46px))`.
+
+### Floating widgets
+
+A plugin whose whole interface is a small floating shape — a voice orb, a timer,
+a status light — declares `"ui": { "shape": "widget" }` in its manifest instead
+of accepting a rectangle with a toolbar strip. The panel then opens as a
+transparent, frameless window:
+
+- no 46px drag band and no capsule; `--pi-plugin-titlebar-height` is `0px`
+- empty space drags the window, while a standard control — or any element marked
+  `data-pi-plugin-no-drag` — stays clickable
+- right-click on the surface opens the host menu: close, minimize, always on top
+- `ui.width` / `ui.height` are honoured down to 120×120, and `ui.alwaysOnTop`
+  pins the widget above other windows
+- the page can read `document.documentElement.dataset.piPluginPanelShape`
+  (`panel` | `widget` | `view`) to style one HTML entry for every placement
+
+Draw the silhouette yourself — `border-radius: 50%`, your own shadow, a glow that
+bleeds past the shape — and keep the page background transparent outside it, so
+the window disappears behind the shape. Everything else, `window.pluginBridge`,
+permissions, settings, is identical to a panel.
 
 ```html
 <!doctype html>

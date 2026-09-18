@@ -52,7 +52,10 @@ import {
 } from "./shared";
 import { SubagentTopology } from "./SubagentDetail";
 import { ToolRow } from "./ToolRow";
+import { HostedSearchRow } from "./HostedSearchRow";
 import { TranscriptSearchContext } from "../../../lib/transcript-search-context";
+import { useAppStore } from "../../../stores/app-store";
+import { resolveThinkingDisplayMode } from "../../../lib/turn-process";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -66,6 +69,10 @@ export function activityItemDetail(item: ActivityItem): string {
       .map((line) => line.replace(/^#+\s*|\*\*/g, "").trim())
       .filter(Boolean);
     return lines[lines.length - 1] || "";
+  }
+  if (item.kind === "hostedSearch") {
+    const search = item.message.hostedSearch;
+    return search?.queries[0] || search?.sources[0]?.title || search?.sources[0]?.url || "";
   }
   if (lifecycleKindOf(item.message)) {
     return delegationRosterSummary(delegationRoster(item.message));
@@ -145,6 +152,7 @@ export function runActivityLabel(
 
 type ActivityGroupProps = {
   items: ActivityItem[];
+  embedded?: boolean;
   isActive: boolean;
   endedAt?: string;
   /** Current runtime wait phase, when the group owns the live turn tail. */
@@ -174,6 +182,7 @@ function activityGroupPropsEqual(
   next: ActivityGroupProps,
 ) {
   if (
+    previous.embedded !== next.embedded ||
     previous.isActive !== next.isActive ||
     previous.endedAt !== next.endedAt ||
     previous.runtimeActivity !== next.runtimeActivity ||
@@ -199,12 +208,16 @@ function activityGroupPropsEqual(
 
 export const ActivityGroup = memo(function ActivityGroup({
   items,
+  embedded = false,
   isActive,
   endedAt,
   runtimeActivity,
   turnDelegationStatuses,
   turnDelegationTimings,
 }: ActivityGroupProps) {
+  const compact = useAppStore(
+    (state) => resolveThinkingDisplayMode(state.settings?.thinkingDisplayMode) === "compact",
+  );
   const { t } = useTranslation();
   const detailsId = useId();
   const delegateItems = items.filter(isDelegationActivityItem);
@@ -302,7 +315,9 @@ export const ActivityGroup = memo(function ActivityGroup({
     ? runActivityLabel(runtimeActivity, t as Translate)
     : "";
   const currentDetail =
-    live && !runtimeStatus && lastItem ? activityItemDetail(lastItem) : "";
+    live && !runtimeStatus && lastItem && !(compact && lastItem.kind === "thinking")
+      ? activityItemDetail(lastItem)
+      : "";
   const tail = live && !open ? currentDetail : "";
 
   useEffect(() => {
@@ -330,16 +345,30 @@ export const ActivityGroup = memo(function ActivityGroup({
           />
         );
       }
-      return item.kind === "tool" ? (
-        <Fragment key={item.message.id}>
-          <ToolRow
+      if (item.kind === "tool") {
+        return (
+          <Fragment key={item.message.id}>
+            <ToolRow
+              message={item.message}
+              onUserInteraction={claimDisclosure}
+              {...(item.delegate ? { delegate: item.delegate } : {})}
+            />
+            <ReviewChangeCard message={item.message} />
+          </Fragment>
+        );
+      }
+      if (item.kind === "hostedSearch") {
+        return (
+          <HostedSearchRow
+            key={`hosted-search-${item.message.id}`}
             message={item.message}
+            streaming={isActive && item.message.status === "streaming"}
+            autoOpen={live && itemIndex === items.length - 1}
             onUserInteraction={claimDisclosure}
-            {...(item.delegate ? { delegate: item.delegate } : {})}
           />
-          <ReviewChangeCard message={item.message} />
-        </Fragment>
-      ) : (
+        );
+      }
+      return (
         <ThinkingRow
           key={`thinking-${item.message.id}`}
           message={item.message}
@@ -350,6 +379,11 @@ export const ActivityGroup = memo(function ActivityGroup({
       );
     });
   };
+
+  if (compact && onlyThinking && !thinkingNow) return null;
+  if (embedded && !hasSubagentTopology) {
+    return <div className="turn-process-activity">{renderActivityItems()}</div>;
+  }
 
   return (
     <div

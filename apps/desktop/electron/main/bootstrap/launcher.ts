@@ -12,6 +12,7 @@ import {
 import type { HostProcess } from "../host-process";
 import type { Logger } from "../logger";
 import type { WindowLifecycleState } from "./window";
+import { suppressLinuxFramelessSystemMenu } from "../frameless-system-menu";
 
 export type LauncherState = {
   creationPromise: Promise<BrowserWindow> | null;
@@ -103,6 +104,7 @@ export function createLauncher({
         },
       });
       state.pluginLauncherWindow = window;
+      suppressLinuxFramelessSystemMenu(window);
 
       if (process.platform === "darwin") {
         // Join every Space and float above this app's own fullscreen window, but
@@ -256,10 +258,12 @@ export function createLauncher({
   }
 
   /**
-   * Register the merged window toggle (D438). The default `Mod+W` runs the same
-   * toggle the menu item and the renderer run: it hides the window the user is
-   * looking at, or brings a hidden/minimized-to-tray window back into focus.
-   * The retired `Mod+Shift+W` summon binding is no longer registered.
+   * Register the merged window toggle (D438, rebound by D439). The default
+   * `Alt+Shift+W` runs the same toggle the menu item and the renderer run: it
+   * hides the window the user is looking at, or brings a hidden/minimized-to-tray
+   * window back into focus. The key is process-wide, so it deliberately avoids
+   * `Mod+W` — macOS spends that chord on its own close-window command. The
+   * retired `Mod+Shift+W` summon binding is not registered either.
    */
   function applyToggleWindowShortcut(keybindings?: KeybindingOverrides) {
     const shortcut = KEYBOARD_SHORTCUTS.find(

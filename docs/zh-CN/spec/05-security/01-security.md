@@ -55,7 +55,7 @@
 - 封装时 Electron 熔断器（`runAsNode`、`nodeCliInspect` 关闭）
 - 自动安全 e2e 中的 `webSecurity` 断言
 
-### 麦克风权限（语音听写，D439 / ADR 0279）
+### 麦克风权限（语音听写，D439 / ADR 0296）
 
 - 默认会话的权限处理器仅在请求方是主窗口的 webContents、且所有请求的捕获
   类型都是 `audio` 时才放行 `media`；camera、video 与未指明的媒体请求一律拒绝。
@@ -162,13 +162,8 @@ MCP 市场只接受无凭据的公网 HTTPS 源和目录端点。Main 在每次�
   GitHub 的最新稳定版本而不是同通道预发布 pin。
 - Feed 清单将工件与电子构建器哈希绑定。一个错误，
   无法安装提要、哈希不匹配或无效的更新程序状态。
-- 打包的 macOS 仅供手动使用：它检测释放并打开固定的
-  发布页面，但从未在应用程序中下载或安装它。启用签名
-  macOS 应用内渠道需要稍后的明确决策和资格。
-- D126 标签版本发布 Windows NSIS 和 Linux AppImage 安装程序及其
-  更新清单，以及 Linux deb/rpm 包和 Windows 便携版 exe。NSIS 和 AppImage
-  工件激活现有应用内通道。便携版 exe 使用通知加链接交付，并且不写入
-  `latest.yml`。平台签约、回滚和分阶段推出资格仍处于发布后续阶段。
+- 打包的 macOS、Windows NSIS 和 Linux AppImage 从 GitHub Releases 源应用内下载并安装。Linux deb/rpm 和 Windows 便携版只检测新版本并打开固定发布页。
+- D126 标签版本发布 Windows NSIS 和 Linux AppImage 安装程序及其更新清单，以及 Linux deb/rpm 包和 Windows 便携版 exe。NSIS、AppImage 与打包的 macOS 走应用内通道。便携版 exe 使用通知加链接交付，并且不写入 `latest.yml`。macOS 标签工件在上传前完成 Developer ID 签名、公证和装订；回滚和分阶段推出仍是发布后续工作。
 - 客户端不携带 GitHub 令牌。私人或其他无法访问的提要
   关闭失败；自动故障保持在环境状态，显式检查会暴露
   错误。
@@ -176,7 +171,7 @@ MCP 市场只接受无凭据的公网 HTTPS 源和目录端点。Main 在每次�
   `If app won't open, read this.txt` 的文本说明，其中给出手动的 `com.apple.quarantine` 命令，并说明
   已签名/公证版本无需执行。ZIP 安装包还包含可执行助手：它只搜索
   `/Applications/PI-Desktop.app` 和 `~/Applications/PI-Desktop.app`，并在删除前先校验
-  `CFBundleIdentifier=com.pi-desktop.app`，再删除唯一的 `com.apple.quarantine` 属性并
+  `CFBundleIdentifier=net.aiuo.pi-desktop`，再删除唯一的 `com.apple.quarantine` 属性并
   打开应用。它不接受任意路径，不提升权限，也不替代 Developer ID 签名或公证。
 - 本地化产品“新增内容”文本 (D164/D345) 在 Main 中从
   已发布变更日志目录并附加到 `UpdateState.releaseNotes`。的

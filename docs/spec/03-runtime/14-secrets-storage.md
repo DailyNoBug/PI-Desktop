@@ -60,7 +60,7 @@ account, or both. The OAuth ref stores the serialized pi-ai `OAuthCredential`
 path, so it is encrypted by the same backend but is not indexed in
 `secrets_meta`; provider delete clears both refs and any metadata row for them.
 
-The `voice/stt` ref (D439 / ADR 0279) holds the voice-dictation STT API key. It
+The `voice/stt` ref (D439 / ADR 0296) holds the voice-dictation STT API key. It
 is written, deleted, and probed only through the existing generic
 `secrets.set` / `secrets.delete` / `secrets.has` channels from the Settings →
 Model configuration **Voice dictation** card, and it is read only by Electron

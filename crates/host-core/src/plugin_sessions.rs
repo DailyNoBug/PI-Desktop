@@ -235,6 +235,7 @@ fn parse_message(
         steering: None,
         created_at,
         thinking: None,
+        hosted_search: None,
         status: None,
         model_id,
         provider_id,

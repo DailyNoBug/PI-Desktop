@@ -79,9 +79,10 @@ runs the native `dist:mac`, `dist:win`, or `dist:linux` command. The Linux
 job uses Ubuntu 22.04 so host-core stays on glibc 2.35, then
 `scripts/check-linux-host-glibc.mjs` refuses a binary that needs a newer
 glibc. The Linux runner also exports the exact app.asar from `linux-unpacked`
-as a versioned release asset. Separate native Linux x64 and arm64 jobs package
-and verify `pi-host` before upload; the macOS matrix covers arm64 and Intel
-x64 and the publish job assembles the GitHub Release. The release workflow defaults to
-unsigned macOS artifacts; manually dispatch it with `sign_macos: true` to opt
-into signing and notarization. See the [release
+as a versioned release asset; the macOS matrix covers arm64 and Intel x64 and
+the publish job assembles the GitHub Release. Tag builds Developer ID-sign,
+notarize, and staple macOS artifacts when the signing secrets exist; a repo
+without them (or a `workflow_dispatch` with `sign_macos: false`) packages the
+unsigned ad-hoc-sealed artifacts instead. Separate native Linux x64 and arm64
+jobs package and verify checksummed `pi-host` bundles before upload. See the [release
 runbook](../docs/spec/06-delivery/06-release-runbook.md).

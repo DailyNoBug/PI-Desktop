@@ -119,6 +119,7 @@ unit/integration 测试；代码 pull request 使用有选择且高价值的 E2E
 - 受信任扩展或插件扩展改动：`pnpm test:e2e:trusted-extensions`。
 - 会话通信 / Session Orchestrator：`pnpm test:e2e:collaboration`。
 - 语音听写 / voice IPC：`pnpm test:e2e:voice`。
+- 完成通知静默或静默回合契约（D193 / D446）：`pnpm test:e2e:session-completion`。
 - 同时涉及多个面的改动使用适用套件的并集。
 
 `pnpm test:e2e` 是 host RPC、IPC、Agent 执行、插件、持久化集成和共享运行时合约的默认跨系统烟雾测试。由于显示、平台、凭据、硬件或其他环境能力缺失而无法运行的必需套件，必须记录为 `NOT RUN`，并说明原因、替代验证和剩余风险。在具备条件且可信的环境中通过前，该 pull request 不具备合入条件。
@@ -483,6 +484,17 @@ unit/integration 测试；代码 pull request 使用有选择且高价值的 E2E
 - **接受**：C（中止）、F（持久化）
 - **里程碑**：M2
 - **状态**：草案
+
+#### E2E-SESSION-outbox-duplicate-id-does-not-drop-history
+
+- **先决条件**：两个会话的工具行把同一个 `toolCallId` 当作 `messages.id`（例如 `call_421522`）。第一个会话已经持久化该 id。第二个会话随后又跑了若干回合，助手/工具行排在这条碰撞追加之后。
+- **步骤**：1) 在会话 A 完成一条 id 为 `call_421522` 的工具调用。2) 在会话 B 使用同一供应商工具 id，再继续聊几轮。3) 退出并重新打开。4) 打开两个会话。
+- **预期**：会话 A 仍有原来的工具行。会话 B 重新打开后仍有后续回合；碰撞的工具行存成 `{sessionB}:{call_421522}`（或等价改写 id）。持久化 outbox 为空，没有停在 `UNIQUE constraint failed: messages.id`。任一会话都没有丢掉更晚的助手/工具行。
+- **链接规格**：`03-runtime/04-data-storage.md`、`03-runtime/06-host-rpc-protocol.md`、ADR 0041、D444
+- **接受**：F（持久化）
+- **里程碑**：M2
+- **状态**：单位已覆盖（`append_message_remaps_ids_owned_by_another_session`、`persistence-outbox.test.mjs`）；桌面旅程待补
+
 
 #### E2E-173：展开中的实时委托运行过程跟随最新输出
 
@@ -1221,12 +1233,12 @@ unit/integration 测试；代码 pull request 使用有选择且高价值的 E2E
 
 #### E2E-024P：切换市场目录来源
 
-- **先决条件**：网络可访问 `cnb.cool`。
-- **步骤**：1) 打开扩展 → 市场。 2) 将「插件市场来源」从 GitHub（官方）切换到镜像（cnb.cool）。 3) 确认同一页面完成目录刷新。 4) 安装一个插件。
-- **预期**：切换后自动触发刷新并报告新的插件数量；来源选择器是唯一的来源状态控件，不显示重复的提供商说明或当前来源状态行；安装从镜像下载安装包并通过 shasum 校验。切回官方可恢复 GitHub 来源。选择自定义地址但留空时回退到官方默认地址，而不是空端点。
-- **链接规格**：`07-plugins/07-plugin-marketplace.md`
+- **先决条件**：网络可访问 `plugins.aiuo.net`、`raw.githubusercontent.com` 与 `cnb.cool`。
+- **步骤**：1) 在全新配置下打开扩展 → 市场，确认来源行显示官方渠道。 2) 依次切换到海外备份、国内备份、填写地址的自定义，再切回官方渠道。 3) 每次切换后确认同一页面完成目录刷新。 4) 先从官方渠道安装一个插件，再从国内备份安装一个。 5) 选择自定义地址但留空。
+- **预期**：全新配置默认停在官方渠道，其目录来自 `plugins.aiuo.net/catalog.json`；四个选项按官方渠道 / 海外备份 / 国内备份 / 自定义的顺序显示；切换后自动触发刷新并报告新的插件数量；来源选择器仍是唯一的来源状态控件，不显示重复的提供商说明或当前来源状态行；官方渠道的安装通过平台 resolve，国内备份的安装仍从镜像下载并通过与以前相同的 shasum 校验，因此两条备份路径逐字节不变；切回某个来源时直接复用其缓存快照而不是删除，也不产生额外往返；已安装记录标明插件来自哪个渠道；选择自定义地址但留空时回退到官方默认地址，而不是空端点。
+- **链接规格**：`07-plugins/07-plugin-marketplace.md` §2
 - **接受**：G（远程市场来源）
-- **状态**：已记录/涵盖 host-core 单元
+- **状态**：已记录 / 涵盖 host-core 单元
 
 #### E2E-024B：带有权限审查的市场安装
 
@@ -1263,6 +1275,16 @@ unit/integration 测试；代码 pull request 使用有选择且高价值的 E2E
 - **链接规格**：`07-plugins/01-plugin-system.md`、`07-plugins/03-plugin-api.md`、`07-plugins/04-plugin-security.md`、`07-plugins/12-plugin-ipc-and-host-services.md`
 - **验收**：G（隔离面板）
 - **状态**：已记录
+
+#### E2E-024AA：插件自有界面跟随宿主语言
+
+- **先决条件**：已加载带面板或设置入口的插件，且插件进程订阅了 `pi.events.on("appearance:changed")`。
+- **步骤**：1) 调用 `pi.app.getLocale` / `app.getAppearance`，确认语言标签与设置中的语言一致。2) 插件保持加载时切换应用语言。3) 确认生成式 `contributes.settings` 标题仍是作者语言。4) 确认插件进程与打开的面板收到带新 `locale` 的 `appearance:changed` 并自行重标文案。
+- **预期**：宿主只发布语言。插件自有文案无需重载即可更新。生成式设置面板不解析 `{ en, "zh-CN" }`。宿主拥有的身份文案仍走 `manifest.i18n`（ADR 0267）。
+- **链接规格**：`07-plugins/03-plugin-api.md`、`07-plugins/02-plugin-manifest-schema.md`、`04-ux/02-i18n-english-first.md`、ADR 0280
+- **验收**：G（插件 i18n）
+- **状态**：部分自动化（`apps/desktop/test/plugin-settings.test.mjs`、`plugin-work-panel-views.test.mjs`）；UI 走查已记录
+
 
 #### E2E-024E：高风险插件 API 需要拨款
 
@@ -2925,10 +2947,11 @@ PI-Desktop 图标；两个表面都不会暴露库存 Electron 名称或图标�
   状态，不参与冲突、不响应旧或默认组合、可跨重启保存，并会移除 macOS 加速器和
   Windows 启动器后备层；单项和全局恢复都返回共享默认值。仅修饰符和 IME 按键不
   会发送命令，长按历史组合每次物理按压只遍历一次。窗口可见性只有一个开关键
-  `Cmd/Ctrl + W` —— 可见且在前台的窗口隐藏到托盘，其余情况显示并获得焦点 ——
-  且绝不走关闭路径，因此不会弹出关闭行为询问、也不会退出应用；已弃用的
+  `Alt + Shift + W` —— 可见且在前台的窗口隐藏到托盘，其余情况显示并获得焦点 ——
+  且绝不走关闭路径，因此不会弹出关闭行为询问、也不会退出应用；该键刻意避开
+  `Cmd/Ctrl + W`，因为 macOS 把它用于自己的关闭窗口命令；已弃用的
   `Cmd/Ctrl + Shift + W` 组合键不再注册，已存储的 `closeWindow` / `summonWindow`
-  覆盖项会并入该开关键（D438）。
+  覆盖项会并入该开关键（D438、D439）。
 - **链接规格**：`04-ux/06-settings-ia.md`、`04-ux/07-ui-design-system.md`、
   `03-runtime/01-ipc-protocol.md`
 - **接受**：F（设置持久性）、质量（键盘可访问性）
@@ -3300,7 +3323,11 @@ IPC 请求无法关闭。
     溢出。
   - 如果自动摘要生成失败，则持久保留尾部回退
     附加检查点，运行保持活动状态，并有一个警告解释
-    旧模型上下文被减少；如果后备持久性或安全
+    旧模型上下文被减少；该检查点的转录行显示
+    「摘要生成失败 · 已保留近期上下文」，绝不显示 `摘要 ≈N tokens`（ADR 0282）。
+    在回退之前，摘要请求会对瞬时的提供商失败最多重试三次（2s/4s/8s 退避），
+    Stop 会取消退避，确定性失败不重试；序列化提示超出窗口的输入会把工具结果
+    截为短前缀后再发送一次，而不是跳过模型。如果后备持久性或安全
     预算保护失败，`CONTEXT_COMPACTION_FAILED` 被发出一次。
   - 如果后续检查时最新的检查点已经是转录本叶子
     提示超出硬预算，运行时会重建较小的尾部
@@ -3443,21 +3470,15 @@ IPC 请求无法关闭。
 - **状态**：单位覆盖（`mermaid-rendering.test.mjs`）；提供安全性和
   视觉场景草稿
 
-#### E2E-196a：默认未签名的 macOS 发布通道
+#### E2E-196a：未签名的 macOS 调试通道
 
-- **先决条件**：`vX.Y.Z` 标签与 `apps/desktop/package.json` 匹配，或手动运行
-  Release 工作流时省略 `sign_macos` 或将其设为 false；Windows 和 Linux 的发布
-  凭据不受影响。
-- **步骤**：1) 运行标签工作流，或使用默认签名输入手动运行。2) 确认两个 macOS
-  架构都完成普通的 DMG/ZIP 打包，且没有使用证书密钥。3) 检查工件和工作流步骤。
-- **预期**：macOS DMG/ZIP 工件生成并上传，文件名分别带有 `-arm64` 和 `-x64`
-  架构标记，不包含 Developer ID 签名或公证；macOS 装订和 Gatekeeper 检查明确跳过。
-  Windows/Linux 工件和合并后的更新源仍正常发布。该例外必须在下一个稳定版本前移除，
-  且不满足 E2E-196c。
+- **先决条件**：手动运行 Release 工作流并设置 `sign_macos: false`；Windows 和 Linux 的发布凭据不受影响。该路径不得用于发布 GitHub Release 标签。
+- **步骤**：1) 以 `sign_macos: false` 手动运行 Release 工作流。2) 确认两个 macOS 架构都完成普通的 DMG/ZIP 打包，且没有使用证书密钥。3) 检查工件和工作流步骤。
+- **预期**：macOS DMG/ZIP 工件生成并上传，文件名分别带有 `-arm64` 和 `-x64` 架构标记，不包含 Developer ID 签名或公证；macOS 装订和 Gatekeeper 检查明确跳过。Windows/Linux 工件和合并后的更新源仍正常发布。该例外不满足 E2E-196c。
 - **关联规格**：`06-delivery/06-release-runbook.md`
-- **验收**：质量（默认发布打包）
+- **验收**：质量（调试打包）
 - **里程碑**：M6+
-- **状态**：当前默认行为；本场景不满足 E2E-196c。
+- **状态**：可选调试通道；标签发布必须满足 E2E-196c。
 
 #### E2E-196b：未签名的 macOS 软件包展示首次启动指引
 
@@ -3475,7 +3496,7 @@ IPC 请求无法关闭。
   于 macOS 对可信未签名工件提示应用已损坏或应用打不开的场景；已签名/公证版本无需
   执行。ZIP 助手只查找 `/Applications/PI-Desktop.app` 和 `~/Applications/PI-Desktop.app`，
   在存在时只删除 `com.apple.quarantine` 属性，然后打开应用，不使用 `sudo`，也不接受
-  任意路径；助手会在修改属性前校验 `CFBundleIdentifier=com.pi-desktop.app`。说明不会
+  任意路径；助手会在修改属性前校验 `CFBundleIdentifier=net.aiuo.pi-desktop`。说明不会
   声称未签名工件已通过 Gatekeeper 资质验证。
 - **关联规格**：`06-delivery/06-release-runbook.md`、`05-security/01-security.md`
 - **验收**：质量、安全
@@ -3484,20 +3505,10 @@ IPC 请求无法关闭。
 
 #### E2E-196c：macOS 标签工件通过 Gatekeeper 且无需移除隔离属性
 
-- **先决条件**：针对 `vX.Y.Z` 标签手动运行 Release 工作流并设置
-  `sign_macos: true`；标签与 `apps/desktop/package.json` 匹配；GitHub Actions
-  已配置 `CSC_LINK`、`CSC_KEY_PASSWORD`、`APPLE_ID`、
-  `APPLE_APP_SPECIFIC_PASSWORD` 和 `APPLE_TEAM_ID` 密钥；两个本机 macOS
-  运行器均可用。
-- **步骤**：1) 运行明确启用签名的工作流。2) 对每个 macOS 架构检查解压后的应用，
-  使用 `codesign -dv --verbose=4` 确认 `Developer ID Application` 权限。3) 对应用运行
-  `codesign --verify --deep --strict`、`spctl -a -vv` 和 `xcrun stapler validate`。
-  4) 对对应的 DMG 运行 `xcrun stapler validate`。5) 在干净的 macOS 配置文件中下载
-  DMG，将应用移到 `/Applications` 后不清除 `com.apple.quarantine` 直接打开。
-- **预期**：每个 macOS 应用通过签名完整性检查，Gatekeeper 报告
-  `Notarized Developer ID`，应用和 DMG 都包含有效的装订票据；应用正常打开，无需
-  `xattr` 命令或“安全性与隐私”覆盖操作。
-- **关联规格**：`06-delivery/06-release-runbook.md`、`05-security/01-security.md`
+- **先决条件**：推送与 `apps/desktop/package.json` 匹配的 `vX.Y.Z` 标签，或手动运行 Release 工作流并保持 `sign_macos: true`（默认）；GitHub Actions 已配置 `CSC_LINK`、`CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD` 和 `APPLE_TEAM_ID` 密钥；两个本机 macOS 运行器均可用。
+- **步骤**：1) 运行标签工作流。2) 对每个 macOS 架构检查解压后的应用，使用 `codesign -dv --verbose=4` 确认权限为 `Developer ID Application: XingYu Liu (DUV63RKYTW)`。3) 对应用运行 `codesign --verify --deep --strict --verbose=2`、`spctl --assess --type execute --verbose=4` 和 `xcrun stapler validate`，并检查 `Contents/Resources/bin/pi-desktop-host-core`。4) 对对应的 DMG 运行 `xcrun stapler validate`。5) 在干净的 macOS 配置文件中下载 DMG，将应用移到 `/Applications` 后不清除 `com.apple.quarantine` 直接打开。
+- **预期**：每个 macOS 应用通过签名完整性检查，Gatekeeper 报告 `source=Notarized Developer ID`，应用和 DMG 都包含有效的装订票据。应用可正常打开，无需 `xattr` 命令或“安全性与隐私”覆盖。缺少密钥则整个作业失败。
+- **关联规格**：`06-delivery/06-release-runbook.md`、`05-security/01-security.md`、ADR 0289
 - **验收**：质量、安全
 - **里程碑**：M6+
 - **状态**：工作流脚本/单元已覆盖；每次发布仍需在干净机器上验证（适用变更合入前需在具备条件的环境中运行 E2E）
@@ -4180,6 +4191,78 @@ IPC 请求无法关闭。
 - **状态**：草稿——单元测试覆盖在 `packages/shared`、`packages/agent-runtime`
   以及 host-core 的 `user_subagents` 回归测试中；完整的 UI 旅程需要具备条件的环境。
 
+#### E2E-SUBAGENT-resume-a-settled-delegation
+
+- **先决条件**：一个使用确定性本地传输的 Agent 会话，可以按需让委派完成、失败、被停止，或保持
+  运行。两份用户定义：`~/.agents/subagents/scout.md`（只读）与
+  `~/.agents/subagents/fixer.md`；工作区文件 `src/report.ts`，其结论容易按文件与行号定位；以及
+  一个可以从当前配置中移除的模型绑定。父级目录提供 `Task`、`TaskWait`、`TaskList` 和
+  `TaskStop`。
+- **步骤**：
+  1. 把一份「结束时必须给出一个结论及其文件与行号」的任务委派给 `scout`，让它以 `completed`
+     结束。记下 Task 结果返回的 `delegationId`。
+  2. 发送一轮，把该 id 作为 `Task.resume` 传入，要求复述同一个结论，并找出第一次运行没有触及的
+     第二次出现。展开委派卡片，再检查父级自己收到的内容。
+  3. 发送一轮，只说「复用一下 scout 已经找到的东西」，不传 `resume`。
+  4. 启动一个长时间运行的 `scout` 委派，在它仍在运行时对它调用 `Task.resume`；然后，在另一条链
+     恢复后的运行仍未结束时，对该链再次调用 `Task.resume`。
+  5. 用 `TaskStop` 停止一个委派，终止第二个，并在第三个仍在工作时关闭应用。重启后，按
+     `TaskWait` 报告的 id 对这三个逐个调用 `Task.resume`。
+  6. 让一个委派在成功读取一次后失败，然后对它调用 `Task.resume`。
+  7. 发送一次同时携带 `resume` 与 `model` 的 `Task` 调用。
+  8. 把该链记录的模型从当前配置中移除，然后 `Task.resume` 该链，并查看它的委派生命周期 details
+     与卡片。
+  9. 让 `scout` 的两条链先后结束，`resume` 较早的那条，再让同一定义的第三条链结束，读取下一次
+     提示给出的可复用清单；随后让一条链保持运行，同时同一定义另有两条链结束。
+  10. 让一条链累计超过 5 万行只读工具输出，然后用它的 id 调用 `Task.resume`。
+  11. 分别以 `Explorer`、`explorer.md`、另一个定义的名称作为 `Task.agent`，恢复一条 `scout` 链。
+  12. 让一条链读过超过八个文件，并在同一会话内再发两次提示，比较每次提示编排出的可复用清单。
+  13. 重启应用，在不改动其它任何设置的情况下 `Task.resume` 重启前那条 `completed` 的链。
+  14. 在一个能解析某条链、但已不再持有该链任何委派行的固定装置会话中，用该 id 调用
+      `Task.resume`。
+- **预期**：
+  - 步骤 2 从该链继续：新的运行给出先前结论的确切文件与行号，且它的行里没有对那个文件的重新
+    整读。`Task` 返回一个新的 `delegationId`，而父级自身上下文里仍然只有该委派的一份最终报告，
+    也没有委派工具行。
+  - 步骤 3 是冷启动：一个全新的委派，行里没有先前的结论，持有新的 `delegationId`，且与先前的链
+    没有关联。不传 id 就绝不继承上下文，无论提示怎么写。
+  - 步骤 4 两次都以工具错误失败。仍在运行的委派被报告为仍在运行，并提示先用 `TaskWait` 收敛；
+    不会启动任何东西，也不会排队，运行中的委派继续工作。
+  - 步骤 5 把 `stopped`、`aborted`，以及应用在它仍在工作时被关掉的运行（重启后读作
+    `interrupted`）一律拒绝为不可恢复，各自说明该原因并指向新建委派；没有任何运行被启动。
+  - 步骤 6 像 `completed` 一样恢复失败的链：它已经做出的读取成为新运行的种子，而它失败的助手行
+    不会被重放。
+  - 步骤 7 以工具错误拒绝：恢复后的运行沿用链的模型，错误信息指向「换模型要新建委派」。
+  - 步骤 8 仍然可以恢复，走定义现在解析到的绑定，并且该委派的生命周期 details 带上先前模型的 id
+    作为 `modelChangedFrom`。父级通过它轮询的生命周期快照看到它，卡片也随该运行显示它，因此这次
+    切换不是静默的。
+  - 步骤 9 每个定义最多保留两条可复用链：最久未活动的已结束链被整条淘汰，因此它的每个 id 都按
+    未知委派作答并附上当前可复用清单；而最新运行仍在工作的链永不被淘汰——该组可以暂时超出上限，
+    也不会让一个仍在运行的委派搁浅。
+  - 步骤 10 让超出读取预算的链静默离开可复用清单，且不裁剪它的历史：之后任何提示都不再提供它，
+    对它的 `resume` 被拒绝为「读取太多、恢复不划算」，而对同一件工作的一次普通委派仍然能从冷启动
+    成功。
+  - 步骤 11 定义名不区分大小写并接受文档后缀——`Explorer` 与 `explorer.md` 都能恢复该链——而
+    另一个定义的名称会被判为名称不匹配，并列出确实拥有可复用链的智能体。
+  - 步骤 12 每条链列出最新的 `delegationId`、它的目标，以及它读过的文件中的最多八个，超出部分带
+    `(+N more)` 后缀。刚刚结束的链在同一会话里就已经在清单里，不需要重启应用，也不需要新会话；
+    运行中、不可恢复、超出预算以及已被淘汰的链从不出现。
+  - 步骤 13 从转录重建链关系，因此那条 `completed` 的链在重启后又被提供，并且像之前一样可以恢复。
+  - 步骤 14 以「没有可重放的历史记录」失败，且同一个 id 不会出现在错误的可用列表里，也不会出现
+    在任何后续提示里：该链从可复用清单中移除。
+  - 全程中，转录把该链显示为最新 Task 卡片下的一段连续多轮对话，没有任何「已恢复」标记；恢复后的
+    运行计数器从 0 开始，因此它的轮次、工具与用量数字描述的是新的运行，而更早的轮次仍可读地留在
+    上方。
+- **链接规格**：`03-runtime/02-agent-runtime.md` §5f、ADR 0279
+- **验收**：C（对话）、品质
+- **里程碑**：M6+
+- **不覆盖（二期）**：唤醒被 `stopped`/`aborted` 的委派、链内压缩、任务排队，以及跨会话恢复。
+- **状态**：草稿——链解析、恢复校验、可复用清单与转录链分组已有单元/回归覆盖
+  （`packages/agent-runtime/src/delegation-chain.test.ts`、
+  `delegation-history.test.ts`、`runtime.test.ts`、
+  `apps/desktop/test/assistant-turns.test.mjs`）；桌面旅程需要具备条件的环境。必需套件：
+  `test:e2e`、`test:e2e:subagents`、`test:e2e:transcript`。
+
 #### E2E-145：工具结果读取为结构化块，从不 JSON
 
 - **先决条件**：项目绑定的 Agent 会话，具有允许的权限
@@ -4355,6 +4438,23 @@ IPC 请求无法关闭。
 - **状态**：单位覆盖（`apps/desktop/test/user-mcp.test.mjs`，
   `packages/shared/src/mcp-import.test.ts`、host-core `mcp_servers` 测试）；满
   UI 之旅草案
+
+#### E2E-100B：远程 HTTP MCP 服务器 OAuth 2.1 授权与令牌生命周期
+
+- **先决条件**：配置了需要 OAuth 2.1 身份验证（RFC 9728 发现与 PKCE S256）的 HTTP MCP 服务器端点。
+- **步骤**：
+  1. 打开设置 > Agent > MCP。添加 HTTP MCP 服务地址。
+  2. 服务器状态显示“需要授权”。
+  3. 点击“授权”。主进程在 `127.0.0.1` 启动回环监听，打开外部浏览器跳转至附带 RFC 8707 `resource` 的授权端点。
+  4. 在浏览器完成登录，回调跳转至 `http://127.0.0.1:<port>/callback`。
+  5. 回环服务校验 state 与 code，通过 PKCE verifier 完成令牌交换，将令牌写入加密密钥库 `secret:mcp:<id>:oauth`，渲染转义后的成功页面并触发 `done` 事件。
+  6. 设置界面状态更新为已连接及工具数量，弹出成功提示，并显示 OAuth 徽标。
+  7. 访问令牌过期时，`UserMcpRuntime` 透明使用 refresh token 换取新令牌，无需用户重新交互。
+  8. 通过 `mcp.transfer` 迁移服务器时，自动将 OAuth 令牌迁移至新 ID 下。
+- **链接规格**：`03-runtime/01-ipc-protocol.md`、ADR 0283、ADR 0142
+- **验收**：E（工具和权限）、安全性
+- **里程碑**：M5
+- **状态**：单元覆盖（`apps/desktop/test/mcp-oauth.test.mjs`、`apps/desktop/test/user-mcp.test.mjs`）；完整 UI 之旅草案
 
 #### E2E-101：用户技能编写一次并限定每个项目的范围
 
@@ -4926,20 +5026,23 @@ IPC 请求无法关闭。
 
 | 验收 | 应用场景 |
 |---|---|
+| A / C — Unicode stdio 成帧 | E2E-RPC-unicode-separators |
 | C / G / Quality — Plugins navigation | E2E-NAV-plugins-button-goes-back |
+| C / D / Quality — 侧边栏行状态 | E2E-LAYOUT-sidebar-row-states |
+| A / C / Quality — 侧栏材质与设置返回 | E2E-LAYOUT-sidebar-settings |
 | B / F / Security — 提供商复制 | E2E-PROVIDER-copy-config-without-credentials |
 | A — 应用程序启动 | E2E-001、E2E-002、E2E-003、E2E-004、E2E-067、E2E-076、E2E-079、E2E-092、E2E-097、E2E-143、E2E-150、E2E-168、E2E-204、E2E-217 |
 | B——模型配置 | E2E-005、E2E-005G、E2E-006、E2E-007、E2E-038、E2E-050、E2E-052、E2E-055、E2E-066、E2E-080、E2E-082、E2E-151、E2E-005J、E2E-199、E2E-201、E2E-202、E2E-203、E2E-209、E2E-166 |
-| C — 对话和直播 | E2E-008、E2E-008d、E2E-008a、E2E-009、E2E-010、E2E-011、E2E-011a、E2E-011b、E2E-031、E2E-040、E2E-047、E2E-048、E2E-048A、E2E-049、E2E-052、 E2E-053、E2E-054、E2E-055、E2E-059、E2E-059a、E2E-060c、E2E-060d、E2E-061、E2E-061a、E2E-062、E2E-064、E2E-065、E2E-068、E2E-071、 E2E-073、E2E-074、E2E-075、E2E-081、E2E-083、E2E-084、E2E-086、E2E-087、E2E-088、E2E-088b、E2E-089、E2E-090、E2E-094、E2E-095、E2E-096、 E2E-097、E2E-098、E2E-099、E2E-102、E2E-102a、E2E-102b、E2E-106、E2E-109、E2E-111、E2E-114、E2E-116、E2E-117、E2E-118、E2E-119、 E2E-120、E2E-121、E2E-代理-001、E2E-142、E2E-144、E2E-145、E2E-146、E2E-147、E2E-151、E2E-199、E2E-250、E2E-166 |
+| C — 对话和直播 | E2E-008、E2E-008d、E2E-008a、E2E-009、E2E-010、E2E-011、E2E-011a、E2E-011b、E2E-031、E2E-040、E2E-047、E2E-048、E2E-048A、E2E-049、E2E-052、 E2E-053、E2E-054、E2E-055、E2E-059、E2E-059a、E2E-060c、E2E-060d、E2E-061、E2E-061a、E2E-062、E2E-064、E2E-065、E2E-068、E2E-071、 E2E-073、E2E-074、E2E-075、E2E-081、E2E-083、E2E-084、E2E-086、E2E-087、E2E-088、E2E-088b、E2E-089、E2E-090、E2E-094、E2E-095、E2E-096、 E2E-097、E2E-098、E2E-099、E2E-102、E2E-102a、E2E-102b、E2E-106、E2E-109、E2E-111、E2E-114、E2E-116、E2E-117、E2E-118、E2E-119、 E2E-120、E2E-121、E2E-代理-001、E2E-142、E2E-144、E2E-145、E2E-146、E2E-147、E2E-151、E2E-199、E2E-250、E2E-166、E2E-SUBAGENT-resume-a-settled-delegation |
 | D——工作区 | E2E-012、E2E-013、E2E-022B、E2E-024I、E2E-047、E2E-049、E2E-057、E2E-058、E2E-060、E2E-068、E2E-075、E2E-078、E2E-153 |
 | D——工作区（项目排序） | E2E-253 |
 | E——工具和权限 | E2E-008a、E2E-014、E2E-015、E2E-016、E2E-017、E2E-018、E2E-019、E2E-024I、E2E-024K、E2E-040、E2E-049、E2E-074、E2E-093、E2E-097、 E2E-099、E2E-100、E2E-101、E2E-102、E2E-103、E2E-105、E2E-106、E2E-107、E2E-111、E2E-112、E2E-113、E2E-114、E2E-115、E2E-116、 E2E-119、E2E-121、E2E-122、E2E-123、E2E-142、E2E-145、E2E-147、E2E-PLUGIN-imported-pi-package-skills、E2E-166 |
 | F——坚持 | E2E-020、E2E-021、E2E-036、E2E-037、E2E-038、E2E-040、E2E-042、E2E-047、E2E-048、E2E-051、E2E-054、E2E-056、E2E-061、E2E-062、 E2E-064、E2E-066、E2E-068、E2E-071、E2E-072、E2E-073、E2E-082、E2E-084、E2E-096、E2E-098、E2E-102、E2E-102b、E2E-103、E2E-代理-001、 E2E-061a、E2E-073a、E2E-104、E2E-106、E2E-107、E2E-108、E2E-109、E2E-110、E2E-112、E2E-118、E2E-119、E2E-120、E2E-121、E2E-123、E2E-142、E2E-146、E2E-148、E2E-151、E2E-171、E2E-005J |
 | F——持久化（项目排序） | E2E-253 |
-| G——插件 | E2E-022、E2E-022A、E2E-022B、E2E-022C、E2E-023、E2E-024、E2E-024B、E2E-024C、E2E-024D、E2E-024E、E2E-024W、E2E-024F、E2E-024G、E2E-024H、 E2E-024I、E2E-024J、E2E-024K、E2E-024L、E2E-024M、E2E-024N、E2E-024O、E2E-024P、E2E-025、E2E-026、E2E-105、E2E-117、E2E-120、E2E-122、E2E-123、E2E-148、E2E-153、E2E-PLUGIN-imported-pi-package-skills、E2E-PLUGIN-import-extension-installs-dependencies、E2E-PLUGIN-import-extension-reports-missing-dependency、E2E-PLUGIN-global-shortcut-owns-only-its-own-command、E2E-PLUGIN-permission-gate-for-real-time-capabilities、E2E-PLUGIN-background-audio-and-realtime-connection |
+| G——插件 | E2E-022、E2E-022A、E2E-022B、E2E-022C、E2E-023、E2E-024、E2E-024B、E2E-024C、E2E-024D、E2E-024AA、E2E-024E、E2E-024W、E2E-024F、E2E-024G、E2E-024H、 E2E-024I、E2E-024J、E2E-024K、E2E-024L、E2E-024M、E2E-024N、E2E-024O、E2E-024P、E2E-025、E2E-026、E2E-105、E2E-117、E2E-120、E2E-122、E2E-123、E2E-148、E2E-153、E2E-PLUGIN-imported-pi-package-skills、E2E-PLUGIN-imported-pi-package-wrapper、E2E-PLUGIN-import-extension-installs-dependencies、E2E-PLUGIN-import-extension-reports-missing-dependency、E2E-PLUGIN-global-shortcut-owns-only-its-own-command、E2E-PLUGIN-permission-gate-for-real-time-capabilities、E2E-PLUGIN-background-audio-and-realtime-connection |
 | H——诊断 | E2E-027、E2E-031、E2E-034、E2E-042、E2E-096、E2E-098、E2E-104、E2E-107、E2E-108、E2E-109、E2E-110、E2E-113、E2E-115、E2E-116、 E2E-118、E2E-121、E2E-146、E2E-194、E2E-195 |
 | 安全性 | E2E-028、E2E-029、E2E-030、E2E-024J、E2E-024K、E2E-024M、E2E-049、E2E-068、E2E-086、E2E-105、E2E-106、E2E-107、E2E-108、E2E-109、 E2E-110、E2E-112、E2E-113、E2E-115、E2E-116、E2E-117、E2E-119、E2E-121、E2E-122、E2E-123、E2E-142、E2E-148、E2E-151、E2E-153 |
-| 品质 | E2E-032、E2E-033、E2E-039、E2E-043、E2E-044、E2E-045、E2E-046、E2E-047、E2E-048、E2E-048A、E2E-049、E2E-050、E2E-053、E2E-055、 E2E-056、E2E-057、E2E-058、E2E-059、E2E-060、E2E-061、E2E-062、E2E-063、E2E-064、E2E-065、E2E-066、E2E-067、E2E-068、E2E-069、 E2E-070、E2E-071、E2E-072、E2E-073、E2E-074、E2E-075、E2E-076、E2E-077、E2E-078、E2E-079、E2E-080、E2E-081、E2E-082、E2E-083、 E2E-084、E2E-085、E2E-086、E2E-092、E2E-093、E2E-094、E2E-095、E2E-096、E2E-097、E2E-098、E2E-099、E2E-100、E2E-101、E2E-102、 E2E-102a、E2E-102b、E2E-103、E2E-AGENTS-001、E2E-024N、E2E-024O、E2E-059a、E2E-060b、E2E-060c、E2E-060d、E2E-061a、E2E-073a、E2E-111、 E2E-114、E2E-117、E2E-118、E2E-119、E2E-120、E2E-122、E2E-123、E2E-142、E2E-143、E2E-144、E2E-145、E2E-146、E2E-147、E2E-148、E2E-150、E2E-151、E2E-153、E2E-194、E2E-195、E2E-199、E2E-200、E2E-201、E2E-202、E2E-203、E2E-204、E2E-209、E2E-210、E2E-250、E2E-PLUGIN-imported-pi-package-skills |
+| 品质 | E2E-032、E2E-033、E2E-039、E2E-043、E2E-044、E2E-045、E2E-046、E2E-047、E2E-048、E2E-048A、E2E-049、E2E-050、E2E-053、E2E-055、 E2E-056、E2E-057、E2E-058、E2E-059、E2E-060、E2E-061、E2E-062、E2E-063、E2E-064、E2E-065、E2E-066、E2E-067、E2E-068、E2E-069、 E2E-070、E2E-071、E2E-072、E2E-073、E2E-074、E2E-075、E2E-076、E2E-077、E2E-078、E2E-079、E2E-080、E2E-081、E2E-082、E2E-083、 E2E-084、E2E-085、E2E-086、E2E-092、E2E-093、E2E-094、E2E-095、E2E-096、E2E-097、E2E-098、E2E-099、E2E-100、E2E-101、E2E-102、 E2E-102a、E2E-102b、E2E-103、E2E-AGENTS-001、E2E-024N、E2E-024O、E2E-059a、E2E-060b、E2E-060c、E2E-060d、E2E-061a、E2E-073a、E2E-111、 E2E-114、E2E-117、E2E-118、E2E-119、E2E-120、E2E-122、E2E-123、E2E-142、E2E-143、E2E-144、E2E-145、E2E-146、E2E-147、E2E-148、E2E-150、E2E-151、E2E-153、E2E-194、E2E-195、E2E-199、E2E-200、E2E-201、E2E-202、E2E-203、E2E-204、E2E-209、E2E-210、E2E-250、E2E-PLUGIN-imported-pi-package-skills、E2E-SUBAGENT-resume-a-settled-delegation |
 | 品质（项目排序） | E2E-253 |
 | C — 对话和直播（输入法斜杠别名） | E2E-255 |
 | E——工具和权限（Skill 常驻） | E2E-254 |
@@ -4969,6 +5072,7 @@ IPC 请求无法关闭。
 | D — 工作区（删除项目） | E2E-PROJECT-delete-removes-project-and-owned-sessions |
 | F — 持久化（删除项目） | E2E-PROJECT-delete-removes-project-and-owned-sessions |
 | 品质（删除项目） | E2E-PROJECT-delete-removes-project-and-owned-sessions |
+| 品质（两步删除） | E2E-SESSION-two-click-delete-arms-first |
 | Security (plugin real-time capabilities) | E2E-PLUGIN-global-shortcut-owns-only-its-own-command、E2E-PLUGIN-permission-gate-for-real-time-capabilities、E2E-PLUGIN-background-audio-and-realtime-connection |
 | C — 对话与流式（展开详情保持阅读位置） | E2E-CHAT-disclosure-toggle-keeps-reading-position |
 | E — 工具与权限（展开详情保持阅读位置） | E2E-CHAT-disclosure-toggle-keeps-reading-position |
@@ -4987,7 +5091,7 @@ IPC 请求无法关闭。
 | M2（输入法斜杠别名） | E2E-255 |
 | M5（Skill 常驻） | E2E-254 |
 | M6 | E2E-104、E2E-105、E2E-106、E2E-107、E2E-108、E2E-109、E2E-110、E2E-111、E2E-112、E2E-113、E2E-114、E2E-115、E2E-116、E2E-117、 E2E-118、E2E-119、E2E-120、E2E-103 |
-| M6+ | E2E-121、E2E-122、E2E-123、E2E-142、E2E-148、E2E-150、E2E-151、E2E-168、E2E-199、E2E-200、E2E-202、E2E-203、E2E-209、E2E-211、E2E-212、E2E-213、E2E-214、E2E-215、E2E-216、E2E-217、E2E-257、E2E-166 |
+| M6+ | E2E-121、E2E-122、E2E-123、E2E-142、E2E-148、E2E-150、E2E-151、E2E-168、E2E-199、E2E-200、E2E-202、E2E-203、E2E-209、E2E-211、E2E-212、E2E-213、E2E-214、E2E-215、E2E-216、E2E-217、E2E-257、E2E-166、E2E-SUBAGENT-resume-a-settled-delegation |
 | M6+（Session Orchestrator） | E2E-PLUGIN-session-orchestrator-real-workers |
 | M6+（会话列表响应性） | E2E-SESSION-list-refresh-keeps-desktop-responsive |
 | M6+（独立会话通信） | E2E-SESSION-independent-top-level-communication、E2E-SESSION-hover-card-model-and-links |
@@ -5000,6 +5104,7 @@ IPC 请求无法关闭。
 | 受信任扩展（R7 v1） | E2E-241、E2E-242、E2E-243、E2E-244、E2E-245、E2E-PLUGIN-imported-pi-package-skills、E2E-PLUGIN-import-extension-installs-dependencies、E2E-PLUGIN-import-extension-reports-missing-dependency、E2E-PLUGIN-declared-provider-appears-in-the-native-provider-list |
 | Git 工作面板（M6+） | E2E-265、E2E-266 |
 | M6+（删除项目） | E2E-PROJECT-delete-removes-project-and-owned-sessions |
+| M6+（两步删除） | E2E-SESSION-two-click-delete-arms-first |
 | C — 对话和直播（模型回退） | E2E-SUBAGENT-ordered-model-fallback-preserves-work |
 | 品质（模型回退隔离） | E2E-SUBAGENT-ordered-model-fallback-preserves-work |
 | C — 对话和直播（旧版子代理回合上限） | E2E-SUBAGENT-legacy-turn-limit-frontmatter-is-ignored |
@@ -5188,9 +5293,10 @@ IPC 请求无法关闭。
 
 
 
-### US-UI-19 永久舞台管理器边界恢复
+### US-UI-19 永久舞台管理器边界恢复（仅 macOS）
 - 在使用 Stage Manager 的 macOS 上，缩小或取消聚焦 PI 窗口，直到宽度 < 1040 或高度 < 700。
 - 预计外壳会重新声明类似 Codex 的足迹（~1200×800，最小 1040×700）并在仍然折叠的情况下继续恢复（不仅在发射后的前 20 秒内）。
+- 该恢复看门狗仅限 macOS（D447）。在 Windows/Linux 上它必须完全不运行：应用绝不能在无人操作时重新调整或抬升自己的窗口。聚焦其他窗口，确认 PI-Desktop 留在其后方而不是跳回窗口栈顶端，并且栈序检查（`xprop -root _NET_CLIENT_LIST_STACKING`）不会显示它周期性回到顶端。
 
 ### US-UI-20 深色浮动编辑框
 - 在聊天主页切换到深色主题。
@@ -5530,14 +5636,16 @@ IPC 请求无法关闭。
 - **前提条件**：三个持久项目 A、B 和 C，每个都至少有一个带转录本的会话；A 已归档并作为
   侧边栏选项卡保留；B 是活动工作区；C 是一个已存储双文件夹项目组的根目录。
 - **步骤**：打开设置 → 项目存档，打开 A 的行菜单，选择删除项目，并在对话框中确认。然后
-  从侧边栏项目菜单对正处于活动工作区的 B 重复同一操作。接着对 C 尝试同一操作，然后对一个
-  宿主已不再知晓的路径尝试，最后在 D 的某个任务仍在运行时尝试删除 D。
+  从侧边栏项目菜单对正处于活动工作区的 B 重复同一操作：第一次点击只是武装该项，只有第二次
+  点击才会移除 B。接着对 C 尝试同一操作，然后对一个宿主已不再知晓的路径尝试，最后在 D 的
+  某个任务仍在运行时尝试删除 D。
 - **预期**：对话框会指明项目名称，说明该项目及其会话与转录本会被永久移除，并说明磁盘上的
-  文件夹不会被删除；确认之前不会移除任何内容。确认后，持久项目行、该项目的会话、其转录本、
-  scratch 和 review 文件以及该项目的持久记忆均已消失，而磁盘上的文件夹保持原样。被删除的
-  项目会立即从设置 → 项目存档和侧边栏中消失，重新加载后依然如此：没有保留的选项卡、没有
-  最近项目条目、没有由会话推导的行，也没有残留的 pin、archive 或 order 偏好。其他所有项目
-  的会话与转录本不受影响。当被删除的项目曾是活动工作区时，工作区回退到另一个已打开的项目
+  文件夹不会被删除；确认之前不会移除任何内容，被武装后放置不管的项会自行解除武装、不会移除
+  任何东西。确认后，持久项目行、该项目的会话、其转录本、scratch 和 review 文件以及该项目的
+  持久记忆均已消失，而磁盘上的文件夹保持原样。被删除的项目会立即从设置 → 项目存档和侧边栏
+  中消失，重新加载后依然如此：没有保留的选项卡、没有最近项目条目、没有由会话推导的行，也没有
+  残留的 pin、archive 或 order 偏好。其他所有项目的会话与转录本不受影响。当被删除的项目曾是
+  活动工作区时，工作区回退到另一个已打开的项目
   或 Temporary，且下次启动不会重新打开已删除的路径。磁盘上文件夹已被移动或删除的项目仍可
   移除。删除 C 会被拒绝并给出提示消息，该组保持不变；宿主已无持久行的路径仍会从项目存档与
   侧边栏中移除，不会报出缺少项目的错误。当 D 的任务仍在运行时删除 D 会打开确认对话框，而不是给出
@@ -5574,6 +5682,24 @@ IPC 请求无法关闭。
   当前运行会话 id 的情况下都能到达对话框、对话框的运行中会话行与“停止任务并删除”标签、abort 循环
   先于 `deleteProject` 执行、`CONFLICT` 兜底路径，以及所有已发布语言包中的新文案；端到端旅程仍为
   草稿
+
+### E2E-SESSION-two-click-delete-arms-first
+
+- **前提条件**：一个包含一个空闲会话和一个运行中会话的项目，二者都可从侧边栏会话菜单、侧边栏
+  项目菜单以及项目索引到达。
+- **步骤**：打开空闲会话的会话菜单，按一次删除，并让该项保持武装直到武装超时，然后再按一次以
+  确认移除。对来自侧边栏菜单与项目索引的项目行重复该操作。
+- **预期**：第一次按下不会移除任何东西，并把该项标签改为 `nav.deleteTaskConfirm` /
+  `project.deleteMenuConfirm`（"Delete?" / "确认删除？"）且带 `data-armed="true"`；菜单保持
+  打开，点击外部、按 Escape 或武装超时都会解除武装且不移除任何内容。只有第二次按下才会移除
+  该会话及其转录本和该行，也只有对项目行的第二次按下才会移除空闲项目。会话与项目永远不会共用
+  一次武装。删除仍有运行中轮次的项目时，仍会打开指明这些会话并停止它们的对话框（见
+  E2E-PROJECT-delete-running-sessions-are-named-and-stopped）。
+- **链接规格**：`04-ux/09-interaction-patterns.md` §1.6、D421、D431、D441
+- **验收**：品质
+- **里程碑**：M6+
+- **状态**：部分自动化 —— `apps/desktop/test/two-step-delete.test.mjs` 固定了共享的武装与它的
+  超时、所有已发布语言包中的两个标签，以及第一次按下只做武装；端到端旅程仍为草稿
 
 ### US-UI-59 基于会话的后台工具
 - 在项目 A 中启动可见轮次，在项目 B 运行时切换到项目 B，并且
@@ -6686,6 +6812,16 @@ IPC 请求无法关闭。
 - **里程碑**：M6+
 - **状态**：主机/RPC/单元已覆盖；完整 UI 路径草稿（适用变更合入前需在具备条件的环境中运行 E2E）
 
+#### E2E-PLUGIN-usage-listTurns：插件用量事实列举
+
+- **前置条件**：测试插件获得 `usage.read`；主机库中有未删除与软删会话的已完成 turn。
+- **步骤**：1）无权限调用 `pi.usage.listTurns`。2）有权限调用、按游标翻页、按会话/项目/时间窗过滤。3）传入倒置边界、超过 365 天的窗口、畸形游标。4）确认行含 token 计数与标题、无消息正文，软删会话不出现。
+- **预期**：缺权限返回 `PERMISSION_DENIED` 且不打到主机。合法调用返回已完成 turn 的 keyset 页。非法参数返回 `INVALID_PARAMS`。空标题为 `null`。
+- **关联规格**：`07-plugins/03-plugin-api.md`、`07-plugins/13-plugin-permissions-matrix.md`、`03-runtime/06-host-rpc-protocol.md`、ADR 0173、D335
+- **验收**：安全、质量
+- **里程碑**：M6+
+- **状态**：单元/RPC/连线已覆盖（`plugin-session-api.test.mjs`、host-core `plugin_usage`）；完整 UI 路径草稿
+
 #### E2E-216：插件显式绑定项目与宿主拥有的侧栏刷新
 
 - **前置条件**：测试插件获得 `project.create`、`session.import` 权限并声明会话来源；
@@ -6845,6 +6981,25 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
 - **里程碑**：MVP 后（R7 v1）
 - **状态**：部分自动化（`pnpm test:e2e:trusted-extensions`）；无头旅程覆盖插件发现/投影、项目范围、加载状态和诊断；原生选择器导入与显式启用仍需渲染器/平台验证
 
+#### E2E-PLUGIN-imported-pi-package-wrapper：导入包的模块类型不妨碍插件初始化
+
+- **前置条件**：隔离的本地 Pi 包分别声明 `type: module`、`type: commonjs` 或不声明
+  `type`，各自包含扩展和技能贡献。另一个夹具模拟旧版导入的 ESM 包，包含生成的
+  CommonJS `main.js` 及指向它的 manifest。
+- **步骤**：运行 `node --test apps/desktop/test/imported-package-skills-runtime.test.mjs`。
+  使用生产导入器生成各个插件，通过 `PluginRuntime` 与真实子进程插件宿主加载，
+  读取技能目录与正文，并检查声明的扩展。对旧版夹具重新导入且不加载旧副本，再加载旧副本。
+- **预期**：每份新 manifest 都指向实际存在的 `main.cjs`，三类包均初始化成功。
+  源包及两份复制的 `package.json` 字节保持一致。重新导入得到不同的路径和 id 并成功
+  加载；生成新副本时旧 manifest、包装器和包文件保持原样。加载旧副本会把生成的
+  `main.js` 就地改写为 `main.cjs`，复制的 `package.json` 字节不变，并初始化成功。
+  自定义过的 `main.js` 不会被改写。
+- **关联规范**：`07-plugins/16-trusted-extensions.md` §3.2；ADR 0215。
+- **验收**：质量
+- **状态**：已实现导入到插件宿主的自动化夹具。合入最新 `origin/main` 后，在已提交的
+  任务候选上执行，并在交付证据中记录候选、基线、结果和环境。本夹具不覆盖原生选择器、
+  npm 依赖安装、Windows 运行或模型回合中的第三方扩展执行。
+
 #### E2E-PLUGIN-imported-pi-package-skills：显式导入包后按插件权限提供技能
 
 - **前提条件**：一个本地夹具包位于 npm 风格的
@@ -6979,7 +7134,7 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
 - **链接规格**：`07-plugins/03-plugin-api.md`（Git API）、
   `07-plugins/13-plugin-permissions-matrix.md`、
   `04-ux/08-component-spec.md` §5.2.3、`04-ux/09-interaction-patterns.md` §1.8；
-  ADR 0274、D431
+  ADR 0291、D431
 - **验收**：D（插件）、安全、质量
 - **里程碑**：M6+
 - **状态**：草稿；服务、运行时与源码契约测试覆盖结构化 Git 操作、权限/确认
@@ -7011,7 +7166,7 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
   补全输入限制。提交仍是独立的显式操作。
 - **链接规格**：`07-plugins/03-plugin-api.md`（models 与 agent.complete）、
   `04-ux/08-component-spec.md` §5.2.3、
-  `04-ux/09-interaction-patterns.md` §1.8；ADR 0275、ADR 0276、D432、D433
+  `04-ux/09-interaction-patterns.md` §1.8；ADR 0292、ADR 0293、D432、D433
 - **验收**：D（插件）、安全、质量
 - **里程碑**：M6+
 - **状态**：草稿；运行时权限与内置插件源码契约测试覆盖固定通道和有界提示构造；
@@ -7146,6 +7301,30 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
 - **验收**：C（对话与流式）、D（插件安全）、G（插件）、品质
 - **里程碑**：M6+
 - **状态**：host 发现和双向投递由 `pnpm test:e2e:collaboration` 自动化；插件和 host-core 回归覆盖已自动化。真实 provider/Electron 多会话旅程仍需在具备条件的 runner 中验证，遵循无本地 E2E 策略
+
+#### E2E-SESSION-completion-notice-allows-silence：可信完成通知允许无需确认即结束
+
+- **前提**：候选提交拥有独立构建的 host-core 和 runtime sidecar；本地 SSE
+  提供商确定性返回可见文本或成功的空响应，无需真实凭证。
+- **步骤**：1）通过真实 Host 协作账本及 sidecar 投递任务，读取成功结果并完成
+  协调者总结。2）使用生产 Main 输入解析器解析排队的完成回调，再让接收会话
+  收到空 SSE 响应。3）在同一接收运行时依次发送普通用户请求、复制的完成
+  来源文本、账本 task 和 message，并都返回空响应。
+- **预期**：原结果保持不变。完成通知只有一次提供商请求、无错误、一次终止
+  生命周期，账本状态为 completed，且不产生确认回调。每个普通输入仍只重试
+  一次并以 `EMPTY_MODEL_RESPONSE` 结束，且静默通知之后接收方发出的任何请求
+  都不携带空的 assistant 消息。单测另覆盖缺少回复目标 ID、目标不符、工具
+  批次消耗例外、provider 重试保留例外、被接受的用户 steering 进入上下文后
+  撤销例外，以及被接受的静默不进入运行时条目和 pi 转录状态。
+- **关联规格**：`03-runtime/02-agent-runtime.md` §5e、
+  `03-runtime/08-error-codes.md`、ADR 0239（D446 修订段）
+- **验收**：C（会话与流）、D（来源）、质量
+- **里程碑**：M6+
+- **状态**：由 `pnpm test:e2e:session-completion` 在独立 worktree 中对已提交并
+  rebase 的候选版本自动验证。测试驱动真实 Host RPC、生产来源解析器、sidecar
+  和本地 SSE，并在 Host 结算前持久化运行时消息；不覆盖 Electron 队列/outbox
+  界面或真实提供商。候选与基线 SHA 及结果记录于验证报告；既有账本测试另用
+  `pnpm test:e2e:collaboration` 运行。
 
 #### E2E-SESSION-hover-card-model-and-links：会话 hover 卡片展示可读模型并支持创建关系导航
 
@@ -7308,6 +7487,21 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
 - **里程碑**：M5
 - **状态**：单元覆盖（`apps/desktop/test/git-clone.test.mjs`）
 
+
+#### E2E-258：新建项目对话框可以直接从 Git 仓库开始
+
+- **前提条件**：从「项目」标题栏打开新建项目对话框（不需要已有项目）；已安装 `git`。
+- **步骤**：
+  1. 将来源切换到「Git 仓库」。
+  2. 粘贴 `https://github.com/octocat/Hello-World.git`，确认项目名称自动填为 `Hello-World`，再改成自定义名称。
+  3. 选择克隆保存位置，确认位置行显示该文件夹。
+  4. 确认创建，检查工作空间、侧边栏与项目归档。
+  5. 重新打开对话框，切到「Git 仓库」，粘贴私网或非法远程地址。
+- **预期**：对话框把文件夹列表换成仓库地址输入框加克隆保存位置行，并保留同一个项目名称字段；地址解析成功且选定文件夹前，创建按钮保持禁用。确认后先在所选文件夹执行 `git clone`，项目创建仍由渲染器负责：克隆出的目录成为主要根，输入的名称命名该项目组。私网、回环、链路本地、带凭据和非法远程地址会让创建保持禁用（ADR 0247），且不写入任何文件夹。
+- **链接规格**：`03-runtime/01-ipc-protocol.md` §9、`04-ux/08-component-spec.md`、ADR 0273、ADR 0233、ADR 0247
+- **验收**：品质（项目入口）、D（工作区）
+- **里程碑**：M5
+- **状态**：单元覆盖（`apps/desktop/test/project-create-dialog.test.mjs`、`apps/desktop/test/git-clone.test.mjs`）；渲染桌面旅程为草稿（除非明确要求，不本地运行 E2E）
 #### E2E-257：导入到已归档项目后恢复其可见性
 
 - **前提条件**：一个持久项目已在渲染器侧边栏偏好中归档，并从默认侧边栏隐藏。一个核心导入候选携带该项目路径，测试插件可以使用明确的 host project id 导入会话。
@@ -7357,6 +7551,7 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
   Automated by `pnpm test:e2e:layout` using real route components and DOM/CDP
   interaction. This is renderer evidence, not native Windows/Linux hit-test proof.
 - **预期**：原生窗口宽度全程不变。MainChat 永不低于 360px —— 包含拖动过程中以及 `sidebar-out` 仍占位弹性空间期间。工作面板有效上限为客户端宽度减去 360px 下限与展开的左栏宽度，且无固定像素上限。预算耗尽时展开的左栏立即收起，面板之后仍可继续增长。手动重开优先占用右栏宽度；能保住当前 MainChat 则保持，否则落在 370px 的重开目标。关闭面板只恢复由布局机制收起的左栏。分隔线的 ARIA 最小/最大值遵循同一动态预算。
+- **在运行中的应用里实测的浮层覆盖**：在 Plugins 路由上打开一个插件模态框；模态遮罩是标题栏带内工作面板开关处的命中首选；标题栏带不是命中首选，因此不会绘制在模态遮罩之上；关闭模态框后路由保持干净。这四项命中由 `pnpm test:e2e:layout` 断言，属于渲染器 DOM/CDP 证据，不是原生命中测试证明。
 - **链接规格**：`04-ux/01-ui-ia.md`、`04-ux/07-ui-design-system.md` §10、`04-ux/08-component-spec.md` §1 与 §5、`04-ux/09-interaction-patterns.md` §8、ADR 0238
 - **验收**：F（持久化）、品质
 - **里程碑**：M6 之后的桌面外壳维护
@@ -7393,6 +7588,84 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
   row/spacer ownership, all-platform/fullscreen CSS fixtures in both sidebar
   states). DOM/CDP clicks are not native hit-test proof. Native pointer, drag
   and visual checks remain required; branch runs are exploratory only.
+
+#### E2E-LAYOUT-sidebar-project-group-fold
+
+- **前提条件**：通过宿主预置四个保留的侧边栏项目分组：一个横跨四个日期桶共五个会话，一个只有单个会话，一个没有任何会话，一个带十个已固定会话。未设置 `prefers-reduced-motion`。
+- **步骤**：
+  1. 检查这些分组：主体分层、行数与日期标签数、空状态、每个展开分组贡献给下一个分组的尾部间距，
+     以及非项目列表的预算。
+  2. 用真实指针点击项目目录行（先滚动进视野并确认命中该按钮）折叠多行分组，在约半秒内逐帧读取
+     分组主体的高度、opacity、解析后的 `grid-template-rows`，以及到下一个分组的距离，
+     同时记录该折叠自身的 `transitionrun` / `transitionend`。
+  3. 再次展开，确认打开的几何形态恢复。
+  4. 在同一次运动中先折叠再展开。
+  5. 在模拟 `prefers-reduced-motion: reduce` 的情况下重复折叠。
+  6. 把固定列表滚动到它的最后一行。
+- **预期**：项目分组是一个网格行（`grid-template-rows: 1fr`），在 200ms 的正常时长内动画到
+  `0fr` —— 没有 `max-height` 夹取，也没有 opacity 过渡 —— 因此折叠是一条连续的高度斜坡，
+  不会先出现平台期再瞬间跳变，并且每一帧的 `opacity` 都保持为 1：行是被裁剪的，从不淡出。
+  一次折叠只触发一次过渡，其自身事件报告 200ms 的正常时长。行由内层带 `min-height: 0` 的盒
+  裁剪，1px 行间隙与分组的 2px / 7px 内缩量位于该裁剪层内部的列表上，因此内缩量随行一起移动。
+  展开分组的 7px 内缩量加上滚动容器的 1px 间隙，与下一个分组之间形成 8px 尾部间距；列表中的
+  最后一个分组没有邻居，因此改为校验它自身的内缩量与裁剪层。折叠分组的尾部随行一起消失，
+  其区块等于标题加上 1px 滚动容器间隙，行仍挂载在被裁剪的边缘之外，同时分组处于
+  `aria-hidden` 与 `inert`。中途反转会从它已经到达的那一帧转向，并回到打开高度而不越界；
+  空分组以同样方式折叠其空状态。在减弱动态效果下保留两端状态并去掉位移。固定列表在
+  `min(233px, 30vh)` 内显示八行并可滚动到其余行，独立列表保持其弹性列与 146px 预算。
+  分组的缩进、顺序与工作区状态均不变。
+- **链接规格**：`04-ux/01-ui-ia.md`、`04-ux/07-ui-design-system.md` §6.1 与 §13、
+  `04-ux/08-component-spec.md` §6.2、`08-meta/decisions-log.md`（2026-09-16 侧边栏列表节奏与项目分组折叠）
+- **验收**：品质
+- **里程碑**：Post-M6 desktop shell maintenance
+- **状态**：已自动化（`scripts/e2e-three-column-layout.mjs`，经 `pnpm test:e2e:layout`）：
+  宿主预置分组与固定项、经过命中校验的 CDP 指针点击、在真实折叠上逐帧采样高度与 opacity、
+  读取过渡自身报告的时长、中途反转，以及减弱动态效果模拟。
+  单元覆盖见 `apps/desktop/test/sidebar-collapse-animation.test.mjs` 与
+  `apps/desktop/test/sidebar-pinned-rendering.test.mjs`。采样值是渲染器几何数据，
+  不是人眼视觉验收。
+
+#### E2E-LAYOUT-sidebar-row-states
+
+- **前提条件**：宿主预置项目、置顶和独立会话，存在当前工作区；应用使用隔离的数据与 profile。
+- **步骤**：分别在深浅主题下选中项目会话，悬停项目标题、未选中和已选中会话；
+  检查失焦处理、拖拽目标样式、操作按钮悬停及 Tab/Shift+Tab 焦点；折叠后展开
+  选中会话的分组，切换置顶与独立会话，打开设置再返回；开启减少动态效果，
+  确认项目与会话行的悬停过渡均接近零时长。
+- **预期**：项目与会话共享整行悬停背景、圆角和过渡，标题按钮透明；选中背景
+  只属于会话且优先于悬停。工作区仅通过圆点表达，折叠不会转移选中态。
+  置顶和独立会话样式一致；焦点轮廓、独立操作按钮反馈和拖拽目标优先级保留。
+  失焦释放悬停而不清除选中；设置替换侧栏，返回后恢复会话与工作区上下文。
+  渲染测试另覆盖没有选中会话、切换中的目标和非聊天页状态。
+- **链接规格**：`04-ux/01-ui-ia.md`、`04-ux/08-component-spec.md`、`04-ux/09-interaction-patterns.md` §9.1c
+- **验收**：C、D、品质
+- **里程碑**：Post-M6 desktop shell maintenance
+- **状态**：经 `pnpm test:e2e:layout` 调用 `scripts/e2e/sidebar-row-states.mjs` 自动验证，
+  使用真实 CDP 指针/键盘输入及计算样式断言。失焦/聚焦事件与拖拽类由测试注入，
+  这两项不等同于原生窗口焦点或真实拖拽测试。单元覆盖：
+  `sidebar-navigation.test.mjs`、`sidebar-pinned-rendering.test.mjs`。
+
+#### E2E-LAYOUT-sidebar-settings
+
+- **前提条件**：构建后的桌面应用、隔离宿主与 profile，聊天侧栏可见。
+- **步骤**：在深浅主题及 darwin/win32/linux CSS 分支比较主侧栏与设置导航的颜色、
+  背景图、尺寸和位置，检查祖先透明度及右侧不透明背景；返回时记录挂载、宽度及
+  animationstart。重复快速往返、原本折叠、入场被设置打断和减少动态效果场景，
+  确认真实展开仍有动画。另验证旧主题色、标准侧栏色及背景图覆盖。
+- **预期**：两处导航共用材质，设置导航和外壳不播入场，只有不透明内容区内部动画。
+  macOS 下侧栏祖先透明，右侧内容和顶部条不透明。返回时展开侧栏始终为 275px，
+  无 sidebar-in；原本折叠则保持不显示。真实展开仍有动画与宽度变化；旧主题颜色
+  作为共享回退保留，显式标准 token 优先。
+- **链接规格**：`04-ux/06-settings-ia.md`、`04-ux/07-ui-design-system.md`、
+  `04-ux/08-component-spec.md` §1.4、§1.7
+- **验收**：A、C、品质
+- **里程碑**：Post-M6 desktop shell maintenance
+- **状态**：`pnpm test:e2e:layout` 调用 `scripts/e2e/sidebar-settings.mjs`，使用可信
+  CDP 指针/键盘、挂载时与后续几何采样、动画事件及计算样式。测试启用 CDP 焦点模拟，
+  防止原生窗口被遮挡后 Chromium 冻结动画与悬停输入。平台和主题为渲染层模拟，
+  不等同于原生 Windows/Linux 或系统材质/主题验证。可通过 `PI_DESKTOP_LAYOUT_ARTIFACT_DIR`
+  保存渲染截图。`sidebar-settings-return.test.mjs` 覆盖首次显示、两种中断阶段、
+  隐藏时状态变化和反转；`pnpm test:e2e:theme-surfaces` 在真实 Chromium 验证不透明回退及旧主题覆盖。
 
 #### E2E-AGENT-alt-enter-steers-active-turn：Enter 排队跟进，Alt+Enter 向当前回合补充指令
 
@@ -7483,7 +7756,7 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
 
 - **前提条件**：共享 public-network helper，以及可注入 fetch/DNS/线路 的主进程公网 HTTPS 客户端。
 - **步骤**：1）分类 trailing-dot localhost、IPv4 回环、IPv4-mapped IPv6、ULA、link-local、RFC1918 与 `http://`。2）将公网主机名解析到私网 A 记录。3）跟随 Location 为 `https://127.0.0.1/` 的 302。4）报告 `proxied` 线路与 TUN fake-IP 答案（`198.18.0.1`），同一答案在 `DIRECT` 线路、读不出线路、以及列表中含 `DIRECT` 的线路上的表现。5）让第一跳为 `proxied`，其重定向目标为 `direct`。
-- **预期**：上述绕过形态全部拒绝；公共 CDN 放行。解析到私网地址或 redirect 到回环会抛出策略错误，且不会请求私网目标。判定型拒绝不重试；本地解析没有返回答案时会重试,并且报为 `NETWORK_RESOLVE_FAILED`（`kind` 为 `unresolved`）,而不是报成地址校验拒绝——守卫并未得出判定,任何文案都不得声称它得出了。其余每次拒绝都带上 `NETWORK_POLICY_BLOCKED`（spec 08 §3.1）及其 `reason`、被拒地址的类别与判定该地址的线路,使安装面板能给出原因并提供重试,而不是让安装按钮无解释地保持禁用；市场列表也能把被拒绝的源与单纯不可达的源区分开。若 `proxied` 线路上的答案是 RFC 2544 的 fake-IP 类别，则在 `direct` 或读不出线路时拒绝、在 `proxied` 线路上放行；其他所有非公网类别在任何线路上都拒绝；每一个重定向跳都按自己的线路判定（ADR 0272）。
+- **预期**：上述绕过形态全部拒绝；公共 CDN 放行。解析到私网地址或 redirect 到回环会抛出策略错误，且不会请求私网目标。判定型拒绝不重试；本地解析没有返回答案时会重试,并且报为 `NETWORK_RESOLVE_FAILED`（`kind` 为 `unresolved`）,而不是报成地址校验拒绝——守卫并未得出判定,任何文案都不得声称它得出了。本地代理伪造的 fake-IP 答案（如 Clash 默认的 `198.18.0.0/15`）在守卫判定它的线路上——`direct` 或读不出线路——仍被拒绝且不重试,并以 `kind` 为 `fake-ip`、`reason` 为 `non-public-address`、`addressKind` 为 `benchmark` 记录,与真实私网目标（`kind` 为 `policy`、`addressKind` 为 `private`）清楚区分——对后者守卫判定了目标,对前者没有；同一答案在 `proxied` 线路上放行。其余每次拒绝都带上 `NETWORK_POLICY_BLOCKED`（spec 08 §3.1）及其 `reason`、被解析到的地址、地址类别与判定该地址的线路,使安装面板能给出原因并提供重试,而不是让安装按钮无解释地保持禁用；市场列表也能把被拒绝的源与单纯不可达的源区分开。其他所有非公网类别在任何线路上都拒绝；每一个重定向跳都按自己的线路判定（ADR 0272）。
 - **链接规格**：`05-security/01-security.md`、ADR 0243、ADR 0272、`03-runtime/01-ipc-protocol.md` §12b
 - **验收**：Security、Quality
 - **里程碑**：M6+
@@ -7623,7 +7896,87 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
   字节绝不出现在渲染器、转录或日志中。
 - **链接规格**：`03-runtime/01-ipc-protocol.md` §13e、
   `03-runtime/14-secrets-storage.md` §4、`05-security/01-security.md` §2、
-  `04-ux/06-settings-ia.md` §2；ADR 0279、D439
+  `04-ux/06-settings-ia.md` §2；ADR 0296、D439
 - **验收**：C（对话与流式）、安全、质量
 - **里程碑**：M6+
 - **状态**：已自动化（2026-09-17 通过）：`pnpm test:e2e:voice`（模拟 STT 端点，无需麦克风）
+#### E2E-PLUGIN-official-channel-resolves-through-the-platform：官方渠道的安装通过平台解析，并从第一个可用镜像安装
+
+- **先决条件**：全新配置停留在官方渠道；`plugins.aiuo.net/catalog.json` 中存在一个插件；平台与两个镜像主机各有请求日志（可用本地存根代替）。
+- **步骤**：1) 打开扩展 → 市场，确认来源行显示官方渠道，且目录来自 `plugins.aiuo.net`。 2) 安装该插件。 3) 抓取平台收到的请求。 4) 检查是哪个镜像提供了安装包。 5) 再安装第二个插件，然后重新安装第一个插件的同一版本。
+- **预期**：每次安装或更新只发出一次 `POST /api/v1/download/resolve`，JSON body 含 `deviceId`、`pluginId`，用户选定版本时含版本号；安装包来自 `downloads` 中第一个可应答的条目，且在解压之前其字节与返回的 `sha256` 和 `sizeBytes` 一致；不可达或失败的镜像被放弃并自动尝试下一个，无需用户操作；重新安装同一版本会发出新的 resolve 调用，而不是复用上一次的应答，因为响应从不缓存；插件通过常规权限审查安装，其记录标明来源为官方渠道。
+- **链接规格**：`07-plugins/07-plugin-marketplace.md` §2、`07-plugins/15-plugin-center.md` §10
+- **验收**：G（远程市场来源）
+- **里程碑**：M6+
+- **状态**：草稿
+
+#### E2E-PLUGIN-mirror-digest-mismatch-falls-through-to-the-next-mirror：字节与摘要不符的镜像在解压前被拒绝
+
+- **先决条件**：一次官方渠道安装，其 `downloads` 至少有两个条目，第一个镜像提供的字节与返回的 `sha256` 不符（旧分发内容，或提供 `pi.todo-0.6.5` 的 CNB 时代字节的存根）；同时可以查看安装缓存与插件目录。
+- **步骤**：1) 启动安装。 2) 观察第一个镜像的下载与摘要校验。 3) 在安装结束前检查安装缓存与插件目录。 4) 让安装继续。 5) 换成一个只在第一个镜像上让声明的 `sizeBytes` 不符的存根重做一遍。
+- **预期**：不符的字节被丢弃，不会被解压或交给安装器，插件目录里不会留下任何内容，拒绝会显示在安装进度里而不是被吞掉；下一个镜像的字节按同一摘要校验，安装从那里完成；大小不符的情形表现完全相同；所有条目都失败时安装以明确的失败结束，而不是留下半安装的插件。
+- **链接规格**：`07-plugins/07-plugin-marketplace.md` §2
+- **验收**：G（远程市场来源）+ 安全性
+- **里程碑**：M6+
+- **状态**：草稿
+
+#### E2E-PLUGIN-platform-unreachable-install-falls-back-to-the-catalog-url：平台不可达时安装回退到目录地址
+
+- **先决条件**：官方目录已成功刷新并缓存；安装期间 `plugins.aiuo.net` 不可达（被阻断的存根，或被拒绝的 DNS/代理线路）。
+- **步骤**：1) 在平台可达时刷新目录，然后让它不可达。 2) 安装一个目录条目里带相对 `url` 的插件。 3) 确认是哪个主机提供了安装包，以及平台是否收到 resolve 请求。 4) 恢复可达后，依次安装平台分别以 `403 NOT_PUBLISHED`、`403 PLUGIN_ARCHIVED`、`404`、`429` 和 `503` 拒绝的版本。
+- **预期**：安装从目录自身的地址解析安装包——`artifactBaseUrl` 加相对 `url`——并在同样的 shasum 校验之后完成；该次安装不会向平台发出 resolve 请求，也不计入统计；resolve 失败的原因会出现在安装日志里而不是被隐藏；平台恢复应答后，各拒绝码各自给出对应的提示——尚未发布不重试、已归档会从安装与更新选择中隐藏该插件、平台没有该版本、限流按 `Retry-After` 等待一次、`503` 报部署问题——并且任何拒绝都不会静默切到别的渠道或别的版本。
+- **链接规格**：`07-plugins/07-plugin-marketplace.md` §2
+- **验收**：G（远程市场来源）
+- **里程碑**：M6+
+- **状态**：草稿
+
+#### E2E-PLUGIN-device-identifier-is-stable-and-never-the-machine-code：设备标识跨启动稳定，且不是机器码原文
+
+- **先决条件**：一个能读到机器标识的主机（Windows `MachineGuid`、macOS 平台 UUID，或 `/etc/machine-id`），一个读不到机器标识的环境，以及为 `POST /api/v1/download/resolve` 记录请求的存根。
+- **步骤**：1) 在同一会话内触发两次安装，比较记录的 `deviceId`。 2) 重启应用后再触发一次安装。 3) 把该值与主机的机器标识原文比较。 4) 在设置、市场页面与已安装插件详情中查找该值。 5) 在读不到机器标识的环境里重复步骤 1 与 2，然后检查应用数据目录。
+- **预期**：同一安装发出的每次 resolve 请求都携带同一个 64 位小写十六进制值，包括重启之后，以及机器标识未变时的应用重装之后；该值既不是机器码原文也不是它的前缀，并等于 `sha256("pi-desktop.device.v1:" + 机器标识)`；该标识从不出现在界面上，也没有任何设置可以显示或重置它；读不到机器标识时，该值是另一个 64 位十六进制字符串，只生成一次并持久化在 `plugins/market/device.json`，之后跨重启一直复用。
+- **链接规格**：`07-plugins/07-plugin-marketplace.md` §2、ADR 0276
+- **验收**：G（远程市场来源）+ 安全性
+- **里程碑**：M6+
+- **状态**：草稿
+
+#### E2E-PLUGIN-install-progress-shows-phases-and-mirror：官方渠道安装显示各阶段与正在尝试的镜像并完成
+
+- **先决条件**：全新配置停留在官方渠道；一个插件的 resolve 应答至少列出两个条目；第一个镜像失败或很慢，以便观察到第二次尝试；渲染进程已订阅 `plugin.installProgress`。
+- **步骤**：1) 从市场详情面板发起一次手动安装。 2) 记录安装期间收到的报告。 3) 安装成功后把指针悬停在对话框上。 4) 安装结束后查看已安装插件。 5) 用一个较大的安装包再次安装，并统计至少一秒窗口内的报告数量。
+- **预期**：对话框按顺序显示各阶段——`resolve`、`download`、`verify`、`install`、`enable`——以及 `mirror n/N · name` 和由 `receivedBytes` / `totalBytes` 得出的确定进度条；每条报告都带 `pluginId` 与 `version`，只有指明镜像的报告才带 `source`，`attempt` 按 1 在 `attempts` 内计数，切换镜像会递增 `attempt` 而不改变 `attempts`；字节报告最多每 200 ms 一条，另有每次阶段变化一条与最终一条；安装以不带 `error` 的状态结束，插件通过常规权限审查后完成安装并启用；成功后对话框约 2 秒自动关闭，悬停时该倒计时暂停；后台自动更新以同样方式安装，但完全不打开对话框。
+- **链接规格**：`07-plugins/07-plugin-marketplace.md` §2、`07-plugins/15-plugin-center.md` §10、ADR 0276 §7
+- **验收**：G（远程市场来源）
+- **里程碑**：M6+
+- **状态**：草稿
+
+#### E2E-PLUGIN-cancel-during-download-installs-nothing：在下载期间取消会停止安装、不留下任何已安装内容，并让对话框静默关闭
+
+- **先决条件**：一次官方渠道安装，其安装包足够大或镜像足够慢，使下载阶段持续一段时间；能够应答 `market.cancelInstall`；同时可以查看插件目录、安装缓存与已安装列表。
+- **步骤**：1) 启动安装并等待进入下载阶段。 2) 按下对话框中的取消操作。 3) 观察对话框并抓取 RPC 应答。 4) 安装结束后检查插件目录、安装缓存与已安装列表。 5) 对同一 id、对一个并未在运行的安装，以及在下载已结束之后，分别再次发出 `market.cancelInstall`。
+- **预期**：对正在运行的安装，取消调用返回 `{ cancelled: true, id }`，安装以 `PLUGIN_CANCELLED`（JSON-RPC 码 1019）失败；对话框不报告错误就关闭；没有任何东西被安装——没有插件目录、没有已安装行、没有已启用的插件——缓存中也不残留任何不完整的安装包；对同一 id 的第二次调用、对并未在运行的安装的调用，以及下载已结束之后的调用都返回 `{ cancelled: false, id }` 且不改变任何状态，因此取消永远不会中断插件目录的写入。
+- **链接规格**：`07-plugins/07-plugin-marketplace.md` §2、ADR 0276 §7
+- **验收**：G（远程市场来源）+ 安全性
+- **里程碑**：M6+
+- **状态**：草稿
+
+#### E2E-PLUGIN-failed-install-lists-tried-mirrors：安装失败时对话框保持打开，并列出尝试过的镜像与复制操作
+
+- **先决条件**：一次官方渠道安装，其所有镜像都失败——例如第一个摘要不符、第二个网络错误；渲染进程已订阅 `plugin.installProgress`，且可以读回剪贴板。
+- **步骤**：1) 启动安装。 2) 让所有镜像失败。 3) 读取最终报告与对话框。 4) 使用复制操作，然后在镜像恢复正常后使用重试操作。
+- **预期**：最终报告带有 `error`，并按尝试顺序为每个镜像提供一条 `tried[]` 记录，各自标明 `source`、`url` 与该镜像给出的错误；对话框保持打开，显示可读的错误与这份列表；复制操作把尝试过的镜像放入剪贴板；重试操作会对同一版本发起一次新的安装，并在镜像正常应答后完成，且不会复用失败尝试的不完整状态；失败的尝试没有安装任何东西。
+- **链接规格**：`07-plugins/07-plugin-marketplace.md` §2、ADR 0276 §7
+- **验收**：G（远程市场来源）
+- **里程碑**：M6+
+- **状态**：草稿
+
+### E2E-RPC-unicode-separators
+
+- **前置条件**：已构建 host-core、shared 与 agent-runtime；隔离的临时数据目录；仅回环的 fixture provider。不使用真实凭证。
+- **步骤**：追加一条含 U+2028/U+2029、中文、emoji 以及转义 CR/LF 的用户消息；读取、重启 host 后再读。通过 AgentSidecar 发送 Unicode 提示；经 parent host proxy 恢复历史；流式返回并持久化 Unicode 回复。发送一条含相同字符的未知方法，再发健康检查。
+- **预期**：文本在持久化与所有 stdio 方向上保持不变。请求在 RPC 超时前完成；错误回复之后的请求仍可用。无需迁移现有会话。
+- **自动化**：`pnpm test:e2e:rpc-unicode`；`packages/shared/src/ndjson.test.ts` 额外覆盖每个 UTF-8 切分位置、连续帧、CRLF、EOF 与销毁。
+- **规格**：03-runtime/06-host-rpc-protocol §2。
+- **验收**：A（运行时），C（会话）。
+- **里程碑**：M6+。
+- **状态**：已自动化；针对 task/PR 集成候选运行。

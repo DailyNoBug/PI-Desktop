@@ -1,7 +1,7 @@
 # 20. Remote SSH Desktop Client
 
 - Status: Accepted for implementation
-- Decision: D434 / ADR 0277
+- Decision: D434 / ADR 0294
 - Transport: `RACP-WS` over a system-OpenSSH local port forward
 - Remote Host: Linux x64 or arm64 `pi-host`
 

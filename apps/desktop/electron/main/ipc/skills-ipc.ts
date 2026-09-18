@@ -71,7 +71,10 @@ export function registerSkillsIpc({
    * carries no code, as before.
    */
   const refusalCode = (kind: SkillMarketFailureKind): string | undefined => {
-    if (kind === "policy") return ErrorCodes.NETWORK_POLICY_BLOCKED;
+    // Both are refusals the guard decided, so both carry the policy code; the
+    // `kind` beside it is what says which address was judged — the proxy's own
+    // fake-IP placeholder, or the target's actual address.
+    if (kind === "policy" || kind === "fake-ip") return ErrorCodes.NETWORK_POLICY_BLOCKED;
     if (kind === "unresolved") return ErrorCodes.NETWORK_RESOLVE_FAILED;
     return undefined;
   };
@@ -85,6 +88,7 @@ export function registerSkillsIpc({
         ...(detail.host ? { host: detail.host } : {}),
         kind: detail.kind,
         ...(detail.reason ? { reason: detail.reason } : {}),
+        ...(detail.address ? { address: detail.address } : {}),
         ...(detail.addressKind ? { addressKind: detail.addressKind } : {}),
         ...(detail.route ? { route: detail.route } : {}),
       },
@@ -99,7 +103,9 @@ export function registerSkillsIpc({
     const detail = result.failureDetails?.[name];
     if (detail) return detail;
     const kind = result.failureKinds?.[name];
-    return { kind: kind === "policy" || kind === "unresolved" ? kind : "network" };
+    return {
+      kind: kind === "policy" || kind === "fake-ip" || kind === "unresolved" ? kind : "network",
+    };
   };
   let host: HostProcess | null = null;
   const handle = (channel: string, fn: (...args: any[]) => Promise<any>) => {
@@ -190,38 +196,63 @@ export function registerSkillsIpc({
     return res;
   });
 
-  /** Import exactly one markdown file into the selected capability directory. */
-  handle(IPC.invoke.skillImport, async (query: Partial<AgentCapabilityQuery> = {}) => {
-    const remoteTarget = remoteCapabilityContext(query);
-    const picked = await dialog.showOpenDialog({
-      title: "Import skill",
-      properties: ["openFile"],
-      filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
-    });
-    if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
-    if (remoteTarget) {
-      const remoteManager = getRemoteManager?.();
-      if (!remoteManager) throw new Error("remote manager unavailable");
-      const body = await readFile(picked.filePaths[0], "utf8");
-      const name = basename(picked.filePaths[0]).replace(/\.(md|markdown)$/i, "");
-      const res = await remoteManager.createSkill({
-        name,
-        body,
-        ...(query.level ? { level: query.level } : {}),
-        ...(query.projectPath ? { projectPath: remoteTarget.remotePath } : {}),
-        enabled: true,
-      }, remoteTarget.canonicalProjectPath);
-      sendToRenderer(IPC.event.pluginChanged, { reason: "skill", pluginId: res.skill?.id });
+  /**
+   * Import exactly one Skill from a native picker. The default single-file
+   * picker is kept so existing callers keep working; a caller may also ask for
+   * a directory picker (Claude-style `<name>/SKILL.md` skills) or pass
+   * `mode: "link"` for a symlink import instead of a copy. The value is
+   * forwarded to `skills.import` intact so host-core still owns the policy.
+   * Remote (SSH) targets keep the file-only picker and route through the
+   * remote manager.
+   */
+  handle(
+    IPC.invoke.skillImport,
+    async (
+      query: Partial<AgentCapabilityQuery> & {
+        sourceKind?: "file" | "dir";
+        mode?: "copy" | "link";
+      } = {},
+    ) => {
+      const remoteTarget = remoteCapabilityContext(query);
+      const picked =
+        !remoteTarget && query.sourceKind === "dir"
+          ? await dialog.showOpenDialog({
+              title: "Import skill",
+              properties: ["openDirectory"],
+            })
+          : await dialog.showOpenDialog({
+              title: "Import skill",
+              properties: ["openFile"],
+              filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+            });
+      if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
+      if (remoteTarget) {
+        const remoteManager = getRemoteManager?.();
+        if (!remoteManager) throw new Error("remote manager unavailable");
+        const body = await readFile(picked.filePaths[0], "utf8");
+        const name = basename(picked.filePaths[0]).replace(/\.(md|markdown)$/i, "");
+        const res = await remoteManager.createSkill({
+          name,
+          body,
+          ...(query.level ? { level: query.level } : {}),
+          ...(query.projectPath ? { projectPath: remoteTarget.remotePath } : {}),
+          enabled: true,
+        }, remoteTarget.canonicalProjectPath);
+        sendToRenderer(IPC.event.pluginChanged, { reason: "skill", pluginId: res.skill?.id });
+        return res;
+      }
+      if (!host) throw new Error("host unavailable");
+      const { sourceKind, mode, ...rest } = query;
+      const res = await host.call("skills.import", {
+        path: picked.filePaths[0],
+        ...(sourceKind === "dir" ? { shape: "dir" } : {}),
+        ...(mode ? { mode } : {}),
+        ...rest,
+      });
+      sendToRenderer(IPC.event.pluginChanged, { reason: "skill" });
       return res;
-    }
-    if (!host) throw new Error("host unavailable");
-    const res = await host.call("skills.import", {
-      path: picked.filePaths[0],
-      ...query,
-    });
-    sendToRenderer(IPC.event.pluginChanged,{ reason: "skill" });
-    return res;
-  });
+    },
+  );
 
   handle(
     IPC.invoke.skillUpdate,

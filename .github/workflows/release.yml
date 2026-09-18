@@ -12,8 +12,16 @@
 # with its native pi-desktop-host-core Rust sidecar. The Linux app.asar is also
 # exported as a system-Electron repackaging asset, and all outputs — with their
 # electron-updater latest*.yml feeds — are published to the GitHub Release
-# (D126/D285/D364). Linux x64 and arm64 tag builds also publish checksummed
-# pi-host runtime bundles for Remote SSH (D408).
+# (D126/D285/D364). macOS tag artifacts are Developer ID-signed, notarized, and
+# stapled before upload (D450 / ADR 0289); repos without the signing secrets
+# fall back to the unsigned ad-hoc-sealed lane.
+#
+# Tag builds also publish checksummed pi-host runtime bundles for Remote SSH:
+# the dist-pi-host-linux-* bundles (D408) and the headless
+# pi-host-<version>-linux-<arch>.tar.gz bundle plus its .sha256 sidecar that
+# the desktop's SSH bootstrap downloads at the desktop's version and verifies
+# before installing on the remote machine (rollout
+# 06-delivery/07-remote-control-rollout.md §6 acceptance 4; D375 / ADR 0284).
 
 name: Release
 
@@ -23,9 +31,9 @@ on:
   workflow_dispatch:
     inputs:
       sign_macos:
-        description: 'Sign and notarize macOS artifacts for this run'
+        description: 'Sign and notarize macOS artifacts (default true; set false only for unsigned debug artifacts)'
         required: false
-        default: false
+        default: true
         type: boolean
 
 # Least privilege by default; only the publish job needs to write the release.
@@ -78,6 +86,12 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     needs: verify
+    env:
+      # Tag pushes always sign, and workflow_dispatch signs unless explicitly
+      # disabled — but only when signing secrets exist. Forks (or CI runners)
+      # without the Developer ID secrets automatically fall back to the
+      # unsigned ad-hoc-sealed lane instead of failing the release.
+      MACOS_SIGN_RELEASE: ${{ (github.event_name != 'workflow_dispatch' || inputs.sign_macos == true) && secrets.APPLE_ID != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -192,10 +206,10 @@ jobs:
         run: pnpm --filter @pi-desktop/desktop run ${{ matrix.dist }} -- --${{ matrix.arch }}
 
       - name: Package unsigned macOS installer
-        if: matrix.platform == 'macos' && inputs.sign_macos != true
+        if: matrix.platform == 'macos' && env.MACOS_SIGN_RELEASE != 'true'
         env:
-          # Default release lane: macOS artifacts stay unsigned unless a
-          # workflow_dispatch run explicitly sets sign_macos=true.
+          # Unsigned lane: workflow_dispatch with sign_macos=false, or any
+          # run in a repo without the signing secrets.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           # Baked into the build so the installed app reaches its own release
           # for pi-host bundles — a fork release included.
@@ -209,8 +223,8 @@ jobs:
           # makes arm64 Gatekeeper report the app as damaged.
           pnpm --filter @pi-desktop/desktop run dist:mac -- --${{ matrix.arch }} -c.mac.identity=-
 
-      - name: Package signed and notarized macOS installer
-        if: matrix.platform == 'macos' && inputs.sign_macos == true
+      - name: Require macOS signing and notarization secrets
+        if: matrix.platform == 'macos' && env.MACOS_SIGN_RELEASE == 'true'
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -220,18 +234,45 @@ jobs:
           PI_DESKTOP_RELEASE_BASE: ${{ github.server_url }}/${{ github.repository }}/releases/download
         run: |
           set -euo pipefail
+          missing=()
+          [[ -n "${CSC_LINK}" ]] || missing+=(CSC_LINK)
+          [[ -n "${CSC_KEY_PASSWORD}" ]] || missing+=(CSC_KEY_PASSWORD)
+          [[ -n "${APPLE_ID}" ]] || missing+=(APPLE_ID)
+          [[ -n "${APPLE_APP_SPECIFIC_PASSWORD}" ]] || missing+=(APPLE_APP_SPECIFIC_PASSWORD)
+          [[ -n "${APPLE_TEAM_ID}" ]] || missing+=(APPLE_TEAM_ID)
+          if ((${#missing[@]} > 0)); then
+            echo "::error::Missing GitHub Actions secrets for macOS signing/notarization: ${missing[*]}"
+            echo "::error::Add them under Settings → Secrets and variables → Actions. See docs/spec/06-delivery/06-release-runbook.md."
+            exit 1
+          fi
+          if [[ "${APPLE_TEAM_ID}" != "DUV63RKYTW" ]]; then
+            echo "::warning::APPLE_TEAM_ID is not DUV63RKYTW (XingYu Liu Developer ID team); continuing with the configured team."
+          fi
+
+      - name: Package signed and notarized macOS installer
+        if: matrix.platform == 'macos' && env.MACOS_SIGN_RELEASE == 'true'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_NAME: "Developer ID Application: XingYu Liu (DUV63RKYTW)"
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
           # Artifact names are defined in apps/desktop/package.json: the mac
           # pattern labels ZIPs, and the dmg target pattern labels DMGs.
           pnpm --filter @pi-desktop/desktop run dist:mac -- --${{ matrix.arch }} \
+            -c.mac.identity="Developer ID Application: XingYu Liu (DUV63RKYTW)" \
             -c.mac.forceCodeSigning=true \
             -c.mac.notarize=true
 
       - name: Staple macOS installer ticket
-        if: matrix.platform == 'macos' && inputs.sign_macos == true
+        if: matrix.platform == 'macos' && env.MACOS_SIGN_RELEASE == 'true'
         run: scripts/staple-macos-release-dmg.sh apps/desktop/release
 
       - name: Verify signed and notarized macOS installer
-        if: matrix.platform == 'macos' && inputs.sign_macos == true
+        if: matrix.platform == 'macos' && env.MACOS_SIGN_RELEASE == 'true'
         run: scripts/verify-macos-release.sh apps/desktop/release
 
       - name: Verify Linux host-core glibc floor
@@ -326,10 +367,99 @@ jobs:
           compression-level: 0
           path: release/pi-host/*
 
+  pi-host-bundle:
+    name: Bundle pi-host (Linux ${{ matrix.arch }})
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Every Linux platform the desktop release publishes. The desktop
+          # matrix ships Linux x64 only today; add arm64 here in lockstep if
+          # the desktop starts publishing it.
+          - arch: x64
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compare tag with apps/desktop/package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          APP_VERSION="$(node -p "require('./apps/desktop/package.json').version")"
+          if [ "$TAG_VERSION" != "$APP_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match apps/desktop/package.json version $APP_VERSION."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build inputs (host-core, workspace, sidecar bundle)
+        run: |
+          set -euo pipefail
+          # Ubuntu 22.04 keeps the host-core glibc floor at 2.35, matching the
+          # desktop Linux build so the bundled binary loads on the same distros.
+          cargo build --release --locked -p host-core &
+          host_build_pid=$!
+          trap 'kill "$host_build_pid" 2>/dev/null || true' EXIT
+
+          pnpm install --frozen-lockfile
+          pnpm build:js
+          pnpm --filter @pi-desktop/agent-runtime bundle
+          pnpm --filter @pi-desktop/pi-host build
+
+          wait "$host_build_pid"
+          trap - EXIT
+
+      - name: Verify host-core glibc floor
+        run: node scripts/check-linux-host-glibc.mjs target/release/pi-desktop-host-core
+
+      - name: Assemble pi-host bundle
+        run: node apps/pi-host/scripts/bundle.mjs --platform linux --arch ${{ matrix.arch }}
+
+      - name: Archive bundle with checksum
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./apps/pi-host/package.json').version")"
+          name="pi-host-${VERSION}-linux-${{ matrix.arch }}"
+          out="apps/pi-host/dist-bundle"
+          if [ ! -d "$out/$name" ]; then
+            echo "::error::expected bundle directory $out/$name"
+            ls -la "$out" || true
+            exit 1
+          fi
+          tar -czf "$out/${name}.tar.gz" -C "$out" "$name"
+          ( cd "$out" && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+          cat "$out/${name}.tar.gz.sha256"
+
+      - name: Upload pi-host bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-host-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            apps/pi-host/dist-bundle/pi-host-*-linux-${{ matrix.arch }}.tar.gz
+            apps/pi-host/dist-bundle/pi-host-*-linux-${{ matrix.arch }}.tar.gz.sha256
+
   publish:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, package-pi-host]
+    needs: [build, package-pi-host, pi-host-bundle]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

@@ -172,7 +172,7 @@ test("skill import is one native file and physically targets the selected level"
   assert.doesNotMatch(handler, /\bmultiple\b/);
   assert.match(handler, /host\.call\("skills\.import"/);
   assert.match(settingsComponents.get("AgentSkillsPage.tsx"), /api\.importUserSkill\(/);
-  assert.match(hostCapabilitySources, /fs::copy\(&source_path, &target\)/);
+  assert.match(hostCapabilitySources, /fs::copy\(source, target\)/);
 });
 
 test("MCP management reuses the modal and validates its locked id and transport branches", () => {
