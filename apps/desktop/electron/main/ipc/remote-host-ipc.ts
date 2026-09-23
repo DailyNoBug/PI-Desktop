@@ -1,19 +1,25 @@
 /**
- * Renderer IPC for the R2b pairing UX (ADR 0286 §Registry).
+ * Renderer IPC for the R2b pairing UX (ADR 0286 §Registry) and the SSH
+ * bootstrap (spec `02-architecture/05-remote-agent-control.md` §5.2).
  *
- * Three channels sit between the renderer's Settings page and the remote-hosts
+ * Four channels sit between the renderer's Settings page and the remote-hosts
  * boot hook: `list` reports the currently paired hosts with their live status,
- * `pair` exchanges a `ppt1.` pairing token for a durable device token and
- * brings the connection online, and `remove` closes and forgets one host.
+ * `pair` exchanges a pasted `ppt1.` pairing token for a durable device token,
+ * `bootstrap` installs and pairs a host on a machine the user reaches over
+ * SSH, and `remove` closes and forgets one host.
  *
  * The renderer never sees a device token: the pairing exchange, the encrypted
  * write to `<dataDir>/remote-hosts.json`, and every subsequent live connection
  * live inside Electron main. `list` is safe to expose to any renderer surface.
+ * The bootstrap channel never sees an SSH secret either — it passes a host,
+ * and the system `ssh` client supplies the credentials from the user's own
+ * configuration and agent.
  */
-import { wsClientTransport } from "@pi-desktop/racp";
 import {
   ErrorCodes,
   IPC,
+  type RemoteHostBootstrapRequest,
+  type RemoteHostBootstrapResult,
   type RemoteHostPairRequest,
   type RemoteHostPairResult,
   type RemoteHostRemoveRequest,
@@ -24,7 +30,7 @@ import {
   getActiveRemoteHostsBoot,
   type RemoteHostsBoot,
 } from "../bootstrap/remote-hosts";
-import { createRacpRemoteHostClient } from "../remote/racp-remote-host-client";
+import { exchangePairingToken } from "../remote/racp-remote-host-client";
 import type { IpcRegistrar } from "./types";
 
 export type RegisterRemoteHostIpcOptions = {
@@ -50,6 +56,13 @@ function requireBoot(boot: RemoteHostsBoot | null): RemoteHostsBoot {
 
 function trim(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function invalid(message: string, field?: string): Error {
+  return Object.assign(new Error(message), {
+    errorCode: ErrorCodes.INVALID_ARGUMENT,
+    ...(field ? { field } : {}),
+  });
 }
 
 /**
@@ -97,44 +110,41 @@ export function registerRemoteHostIpc(options: RegisterRemoteHostIpcOptions): vo
       const pairingToken = trim(request?.pairingToken);
       const label = trim(request?.label) || "desktop";
       if (!url || !pairingToken) {
-        throw Object.assign(new Error("url and pairingToken are required"), {
-          errorCode: ErrorCodes.INVALID_ARGUMENT,
-        });
+        throw invalid("url and pairingToken are required");
       }
       const hostKey = trim(request?.hostKey) || synthesizeHostKey(url, label);
       if (hostKey.includes(":")) {
-        throw Object.assign(new Error("hostKey must not contain ':'"), {
-          errorCode: ErrorCodes.INVALID_ARGUMENT,
-        });
+        throw invalid("hostKey must not contain ':'", "hostKey");
       }
 
       // Pair on a throwaway connection whose transport authenticates with the
       // single-use pairing token; call `connection/pair` for the device token,
       // then close it. The durable connection reopens under the device token
       // via `boot.addHost` below.
-      const pairing = createRacpRemoteHostClient({
-        transport: wsClientTransport({ url, token: pairingToken }),
+      const deviceToken = await exchangePairingToken({
+        url,
+        pairingToken,
+        label,
         clientInfo,
         log: (level, message, data) => log(level, message, data),
       });
-      let deviceToken: string;
-      try {
-        await pairing.connect();
-        const result = (await pairing.client.request("connection/pair", {
-          deviceLabel: label,
-        })) as { deviceToken?: unknown };
-        if (typeof result?.deviceToken !== "string" || result.deviceToken.length === 0) {
-          throw Object.assign(new Error("pi-host did not return a device token"), {
-            errorCode: "PAIRING_FAILED",
-          });
-        }
-        deviceToken = result.deviceToken;
-      } finally {
-        await pairing.close().catch(() => undefined);
-      }
 
       const summary = await boot.addHost({ hostKey, label, url, deviceToken });
       return { host: summary };
+    },
+  );
+
+  registrar.handle(
+    IPC.invoke.remoteHostBootstrap,
+    async (request: RemoteHostBootstrapRequest): Promise<RemoteHostBootstrapResult> => {
+      const boot = requireBoot(getRemoteHostsBoot());
+      const host = trim(request?.host);
+      if (!host) throw invalid("host is required", "host");
+      const label = trim(request?.label) || host;
+      // The descriptor's own validation (empty and leading-dash fields, port
+      // range) lives with the bootstrap, which is the only place that knows
+      // how the values reach the `ssh` command line.
+      return await boot.bootstrapHost({ ...request, host, label });
     },
   );
 
@@ -144,9 +154,7 @@ export function registerRemoteHostIpc(options: RegisterRemoteHostIpcOptions): vo
       const boot = requireBoot(getRemoteHostsBoot());
       const hostKey = trim(request?.hostKey);
       if (!hostKey) {
-        throw Object.assign(new Error("hostKey is required"), {
-          errorCode: ErrorCodes.INVALID_ARGUMENT,
-        });
+        throw invalid("hostKey is required", "hostKey");
       }
       await boot.removeHost(hostKey);
       return { ok: true };

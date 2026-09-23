@@ -1,6 +1,6 @@
 /** Shared public types grouped by the owning application domain. */
 import type { Mode } from "./common.js";
-import type { ThinkingLevel } from "./models.js";
+import type { SessionThinkingLevel, ThinkingLevel } from "./models.js";
 import type { PermissionMode } from "./permissions.js";
 import type { UiMessage } from "./messages.js";
 import type { PlanningState } from "./plans.js";
@@ -40,9 +40,7 @@ export type SessionSummary = {
   modelId?: string;
   providerId?: string;
   mode: Mode;
-  thinkingLevel: ThinkingLevel;
-  /** Composer-native web search for this session; absent means follow settings. */
-  nativeWebSearch?: boolean;
+  thinkingLevel: SessionThinkingLevel;
   /** Per-session permission mode; `inherit` follows the global default (D115). */
   permissionMode: PermissionMode;
   /** Effective capability for this session's exact provider/model pair. */
@@ -182,6 +180,8 @@ export type AgentActivity =
       phase: "retrying";
       since: number;
       attempt: number;
+      /** The retry budget is unbounded for this active turn. */
+      infinite?: boolean;
       retryDelayMs?: number;
       error?: AgentActivityError;
     }

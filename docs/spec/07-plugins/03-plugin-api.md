@@ -157,7 +157,7 @@ reply must be JSON-serializable and each call runs under the host's command
 budget. Unload, disable, or crash unregisters the handler. The bundled
 `pi.local-voice` plugin — whose `status` / `models.list` / `models.download` /
 `models.remove` / `models.setActive` methods power the Settings Voice card —
-is the in-repo example (ADR 0297).
+is the in-repo example (ADR 0313).
 
 ### ui
 
@@ -1240,7 +1240,7 @@ The desktop plugin runtime now implements the MVP host API surface used by local
   bounded by `manifest.fs` (ADR 0088)
 - `agent.registerTool` / `unregisterTool` / `agent.complete`
 - `speech.registerAdapter` / `unregisterAdapter` (`speech.adapter.register`)
-- `rpc.register` / `unregister` (`plugin.rpc`; renderer management calls, ADR 0297)
+- `rpc.register` / `unregister` (`plugin.rpc`; renderer management calls, ADR 0313)
 - `models.list`, `session.getLlmContext`
 - `clipboard.*`, `shell.openExternal`, `net.fetch`
 - `browser.*` (guest CDP; `browser.cdp`)

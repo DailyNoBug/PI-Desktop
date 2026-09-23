@@ -12,14 +12,14 @@ import type {
   PermissionMode,
 } from "@pi-desktop/shared";
 import {
-  supportsNativeWebSearch,
   initialThinkingLevelForBinding,
+  imageGenerationBindings,
+  isImageGenerationModel,
   modelIdsMatch,
   normalizeLargePasteThreshold,
   stripInlineComposerFileReferenceTokens,
 } from "@pi-desktop/shared";
 import { useAppStore } from "../stores/app-store";
-import { api } from "../lib/api";
 import { latestTurnContextInspector } from "../lib/latest-turn-context";
 import { isActivePlanExecution } from "../lib/plan-mode-state";
 import { headAsk, queuedAskCount } from "../lib/pending-asks";
@@ -59,6 +59,7 @@ import {
 import { useComposerAttachments } from "../features/chat/composer/hooks/useComposerAttachments";
 import { useComposerDraft } from "../features/chat/composer/hooks/useComposerDraft";
 import { useComposerSubmit } from "../features/chat/composer/hooks/useComposerSubmit";
+import { ComposerImageAttachments } from "../features/chat/composer/ComposerImageAttachments";
 import { ComposerInput } from "../features/chat/composer/ComposerInput";
 import { useComposerModelMenu } from "../features/chat/composer/hooks/useComposerModelMenu";
 import { ComposerToolbar } from "../features/chat/composer/ComposerToolbar";
@@ -97,6 +98,10 @@ export function Composer({
     s.activeSessionId ? s.planningStates[s.activeSessionId] : undefined,
   );
   const settings = useAppStore((s) => s.settings);
+  const imageGenerationCandidates = useMemo(
+    () => imageGenerationBindings(settings?.imageGenerationModels, settings?.imageGeneration),
+    [settings?.imageGenerationModels, settings?.imageGeneration],
+  );
   const sessions = useAppStore((s) => s.sessions);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const activeSessionSummary = sessions.find(
@@ -125,7 +130,6 @@ export function Composer({
     [liveMessages, providerModels, providers, sessionCompactions],
   );
   const configureActiveSession = useAppStore((s) => s.configureActiveSession);
-  const nativeWebSearchEnabled = useAppStore((s) => Boolean(s.settings?.nativeWebSearchEnabled));
   const showToast = useAppStore((s) => s.showToast);
   const composerPrefill = useAppStore((s) => s.composerPrefill);
   const clearComposerPrefill = useAppStore((s) => s.clearComposerPrefill);
@@ -377,7 +381,7 @@ export function Composer({
   );
   const thinkingLabel = thinkingLevel;
   const selectedModel = provider?.id
-    ? composerModelsForProvider(provider, providerModels[provider.id]).find(
+    ? composerModelsForProvider(provider, providerModels[provider.id], imageGenerationCandidates).find(
         (model) => modelIdsMatch(model.modelId, modelId ?? ""),
       )
     : undefined;
@@ -385,6 +389,7 @@ export function Composer({
     ? composerModelDisplayName(provider, modelId, selectedModel?.displayName)
     : selectedModel?.displayName || modelId || t("chat.model");
   const modelMenu = useComposerModelMenu({
+    configureActiveSession,
     mode,
     activeSessionId,
     provider,
@@ -398,11 +403,10 @@ export function Composer({
     : !!provider &&
       provider.enabled &&
       !!modelId &&
+      !isImageGenerationModel(imageGenerationCandidates, provider.id, modelId) &&
       (provider.hasSecret || provider.authKind === "none");
   const enterToSend = settings?.enterToSend ?? true;
-  // Chips occupy sentinel characters, which `trim()` preserves — text and
-  // attachments share one content check.
-  const hasDraftContent = Boolean(value.trim());
+  const hasDraftContent = Boolean(value.trim() || activeFileReferences.length);
 
   useEffect(() => {
     if (!controlsBlocked) return;
@@ -570,6 +574,7 @@ export function Composer({
           insertDroppedDirectoryPaths={insertDroppedDirectoryPaths}
           dismissDroppedDirectories={dismissDroppedDirectories}
         />
+        <ComposerImageAttachments controller={draft.imagePreview} onRemove={draft.removeImage} disabled={inputBlocked} />
         <div
           ref={composerShellRef}
           className={`composer-shell${inputBlocked ? " is-gated" : ""}${
@@ -586,13 +591,14 @@ export function Composer({
               ac={composerAc}
               onAccept={acceptCompletion}
             />
-           ) : null}
-           <VoiceRecordingOverlay
-             snapshot={voice.snapshot}
-             onCancel={voice.cancel}
-             onDismiss={voice.dismiss}
-           />
-           <ComposerInput
+          ) : null}
+          <VoiceRecordingOverlay
+            snapshot={voice.snapshot}
+            onCancel={voice.cancel}
+            onDismiss={voice.dismiss}
+          />
+          <ComposerInput
+            imagePreview={draft.imagePreview}
             inputRef={ref}
             value={value}
             placeholderText={placeholderText}
@@ -659,29 +665,6 @@ export function Composer({
             hasDraftContent={hasDraftContent}
             abort={abort}
             submit={submit}
-            nativeWebSearchEnabled={nativeWebSearchEnabled}
-            nativeWebSearchSupported={supportsNativeWebSearch({
-              apiStyle: provider?.apiStyle,
-              vendorKey: provider?.vendorKey,
-              baseUrl: provider?.baseUrl,
-            })}
-
-
-            onToggleNativeWebSearch={() => {
-              const settings = useAppStore.getState().settings;
-              if (!settings) return;
-              const next = {
-                ...settings,
-                nativeWebSearchEnabled: !settings.nativeWebSearchEnabled,
-              };
-              void api.setSettings(next).then(() => {
-                useAppStore.setState({ settings: next });
-              }).catch((error) => {
-                showToast(error instanceof Error ? error.message : String(error), {
-                  variant: "error",
-                });
-              });
-            }}
           />
         </div>
       </div>

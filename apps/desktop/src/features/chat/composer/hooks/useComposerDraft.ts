@@ -37,10 +37,15 @@ import {
   type ComposerFileReference,
 } from "../editor";
 import type { ComposerPrefill } from "../model";
+import { useComposerImagePreview, type ComposerImagePreviewController } from "./useComposerImagePreview";
+
+import { detachImageTokens, isImageReference } from "../image-attachments";
 
 type ComposerSession = { id: string };
 
 export type ComposerDraftController = {
+  imagePreview: ComposerImagePreviewController;
+  removeImage: (id: string) => void;
   ref: RefObject<HTMLDivElement | null>;
   draftKey: string;
   referenceSessionId: string;
@@ -133,6 +138,9 @@ export function useComposerDraft({
   const ref = useRef<HTMLDivElement>(null);
   const placeholderContextRef = useRef(`${variant}:${activeSessionId ?? HOME_DRAFT_KEY}`);
   const draftKeyRef = useRef(draftKey);
+  const workspacePathRef = useRef(workspacePath);
+  workspacePathRef.current = workspacePath;
+  const previousWorkspacePathRef = useRef(initialDraft?.workspacePath ?? workspacePath);
 
   // Keep one guidance copy stable until the user changes page or session.
   useEffect(() => {
@@ -156,8 +164,41 @@ export function useComposerDraft({
     }
     return map;
   }, [activeFileReferences]);
+  // Native undo restores chip DOM, but deletion has already removed its metadata.
+  const deletedReferencesRef = useRef(new Map<string, ComposerFileReference>());
+  useEffect(() => {
+    deletedReferencesRef.current.clear();
+    // Observe every transition, including A -> B -> A in one React batch.
+    return useAppStore.subscribe((state, previous) => {
+      if ((state.workspace?.path ?? "") !== (previous.workspace?.path ?? "")) {
+        deletedReferencesRef.current.clear();
+      }
+    });
+  }, [draftKey]);
+
+  const reconcileEditorReferences = (text: string) => {
+    const current = fileReferencesRef.current;
+    const next = current.filter((reference) => {
+      if (!reference.token || text.includes(reference.token)) return true;
+      deletedReferencesRef.current.set(reference.token, reference);
+      return false;
+    });
+    // Only recover an actual restored chip, never a pasted private-use character.
+    for (const chip of ref.current?.querySelectorAll<HTMLElement>(".composer-chip") ?? []) {
+      const token = chip.dataset.token ?? "";
+      const reference = deletedReferencesRef.current.get(token);
+      if (!reference || !text.includes(token)) continue;
+      if (!next.some((item) => item.token === token)) next.push(reference);
+      deletedReferencesRef.current.delete(token);
+    }
+    if (next.length === current.length && next.every((reference, index) => reference === current[index])) return;
+    fileReferencesRef.current = next;
+    setFileReferences(next);
+  };
+
   const referenceByTokenRef = useRef(referenceByToken);
   referenceByTokenRef.current = referenceByToken;
+  const imagePreview = useComposerImagePreview({ references: fileReferences, value, sessionId: referenceSessionId, editorRef: ref });
   const removeChipByTokenRef = useRef<(token: string) => void>(() => {});
   const expandTextReferenceRef = useRef<(token: string) => void>(() => {});
   const pendingEditorCaretRef = useRef<number | null>(
@@ -171,7 +212,12 @@ export function useComposerDraft({
   const readLiveDraft = () =>
     ref.current ? readEditorValue(ref.current) : valueRef.current;
   const persistDraft = (key = draftKeyRef.current) =>
-    captureComposerDraft(key, readLiveDraft(), fileReferencesRef.current);
+    captureComposerDraft(
+      key,
+      readLiveDraft(),
+      fileReferencesRef.current,
+      workspacePathRef.current,
+    );
 
   const paintCurrentDraft = (element: HTMLElement, nextValue: string) => {
     paintEditorValue(
@@ -187,7 +233,19 @@ export function useComposerDraft({
 
   useLayoutEffect(() => {
     const element = ref.current;
-    if (!element || editorValueRef.current === value) return;
+    if (!element) return;
+    if (fileReferences.some((reference) => isImageReference(reference) && reference.token)) {
+      const detached = detachImageTokens(value, fileReferences, pendingEditorCaretRef.current ?? cursor);
+      valueRef.current = detached.text;
+      fileReferencesRef.current = detached.references;
+      pendingEditorCaretRef.current = detached.caret;
+      editorValueRef.current = null;
+      setValue(detached.text);
+      setCursor(detached.caret);
+      setFileReferences(detached.references);
+      return;
+    }
+    if (editorValueRef.current === value) return;
     paintCurrentDraft(element, value);
     const pendingCaret = pendingEditorCaretRef.current;
     if (pendingCaret !== null) {
@@ -247,13 +305,7 @@ export function useComposerDraft({
     }
     valueRef.current = nextValue;
     setValue(nextValue);
-    setFileReferences((current) => {
-      const next = current.filter(
-        (fileReference) =>
-          !fileReference.token || nextValue.includes(fileReference.token),
-      );
-      return next.length === current.length ? current : next;
-    });
+    reconcileEditorReferences(nextValue);
     updateCursor(caret);
     return nextValue;
   };
@@ -268,13 +320,7 @@ export function useComposerDraft({
     editorValueRef.current = nextValue;
     valueRef.current = nextValue;
     setValue(nextValue);
-    setFileReferences((current) => {
-      const next = current.filter(
-        (fileReference) =>
-          !fileReference.token || nextValue.includes(fileReference.token),
-      );
-      return next.length === current.length ? current : next;
-    });
+    reconcileEditorReferences(nextValue);
     updateCursor(start);
   };
 
@@ -319,8 +365,13 @@ export function useComposerDraft({
   }, [draftKey, referenceSessionId]);
 
   useEffect(() => {
-    captureComposerDraft(draftKey, valueRef.current, fileReferences);
-  }, [draftKey, fileReferences, referenceSessionId]);
+    captureComposerDraft(
+      draftKey,
+      valueRef.current,
+      fileReferences,
+      workspacePath,
+    );
+  }, [draftKey, fileReferences, referenceSessionId, workspacePath]);
 
   useEffect(() => {
     pruneComposerDrafts([
@@ -367,6 +418,10 @@ export function useComposerDraft({
   }, []);
 
   useEffect(() => {
+    // A remount restores this workspace's draft; only a real workspace change
+    // invalidates its relative file references.
+    if (previousWorkspacePathRef.current === workspacePath) return;
+    previousWorkspacePathRef.current = workspacePath;
     const current = fileReferencesRef.current;
     const kept = current.filter((fileReference) =>
       isPersistedScratchReference(fileReference.path),
@@ -439,6 +494,12 @@ export function useComposerDraft({
     nextReferences: ComposerFileReference[],
     caret: number,
   ) => {
+    const detached = detachImageTokens(nextText, nextReferences, caret);
+    nextText = detached.text;
+    nextReferences = detached.references;
+    caret = detached.caret;
+    // A token may now refer to a different attachment even when text is equal.
+    editorValueRef.current = null;
     pendingEditorCaretRef.current = caret;
     setValue(nextText);
     setCursor(caret);
@@ -516,13 +577,15 @@ export function useComposerDraft({
     deleteComposerDraft(key);
     const currentKey = draftKeyForSession(useAppStore.getState().activeSessionId);
     if (currentKey !== key) return;
+    deletedReferencesRef.current.clear();
     valueRef.current = "";
     if (ref.current) paintCurrentDraft(ref.current, "");
     setValue("");
     const owner = draftOwnerSessionId(key);
-    setFileReferences((current) =>
-      current.filter((fileReference) => fileReference.sessionId !== owner),
-    );
+    // A rejected send can resume before React commits the cleared state.
+    const remaining = fileReferencesRef.current.filter((reference) => reference.sessionId !== owner);
+    fileReferencesRef.current = remaining;
+    setFileReferences(remaining);
     setCursor(0);
   };
 
@@ -530,10 +593,12 @@ export function useComposerDraft({
     const currentActiveSessionId = useAppStore.getState().activeSessionId;
     const currentKey = draftKeyForSession(currentActiveSessionId);
     if (currentKey !== key) {
-      if (!readComposerDraft(key)?.text) writeComposerDraft(key, snapshot);
+      const cached = readComposerDraft(key);
+      if (!cached?.text && !cached?.fileReferences.length) writeComposerDraft(key, snapshot);
       return;
     }
     if (valueRef.current.trim()) return;
+    if (fileReferencesRef.current.some((reference) => reference.sessionId === (currentActiveSessionId ?? ""))) return;
     const sessionId = currentActiveSessionId ?? "";
     setValue(snapshot.text);
     setFileReferences((current) => [
@@ -562,6 +627,13 @@ export function useComposerDraft({
   });
 
   return {
+    imagePreview,
+    removeImage: (id) => {
+      if (inputBlocked) return;
+      invalidatePromptEnhancement();
+      setFileReferences((current) => current.filter((reference) => reference.id !== id));
+      ref.current?.focus();
+    },
     ref,
     draftKey,
     referenceSessionId,

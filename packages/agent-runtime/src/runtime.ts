@@ -1,3 +1,9 @@
+import { restoreHostedSearchReplay } from "./hosted-search-replay.js";
+import { requestExtensionUi } from "./extensions/ui-request.js";
+import { readLocalRequestErrorDetails } from "./local-request-errors.js";
+import { imageGenerationDescription, imageGenerationParameters } from "./image-generation/tool.js";
+import { scheduledToolParameters, scheduledToolDescriptions } from "./scheduled-tools.js";
+import { withPiFileOpToolNames } from "./pi-file-ops.js";
 import { randomUUID } from "node:crypto";
 import {
   settledDelegationMessage,
@@ -48,7 +54,6 @@ import {
   type TrustedExtensionCommand,
   type TrustedExtensionDiagnostic,
   type TrustedExtensionSpec,
-  type TrustedExtensionUiRequest,
   type TrustedExtensionUiResponse,
 } from "@pi-desktop/shared";
 import {
@@ -82,6 +87,7 @@ import type {
   Risk,
   SubagentDefinition,
   SubagentRunStatus,
+  SessionThinkingLevel,
   SubagentThinkingLevel,
   ThinkingLevel,
   ToolTokenUsage,
@@ -89,22 +95,13 @@ import type {
 } from "@pi-desktop/shared";
 import {
   addUsage,
-  attachNativeWebSearchToPayload,
-  extractHostedSearchFromAssistantContent,
-  hostedSearchHasContent,
-  isHiddenNativeWebToolName,
-  mergeHostedSearch,
-  parseHostedSearchStreamEvent,
-  supportsNativeWebSearch,
-
-
-  type HostedSearch,
   checkpointGeneration,
   contextCompactionMark,
   cumulativeDelta,
   DEFAULT_SUBAGENT_PERMISSION,
   formatAskToolOutput,
   formatSessionMessage,
+  hostedSearchFromMessage,
   isCommandShellOption,
   isToolsOutputParams,
   MAX_SUBAGENT_CONCURRENCY,
@@ -124,11 +121,24 @@ import {
   isRecord,
   nowIso,
   timestampMs,
+  toJsonObject,
   toJsonValue,
+  truncateTextWithMarker,
   usageFromPi,
   usageToPi,
 } from "./agent-messages.js";
 import { buildSessionContext } from "./session-context.js";
+import {
+  initialSystemTranscript,
+  rebuildSystemTranscript,
+  replaceSystemPrompt,
+  syncSystemTools,
+  systemPromptContent,
+} from "./system-transcript.js";
+import {
+  dedupeToolCallMessages,
+  reportDuplicateToolCallDrop,
+} from "./tool-call-dedupe.js";
 import {
   apiBindingForProviderModel,
   buildProviderModel,
@@ -136,10 +146,15 @@ import {
   createExtensionAgentModels,
   createProviderModels,
   DEFAULT_CONTEXT_WINDOW,
-  DEFAULT_MAX_TOKENS,
   providerRequestKey,
   type RuntimeProviderConfig,
 } from "./provider-binding.js";
+import {
+  contextBudgetFor,
+  contextBudgetLimitsFor,
+  retainedUserMessageBudget,
+  type ContextBudget,
+} from "./context-budget.js";
 import { PathMutex } from "./path-lock.js";
 import { DelegationChainRegistry } from "./delegation-chain.js";
 import {
@@ -151,6 +166,10 @@ import {
   seedDelegateMessages,
   type DelegationChain,
 } from "./delegation-history.js";
+import {
+  clampOutputToContext,
+  effectiveModelContextWindow,
+} from "./output-cap.js";
 import {
   composeSubagentSystemPrompt,
   SubagentRun,
@@ -164,7 +183,7 @@ import {
   composeModeSystemPrompt,
   DEFAULT_RUNTIME_SYSTEM_PROMPT,
 } from "./mode-prompts.js";
-import { clampThinkingLevel } from "./thinking-level.js";
+import { agentThinkingLevel, clampThinkingLevel, omitThinkingModel } from "./thinking-level.js";
 import {
   alignRetainedReasoningIdentity,
   harvestRetainedReasoning,
@@ -173,6 +192,7 @@ import {
 import { genericModelConfig, visionFromModelConfig } from "./model-capabilities.js";
 import type { ProjectInstructions } from "./project-instructions.js";
 import { projectInstructionsPrompt } from "./project-instructions-prompt.js";
+import type { CustomSystemPrompt } from "./custom-system-prompt.js";
 import { projectMemoryPrompt } from "./project-memory-prompt.js";
 import {
   pluginSkillsPrompt,
@@ -186,10 +206,20 @@ import {
 } from "./opencode-session-headers.js";
 import { withCompactionRequestHeaders } from "./compaction-request.js";
 import {
+  addSummaryUsage,
+  compactionSummaryInputLimit,
+  compactionSummaryOutputBudget,
   COMPACTION_SUMMARY_RETRY_POLICY,
   estimateSummaryPromptTokens,
+  planSummaryChunks,
   reduceSummaryInput,
 } from "./compaction-summary-input.js";
+import {
+  CHECKPOINT_TRUNCATION_MARKER,
+  COMPACTION_RETAINED_TAIL_SHAPE,
+  replayRetainedTail,
+  selectRecentTail,
+} from "./compaction-tail.js";
 import {
   mergeProviderHeaders,
   providerHeadersEqual,
@@ -206,12 +236,20 @@ import {
   isTransientProviderRetryCode,
   providerRateLimitDelayMs,
   providerSetupRetryDelayMs,
+  streamIdleTimeoutMs,
+  withStreamIdleTimeout,
 } from "./provider-retry.js";
-import { rebuildNodeNetworkTransport } from "./node-proxy.js";
 
+import {
+  ContextEstimateCalibration,
+  type ContextCalibration,
+} from "./context-calibration.js";
+
+import { rebuildNodeNetworkTransport } from "./node-proxy.js";
 import {
   createProviderTransportHealth,
   explainsProviderFetchFailure,
+  withProviderFetchFailure,
   type ProviderFetchFailure,
   type ProviderTransportHealth,
 } from "./provider-transport-recovery.js";
@@ -440,6 +478,14 @@ function delegationSummary(record: DelegationRecord): Record<string, unknown> {
     ...(record.completedAt ? { completedAt: record.completedAt } : {}),
     ...(record.result?.modelFailures ? { modelFailures: record.result.modelFailures } : {}),
     ...(record.result?.error ? { error: record.result.error } : {}),
+    // A delegate that compacted or lost history says so in its lifecycle
+    // details, not only in the report text (ADR 0299, decision 4).
+    ...(record.result?.contextCompactions
+      ? { contextCompactions: record.result.contextCompactions }
+      : {}),
+    ...(record.result?.contextDegraded
+      ? { contextDegraded: record.result.contextDegraded }
+      : {}),
     ...(record.resumedFrom ? { resumedFrom: record.resumedFrom } : {}),
     ...(record.modelChangedFrom
       ? { modelChangedFrom: record.modelChangedFrom }
@@ -530,30 +576,18 @@ function formatDelegationResults(
     includedDelegationIds,
   };
 }
-/**
- * Tokens held back from the context window for the summary prompt and the
- * model's own output. Compaction thresholds are derived from the active model's
- * window rather than configured, and this floor reproduces the reserve that
- * used to be the default setting, so the hard safety boundary is unchanged.
- */
-const COMPACTION_RESERVE_FLOOR_TOKENS = 16_384;
-/**
- * Retained-tail target as a share of the safe budget, bounded so a 32K window
- * still keeps a usable tail and a 1M window does not carry the whole session
- * forward. A single fixed token count cannot serve both.
- */
-const COMPACTION_KEEP_RECENT_RATIO = 0.2;
-const COMPACTION_MIN_KEEP_RECENT_TOKENS = 8_000;
-const COMPACTION_MAX_KEEP_RECENT_TOKENS = 64_000;
-/**
- * Cap on the user messages carried across a compaction boundary, matching
- * Codex's `COMPACT_USER_MESSAGE_MAX_TOKENS`. Clamped against the safe budget so
- * a small model window is not filled by retention alone.
- */
-const COMPACTION_RETAINED_USER_MESSAGE_MAX_TOKENS = 20_000;
-const COMPACTION_FALLBACK_KEEP_RECENT_RATIO = 0.25;
 const COMPACTION_FALLBACK_MAX_SUMMARY_CHARS = 12_000;
-const COMPACTION_SUMMARY_PROMPT_SAFETY_TOKENS = 2_048;
+/**
+ * Room held back from a fallback's tail for the recovery notice the checkpoint
+ * appends after the carried-forward summary.
+ */
+const COMPACTION_FALLBACK_NOTICE_TOKENS = 512;
+/**
+ * Share of the safe budget a failure's retained window may occupy. The window
+ * is bounded by the keep-recent target as well, so it never carries more
+ * history than a successful checkpoint would (`fallbackRetainedTail`).
+ */
+const COMPACTION_FALLBACK_KEEP_RECENT_RATIO = 0.25;
 export const COMPACTION_FALLBACK_MARKER =
   "[automatic context recovery: older context was omitted after summary generation failed]";
 /** Stored in place of a carried-forward summary when a fallback had none. */
@@ -581,6 +615,15 @@ function stripCompactionFallbackNotice(
   }
   return carried;
 }
+
+/**
+ * File operations for a summary chunk that must not re-append the checkpoint's
+ * file lists: the last chunk carries the real ones, so a chained summary names
+ * each file once.
+ */
+function emptyFileOps(): CompactionPreparation["fileOps"] {
+  return { read: new Set(), written: new Set(), edited: new Set() };
+}
 /** Path-scoped rules are best-effort and must not stall a file tool turn. */
 export const PATH_INSTRUCTION_RESOLUTION_TIMEOUT_MS = 2_000;
 const PATH_SCOPED_INSTRUCTION_TOOLS = new Set([
@@ -607,6 +650,7 @@ const AGENT_CORE_TOOL_NAMES = new Set([
 ]);
 const MAX_ON_DEMAND_TOOL_PROMPT_ENTRIES = 64;
 const MAX_TOOL_SEARCH_RESULT_NAMES = 24;
+
 
 /** Tools that ask the host to switch this session into a contract mode (D198). */
 const ENTER_TOOL_NAMES: Record<ProposalKind, string> = {
@@ -663,8 +707,6 @@ function pathInstructionScope(path: string): string {
   return slash >= 0 ? normalized.slice(0, slash) || "/" : ".";
 }
 
-const CHECKPOINT_TRUNCATION_MARKER =
-  "\n\n[checkpoint truncated: this message crossed the retained context budget]\n\n";
 /**
  * Appended for one automatic re-run after a turn that produced nothing the
  * user can see. Two shapes were observed: a wholly empty response, and a
@@ -805,24 +847,6 @@ function contextFallbackReminder(): string {
 }
 
 
-/**
- * Context thresholds derived from the active model's window.
- *
- * `hardLimit` is the safety boundary: the next provider request must not be
- * issued while the context is at or above it. Compaction happens inline at that
- * boundary, the way Codex does it — there is no off-critical-path variant.
- */
-type ContextBudget = {
-  /** Estimated tokens in the reconstructed model context. */
-  tokens: number;
-  /** Point where an uncompacted provider request is no longer allowed. */
-  hardLimit: number;
-  /** Tokens reserved for the request's own prompt and output. */
-  requestHeadroom: number;
-  /** Approximate recent-context tokens a checkpoint should retain. */
-  keepRecentTokens: number;
-};
-
 export type PluginToolDef = {
   /** Full exposed name (`plugin_<pluginIdSafe>_<toolName>`, D015). */
   name: string;
@@ -846,10 +870,12 @@ export type AgentRuntimeOptions = {
   /** Durable host turn ID for the current prompt, used by plan identity. */
   turnId?: string;
   provider: RuntimeProviderConfig;
-  thinkingLevel: ThinkingLevel;
-  /** Attach vendor hosted-search tools for this session when the wire API allows. */
-  nativeWebSearch?: boolean;
+  thinkingLevel: SessionThinkingLevel;
+  /** Persisted opt-in for retrying transient provider failures until success. */
+  infiniteProviderRetry?: boolean;
   systemPrompt?: string;
+  /** pi-compatible SYSTEM.md / APPEND_SYSTEM.md resolved for the session (issue #542). */
+  customSystemPrompt?: CustomSystemPrompt;
   /** Session-bound workspace root used for path-scoped instruction requests. */
   projectPath?: string;
   /** Instructions resolved from the session's workspace. */
@@ -900,11 +926,11 @@ export type AgentRuntimeOptions = {
 export type RuntimeMatchConfig = {
   mode: Mode;
   provider: RuntimeProviderConfig;
-  thinkingLevel: ThinkingLevel;
-  nativeWebSearch?: boolean;
+  thinkingLevel: SessionThinkingLevel;
   pluginTools?: PluginToolDef[];
   pluginSkills?: PluginSkillDef[];
   trustedExtensions?: TrustedExtensionSpec[];
+  customSystemPrompt?: CustomSystemPrompt;
   projectInstructions?: ProjectInstructions;
   projectMemory?: string;
   projectPath?: string;
@@ -1009,12 +1035,26 @@ type CheckpointBuildSuccess = {
   preparation: ShapedPreparation;
 };
 
+/**
+ * Why a checkpoint had to fall back, recorded on the fallback's `details` so a
+ * later report says more than `usage: null` does (issue #827). Deliberately a
+ * closed vocabulary: provider error text can carry endpoint details, and ADR
+ * 0049 keeps it out of the persisted record.
+ */
+type CompactionFailureReason =
+  | "no_new_history"
+  | "summary_budget"
+  | "summary_provider"
+  | "checkpoint_oversized";
+
 type CheckpointBuildFailure = {
   ok: false;
   entries: Entry[];
   budget: ContextBudget;
   preparation?: ShapedPreparation;
   message: string;
+  /** Recorded on the fallback checkpoint when this failure recovers to one. */
+  failureReason?: CompactionFailureReason;
   tokensBefore?: number;
   /**
    * False when the failure must be reported as-is instead of falling back to a
@@ -1036,11 +1076,29 @@ function compactionRetentionMode(details: unknown): CompactionRetentionMode {
     : "active_turn";
 }
 
+/**
+ * The messages a stored checkpoint replays as real context after its summary.
+ *
+ * A checkpoint that recorded {@link COMPACTION_RETAINED_TAIL_SHAPE} keeps the
+ * whole window it stored: it is a failed compaction's only record of the range
+ * behind it, so narrowing the tail back to one user message would reinstate
+ * exactly the amnesia the window fixes (#827). Records written before that
+ * marker existed — and every successful checkpoint — keep the older
+ * normalization: at most the latest user message, and none at all once the turn
+ * is complete, so a restart cannot restore a sequence of executable-looking old
+ * requests.
+ */
 function retainedTailForContext(
   value: unknown,
   details?: unknown,
 ): AgentMessage[] | undefined {
   if (!Array.isArray(value)) return undefined;
+  if (
+    isRecord(details) &&
+    details.retainedTailShape === COMPACTION_RETAINED_TAIL_SHAPE
+  ) {
+    return replayRetainedTail(value) ?? [];
+  }
   const messages = value
     .filter(isRecord)
     .filter((message) => message.role === "user") as unknown as AgentMessage[];
@@ -1278,17 +1336,9 @@ function appendToolProgress(current: string, chunk: string): string {
   }`;
 }
 
+/** Bound a checkpoint message's text, naming the cut the way pi's tail does. */
 function truncateTextForCheckpoint(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  if (maxChars <= CHECKPOINT_TRUNCATION_MARKER.length) {
-    return CHECKPOINT_TRUNCATION_MARKER.trim().slice(0, maxChars);
-  }
-  const retainedChars = maxChars - CHECKPOINT_TRUNCATION_MARKER.length;
-  const headChars = Math.ceil(retainedChars * 0.75);
-  const tailChars = retainedChars - headChars;
-  return `${text.slice(0, headChars)}${CHECKPOINT_TRUNCATION_MARKER}${
-    tailChars > 0 ? text.slice(-tailChars) : ""
-  }`;
+  return truncateTextWithMarker(text, maxChars, CHECKPOINT_TRUNCATION_MARKER);
 }
 
 /**
@@ -1404,10 +1454,14 @@ function toolResultFromUi(
     toolCallId: m.toolCallId ?? "",
     toolName: m.toolName ?? "",
     content: blocks,
-    ...(isRecord(raw) && raw.details !== undefined
-      ? { details: raw.details }
+    ...(toJsonValue(rawRecord?.details) !== undefined || addedToolNames.length > 0
+      ? {
+          details: {
+            ...toJsonObject(rawRecord?.details),
+            ...(addedToolNames.length > 0 ? { addedToolNames } : {}),
+          },
+        }
       : {}),
-    ...(addedToolNames.length > 0 ? { addedToolNames } : {}),
     isError:
       interrupted ||
       m.toolStatus === "error" ||
@@ -1433,7 +1487,7 @@ function estimateToolTokenUsage(
         type: "toolCall" as const,
         id: toolCallId,
         name: toolName,
-        arguments: isRecord(args) ? args : { value: args },
+        arguments: toJsonObject(isRecord(args) ? args : { value: args }),
       },
     ],
     api: model.api,
@@ -1484,13 +1538,12 @@ export class DesktopAgentRuntime {
   readonly sessionId: string;
   private mode: Mode;
   private provider: RuntimeProviderConfig;
-  private thinkingLevel: ThinkingLevel;
-  private nativeWebSearch: boolean;
-
+  private thinkingLevel: SessionThinkingLevel;
   private host: RuntimeHost;
   private onEvent: (envelope: AgentEventEnvelope) => void;
   private streamSink: StreamCoalescer;
   private baseSystemPrompt: string;
+  private customSystemPrompt?: CustomSystemPrompt;
   private planningState: PlanningState;
   private pendingPlanId?: string;
   private currentAssistant?: UiMessage;
@@ -1580,6 +1633,13 @@ export class DesktopAgentRuntime {
   private providerRequestBytes?: number;
   private providerRequestMessages?: number;
   /**
+   * The estimate that describes the provider attempt in flight, parked by
+   * `streamFn` and consumed when that attempt settles with a usage report.
+   * Without the pair there is nothing to measure the estimator against.
+   */
+  private inFlightContextEstimate?: ContextCalibration;
+  private readonly contextCalibration = new ContextEstimateCalibration();
+  /**
    * Transport cause of the last provider attempt that rejected before any
    * response arrived, captured where the original Error still exists. pi-ai
    * only forwards a flattened `errorMessage`, so without this the real errno is
@@ -1595,13 +1655,12 @@ export class DesktopAgentRuntime {
   private readonly providerTransportHealth: ProviderTransportHealth =
     createProviderTransportHealth();
   private pendingProviderRetry?: ReturnType<typeof classifyAgentError>;
-  /**
-   * Shared bounded retry count for non-rate-limit transient failures, counted
-   * across the request-setup and stream phases (D259).
-   */
+  /** Non-429 setup + stream failures since the last successful response. */
   private providerTransientRetryAttempt = 0;
   /** Shared OpenCode-style 429 retry count across setup and stream phases. */
   private providerRateLimitRetryAttempt = 0;
+  /** Opt-in mode removes only the retry-count ceiling; abort and backoff stay intact. */
+  private infiniteProviderRetry = false;
   private activeProviderRetryAttempt = 0;
   private providerRetryInProgress = false;
   private suppressProviderRetryRunEnd = false;
@@ -1689,7 +1748,7 @@ export class DesktopAgentRuntime {
     this.planningState = proposalKindForMode(this.mode) ? "planning" : "inactive";
     this.provider = opts.provider;
     this.thinkingLevel = clampThinkingLevel(opts.provider, opts.thinkingLevel);
-    this.nativeWebSearch = opts.nativeWebSearch === true;
+    this.infiniteProviderRetry = opts.infiniteProviderRetry === true;
     this.host = opts.host;
     this.hostCloseUnsubscribe = this.host.onClose?.(() => {
       this.cleanupActiveToolProgress();
@@ -1711,6 +1770,7 @@ export class DesktopAgentRuntime {
     this.commandShell = opts.commandShell;
     this.scratchDir = opts.scratchDir;
     this.projectPath = opts.projectPath?.trim() || undefined;
+    this.customSystemPrompt = opts.customSystemPrompt;
     this.baseProjectInstructions = opts.projectInstructions;
     this.projectInstructions = opts.projectInstructions;
     this.projectMemory = opts.projectMemory?.trim() || undefined;
@@ -1732,7 +1792,9 @@ export class DesktopAgentRuntime {
       rebuildChainsFromTranscript(this.transcriptHistory),
     );
     const skillsPrompt = pluginSkillsPrompt(this.pluginSkills);
-    const defaultSystemPrompt = [
+    // Parts: [0] is the product persona; [1:] are operational rules a custom
+    // SYSTEM.md must not remove (tool guidance, delegation, scratch, skills).
+    const defaultSystemPromptParts = [
       DEFAULT_RUNTIME_SYSTEM_PROMPT,
       // Collaboration rules. Measured sessions ran hours with 380 assistant
       // messages and exactly one non-empty text body: a reasoning model reads
@@ -1792,8 +1854,18 @@ Delegation rules:
       // path-scoped instruction reload never drops it, and it stays ahead of
       // the instruction chain so the user's own AGENTS.md keeps the last word.
       ...(skillsPrompt ? [skillsPrompt] : []),
+    ];
+    // A custom SYSTEM.md replaces only the product persona line, never the
+    // operational rules in the default parts: tool guidance, delegation
+    // steering and scratch mechanics keep the desktop working (issue #542).
+    this.baseSystemPrompt = [
+      (
+        opts.customSystemPrompt?.replace ??
+        opts.systemPrompt ??
+        DEFAULT_RUNTIME_SYSTEM_PROMPT
+      ).trim(),
+      ...defaultSystemPromptParts.slice(1),
     ].join("\n\n");
-    this.baseSystemPrompt = opts.systemPrompt ?? defaultSystemPrompt;
     this.agent = new Agent({
       streamFn: (m, context, options) => {
         this.setAgentActivity({ phase: "waiting-model", since: Date.now() });
@@ -1801,6 +1873,15 @@ Delegation rules:
         this.providerRetryHeaders = undefined;
         this.providerRequestBytes = undefined;
         this.providerRequestMessages = context.messages?.length;
+        // Park what this request is expected to cost, so the usage report that
+        // settles it can be measured against it (`contextBudget` corrects the
+        // same shape).
+        // The target model travels with the estimate: hosted search only
+        // costs what this model's adapter will actually replay.
+        this.inFlightContextEstimate = estimateContextTokens(
+          context.messages ?? [],
+          m,
+        );
         // A new model request starts a new transport streak: the evidence that
         // justified a rebuild does not carry into the next request (issue #234).
         this.providerFetchFailure = undefined;
@@ -1811,42 +1892,26 @@ Delegation rules:
               ...options,
               maxRetries: PROVIDER_REQUEST_MAX_RETRIES,
               sessionId: this.sessionId,
-              onPayload: async (payload, payloadModel) => {
-                const rewritten = await options?.onPayload?.(payload, payloadModel);
-                const current = rewritten ?? payload;
-                if (!this.nativeWebSearch) return current;
-                return attachNativeWebSearchToPayload(current, {
-                  api: payloadModel.api,
-                  apiStyle: this.provider.apiStyle,
-                  vendorKey: this.provider.vendorKey,
-                  baseUrl: this.provider.baseUrl ?? payloadModel.baseUrl,
-                });
-
-
-              },
               // pi-ai only exposes onResponse after a request succeeds. Capture the
               // failed response separately so a 429 can honor Retry-After headers,
               // and capture the transport cause of a rejection while the original
               // Error still exists (issue #234).
-              fetch: async (input, init) => {
-                const captured = captureProviderResponse(
-                  options?.fetch,
-                  (response, requestBytes, failure) => {
-                    this.providerResponseStatus = response?.status;
-                    this.providerRequestBytes = requestBytes;
-                    this.providerFetchFailure = failure;
-                    if (failure) this.recoverProviderTransport(failure);
-                    this.providerRetryHeaders = carriesRetryDelayHeaders(
-                      response?.status,
-                    )
-                      ? response?.headers
-                      : undefined;
-                  },
-                );
-                const response = await captured(input, init);
-                this.ingestHostedSearchStream(response);
-                return response;
-              },
+              fetch: captureProviderResponse(
+                options?.fetch,
+                (response, requestBytes, failure) => {
+                  this.providerResponseStatus = response?.status;
+                  this.providerRequestBytes = requestBytes;
+                  this.providerFetchFailure = failure;
+                  if (failure) this.recoverProviderTransport(failure);
+                  // A gateway 502/503 can also state Retry-After, so keep headers
+                  // for every status whose delay is usable, not only for 429.
+                  this.providerRetryHeaders = carriesRetryDelayHeaders(
+                    response?.status,
+                  )
+                    ? response?.headers
+                    : undefined;
+                },
+              ),
               onResponse: async (response, responseModel) => {
                 this.providerResponseStatus = response.status;
                 await options?.onResponse?.(response, responseModel);
@@ -1863,11 +1928,35 @@ Delegation rules:
           ),
         );
         const hookedOptions = this.withExtensionProviderHooks(requestOptions, m);
-        return createProviderRetryStream(
+        // The watchdog must be able to *stop* what it abandons. It wraps the
+        // retry adapter, so draining alone would let the adapter wake from its
+        // backoff and open a second request for this turn while the runtime is
+        // already re-running the turn — two provider requests and two bills for
+        // one answer. So the stall trips a signal this request owns, combined
+        // with pi's own run signal (Stop must keep working): the adapter refuses
+        // to start an attempt on an aborted signal, and its backoff sleep rejects.
+        const stallAbort = new AbortController();
+        const attemptOptions: SimpleStreamOptions = {
+          ...hookedOptions,
+          // Cap the output budget at the pi-desktop layer so the estimate
+          // holds for both adapter branches: `streamSimple` re-derives
+          // max_tokens, but the low-level `stream` path used by
+          // `thinkingLevel: "omit"` would otherwise send it untouched, and
+          // both consume an estimate that under-counts CJK text (issue B).
+          maxTokens: clampOutputToContext(m, context, hookedOptions.maxTokens),
+          signal: AbortSignal.any([
+            ...(hookedOptions.signal ? [hookedOptions.signal] : []),
+            stallAbort.signal,
+          ]),
+        };
+        const retryStream = createProviderRetryStream(
           m,
           context,
-          hookedOptions,
-          (retryOptions) => this.models.streamSimple(m, context, retryOptions),
+          attemptOptions,
+          (retryOptions) =>
+            this.thinkingLevel === "omit"
+              ? this.models.stream(omitThinkingModel(m), context, retryOptions)
+              : this.models.streamSimple(m, context, retryOptions),
           {
             claim: (error, phase) => this.claimProviderRetry(error, phase),
             headers: () => this.providerRetryHeaders,
@@ -1878,30 +1967,40 @@ Delegation rules:
                 phase: "retrying",
                 since: Date.now(),
                 attempt,
+                ...(this.infiniteProviderRetry ? { infinite: true } : {}),
                 retryDelayMs: delayMs,
                 error: this.retryActivityError(error),
               });
             },
           },
         );
+        // Zero-event idle watchdog: a stream that emits nothing for the
+        // configured budget ends as a STREAM_FAILED error and re-enters the
+        // shared transient retry path instead of hanging the turn on a
+        // connection the provider never closes.
+        return withStreamIdleTimeout(retryStream, m, streamIdleTimeoutMs(), () =>
+          stallAbort.abort(),
+        );
       },
       // A vendor account has no long-lived key. Leaving it unset keeps pi-ai
       // from overriding the auth the provider just resolved for this request.
       getApiKey: async () => runtimeApiKey || undefined,
+      // The provider's rule that a tool-call id is unique is enforced here, on
+      // the last view before the wire: the request is the only place it can be
+      // guaranteed for both a rebuilt context and one that grew in this process.
       convertToLlm: (messages) =>
         alignRetainedReasoningIdentity(
-          convertToLlm(messages),
+          convertToLlm(this.dropDuplicateToolCalls(messages)),
           this.reasoningReplayIdentity(),
         ),
       prepareNextTurnWithContext: (context, signal) =>
         this.prepareNextTurn(context, signal),
       afterToolCall: async (context) => this.afterToolCall(context),
       initialState: {
-        systemPrompt: this.composeSystemPrompt(),
         model,
         tools,
-        thinkingLevel: this.thinkingLevel,
-        messages: this.liveSessionContext().messages,
+        thinkingLevel: agentThinkingLevel(this.thinkingLevel),
+        messages: initialSystemTranscript(this.composeSystemPrompt(), tools, this.liveSessionContext().messages),
       },
       // Plan transitions must be the only tool call in an assistant batch.
       // Sequential execution also makes the host-confirmed mode change visible
@@ -1946,6 +2045,12 @@ Delegation rules:
     );
   }
 
+  /** Update the opt-in retry policy without rebuilding an idle runtime. */
+  setInfiniteProviderRetry(enabled: boolean): void {
+    if (this.disposed) throw new Error("runtime disposed");
+    this.infiniteProviderRetry = enabled;
+  }
+
   /** Switch the planning state on this Agent without creating another Agent. */
   setMode(mode: Mode): void {
     if (this.disposed) throw new Error("runtime disposed");
@@ -1962,13 +2067,55 @@ Delegation rules:
     this.activeDeferredToolNames.clear();
     this.rebuildToolCatalog();
     this.restoreDeferredToolsFromContext();
-    this.agent.state.systemPrompt = this.composeSystemPrompt();
-    this.agent.state.tools = this.activeTools();
+    this.setAgentSystemPrompt(this.composeSystemPrompt());
+    this.setAgentTools(this.activeTools());
     this.setPlanningState(planningState, details);
   }
 
   getMode(): Mode {
     return this.mode;
+  }
+
+  private agentUsesTranscriptSystemMessages(): boolean {
+    let current: object | null = this.agent.state as unknown as object;
+    while (current) {
+      const descriptor = Object.getOwnPropertyDescriptor(current, "systemPrompt");
+      if (descriptor) return typeof descriptor.get === "function" && !descriptor.set;
+      current = Object.getPrototypeOf(current) as object | null;
+    }
+    return false;
+  }
+
+  private setAgentSystemPrompt(prompt: string): void {
+    if (!this.agentUsesTranscriptSystemMessages()) {
+      (this.agent.state as unknown as { systemPrompt: string }).systemPrompt = prompt;
+      return;
+    }
+    this.agent.state.messages = replaceSystemPrompt(this.agent.state.messages, prompt);
+  }
+
+  private setAgentMessages(messages: AgentMessage[]): void {
+    if (!this.agentUsesTranscriptSystemMessages()) {
+      this.agent.state.messages = messages;
+      return;
+    }
+    this.agent.state.messages = syncSystemTools(
+      rebuildSystemTranscript(this.agent.state.messages, messages),
+      this.agent.state.tools,
+    );
+  }
+
+  private setAgentTools(tools: AgentTool[]): void {
+    this.agent.state.tools = tools;
+    if (this.agentUsesTranscriptSystemMessages()) {
+      this.agent.state.messages = syncSystemTools(this.agent.state.messages, tools);
+    }
+  }
+
+  private agentSystemPromptContent(): string {
+    return this.agentUsesTranscriptSystemMessages()
+      ? systemPromptContent(this.agent.state.messages)
+      : this.agent.state.systemPrompt;
   }
 
   private composeSystemPrompt(): string {
@@ -1985,6 +2132,7 @@ Delegation rules:
       this.mode,
       [
         this.baseSystemPrompt,
+        ...(this.customSystemPrompt?.append ? [this.customSystemPrompt.append] : []),
         ...(optionalToolsPrompt ? [optionalToolsPrompt] : []),
         ...(projectPrompt ? [projectPrompt] : []),
         ...(memoryPrompt ? [memoryPrompt] : []),
@@ -2006,14 +2154,14 @@ Delegation rules:
     if (this.subagents.length === 0) return;
     if (!this.agent) return;
     if (this.composedSystemPrompt === undefined) return;
-    if (this.agent.state.systemPrompt !== this.composedSystemPrompt) {
+    if (this.agentSystemPromptContent() !== this.composedSystemPrompt) {
       // A transient variant (the delegation nudge) owns the live prompt. Its
       // own cleanup restores the composed text, and applies this refresh then,
       // so a chain that settled mid-nudge is still listed on the next turn.
       this.resumablePromptStale = true;
       return;
     }
-    this.agent.state.systemPrompt = this.composeSystemPrompt();
+    this.setAgentSystemPrompt(this.composeSystemPrompt());
   }
 
   /** Apply a resumable-list refresh that a transient prompt variant deferred. */
@@ -2233,11 +2381,14 @@ Delegation rules:
       this.mode === config.mode &&
       this.thinkingLevel ===
         clampThinkingLevel(config.provider, config.thinkingLevel) &&
-      this.nativeWebSearch === (config.nativeWebSearch === true) &&
       current === next &&
       safeJson(this.commandShell) === safeJson(config.commandShell) &&
       safeJson(this.baseProjectInstructions ?? null) ===
         safeJson(config.projectInstructions ?? null) &&
+      // Editing SYSTEM.md / APPEND_SYSTEM.md retires the runtime so the next
+      // prompt recomposes from the fresh content.
+      safeJson(this.customSystemPrompt ?? null) ===
+        safeJson(config.customSystemPrompt ?? null) &&
       (this.projectMemory ?? "") === (config.projectMemory?.trim() ?? "") &&
       (this.projectPath ?? "") === (config.projectPath?.trim() ?? "") &&
       // Enabling a plugin, revoking agent.prompt.inject or renaming a skill
@@ -2274,7 +2425,7 @@ Delegation rules:
     await runner.load();
     if (this.disposed) return;
     this.rebuildToolCatalog();
-    this.agent.state.tools = this.activeTools();
+    this.setAgentTools(this.activeTools());
   }
 
   /** Run a registered extension slash command in this session (spec 16 §8). */
@@ -2311,7 +2462,7 @@ Delegation rules:
     });
     this.thinkingLevel = clampThinkingLevel(this.provider, this.thinkingLevel);
     this.agent.state.model = model;
-    this.agent.state.thinkingLevel = this.thinkingLevel;
+    this.agent.state.thinkingLevel = agentThinkingLevel(this.thinkingLevel);
   }
 
   async activateTrustedExtensionAgent(agentKey: string, modelId: string): Promise<boolean> {
@@ -2321,7 +2472,7 @@ Delegation rules:
     return true;
   }
 
-  private async setExtensionModel(model: unknown): Promise<boolean> {
+  private async setExtensionModel(model: unknown, signal?: AbortSignal): Promise<boolean> {
     if (!this.extensionRunner || !this.isIdle()) return false;
     const agent = this.extensionRunner.findAgentModel(model);
     if (!agent) return false;
@@ -2338,7 +2489,7 @@ Delegation rules:
         modelId: candidate.id,
         thinkingLevel: this.thinkingLevel,
       });
-      if (result?.ok === false) return false;
+      if (signal?.aborted || this.disposed || result?.ok === false) return false;
       this.applyExtensionAgent(agent, candidate);
       return true;
     } catch {
@@ -2380,9 +2531,9 @@ Delegation rules:
       sessionId: this.sessionId,
       cwd: this.projectPath ?? process.cwd(),
       getModel: () => runtime.model,
-      setModel: (model) => runtime.setExtensionModel(model),
+      setModel: (model, signal) => runtime.setExtensionModel(model, signal),
       modelRegistry: runtime.extensionModelRegistry(),
-      getThinkingLevel: () => runtime.thinkingLevel,
+      getThinkingLevel: () => agentThinkingLevel(runtime.thinkingLevel),
       setThinkingLevel: (level) => {
         runtime.thinkingLevel = clampThinkingLevel(runtime.provider, level as ThinkingLevel);
       },
@@ -2418,18 +2569,19 @@ Delegation rules:
           if (wanted.has(name)) runtime.activeDeferredToolNames.add(name);
           else runtime.activeDeferredToolNames.delete(name);
         }
-        runtime.agent.state.tools = runtime.activeTools();
+        runtime.setAgentTools(runtime.activeTools());
       },
       getSessionName: () => runtime.extensionSessionName,
-      setSessionName: async (name) => {
-        runtime.extensionSessionName = name;
+      setSessionName: async (name, signal) => {
         await runtime.host.call("session.rename", { id: runtime.sessionId, title: name });
+        if (signal?.aborted || runtime.disposed) return;
+        runtime.extensionSessionName = name;
         void runtime.extensionRunner?.emit("session_info_changed", {
           type: "session_info_changed",
           name,
         });
       },
-      sendUserMessage: async (content, options) => {
+      sendUserMessage: async (content, options, signal) => {
         const text = Array.isArray(content)
           ? content
               .map((part) => (isRecord(part) && typeof part.text === "string" ? part.text : ""))
@@ -2443,7 +2595,7 @@ Delegation rules:
           idempotencyKey: randomUUID(),
           content: text,
         });
-        if (options?.deliverAs === "steer" && pushed?.id) {
+        if (!signal?.aborted && !runtime.disposed && options?.deliverAs === "steer" && pushed?.id) {
           await runtime.host
             .call("session.queuePrioritize", { sessionId: runtime.sessionId, id: pushed.id })
             .catch(() => undefined);
@@ -2472,18 +2624,13 @@ Delegation rules:
           return { cancelled: true };
         }
       },
-      requestUi: (extension, request) =>
-        runtime.host.call<TrustedExtensionUiResponse>("extensions.ui.request", {
+      requestUi: (extension, request, signal) => requestExtensionUi(
+        (envelope) => runtime.host.call<TrustedExtensionUiResponse>("extensions.ui.request", envelope), {
           sessionId: runtime.sessionId,
           extensionId: extension.id,
           extensionLabel: extension.label,
           request,
-        } satisfies {
-          sessionId: string;
-          extensionId: string;
-          extensionLabel: string;
-          request: TrustedExtensionUiRequest;
-        }),
+        }, signal),
       publishCommands: (commands: TrustedExtensionCommand[]) => {
         void runtime.host
           .call("extensions.commands.publish", { sessionId: runtime.sessionId, commands })
@@ -2502,13 +2649,13 @@ Delegation rules:
   }
 
   /* Rebuild pi-ai messages from the persisted transcript, including tool
-   * call/result pairs — tool rows persist toolCallId/toolName/toolArgs and
-   * the result (including deferred-tool activation markers), which is
-   * everything the model context needs. Losing them
-   * (the pre-D120 behavior) collapsed a reseeded session to bare chat text:
-   * the model forgot every file it had read and, seeing its own history
-   * "answer" without visible tool use, stopped calling tools altogether.
-   * Failed assistant turns stay transcript-only. */
+   * call/result pairs and hosted-search replay blocks. Tool rows persist
+   * toolCallId/toolName/toolArgs and the result (including deferred-tool
+   * activation markers). Hosted search persists the adapter's raw content
+   * parts on `hostedSearch.replay` so Anthropic/Responses can ground later
+   * turns after a restart. Losing either (the pre-D120 tool behavior)
+   * collapsed a reseeded session to bare chat text. Failed assistant turns
+   * stay transcript-only. */
   private historyToEntries(history: UiMessage[]): MessageEntry[] {
     const api = apiBindingForProviderModel(this.provider).api;
     const deepSeekCompletionsReplay =
@@ -2578,6 +2725,7 @@ Delegation rules:
               : {}),
           });
         }
+        content.push(...restoreHostedSearchReplay(m.hostedSearch));
         if (m.content?.trim()) {
           content.push({ type: "text" as const, text: m.content });
         }
@@ -2617,9 +2765,7 @@ Delegation rules:
           type: "toolCall",
           id: m.toolCallId,
           name: m.toolName,
-          arguments: isRecord(m.toolArgs)
-            ? (m.toolArgs as Record<string, unknown>)
-            : {},
+          arguments: toJsonObject(m.toolArgs),
         });
         toolCarrier.stopReason = "toolUse";
         append(m.id, toolResultFromUi(m, timestamp));
@@ -2629,6 +2775,29 @@ Delegation rules:
       (entry) =>
         entry.message.role !== "assistant" || entry.message.content.length > 0,
     );
+  }
+
+  /**
+   * A `tool_use` id has to be unique across the request: Anthropic-family
+   * endpoints (DeepSeek's included) reject the whole turn with "tool_use ids
+   * must be unique" (issue #718), and a session that hits that 400 cannot
+   * continue. Every message the next request carries passes through here, so
+   * this is the one place that can guarantee the provider's rule for both a
+   * rebuilt context and one that grew during this process.
+   *
+   * The transcript is append-only and tolerates a retried append, so the same
+   * call can reach the request twice: under the same row id (which the host's
+   * keep-last dedupe already collapses) or a new one (which it cannot). The
+   * first occurrence wins, and a later call *or* a later result for that id is
+   * dropped, so the pair the provider validates stays well-formed — one call,
+   * one result. What was dropped is logged with its ids, because the next
+   * report of this should name the writer instead of only the provider's
+   * sentence.
+   */
+  private dropDuplicateToolCalls(messages: AgentMessage[]): AgentMessage[] {
+    const drop = dedupeToolCallMessages(messages);
+    reportDuplicateToolCallDrop(this.sessionId, drop);
+    return drop.messages;
   }
 
   private entriesWithCompaction(
@@ -2689,6 +2858,8 @@ Delegation rules:
     const externalPathHint =
       " An explicit path outside the workspace and session scratch roots requires permission unless the effective mode is Auto.";
     const describe = (toolName: string): string => {
+      if (toolName === "GenerateImages") return imageGenerationDescription;
+      if (scheduledToolDescriptions[toolName]) return scheduledToolDescriptions[toolName];
       switch (toolName) {
         case "BrowserPreview":
           return "Open a workspace HTML file in PI-Desktop's built-in browser panel. `path` is workspace-relative (e.g. \"demo/index.html\"). The preview live-reloads on later edits to the file or its sibling assets, so call once per page.";
@@ -2740,6 +2911,7 @@ Delegation rules:
     // One entry per tool: the shapes diverge enough that a chain of ternaries
     // stopped being readable.
     const parameters: Record<string, Parameters<typeof Type.Object>[0]> = {
+      GenerateImages: imageGenerationParameters,
       Read: {
         path: pathParam(
           "Existing regular file only, never a directory; workspace-relative or explicitly approved.",
@@ -2886,7 +3058,7 @@ Delegation rules:
             })
           : undefined;
         const abort = () => {
-          if (!isBash || abortRequested || settled) return;
+          if ((!isBash && toolName !== "GenerateImages") || abortRequested || settled) return;
           abortRequested = true;
           abortPromise = this.host
             .call("tools.abort", {
@@ -3120,7 +3292,7 @@ Delegation rules:
         label: toolName,
         description: describe(toolName),
         parameters: Type.Object(
-          parameters[toolName] ?? { command: Type.String() },
+          scheduledToolParameters[toolName] ?? parameters[toolName] ?? { command: Type.String() },
         ),
         // Normalizing here, above the write lock, means every consumer below
         // this line — the lock key, the host call, the transcript record — sees
@@ -3199,7 +3371,7 @@ Delegation rules:
           ]
         : ["Read", "Glob", "Grep", "BrowserPreview", "Bash"];
     if (this.mode === "agent") {
-      tools.push("PluginScaffold", "PluginPack");
+      tools.push("PluginScaffold", "PluginPack", "GenerateImages", ...Object.keys(scheduledToolParameters));
     }
     const builtins = tools.map(exec);
 
@@ -3473,7 +3645,6 @@ Delegation rules:
         return {
           content: [{ type: "text", text }],
           details: { query, matches, activated },
-          ...(activated.length > 0 ? { addedToolNames: activated } : {}),
         };
       },
     };
@@ -3587,18 +3758,22 @@ Delegation rules:
    * On-demand model resolution for Task-time model overrides. Asks Electron
    * main to authorize and resolve a `providerId/modelId` key outside the
    * opted-in launch catalog. Grants live in a separate cache so they cannot
-   * rewrite definition pins or change launch-time reuse matching.
+   * rewrite definition pins or change launch-time reuse matching. Each new
+   * parent turn replaces the cache so revoked grants must be authorized again.
    */
   private async resolveSubagentModel(
     key: string,
   ): Promise<RuntimeProviderConfig | undefined> {
-    const cached = this.subagentOverrideProviders[key];
+    const grants = this.subagentOverrideProviders;
+    const cached = grants[key];
     if (cached) return cached;
     try {
       const result = await (this.host as any).call(
         "provider.resolveSubagentModel",
         { key },
       );
+      // A late response cannot authorize work in a newer turn or after disposal.
+      if (this.disposed || grants !== this.subagentOverrideProviders) return undefined;
       if (result && typeof result === "object" && "modelId" in result) {
         const provider = result as RuntimeProviderConfig;
         const pinned = this.subagentProviders[key];
@@ -3617,7 +3792,7 @@ Delegation rules:
               providerId: provider.id,
             });
         }
-        this.subagentOverrideProviders[key] = provider;
+        grants[key] = provider;
         return provider;
       }
     } catch {
@@ -3810,29 +3985,35 @@ Delegation rules:
   /**
    * The binding a resumed run keeps (ADR 0279 §4). A live chain records the
    * `providerId/modelId` key it resolved, which is preferred here; a chain
-   * rebuilt from the transcript only knows the model id, matched against what
-   * is configured in this session. `undefined` means the binding is gone.
+   * rebuilt from the transcript only knows the model id. Both paths are limited
+   * to this definition's pins, session inheritance, and current override grants.
    */
-  private resumedChainProvider(
+  private async resumedChainProvider(
     chain: DelegationChain,
-  ): RuntimeProviderConfig | undefined {
+    definition: SubagentDefinition,
+  ): Promise<RuntimeProviderConfig | undefined> {
     const modelId = chain.latestModelId?.trim().toLowerCase();
     if (!modelId) return undefined;
-    const candidates: RuntimeProviderConfig[] = [];
+    const keys = new Set(this.availableSubagentModelKeys());
+    if (definition.model) keys.add(subagentModelKey(definition.model));
+    for (const pin of definition.fallbackModels ?? []) keys.add(subagentModelKey(pin));
+    const binding = (key: string) => keys.has(key)
+      ? this.subagentProviders[key] ?? this.subagentOverrideProviders[key]
+      : undefined;
+    const matches = (candidate: RuntimeProviderConfig | undefined) =>
+      candidate?.modelId.trim().toLowerCase() === modelId;
     if (chain.latestModelKey) {
-      const keyed =
-        this.subagentProviders[chain.latestModelKey] ??
-        this.subagentOverrideProviders[chain.latestModelKey];
-      if (keyed) candidates.push(keyed);
+      const keyed = binding(chain.latestModelKey) ??
+        await this.resolveSubagentModel(chain.latestModelKey);
+      // A known binding must not silently become a different account with the
+      // same model id after its grant disappears.
+      return matches(keyed) ? keyed : undefined;
     }
-    candidates.push(
-      ...Object.values(this.subagentProviders),
-      ...Object.values(this.subagentOverrideProviders),
+    return [
+      this.subagentProvider(definition),
       this.provider,
-    );
-    return candidates.find(
-      (candidate) => candidate.modelId.trim().toLowerCase() === modelId,
-    );
+      ...[...keys].map(binding),
+    ].find(matches);
   }
 
   /** The delegation-model key a resolved binding is registered under, if any. */
@@ -3865,11 +4046,16 @@ Delegation rules:
     if (!originalTask) return undefined;
     const rows = selectChainRows(this.transcriptHistory, chain);
     if (rows.length === 0) return undefined;
+    // The seed is truncated against the delegate's own budget (ADR 0299 §7),
+    // derived from the same model the resumed run will use, so the first
+    // request fits the window instead of overflowing on arrival.
+    const model = buildProviderModel(provider);
     return seedDelegateMessages({
       originalTask,
       rows,
       provider,
-      model: buildProviderModel(provider),
+      model,
+      budget: contextBudgetLimitsFor(model),
     });
   }
 
@@ -4033,13 +4219,6 @@ Delegation rules:
           );
         }
         const startedAt = Date.now();
-        const running = this.runningDelegations().length;
-        if (running >= MAX_SUBAGENT_CONCURRENCY) {
-          return this.subagentToolError(
-            toolCallId,
-            `${MAX_SUBAGENT_CONCURRENCY} subagents are already running for this session. Wait for some with TaskWait or stop them with TaskStop before delegating more.`,
-          );
-        }
         // The delegate runs in the background (ADR 0089): `Task` returns
         // immediately with a delegation id, and TaskWait converges later.
         const resumeLookup = resume
@@ -4054,9 +4233,24 @@ Delegation rules:
         // never swap models by accident. When the recorded binding is gone the
         // run continues on the definition's current one and says so in its
         // lifecycle details, because refusing would strand the chain forever.
+        const resumeEpoch = this.turnEpoch;
         const resumedProvider = resumedChain
-          ? this.resumedChainProvider(resumedChain)
+          ? await this.resumedChainProvider(resumedChain, definition)
           : undefined;
+        if (this.disposed || this.runCancelled || this.turnHadError || resumeEpoch !== this.turnEpoch) {
+          return this.subagentToolError(toolCallId, "The parent turn ended before delegation could resume.");
+        }
+        // Authorization may yield while a parallel Task starts this chain.
+        if (resume) {
+          const current = this.resolveResumeChain(resume, definition.name);
+          if (!current.ok) return this.subagentToolError(toolCallId, current.message);
+        }
+        if (this.runningDelegations().length >= MAX_SUBAGENT_CONCURRENCY) {
+          return this.subagentToolError(
+            toolCallId,
+            `${MAX_SUBAGENT_CONCURRENCY} subagents are already running for this session. Wait for some with TaskWait or stop them with TaskStop before delegating more.`,
+          );
+        }
         if (resumedProvider) provider = resumedProvider;
         const modelChangedFrom =
           resumedChain?.latestModelId && !resumedProvider
@@ -4143,6 +4337,7 @@ Delegation rules:
           parentToolCallId: toolCallId,
           task,
           provider,
+          infiniteProviderRetry: this.infiniteProviderRetry,
           thinkingLevel,
           fallbackModels: (definition.fallbackModels ?? []).map((pin) => ({
             key: subagentModelKey(pin),
@@ -4884,7 +5079,7 @@ Delegation rules:
   private resetDeferredToolsForPrompt(): void {
     this.activeDeferredToolNames.clear();
     this.restoreDeferredToolsFromContext();
-    this.agent.state.tools = this.activeTools();
+    this.setAgentTools(this.activeTools());
   }
 
   /**
@@ -4904,7 +5099,9 @@ Delegation rules:
       if (isMissingToolResultPlaceholder(message.content)) continue;
       const names =
         message.toolName === TOOL_SEARCH_NAME
-          ? (message.addedToolNames ?? [])
+          ? (isRecord(message.details) && Array.isArray(message.details.addedToolNames)
+              ? message.details.addedToolNames.filter((name): name is string => typeof name === "string")
+              : [])
           : [message.toolName];
       for (const name of names) {
         if (this.deferredToolNames.has(name)) {
@@ -5188,7 +5385,7 @@ Delegation rules:
 
   private applyProjectInstructions(resolved: ProjectInstructions | undefined): void {
     this.projectInstructions = resolved;
-    this.agent.state.systemPrompt = this.composeSystemPrompt();
+    this.setAgentSystemPrompt(this.composeSystemPrompt());
   }
 
   /**
@@ -5277,9 +5474,11 @@ Delegation rules:
     error: ReturnType<typeof classifyAgentError>,
     phase: "request" | "stream",
   ): number | undefined {
-    if (!error.retriable) return undefined;
+    if (!error.retriable || error.details?.origin === "local") return undefined;
+    const infinite = this.infiniteProviderRetry;
     if (error.code === "PROVIDER_RATE_LIMITED") {
       if (
+        !infinite &&
         this.providerRateLimitRetryAttempt >=
         PROVIDER_RATE_LIMIT_MAX_RETRIES
       ) {
@@ -5295,7 +5494,10 @@ Delegation rules:
     // next must not multiply the budget or reset it by changing phase.
     void phase;
     if (!isTransientProviderRetryCode(error.code)) return undefined;
-    if (this.providerTransientRetryAttempt >= PROVIDER_TRANSIENT_MAX_RETRIES) {
+    if (
+      !infinite &&
+      this.providerTransientRetryAttempt >= PROVIDER_TRANSIENT_MAX_RETRIES
+    ) {
       return undefined;
     }
     const attempt = ++this.providerTransientRetryAttempt;
@@ -5309,7 +5511,14 @@ Delegation rules:
     providerWaitMs?: number,
     streamMs?: number,
   ): ReturnType<typeof classifyAgentError> {
-    const existingDetails = isRecord(error.details) ? error.details : {};
+    // Local preparation never reached the provider: keep its phase and cause
+    // instead of attaching stale HTTP status or a synthetic stream phase.
+    if (error.details?.origin === "local") return error;
+    const explained = withProviderFetchFailure(error, this.providerFetchFailure);
+    const existingDetails = explained.details ?? {};
+    const retryAttempt = error.code === "PROVIDER_RATE_LIMITED"
+      ? this.providerRateLimitRetryAttempt
+      : isTransientProviderRetryCode(error.code) ? this.providerTransientRetryAttempt : 0;
     // A capture exists only for an attempt that rejected before any response, so
     // it is also the honest phase: whatever the message lifecycle that surfaced
     // the failure looks like, this request never reached the provider, and
@@ -5321,12 +5530,9 @@ Delegation rules:
         ? this.providerFetchFailure
         : undefined;
     return {
-      ...error,
+      ...explained,
       details: {
         ...existingDetails,
-        // First-hand cause, so it replaces the `unknown` the text classifier
-        // falls back to for a bare `fetch failed`.
-        ...(captured ? captured.fields : {}),
         phase: captured ? "request" : phase,
         // Correlation for a failure that produced no response to inspect: how
         // much context and how many bytes the attempt carried, and which
@@ -5351,9 +5557,7 @@ Delegation rules:
         existingDetails.providerStatus === undefined
           ? { providerStatus: this.providerResponseStatus }
           : {}),
-        ...(this.activeProviderRetryAttempt > 0
-          ? { retryAttempt: this.activeProviderRetryAttempt }
-          : {}),
+        ...(retryAttempt > 0 ? { retryAttempt } : {}),
       },
     };
   }
@@ -5439,8 +5643,11 @@ Delegation rules:
     if (messages.at(-1)?.role !== "assistant") {
       throw new Error("Cannot retry a provider stream without its failed assistant message");
     }
-    messages.pop();
-    this.agent.state.messages = messages;
+    // A failed stream can be represented by more than one trailing assistant
+    // message after a tool round. Remove the whole failed suffix before
+    // continuing; pi-agent-core rejects any assistant-terminated transcript.
+    while (messages.at(-1)?.role === "assistant") messages.pop();
+    this.setAgentMessages(messages);
 
     this.providerRetryInProgress = true;
     this.requestStartedAt = Date.now();
@@ -5464,6 +5671,7 @@ Delegation rules:
         phase: "retrying",
         since: Date.now(),
         attempt: retryAttempt,
+        ...(this.infiniteProviderRetry ? { infinite: true } : {}),
         retryDelayMs: delayMs,
         error: this.retryActivityError(retryError),
       });
@@ -5498,12 +5706,12 @@ Delegation rules:
     // agentLoopContinue refuses a transcript ending in an assistant message,
     // and this one carries nothing worth resending anyway.
     const messages = [...this.agent.state.messages];
-    if (messages.at(-1)?.role === "assistant") messages.pop();
-    this.agent.state.messages = messages;
+    while (messages.at(-1)?.role === "assistant") messages.pop();
+    this.setAgentMessages(messages);
 
-    const promptBefore = this.agent.state.systemPrompt;
+    const promptBefore = this.agentSystemPromptContent();
     const promptWithNudge = `${promptBefore}\n\n${SILENT_TURN_NUDGE}`;
-    this.agent.state.systemPrompt = promptWithNudge;
+    this.setAgentSystemPrompt(promptWithNudge);
     this.silentTurnRerunInProgress = true;
     this.requestStartedAt = Date.now();
     this.setAgentActivity({ phase: "recovering", since: Date.now() });
@@ -5512,8 +5720,8 @@ Delegation rules:
       await this.agent.continue();
       await this.waitForIdleAndSteering();
     } finally {
-      if (this.agent.state.systemPrompt === promptWithNudge) {
-        this.agent.state.systemPrompt = promptBefore;
+      if (this.agentSystemPromptContent() === promptWithNudge) {
+        this.setAgentSystemPrompt(promptBefore);
       }
       this.applyPendingResumablePrompt();
       this.silentTurnRerunInProgress = false;
@@ -5549,8 +5757,8 @@ Delegation rules:
         this.suppressOverflowRunEnd = false;
         this.overflowRecoveryAttempted = true;
         const messages = [...this.agent.state.messages];
-        if (messages.at(-1)?.role === "assistant") messages.pop();
-        this.agent.state.messages = messages;
+        while (messages.at(-1)?.role === "assistant") messages.pop();
+        this.setAgentMessages(messages);
         const compacted = await this.runCompaction(
           "overflow",
           true,
@@ -5606,12 +5814,12 @@ Delegation rules:
     // assistant message. The progress text is already visible in the reused
     // bubble, so it must not be sent back as model context.
     const messages = [...this.agent.state.messages];
-    if (messages.at(-1)?.role === "assistant") messages.pop();
-    this.agent.state.messages = messages;
+    while (messages.at(-1)?.role === "assistant") messages.pop();
+    this.setAgentMessages(messages);
 
-    const promptBefore = this.agent.state.systemPrompt;
+    const promptBefore = this.agentSystemPromptContent();
     const promptWithNudge = `${promptBefore}\n\n${PROGRESS_TURN_NUDGE}`;
-    this.agent.state.systemPrompt = promptWithNudge;
+    this.setAgentSystemPrompt(promptWithNudge);
     this.progressTurnRerunInProgress = true;
     this.requestStartedAt = Date.now();
     this.setAgentActivity({ phase: "recovering", since: Date.now() });
@@ -5621,8 +5829,8 @@ Delegation rules:
       await this.agent.continue();
       await this.waitForIdleAndSteering();
     } finally {
-      if (this.agent.state.systemPrompt === promptWithNudge) {
-        this.agent.state.systemPrompt = promptBefore;
+      if (this.agentSystemPromptContent() === promptWithNudge) {
+        this.setAgentSystemPrompt(promptBefore);
       }
       this.applyPendingResumablePrompt();
       this.progressTurnRerunInProgress = false;
@@ -5639,47 +5847,64 @@ Delegation rules:
     this.compactionEnabled = compactionEnabled(settings);
     this.pendingModelCompaction = false;
     this.rebuildToolCatalog();
-    this.agent.state.tools = this.activeTools();
+    this.setAgentTools(this.activeTools());
   }
 
   private contextBudget(messages: AgentMessage[]): ContextBudget {
-    const contextWindow = Math.max(
-      1,
-      Math.round(this.model.contextWindow || DEFAULT_CONTEXT_WINDOW),
-    );
-    const modelOutputBudget = Math.min(
-      Math.max(1, Math.round(this.model.maxTokens || DEFAULT_MAX_TOKENS)),
-      Math.max(1, Math.floor(contextWindow * 0.25)),
-    );
-    const reserveFloor = Math.min(
-      COMPACTION_RESERVE_FLOOR_TOKENS,
-      Math.max(1, Math.floor(contextWindow * 0.5)),
-    );
-    const requestHeadroom = Math.min(
-      contextWindow - 1,
-      Math.max(
-        reserveFloor,
-        modelOutputBudget,
-        Math.ceil(contextWindow * 0.05),
-      ),
-    );
-    const hardLimit = Math.max(1, contextWindow - requestHeadroom);
-    const keepRecentTokens = Math.min(
-      Math.max(
-        COMPACTION_MIN_KEEP_RECENT_TOKENS,
-        Math.min(
-          COMPACTION_MAX_KEEP_RECENT_TOKENS,
-          Math.floor(hardLimit * COMPACTION_KEEP_RECENT_RATIO),
-        ),
-      ),
-      Math.max(1, Math.floor(hardLimit * 0.5)),
-    );
+    const budget = contextBudgetFor(this.model, messages);
+    // Correct the raw estimate with what past requests actually cost. The
+    // `chars / 4` tail is biased on CJK text, and a projection with no usage
+    // anchor is missing the system/tool overhead; below the sample threshold
+    // `correct()` returns the raw value unchanged, and the downward direction
+    // is bounded by `CONTEXT_CALIBRATION_FACTOR_MIN`.
     return {
-      tokens: estimateContextTokens(messages).tokens,
-      hardLimit,
-      requestHeadroom,
-      keepRecentTokens,
+      ...budget,
+      // Same target model as `contextBudgetFor` above: the calibration input
+      // must describe the request this runtime will actually send.
+      tokens: this.contextCalibration.correct(
+        estimateContextTokens(messages, this.model),
+      ),
     };
+  }
+
+  /**
+   * Fold one provider report into the estimate calibration.
+   *
+   * Only a completed, non-aborted response is a measurement: a failed stream
+   * never carried the request, and counting one would teach the estimator from
+   * a request the provider rejected. The pair is recorded against the estimate
+   * parked by `streamFn`, which describes the same context.
+   *
+   * The measured value is the request side only (`input + cacheRead +
+   * cacheWrite`): the response's own output is not in the projection the parked
+   * estimate described, and it becomes part of the *next* request's anchor.
+   */
+  private recordContextCalibration(
+    usage: MessageUsage | undefined,
+    unusable: boolean,
+  ): void {
+    const estimate = this.inFlightContextEstimate;
+    this.inFlightContextEstimate = undefined;
+    if (!estimate || unusable || !usage) return;
+    const realRequestTokens =
+      usage.inputTokens +
+      (usage.cacheReadTokens ?? 0) +
+      (usage.cacheWriteTokens ?? 0);
+    if (realRequestTokens <= 0) return;
+    const anchored =
+      estimate.lastUsageIndex !== null && estimate.usageTokens > 0;
+    if (anchored) {
+      this.contextCalibration.recordAnchored(
+        estimate.usageTokens,
+        estimate.trailingTokens,
+        realRequestTokens,
+      );
+    } else {
+      this.contextCalibration.recordUnanchored(
+        Math.max(0, Math.round(estimate.tokens)),
+        realRequestTokens,
+      );
+    }
   }
 
   private automaticCompactionNeeded(
@@ -5691,19 +5916,8 @@ Delegation rules:
     return this.compactionEnabled && budget.tokens >= budget.hardLimit;
   }
 
-  /**
- * Cap on the active user message a checkpoint carries forward. Codex uses a
- * flat 20k; the clamp keeps a small model window from being filled by
- * retention alone, which would leave the summary no room.
-   */
   private retainedUserMessageBudget(budget: ContextBudget): number {
-    return Math.max(
-      1,
-      Math.min(
-        COMPACTION_RETAINED_USER_MESSAGE_MAX_TOKENS,
-        Math.floor(budget.hardLimit * 0.5),
-      ),
-    );
+    return retainedUserMessageBudget(budget);
   }
 
   /**
@@ -5724,7 +5938,7 @@ Delegation rules:
     retainedUserTokens = this.retainedUserMessageBudget(budget),
     retentionMode: CompactionRetentionMode = "completed_turn",
   ) {
-    const prepared = prepareCompaction(entries, {
+    const prepared = prepareCompaction(withPiFileOpToolNames(entries), {
       enabled: this.compactionEnabled,
       reserveTokens: budget.requestHeadroom,
       keepRecentTokens: budget.keepRecentTokens,
@@ -5805,13 +6019,25 @@ Delegation rules:
   private rebuiltAgentContext(): AgentContext {
     const messages = this.liveSessionContext().messages;
     const tools = this.activeTools();
-    this.agent.state.messages = messages;
-    this.agent.state.tools = tools;
+    this.setAgentMessages(messages);
+    this.setAgentTools(tools);
     return {
-      systemPrompt: this.agent.state.systemPrompt,
-      messages,
+      // The loop owns its context array. pi appends every streamed assistant
+      // message and every tool result to the context it was handed, and its own
+      // `message_end` listener appends the same message object to
+      // `state.messages`; handing over the live array makes both land in one
+      // array, so every message of a run's later iterations is stored twice.
+      // The next turn is then built from that array, and the duplicate of an
+      // assistant message that carries text plus a tool call survives the
+      // request guard as a text-only clone sitting between the call and the
+      // result answering it. pi-ai then closes the still-pending call with a
+      // synthesized "No result provided" output next to the real one — two
+      // outputs for one call id, which the provider rejects (D620).
+      // `createContextSnapshot()` copies for the same reason.
+      messages: [...this.agent.state.messages],
       tools,
-    };
+      systemPrompt: this.agent.state.systemPrompt,
+    } as AgentContext;
   }
 
   /**
@@ -5897,10 +6123,19 @@ Delegation rules:
     const remaining = Math.max(0, budget.hardLimit - budget.tokens);
     const reminder = this.claimContextBudgetReminder(remaining, budget);
     if (!reminder) return context;
+    const legacyContext = context as AgentContext & { systemPrompt?: string };
+    const systemPrompt =
+      typeof legacyContext.systemPrompt === "string"
+        ? `${legacyContext.systemPrompt}\n\n${reminder}`
+        : undefined;
     return {
       ...context,
-      systemPrompt: `${context.systemPrompt}\n\n${reminder}`,
-    };
+      ...(systemPrompt ? { systemPrompt } : {}),
+      messages: [
+        ...context.messages,
+        { role: "system", content: reminder, timestamp: Date.now() },
+      ],
+    } as AgentContext;
   }
 
   private claimContextBudgetReminder(
@@ -6092,11 +6327,23 @@ Delegation rules:
     };
   }
 
+  /**
+   * Build the checkpoint a failed compaction installs: the summary it was
+   * carrying forward, a recovery notice, and the real recent window of the range
+   * it could not summarize (ADR 0049, issue #827).
+   *
+   * The window, not the notice, is what makes this checkpoint usable: with no
+   * fresh summary it is the only thing carrying the range forward, so the
+   * continuation text names it as the tail of the turn instead of presenting one
+   * leftover user line as the whole job.
+   */
   private createFallbackCheckpoint(
     preparation: ShapedPreparation,
     throughMessageId: string,
     maxSummaryChars: number,
     retentionMode: CompactionRetentionMode,
+    budget: ContextBudget,
+    failureReason: CompactionFailureReason,
   ): ContextCompactionRecord {
     const previousSummary = preparation.previousSummary
       ? boundedText(
@@ -6106,29 +6353,20 @@ Delegation rules:
       : COMPACTION_FALLBACK_NO_SUMMARY;
     const continuation =
       retentionMode === "active_turn"
-        ? "The provider is continuing the active turn. Use the one retained latest user request as the source of truth for that continuation."
-        : "The previous turn is complete. Treat this summary as historical context; the next user message is the only new task to execute.";
+        ? "The provider is continuing the active turn: the recent messages carried below are the tail of that turn and the carried summary is the older history. Continue the work they describe."
+        : "The previous turn is complete. Treat this summary and the recent messages below as historical context; the next user message is the only new task to execute.";
     const summary = [
       previousSummary,
       COMPACTION_FALLBACK_MARKER,
       "The automatic summary request did not complete. Older messages before this checkpoint are omitted from the next model request.",
       `The complete transcript remains available in the session. ${continuation}`,
     ].join("\n\n");
-    // A completed-turn checkpoint normally retains no naked user messages, but
-    // an empty tail plus a carried-forward (or absent) summary leaves the next
-    // model request with nothing before the boundary: after a runtime rebuild
-    // — model switch, restart — the session restores as if it had just started.
-    // Fall back to the newest user messages under the same budget so the
-    // failure path still restores a bounded, non-empty context (#224).
-    const retainedTail =
-      preparation.retainedTail.length > 0
-        ? preparation.retainedTail
-        : selectRetainedUserMessages(
-            preparation.messagesToSummarize.filter(
-              (message): message is UserMessage => message.role === "user",
-            ),
-            preparation.settings.keepRecentTokens,
-          );
+    const retainedTail = this.fallbackRetainedTail(
+      preparation,
+      budget,
+      maxSummaryChars,
+      retentionMode,
+    );
     return this.createCheckpoint(
       {
         ...preparation,
@@ -6141,9 +6379,47 @@ Delegation rules:
         ...this.checkpointDetails(preparation),
         fallback: "retained_tail" satisfies ContextCompactionFallback,
         failureCode: "CONTEXT_COMPACTION_FAILED",
+        failureReason,
         retainedTailMode: retentionMode,
+        // The shape tells a rebuild to replay the whole window. Without it a
+        // restored checkpoint narrows the tail back to one user message, which
+        // is the defect this window exists to fix (#827).
+        retainedTailShape: COMPACTION_RETAINED_TAIL_SHAPE,
+        retainedTailCount: retainedTail.length,
         ...this.retainedReasoningForCheckpoint(preparation),
       },
+    );
+  }
+
+  /**
+   * The recent window a fallback retains. Bounded by the keep-recent target so a
+   * failure never carries more history than a successful checkpoint would, and
+   * by what the safe budget leaves once the carried-forward summary and the
+   * recovery notice are paid for — `persistCheckpoint` re-estimates the installed
+   * context, and an oversized fallback would fail the run outright.
+   */
+  private fallbackRetainedTail(
+    preparation: ShapedPreparation,
+    budget: ContextBudget,
+    maxSummaryChars: number,
+    retentionMode: CompactionRetentionMode,
+  ): AgentMessage[] {
+    const summaryTokens = Math.ceil(maxSummaryChars / 4);
+    const available = Math.max(
+      1,
+      budget.hardLimit - summaryTokens - COMPACTION_FALLBACK_NOTICE_TOKENS,
+    );
+    const target = Math.max(
+      1,
+      Math.min(
+        budget.keepRecentTokens,
+        Math.floor(budget.hardLimit * COMPACTION_FALLBACK_KEEP_RECENT_RATIO),
+      ),
+    );
+    return selectRecentTail(
+      preparation.messagesToSummarize,
+      Math.min(target, available),
+      { latestUserGoal: retentionMode === "active_turn" },
     );
   }
 
@@ -6171,37 +6447,44 @@ Delegation rules:
     );
   }
 
+  /**
+   * Tokens one summary prompt may carry for this model window. The preflight
+   * guard and the chunk planner have to agree on it, so it is computed once here
+   * from the shared formula.
+   */
+  private summaryInputLimit(budget: {
+    hardLimit: number;
+    requestHeadroom: number;
+  }): number {
+    return compactionSummaryInputLimit({
+      hardLimit: budget.hardLimit,
+      requestHeadroom: budget.requestHeadroom,
+      modelMaxTokens: this.model.maxTokens,
+    });
+  }
+
   private compactionSummaryWouldExceedBudget(
     preparation: ShapedPreparation,
     budget: { hardLimit: number; requestHeadroom: number },
   ): boolean {
-    const contextWindow = budget.hardLimit + budget.requestHeadroom;
-    const modelOutputBudget = Math.min(
-      Math.floor(budget.requestHeadroom * 0.8),
-      Math.max(1, Math.round(this.model.maxTokens || DEFAULT_MAX_TOKENS)),
+    // The summary covers the whole boundary range, so its input is the context
+    // that tripped the hard limit. This sizes the prompt the way pi serializes
+    // it — tool results already capped — rather than the raw messages, which
+    // overstated tool-heavy sessions by several times and skipped summaries that
+    // would have fit (#543). A prompt this large is now summarized in chunks
+    // rather than skipped (#827); only the planner can still send the turn to
+    // retained-tail recovery.
+    return (
+      estimateSummaryPromptTokens(preparation) >= this.summaryInputLimit(budget)
     );
-    const summaryInputLimit = Math.max(
-      1,
-      contextWindow -
-        modelOutputBudget -
-        COMPACTION_SUMMARY_PROMPT_SAFETY_TOKENS,
-    );
-    // The summary now covers the whole boundary range, so its input is the
-    // context that tripped the hard limit. On a window whose headroom leaves
-    // less room for the summary request than the hard limit allows, this is the
-    // guard that routes the turn to retained-tail recovery instead. It sizes
-    // the prompt the way pi serializes it — tool results already capped —
-    // rather than the raw messages, which overstated tool-heavy sessions by
-    // several times and skipped summaries that would have fit (#543).
-    return estimateSummaryPromptTokens(preparation) >= summaryInputLimit;
   }
 
   /**
    * Fit the summary input under the provider budget. The full input is tried
    * first; when it is too large, one reduced pass (tool results cut to a short
-   * prefix, thinking dropped) is tried before giving up. The reduced input
-   * still covers every message the checkpoint files behind its boundary, so
-   * nothing is silently dropped from the summary's scope (ADR 0282).
+   * prefix, thinking dropped) is tried before giving up. The reduced input still
+   * covers every message the checkpoint files behind its boundary, so nothing is
+   * silently dropped from the summary's scope (ADR 0282).
    */
   private fitSummaryInputToBudget(
     preparation: ShapedPreparation,
@@ -6215,6 +6498,30 @@ Delegation rules:
       return undefined;
     }
     return reduced;
+  }
+
+  /**
+   * Plan the summary requests for a range no single prompt can carry: the
+   * reduced input when one exists, split into contiguous chunks that each fit.
+   * Returns undefined when the range cannot be planned, which is the only budget
+   * failure that still routes a turn to retained-tail recovery (#827).
+   */
+  private planSummaryRequests(
+    preparation: ShapedPreparation,
+    budget: { hardLimit: number; requestHeadroom: number },
+  ): AgentMessage[][] | undefined {
+    const reduced = reduceSummaryInput(preparation) ?? preparation;
+    const reserveTokens = Math.max(
+      Math.ceil((preparation.previousSummary?.length ?? 0) / 4),
+      compactionSummaryOutputBudget({
+        requestHeadroom: budget.requestHeadroom,
+        modelMaxTokens: this.model.maxTokens,
+      }),
+    );
+    return planSummaryChunks(reduced, {
+      summaryInputLimit: this.summaryInputLimit(budget),
+      reserveTokens,
+    });
   }
 
   private async persistCheckpoint(
@@ -6249,7 +6556,7 @@ Delegation rules:
     // resetting its `claim_*` flags when the context window turns over.
     this.contextReminderClaimed = false;
     this.contextFallbackReminderClaimed = false;
-    this.agent.state.messages = this.liveSessionContext().messages;
+    this.setAgentMessages(this.liveSessionContext().messages);
     this.emit({
       type: "compaction_end",
       reason,
@@ -6307,6 +6614,7 @@ Delegation rules:
     preparation: ShapedPreparation | undefined,
     failureMessage: string,
     retentionMode: CompactionRetentionMode,
+    failureReason: CompactionFailureReason = "summary_provider",
   ): Promise<boolean> {
     if (reason === "manual") {
       this.emitCompactionFailure(
@@ -6348,6 +6656,8 @@ Delegation rules:
         ),
       ),
       retentionMode,
+      budget,
+      failureReason,
     );
     const persisted = await this.persistCheckpoint(
       checkpoint,
@@ -6379,7 +6689,7 @@ Delegation rules:
       withCompactionRequestHeaders(this.models, this.provider, this.sessionId),
       this.model,
       undefined,
-      this.thinkingLevel,
+      agentThinkingLevel(this.thinkingLevel),
       // Without a policy pi-ai returns the first failed response as-is, which
       // made a single dropped stream or 503 discard the whole summary (#543).
       // pi's classifier decides what is transient; the waits honour `signal`.
@@ -6387,6 +6697,53 @@ Delegation rules:
       undefined,
       withAbortSignal(signal, BACKGROUND_CONTEXT),
     );
+  }
+
+  /**
+   * Summarize a range whose prompt does not fit the provider window, however far
+   * it was reduced. Each chunk is one pi summary request — same prompt, retry
+   * policy, and headers as the single-pass path — and each carries the summary of
+   * the chunk before it, so the chain converges on one summary covering every
+   * message the checkpoint files behind its boundary. Only the last chunk is given
+   * the range's file operations, so the file list is appended to the summary
+   * exactly once.
+   */
+  private async generateChunkedCompaction(
+    preparation: ShapedPreparation,
+    chunks: AgentMessage[][],
+    signal: AbortSignal,
+  ): Promise<Awaited<ReturnType<typeof compact>>> {
+    let summary = preparation.previousSummary;
+    let usage: Usage | undefined;
+    let details: unknown;
+    for (const [index, messages] of chunks.entries()) {
+      const last = index === chunks.length - 1;
+      const step = await this.generateCompaction(
+        {
+          ...preparation,
+          messagesToSummarize: messages,
+          turnPrefixMessages: [],
+          isSplitTurn: false,
+          previousSummary: summary,
+          fileOps: last ? preparation.fileOps : emptyFileOps(),
+        },
+        signal,
+      );
+      if (!step.ok) return step;
+      summary = step.value.summary;
+      usage = addSummaryUsage(usage, step.value.usage);
+      if (last) details = step.value.details;
+    }
+    return {
+      ok: true,
+      value: {
+        summary: summary ?? "",
+        tokensBefore: preparation.tokensBefore,
+        usage,
+        retainedTail: preparation.retainedTail,
+        details: toJsonValue(details),
+      },
+    };
   }
 
   /**
@@ -6416,6 +6773,7 @@ Delegation rules:
         message: preparation.ok
           ? "No new context is available to compact"
           : preparation.error.message,
+        failureReason: "no_new_history",
         recoverable: true,
       };
     }
@@ -6425,7 +6783,13 @@ Delegation rules:
     }
 
     const summaryInput = this.fitSummaryInputToBudget(preparation.value, budget);
-    if (!summaryInput) {
+    // No single prompt fits. The range is summarized in chunks instead of giving
+    // up on the model: only a range that cannot be planned at all — empty, or
+    // needing more requests than the planner allows — still falls back (#827).
+    const chunks = summaryInput
+      ? undefined
+      : this.planSummaryRequests(preparation.value, budget);
+    if (!summaryInput && !chunks) {
       return {
         ok: false,
         entries,
@@ -6433,13 +6797,20 @@ Delegation rules:
         preparation: preparation.value,
         tokensBefore: preparation.value.tokensBefore,
         message: "Compaction summary input exceeds the safe model budget",
+        failureReason: "summary_budget",
         recoverable: true,
       };
     }
 
     let result: Awaited<ReturnType<typeof compact>>;
     try {
-      result = await this.generateCompaction(summaryInput, signal);
+      result = summaryInput
+        ? await this.generateCompaction(summaryInput, signal)
+        : await this.generateChunkedCompaction(
+            preparation.value,
+            chunks!,
+            signal,
+          );
     } catch (error) {
       return {
         ok: false,
@@ -6448,6 +6819,7 @@ Delegation rules:
         preparation: preparation.value,
         tokensBefore: preparation.value.tokensBefore,
         message: error instanceof Error ? error.message : String(error),
+        failureReason: "summary_provider",
         recoverable: !signal.aborted,
       };
     }
@@ -6459,6 +6831,7 @@ Delegation rules:
         preparation: preparation.value,
         tokensBefore: preparation.value.tokensBefore,
         message: result.error.message,
+        failureReason: "summary_provider",
         recoverable: result.error.code !== "aborted",
       };
     }
@@ -6572,6 +6945,7 @@ Delegation rules:
       build.preparation,
       "The checkpoint did not reduce context below the safe request budget",
       retentionMode,
+      "checkpoint_oversized",
     );
   }
 
@@ -6601,6 +6975,7 @@ Delegation rules:
         build.preparation,
         build.message,
         retentionMode,
+        build.failureReason ?? "summary_provider",
       );
     }
     return await this.installCheckpoint(build, reason, willRetry, retentionMode);
@@ -6625,78 +7000,27 @@ Delegation rules:
     }
   }
 
-
-  private nativeWebSearchActive(): boolean {
-    return (
-      this.nativeWebSearch &&
-      supportsNativeWebSearch({
-        api: this.model.api,
-        apiStyle: this.provider.apiStyle,
-        vendorKey: this.provider.vendorKey,
-        baseUrl: this.provider.baseUrl ?? this.model.baseUrl,
-      })
-    );
-  }
-
-
-  private applyHostedSearch(
-    next: Parameters<typeof mergeHostedSearch>[1],
-    emit = true,
-  ): void {
+  /**
+   * Fold pi-ai hostedSearch content blocks and message citations into the
+   * current assistant bubble as `UiMessage.hostedSearch`, emitting a
+   * full-frame message_update when the normalized state actually changed.
+   * Search state transitions are low frequency, so a full frame costs less
+   * than teaching every delta path about the field.
+   */
+  private applyHostedSearch(message: AssistantMessage): void {
     if (!this.currentAssistant) return;
-    if (!hostedSearchHasContent(next as HostedSearch | undefined) && !this.currentAssistant.hostedSearch) {
-      return;
-    }
-    const hostedSearch = mergeHostedSearch(this.currentAssistant.hostedSearch, next);
-    if (!hostedSearch) return;
-    this.currentAssistant = { ...this.currentAssistant, hostedSearch };
-    if (emit) this.emit({ type: "message_update", message: this.currentAssistant });
-  }
-
-
-
-
-  private ingestHostedSearchStream(response: Response): void {
-    if (!this.nativeWebSearchActive() || !response.body) return;
-    let clone: Response;
-    try {
-      clone = response.clone();
-    } catch {
-      return;
-    }
-    void this.readHostedSearchStream(clone);
-  }
-
-  private async readHostedSearchStream(response: Response): Promise<void> {
-    try {
-      const reader = response.body?.getReader();
-      if (!reader) return;
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split(/\r?\n/g);
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          const payload = trimmed.startsWith("data:") ? trimmed.slice(5).trim() : trimmed;
-          if (!payload || payload === "[DONE]" || (!payload.startsWith("{") && !payload.startsWith("["))) {
-            continue;
-          }
-          try {
-            const parsed = JSON.parse(payload) as unknown;
-            const update = parseHostedSearchStreamEvent(parsed);
-            if (update) this.applyHostedSearch(update);
-          } catch {
-            // Ignore partial JSON from the clone parser.
-          }
-        }
-      }
-    } catch {
-      // Hosted-search metadata is best-effort and must not break the provider stream.
-    }
+    const next = hostedSearchFromMessage({
+      content: message.content,
+      citations: message.hostedSearchCitations,
+    });
+    if (!next) return;
+    const previous = this.currentAssistant.hostedSearch;
+    if (previous && JSON.stringify(previous) === JSON.stringify(next)) return;
+    this.currentAssistant = {
+      ...this.currentAssistant,
+      hostedSearch: next,
+    };
+    this.emit({ type: "message_update", message: this.currentAssistant });
   }
 
   private async handleAgentEvent(event: AgentEvent) {
@@ -6740,9 +7064,6 @@ Delegation rules:
               : this.progressTurnRerunInProgress
                 ? retryingAssistant?.content ?? ""
                 : content.text;
-          const initialSearch = extractHostedSearchFromAssistantContent(
-            (event.message as { content?: unknown }).content,
-          );
           this.currentAssistant = {
             id: retryingAssistant?.id ?? randomUUID(),
             role: "assistant",
@@ -6750,11 +7071,6 @@ Delegation rules:
             ...(content.hasThinking && content.thinking
               ? { thinking: content.thinking }
               : {}),
-            ...(initialSearch
-              ? { hostedSearch: mergeHostedSearch(retryingAssistant?.hostedSearch, initialSearch) }
-              : retryingAssistant?.hostedSearch
-                ? { hostedSearch: retryingAssistant.hostedSearch }
-                : {}),
             createdAt: nowIso(),
             status: "streaming",
             modelId: this.provider.modelId,
@@ -6772,6 +7088,7 @@ Delegation rules:
           } else {
             this.emit({ type: "message_start", message: this.currentAssistant });
           }
+          this.applyHostedSearch(event.message);
         }
         // User messages are echoed and persisted by the desktop main process
         // (agentPrompt handler); re-emitting them here would duplicate the
@@ -6780,6 +7097,7 @@ Delegation rules:
       }
       case "message_update": {
         if (this.currentAssistant && event.message.role === "assistant") {
+          this.applyHostedSearch(event.message);
           const content = assistantContent((event.message as any).content);
           const previousText = this.currentAssistant.content;
           const previousThinking = this.currentAssistant.thinking ?? "";
@@ -6793,9 +7111,6 @@ Delegation rules:
           const thinkingDelta = content.hasThinking
             ? cumulativeDelta(previousThinking, content.thinking)
             : { delta: "", reset: false };
-          const extractedSearch = extractHostedSearchFromAssistantContent(
-            (event.message as { content?: unknown }).content,
-          );
           this.currentAssistant = {
             ...this.currentAssistant,
             content: nextText,
@@ -6804,14 +7119,6 @@ Delegation rules:
               : content.hasThinking
                 ? { thinking: undefined }
                 : {}),
-            ...(extractedSearch
-              ? {
-                  hostedSearch: mergeHostedSearch(
-                    this.currentAssistant.hostedSearch,
-                    extractedSearch,
-                  ),
-                }
-              : {}),
             status: "streaming",
           };
           if (
@@ -6858,15 +7165,14 @@ Delegation rules:
           // pi-agent-core encodes stream failures in the final message
           // (stopReason "error"/"aborted" + errorMessage) and resolves the
           // prompt normally, so this is where provider/model errors surface.
-          const stopReason = (event.message as any).stopReason as
-            | string
-            | undefined;
-          const overflow = isContextOverflow(
-            event.message as AssistantMessage,
-            this.model.contextWindow || DEFAULT_CONTEXT_WINDOW,
+          const stopReason = event.message.stopReason;
+          const localError = readLocalRequestErrorDetails(event.message);
+          const overflow = !localError && isContextOverflow(
+            event.message,
+            effectiveModelContextWindow(this.model) || DEFAULT_CONTEXT_WINDOW,
           );
-          const failed = stopReason === "error" || overflow;
-          const aborted = stopReason === "aborted";
+          const aborted = stopReason === "aborted" || localError?.causeName === "AbortError";
+          const failed = !aborted && (stopReason === "error" || overflow);
           const errorMessage =
             failed &&
             typeof (event.message as any).errorMessage === "string" &&
@@ -6885,7 +7191,7 @@ Delegation rules:
                   retriable: false,
                 }
             : errorMessage
-              ? classifyProviderError(errorMessage, this.providerResponseStatus)
+              ? classifyProviderError(event.message, this.providerResponseStatus)
               : undefined;
           const nextText = content.hasText
             ? content.text
@@ -6907,6 +7213,26 @@ Delegation rules:
             );
           }
           const usage = usageFromPi((event.message as any).usage as Usage | undefined);
+          // Measure the estimator against this request: the parked estimate
+          // describes the same context, and only a settled, non-aborted
+          // response actually carried the request. Consumed either way, so a
+          // failed attempt cannot pair with a later usage report.
+          this.recordContextCalibration(usage, failed || aborted);
+          const hostedSearch = hostedSearchFromMessage({
+            content: event.message.content,
+            citations: event.message.hostedSearchCitations,
+          });
+          if (hostedSearch) {
+            const terminal = failed || aborted ? "failed" : "completed";
+            for (const round of hostedSearch.rounds) {
+              if (round.status === "searching") round.status = terminal;
+            }
+            hostedSearch.status = hostedSearch.rounds.some(
+              (round) => round.status === "failed",
+            )
+              ? "failed"
+              : "completed";
+          }
           const endedAt = Date.now();
           const providerWaitMs =
             this.requestStartedAt !== undefined &&
@@ -6925,10 +7251,13 @@ Delegation rules:
               streamMs,
             );
           }
-          // A turn with no tool call and no visible text ends the run while
-          // leaving the user with nothing: the reasoning that may hold the
-          // answer is never rendered. Re-run once with a nudge before letting
-          // that surface as a finished turn.
+          // Only a completed response replenishes both budgets. Headers and
+          // partial output must not let a repeatedly broken stream retry forever.
+          if (!failed && !aborted) {
+            this.providerTransientRetryAttempt = 0;
+            this.providerRateLimitRetryAttempt = 0;
+          }
+          // Re-run an invisible answer once before surfacing a finished turn.
           const silence =
             !failed &&
             !aborted &&
@@ -7018,7 +7347,8 @@ Delegation rules:
           const diagnosticError = classifiedError;
           const retryProviderAttempt =
             !overflow &&
-            diagnosticError !== undefined
+            diagnosticError !== undefined &&
+            diagnosticError.details?.origin !== "local"
               ? this.claimProviderRetry(diagnosticError, "stream")
               : undefined;
           if (
@@ -7055,23 +7385,6 @@ Delegation rules:
                   thinking: nextThinking,
                 })
               : undefined;
-          const endedSearch = mergeHostedSearch(
-            this.currentAssistant.hostedSearch,
-            extractHostedSearchFromAssistantContent(
-              (event.message as { content?: unknown }).content,
-            ),
-          );
-          const hostedSearch = hostedSearchHasContent(endedSearch) && endedSearch
-            ? {
-                queries: endedSearch.queries,
-                sources: endedSearch.sources,
-                status: (failed || aborted
-                  ? endedSearch.sources.length > 0
-                    ? "completed" as const
-                    : "failed" as const
-                  : "completed" as const),
-              }
-            : undefined;
           this.currentAssistant = {
             ...this.currentAssistant,
             content: nextText,
@@ -7080,7 +7393,6 @@ Delegation rules:
               : content.hasThinking
                 ? { thinking: undefined }
                 : {}),
-            ...(hostedSearch ? { hostedSearch } : {}),
             status: failed || emptyResponse
               ? "error"
               : aborted
@@ -7096,12 +7408,12 @@ Delegation rules:
             ...(classifiedError
               ? { error: classifiedError, isError: true }
               : {}),
+            ...(hostedSearch ? { hostedSearch } : {}),
           };
           this.emit({ type: "message_end", message: this.currentAssistant });
           this.activeProviderRetryAttempt = 0;
           this.streamStartedAt = undefined;
           this.currentAssistant = undefined;
-
           const canRecoverOverflow =
             this.compactionEnabled &&
             overflow &&
@@ -7115,7 +7427,7 @@ Delegation rules:
             // anything else should that order ever change.
             const messages = this.agent.state.messages;
             if (messages.at(-1) === event.message) {
-              this.agent.state.messages = messages.slice(0, -1);
+              this.setAgentMessages(messages.slice(0, -1));
             }
           } else if (!failed && !aborted && !emptyResponse) {
             this.appendLiveEntry(assistantId, event.message);
@@ -7133,22 +7445,6 @@ Delegation rules:
         break;
       }
       case "tool_execution_start": {
-        if (this.nativeWebSearchActive() && isHiddenNativeWebToolName(event.toolName)) {
-          const startedAt = Date.now();
-          this.activeToolCalls.set(event.toolCallId, {
-            toolName: event.toolName,
-            args: event.args,
-            startedAt,
-          });
-          this.applyHostedSearch(
-            mergeHostedSearch(undefined, extractHostedSearchFromAssistantContent({
-              type: "toolCall",
-              name: event.toolName,
-              arguments: event.args,
-            })) ?? { status: "searching", queries: [], sources: [] },
-          );
-          break;
-        }
         const startedAt = Date.now();
         this.clearAgentActivity();
         this.activeToolCalls.set(event.toolCallId, {
@@ -7175,19 +7471,6 @@ Delegation rules:
         // The agent issues the follow-up provider request as soon as the tool
         // results are in, so this is the anchor for the next providerWaitMs.
         {
-          if (this.nativeWebSearchActive() && isHiddenNativeWebToolName(
-            this.activeToolCalls.get(event.toolCallId)?.toolName ?? event.toolName,
-          )) {
-            this.activeToolCalls.delete(event.toolCallId);
-            this.applyHostedSearch(
-              mergeHostedSearch(undefined, extractHostedSearchFromAssistantContent(event.result)) ?? {
-                status: event.isError ? "failed" : "completed",
-                queries: [],
-                sources: [],
-              },
-            );
-            break;
-          }
           const endedAt = Date.now();
           const activeTool = this.activeToolCalls.get(event.toolCallId);
           this.activeToolCalls.delete(event.toolCallId);
@@ -7365,16 +7648,14 @@ Delegation rules:
     this.currentAssistant = undefined;
   }
 
-
   /** Keep a pre-flight user message in context so a reused runtime and the
    * next turn both see it, even though no provider request was made. */
   private keepPreflightUserMessage(incomingUserMessage: AgentMessage): void {
     const userMessageId = this.pendingUserMessageId || randomUUID();
     this.pendingUserMessageId = undefined;
     this.appendLiveEntry(userMessageId, incomingUserMessage);
-    this.agent.state.messages = this.liveSessionContext().messages;
+    this.setAgentMessages(this.liveSessionContext().messages);
   }
-
   private failBeforeProviderRequest(
     incomingUserMessage: AgentMessage,
     error: ReturnType<typeof classifyAgentError>,
@@ -7412,7 +7693,9 @@ Delegation rules:
 
     // Keep every new user turn small. A capability loaded for the preceding
     // turn can be searched again when the new task actually needs it.
+    this.subagentOverrideProviders = {};
     this.resetDeferredToolsForPrompt();
+    this.refreshResumablePrompt();
     // Claims are message-scoped: a later prompt must observe edited or newly
     // created instruction files instead of reusing a previous chain.
     this.pathInstructionClaims.clear();
@@ -7464,8 +7747,8 @@ Delegation rules:
       timestamp: Date.now(),
     };
     this.appendLiveEntry(internalId, internalMessage);
-    this.agent.state.messages = this.liveSessionContext().messages;
     this.setAgentActivity({ phase: "starting", since: Date.now() });
+    this.setAgentMessages(this.liveSessionContext().messages);
     await this.agent.continue();
     await this.waitForIdleAndSteering();
     // Same recovery contract as a user prompt: a plan execution that overflows,
@@ -7499,7 +7782,9 @@ Delegation rules:
     this.runCancelled = false;
     this.turnSubagentUsage = undefined;
     // Capabilities and path-scoped instruction claims belong to one prompt.
+    this.subagentOverrideProviders = {};
     this.resetDeferredToolsForPrompt();
+    this.refreshResumablePrompt();
     this.pathInstructionClaims.clear();
     this.pendingUserMessageId = userMessageId;
     this.resetRunRecoveryState();
@@ -7549,6 +7834,10 @@ Delegation rules:
         }
       }
       await this.extensionBeforeAgentStart(modelInput);
+      if (this.runCancelled || this.disposed) {
+        this.keepPreflightUserMessage(incomingUserMessage);
+        throw turnAbortedError("Turn aborted during extension hooks");
+      }
       if (typeof modelInput === "string") {
         await this.agent.prompt(modelInput);
       } else {
@@ -7586,7 +7875,6 @@ Delegation rules:
     return { turnId: this.turnId };
   }
 
-  /** `before_agent_start` hook: extensions may replace the system prompt for this turn. */
   private async extensionBeforeAgentStart(input: string | RuntimePrompt): Promise<void> {
     const runner = this.extensionRunner;
     if (!runner) return;
@@ -7595,7 +7883,8 @@ Delegation rules:
       // Handlers edit the headers object in place, as they do in the pi CLI.
       const headers: Record<string, string> = { ...(this.provider.headers ?? {}) };
       await runner.emit("before_provider_headers", { type: "before_provider_headers", headers });
-      this.extensionProviderHeaders = headers;
+      if (this.runCancelled || this.disposed) return;
+      this.extensionProviderHeaders = { ...headers };
     }
     if (!runner.hasHandlers("before_agent_start")) return;
     const base = this.composeSystemPrompt();
@@ -7609,10 +7898,10 @@ Delegation rules:
       },
       (acc, next) => ({ ...(acc ?? {}), ...next }),
     );
-    this.agent.state.systemPrompt =
-      typeof result?.systemPrompt === "string" ? result.systemPrompt : base;
+    this.setAgentSystemPrompt(
+      typeof result?.systemPrompt === "string" ? result.systemPrompt : base,
+    );
   }
-
   /**
    * `before_provider_request` rides pi-ai's `onPayload`, `after_provider_response`
    * its `onResponse`, and the per-turn `before_provider_headers` result merges
@@ -7701,12 +7990,12 @@ Delegation rules:
   private retainPendingSteering(): void {
     this.agent.clearSteeringQueue();
     for (const [message, id] of this.pendingSteering) {
-      if (!this.agent.state.messages.includes(message)) this.agent.state.messages = [...this.agent.state.messages, message];
+      if (!this.agent.state.messages.includes(message)) this.setAgentMessages([...this.agent.state.messages, message]);
       this.appendLiveEntry(id, message);
     }
     this.pendingSteering.clear();
-  }
 
+  }
   private async waitForIdleAndSteering(): Promise<void> {
     await this.agent.waitForIdle();
     if (!this.acceptingSteering || this.runCancelled || this.turnHadError) {
@@ -7722,6 +8011,15 @@ Delegation rules:
       try {
         await this.agent.continue();
         await this.agent.waitForIdle();
+        // The steering continuation may itself finish with a recoverable
+        // provider/silent/overflow/progress failure. Let runPendingRecoveries
+        // repair that assistant tail before another steering continuation.
+        if (
+          this.suppressOverflowRunEnd ||
+          this.suppressProviderRetryRunEnd ||
+          this.suppressSilentTurnRunEnd ||
+          this.suppressProgressTurnRunEnd
+        ) return;
       } finally {
         this.steeringContinuation = false;
       }
@@ -7732,6 +8030,7 @@ Delegation rules:
     this.acceptingSteering = false;
     this.gracefulStopRequested = false;
     this.runCancelled = true;
+    this.extensionRunner?.cancelPending();
     this.resolvePendingAskTools();
     this.abortRunningDelegations();
     this.turnSubagentUsage = undefined;
@@ -7769,9 +8068,10 @@ Delegation rules:
   }
 
   async dispose(): Promise<void> {
+    if (this.disposed) return;
     const runner = this.extensionRunner;
     this.extensionRunner = undefined;
-    if (runner) await runner.dispose().catch(() => undefined);
+    const closingExtensions = runner?.dispose();
     this.streamSink.dispose();
     this.disposed = true;
     this.acceptingSteering = false;
@@ -7795,5 +8095,6 @@ Delegation rules:
     this.cleanupActiveToolProgress();
     if (this.compactionInProgress) this.compactionAborted = true;
     this.compactionAbort?.abort();
+    await closingExtensions;
   }
 }

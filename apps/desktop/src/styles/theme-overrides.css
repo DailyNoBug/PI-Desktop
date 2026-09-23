@@ -63,11 +63,6 @@
   color: color-mix(in oklab, var(--ds-text-primary) 84%, transparent) !important;
 }
 
-:root[data-theme="light"] .composer-toolbar .icon-btn.composer-web-search-on,
-:root[data-theme="light"] .composer-toolbar .icon-btn.composer-web-search-on:hover {
-  color: var(--color-success) !important;
-}
-
 :root[data-theme="light"] .composer-input::placeholder,
 :root[data-theme="light"] .composer-placeholder {
   /* Gold empty-home placeholder ink (--ds-placeholder-ink). */

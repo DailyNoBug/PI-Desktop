@@ -73,10 +73,12 @@
 > Settings Appearance card gains a searchable Font picker; the selection
 > persists as `AppSettings.fontFamily` and overrides `--font-sans`. Four
 > open-licensed (SIL OFL 1.1) families — Geist, Inter, Noto Sans SC, and
-> LXGW WenKai — ship locally with license texts, and installed system
+> LXGW WenKai — shipped locally with license texts, and installed system
 > families are enumerated by Electron main through the additive allowlisted
-> channel `pi-desktop/app/systemFonts`. No host protocol or storage schema
-> changes.
+> channel `pi-desktop/app/systemFonts`. D598 / ADR 0298 later removed the
+> bundled families: the app ships no font, the picker offers System default
+> plus installed system families, and every stack ends in the system-only CJK
+> fallback tier. No host protocol or storage schema changes.
 > `0.4.17` replaces the renderer-owned multi-folder tab projection with
 > ChatGPT-style host-owned logical project groups through ADR 0249. A group
 > owns its name, ordered local roots, shared instructions, shared memory, and
@@ -104,8 +106,8 @@
 > WebSocket binding, a headless Agent Host module, and the full local
 > approval vocabulary, and D375 schedules the SSH-tunnel remote Host first
 > while Gateway and browser access stay unscheduled. None of them changes the
-> current exclusion. Voice dictation (D439 / ADR 0296, superseded by D451 /
-> ADR 0297) runs through the frozen `pi-desktop/voice/*` IPC domain on the
+> current exclusion. Voice dictation (D628 / ADR 0312, superseded by D629 /
+> ADR 0313) runs through the frozen `pi-desktop/voice/*` IPC domain on the
 > bundled local voice plugin `pi.local-voice`: local Whisper transcription,
 > no cloud STT/TTS bindings, no secret ref — with no protocol or
 > storage-schema version change.

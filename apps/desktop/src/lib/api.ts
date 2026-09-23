@@ -1,4 +1,5 @@
 import type {
+  ScheduledTaskRun,
   ActivationScope,
   AgentCapabilityMove,
   AgentCapabilityQuery,
@@ -78,6 +79,7 @@ import type {
   ScheduledTask,
   ProviderCreateInput,
   ProviderPublic,
+  ProviderReorderInput,
   ProviderUpdateInput,
   Result,
   SessionDetail,
@@ -86,6 +88,7 @@ import type {
   SessionSearchContextRequest,
   SessionSummary,
   SessionCollaborationSummary,
+  TraySessionPreferences,
   ToolPermissionResolution,
   UserSkillInput,
   UserSkillRecord,
@@ -103,12 +106,22 @@ import type {
   PlanResolutionResult,
   PlanningStateEvent,
   PlansPendingResult,
+  RemoteHostBootstrapRequest,
+  RemoteHostBootstrapResult,
   RemoteHostPairRequest,
   RemoteHostPairResult,
   RemoteHostSummary,
   UpdateState,
   WindowControlAction,
   CloseBehavior,
+  ConfigSyncApprovalInput,
+  ConfigSyncChangePasswordInput,
+  ConfigSyncHistoryEntry,
+  ConfigSyncMapProjectInput,
+  ConfigSyncConfigureInput,
+  ConfigSyncRestoreInput,
+  ConfigSyncProgress,
+  ConfigSyncState,
   TrustedExtensionStatusEvent,
   TrustedExtensionUiPrompt,
   TrustedExtensionUiPromptResponse,
@@ -120,8 +133,10 @@ import {
   normalizeLargePasteThreshold,
   normalizeMode,
   normalizeNetworkProxy,
+  normalizeNetworkPolicy,
   resolveFontScale,
   normalizeChatContentMaxWidth,
+  validateNetworkPolicy,
   validateNetworkProxy,
 } from "@pi-desktop/shared";
 
@@ -343,6 +358,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
   return {
     ...settings,
     defaultMode: normalizeMode((settings as { defaultMode?: unknown }).defaultMode),
+    infiniteProviderRetry:
+      (settings as { infiniteProviderRetry?: unknown }).infiniteProviderRetry === true,
     defaultCommandShell: isCommandShellId(
       (settings as { defaultCommandShell?: unknown }).defaultCommandShell,
     )
@@ -355,6 +372,9 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     fontScale: resolveFontScale(settings),
     networkProxy: normalizeNetworkProxy(
       (settings as { networkProxy?: unknown }).networkProxy,
+    ),
+    networkPolicy: normalizeNetworkPolicy(
+      (settings as { networkPolicy?: unknown }).networkPolicy,
     ),
   };
 }
@@ -374,7 +394,9 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
     largePasteThreshold?: unknown;
     fontScale?: unknown;
     chatContentMaxWidth?: unknown;
+    infiniteProviderRetry?: unknown;
     networkProxy?: unknown;
+    networkPolicy?: unknown;
   };
   if (
     Object.prototype.hasOwnProperty.call(value, "defaultCommandShell") &&
@@ -409,6 +431,14 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
       });
     }
   }
+  if (
+    Object.prototype.hasOwnProperty.call(value, "infiniteProviderRetry") &&
+    typeof value.infiniteProviderRetry !== "boolean"
+  ) {
+    throw Object.assign(new Error("infiniteProviderRetry is invalid"), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
   if (Object.prototype.hasOwnProperty.call(value, "networkProxy")) {
     const proxy = validateNetworkProxy(value.networkProxy);
     if (!proxy.ok) {
@@ -417,6 +447,15 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
       });
     }
     value.networkProxy = proxy.value;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "networkPolicy")) {
+    const policy = validateNetworkPolicy(value.networkPolicy);
+    if (!policy.ok) {
+      throw Object.assign(new Error(policy.error), {
+        errorCode: "INVALID_ARGUMENT",
+      });
+    }
+    value.networkPolicy = policy.value;
   }
   return settings;
 }
@@ -551,7 +590,11 @@ export const api = {
       config,
     ).then((result) => ({ ...result, session: normalizeSession(result.session) })),
   scanImportSessions: () =>
-    invoke<{ sessions: ImportCandidate[] }>(IPC.invoke.sessionImportScan),
+    invoke<{
+      sessions: ImportCandidate[];
+      truncated?: Partial<Record<ImportSource, number>>;
+    }>(IPC.invoke.sessionImportScan),
+
   runImportSessions: (items: ImportCandidate[]) =>
     invoke<ImportRunResult>(IPC.invoke.sessionImportRun, items),
   scanImportModelConfigs: () =>
@@ -563,12 +606,45 @@ export const api = {
   getSettings: () => invoke<AppSettings>(IPC.invoke.settingsGet).then(normalizeSettings),
   setSettings: (settings: AppSettings) =>
     invoke(IPC.invoke.settingsSet, validateSettingsWrite(settings)),
+  configSyncGetState: () => invoke<ConfigSyncState>(IPC.invoke.configSyncGetState),
+  configSyncConfigure: (input: ConfigSyncConfigureInput) =>
+    invoke<ConfigSyncState>(IPC.invoke.configSyncConfigure, input),
+  configSyncTest: (input: Omit<ConfigSyncConfigureInput, "backupPassword"> & { backupPassword?: string }) =>
+    invoke<{
+      ok: boolean;
+      conditionalWrites: boolean;
+      appendOnly: boolean;
+      message?: string;
+    }>(
+      IPC.invoke.configSyncTest,
+      input,
+    ),
+  configSyncSyncNow: () => invoke<ConfigSyncState>(IPC.invoke.configSyncSyncNow),
+  configSyncPause: (paused: boolean) =>
+    invoke<ConfigSyncState>(IPC.invoke.configSyncPause, { paused }),
+  configSyncUnlock: (backupPassword: string) =>
+    invoke<ConfigSyncState>(IPC.invoke.configSyncUnlock, { backupPassword }),
+  configSyncApprove: (input: ConfigSyncApprovalInput) =>
+    invoke<ConfigSyncState>(IPC.invoke.configSyncApprove, input),
+  configSyncReject: (input: ConfigSyncApprovalInput) =>
+    invoke<ConfigSyncState>(IPC.invoke.configSyncReject, input),
+  configSyncMapProject: (input: ConfigSyncMapProjectInput) =>
+    invoke<ConfigSyncState>(IPC.invoke.configSyncMapProject, input),
+  configSyncListHistory: () =>
+    invoke<ConfigSyncHistoryEntry[]>(IPC.invoke.configSyncListHistory),
+  configSyncRestore: (input: ConfigSyncRestoreInput) =>
+    invoke<ConfigSyncState>(IPC.invoke.configSyncRestore, input),
+  configSyncChangePassword: (input: ConfigSyncChangePasswordInput) =>
+    invoke<ConfigSyncState>(IPC.invoke.configSyncChangePassword, input),
+  configSyncDisconnect: () => invoke<ConfigSyncState>(IPC.invoke.configSyncDisconnect),
   testNetworkProxy: (settings: unknown) =>
     invoke<{ ok: boolean; error?: string }>(IPC.invoke.networkProxyTest, settings),
   /** Installed system font families (Electron main, cached briefly). */
   listSystemFonts: () => invoke<string[]>(IPC.invoke.systemFontsList),
   listCommandShells: () =>
     invoke<CommandShellCatalog>(IPC.invoke.commandShellList),
+  reorderProviders: (input: ProviderReorderInput) =>
+    invoke<{ ok: boolean }>(IPC.invoke.providersReorder, input),
   listProviders: () =>
     invoke<{ providers: ProviderPublic[] }>(IPC.invoke.providersList),
   createProvider: (input: ProviderCreateInput) =>
@@ -618,6 +694,21 @@ export const api = {
       source: "cache" | "remote" | "catalog" | "fallback";
       error?: string;
     }>(IPC.invoke.providersListModels, input),
+  /**
+   * Look one hand-typed model id up in the local models.dev snapshot.
+   *
+   * The discovered list only describes ids a service already serves, so this is
+   * the only way a custom id reaches its published limits before the provider
+   * is saved. Snapshot read only: no provider network access and no host call.
+   * `info` is null when the catalog does not publish the id.
+   */
+  lookupProviderModel: (input: {
+    modelId: string;
+    baseUrl?: string;
+    providerId?: string;
+    vendorKey?: string;
+  }) =>
+    invoke<{ info: ModelInfo | null }>(IPC.invoke.providersLookupModel, input),
   /** Force-refresh models.dev for the running process; release snapshots are bundled. */
   refreshModelCatalog: () =>
     invoke<{
@@ -812,10 +903,25 @@ export const api = {
     prompt: string;
     cadence?: ScheduledTask["cadence"];
     enabled?: boolean;
+    schedule?: ScheduledTask["schedule"];
+    workspacePath?: string;
+    permissionMode?: ScheduledTask["permissionMode"];
+    thinkingLevel?: ScheduledTask["thinkingLevel"] | null;
+    providerId?: string | null;
+    modelId?: string | null;
   }) => invoke<{ task: ScheduledTask }>(IPC.invoke.scheduledCreate, input),
-  updateScheduled: (input: Partial<ScheduledTask> & { id: string }) =>
+  updateScheduled: (
+    input: Omit<Partial<ScheduledTask>, "providerId" | "modelId" | "thinkingLevel"> & {
+      id: string;
+      thinkingLevel?: ScheduledTask["thinkingLevel"] | null;
+      providerId?: string | null;
+      modelId?: string | null;
+    },
+  ) =>
     invoke<{ task: ScheduledTask }>(IPC.invoke.scheduledUpdate, input),
   deleteScheduled: (id: string) => invoke(IPC.invoke.scheduledDelete, id),
+  executeScheduled: (id: string) => invoke<{ sessionId: string }>(IPC.invoke.scheduledExecute, id),
+  listScheduledRuns: () => invoke<{ runs: ScheduledTaskRun[] }>(IPC.invoke.scheduledListRuns),
   runScheduled: (id: string) =>
     invoke<{ sessionId: string; prompt: string; task: ScheduledTask }>(
       IPC.invoke.scheduledRun,
@@ -1230,7 +1336,7 @@ export const api = {
           dependencies:
             | { state: "skipped"; reason: "no-package-json" | "no-dependencies" }
             | { state: "installed" }
-            | { state: "failed"; error: string };
+            | { state: "failed"; error: string; reason?: "npm-unavailable" };
         }
     >(IPC.invoke.pluginImportExtension),
   runExtensionCommand: (input: { sessionId: string; name: string; args: string }) =>
@@ -1245,6 +1351,12 @@ export const api = {
   executeCommand: (commandId: string) =>
     invoke(IPC.invoke.commandPaletteExecute, commandId),
   openLogs: () => invoke(IPC.invoke.logOpenFolder),
+  /**
+   * Quit the application. Used by the surfaces that own the window before the
+   * shell has data; the main process runs the same ordered shutdown as the Quit
+   * menu item, so the answer may never arrive — callers must not depend on it.
+   */
+  quitApp: () => invoke<{ ok: boolean }>(IPC.invoke.appQuit),
   /** Toggles the devtools console; rejects unless developer mode is on. */
   toggleDevTools: (open?: boolean) =>
     invoke<{ open: boolean }>(IPC.invoke.devtoolsToggle, { open }),
@@ -1328,6 +1440,15 @@ export const api = {
     ),
   menuRendererReady: () =>
     invoke<{ ready: boolean }>(IPC.invoke.menuRendererReady),
+  setTraySessionPreferences: (preferences: TraySessionPreferences) =>
+    invoke<{ ok: boolean }>(IPC.invoke.traySetSessionPreferences, preferences),
+  onTraySessionActivated: (listener: (sessionId: string | null) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.traySessionActivated, (payload) => {
+      const sessionId = (payload as { sessionId?: unknown })?.sessionId;
+      if (sessionId === null || (typeof sessionId === "string" && sessionId)) listener(sessionId);
+    });
+  },
   nativeMenuAction: (action: NativeMenuAction) =>
     invoke<{ maximized: boolean; fullScreen: boolean }>(
       IPC.invoke.nativeMenuAction,
@@ -1439,6 +1560,12 @@ export const api = {
       listener((payload as { message: string }).message),
     );
   },
+  onInsecureEndpointNotice: (listener: (payload: { host: string }) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.insecureEndpointNotice, (payload) =>
+      listener(payload as { host: string }),
+    );
+  },
   onHostStatus: (listener: (status: HostStatusEvent) => void) => {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.hostStatus, (payload) =>
@@ -1461,6 +1588,13 @@ export const api = {
   /** Exchange `ppt1.` pairing token for a durable device token and connect. */
   pairRemoteHost: (request: RemoteHostPairRequest) =>
     invoke<RemoteHostPairResult>(IPC.invoke.remoteHostPair, request),
+  /**
+   * Install and pair a `pi-host` over SSH on a machine the user already
+   * reaches, then bring it online (spec §5.2). Credentials come from the
+   * user's own SSH configuration and agent.
+   */
+  bootstrapRemoteHost: (request: RemoteHostBootstrapRequest) =>
+    invoke<RemoteHostBootstrapResult>(IPC.invoke.remoteHostBootstrap, request),
   /** Close and drop a paired host by its stable routing key. */
   removeRemoteHost: (hostKey: string) =>
     invoke<{ ok: true }>(IPC.invoke.remoteHostRemove, { hostKey }),
@@ -1517,6 +1651,18 @@ export const api = {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.settingsChanged, (payload) =>
       listener((payload ?? {}) as Record<string, unknown>),
+    );
+  },
+  onConfigSyncChanged: (listener: (state: ConfigSyncState) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.configSyncChanged, (payload) =>
+      listener(payload as ConfigSyncState),
+    );
+  },
+  onConfigSyncProgress: (listener: (progress: ConfigSyncProgress) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.configSyncProgress, (payload) =>
+      listener(payload as ConfigSyncProgress),
     );
   },
   onPluginLauncherShown: (listener: () => void) => {

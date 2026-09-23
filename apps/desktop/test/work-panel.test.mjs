@@ -28,6 +28,13 @@ const panelSource = await readFile(
 const transcriptSource = await readTranscriptSource();
 const storeSource = await readStoreSource();
 const globalStyles = await loadStyles();
+test("closing a subagent panel restores focus to its transcript trigger", () => {
+  assert.match(panelSource, /const closeSubagentPanelAndFocus = useCallback/);
+  assert.match(panelSource, /data-subagent-trigger/);
+  assert.match(panelSource, /candidate\.dataset\.subagentTrigger === delegationId/);
+  assert.match(panelSource, /trigger\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(panelSource, /onClick=\{closeSubagentPanelAndFocus\}/);
+});
 
 test("work panel replaces the context panel overlay", async () => {
   await assert.rejects(
@@ -183,7 +190,7 @@ test("work panel uses the fixed-window internal dock", () => {
   // guest clamped to the plugin view is gone before the dock CSS animation.
   assert.match(
     panelSource,
-    /blocked=\{\s*exiting \|\| panelBlocked\s*\}/,
+    /blocked=\{\s*exiting \|\| panelBlocked \|\| blockingOverlayActive\s*\}/,
   );
   assert.match(panelSource, /nativeSurfaceReadyForExit/);
   assert.match(panelSource, /is-exit-pending/);
@@ -259,7 +266,7 @@ test("work panel header exposes a scrollable tab strip and direct new-page actio
   const pluginSurface = panelSource.slice(pluginSurfaceStart, pluginSurfaceEnd);
   assert.match(
     pluginSurface,
-    /blocked=\{\s*exiting \|\| panelBlocked\s*\}/s,
+    /blocked=\{\s*exiting \|\| panelBlocked \|\| blockingOverlayActive\s*\}/s,
   );
   assert.doesNotMatch(pluginSurface, /isResizing/);
   assert.doesNotMatch(panelSource, /createPortal|newTabMenuRef|menuOpen/);
@@ -402,20 +409,27 @@ test("work panel separator exposes internal panel width resizing", () => {
   assert.match(panelSource, /onPointerCancel=\{onPanelResizeCancel\}/);
   assert.match(panelSource, /onLostPointerCapture=\{onPanelResizeCancel\}/);
   assert.match(panelSource, /onKeyDown=\{onPanelResizeKeyDown\}/);
+  assert.match(panelSource, /onDoubleClick=\{onPanelResizeReset\}/);
+  assert.match(
+    panelSource,
+    /if \(drag\) finishPanelResize\(event\.currentTarget, drag\.pointerId, true\)/,
+  );
+  assert.match(panelSource, /workPanelResetWidth\(panelMinimum, layout\.maxPanelWidth\)/);
+  assert.match(panelSource, /workPanelWidthBounds\(/);
   assert.match(panelSource, /data-work-panel-resizing/);
   assert.match(globalStyles, /\.work-panel-resize \{[^}]*width:\s*10px;/s);
   assert.match(globalStyles, /touch-action:\s*none/);
   assert.match(globalStyles, /\.work-panel-resize:focus-visible/);
-  // The hover/drag line is a tint of the accent, never the solid value: the
-  // accent is pure white on the dark plate, so a solid full-height hairline
-  // reads as a bright seam rather than a control. Keyboard focus keeps it.
+  // Same short grip as the sidebar: 32px, centered, no full-height rail.
+  const resizeMarker =
+    globalStyles.match(/\.work-panel-resize::after\s*\{[^}]+\}/s)?.[0] ?? "";
+  assert.match(resizeMarker, /top:\s*50%/);
+  assert.match(resizeMarker, /height:\s*32px/);
+  assert.match(resizeMarker, /border-radius:\s*var\(--radius-full\)/);
+  assert.match(globalStyles, /\.work-panel-resize:hover::after,/);
   assert.match(
     globalStyles,
-    /\.work-panel-resize:hover::after,\s*\.work-panel-resize:active::after,\s*\.work-panel\[data-resizing="true"\] \.work-panel-resize::after \{\s*background: color-mix\(in oklab, var\(--ds-focus\) 50%, transparent\)/s,
-  );
-  assert.match(
-    globalStyles,
-    /\.work-panel-resize:focus-visible::after,[\s\S]*?\{\s*width: 2px;\s*background: var\(--ds-focus\);/,
+    /\.work-panel-resize:focus-visible::after,[\s\S]*?background:\s*var\(--ds-accent\)/,
   );
 });
 
@@ -442,30 +456,17 @@ test("the terminal tool is remote-only while the work panel keeps its other surf
   assert.doesNotMatch(transcriptSource, /openTerminal|terminalArtifact|chat\.openTerminal/);
 });
 
-test("workspace artifacts attach review to their originating session", () => {
-  const artifactIndex = storeSource.indexOf("shouldOpenReviewArtifact({");
-  const openReviewMatch = storeSource.match(
-    /get\(\)\.openWorkPanelTabForSession\(\s*envelope\.sessionId,\s*toolWorkPanelTab\("review"\),?\s*\)/,
-  );
-  const openReviewIndex = openReviewMatch?.index ?? -1;
-  const gateIndex = storeSource.indexOf(
-    "if (envelope.sessionId !== get().activeSessionId)",
-  );
-  assert.ok(artifactIndex > -1, "workspace artifact gate exists");
-  assert.ok(openReviewIndex > artifactIndex, "review artifact records its session tab");
-  assert.ok(gateIndex > -1, "cross-session gate exists");
-  assert.ok(
-    openReviewIndex < gateIndex,
-    "background artifacts must be recorded before the cross-session early-return",
-  );
-  assert.match(
-    storeSource,
-    /shouldOpenReviewArtifact\(\{[\s\S]*toolName,[\s\S]*isError:\s*event\.isError,[\s\S]*result:\s*event\.result/s,
-  );
+test("tool results never open the Review tab on their own", () => {
+  // Review opens only from an explicit user action: the viewport toggle
+  // reveals the retained context and the `+` launcher lists its row. A
+  // successful Write/Edit may not record, activate, or reveal a tab for any
+  // session, visible or background.
+  assert.doesNotMatch(storeSource, /shouldOpenReviewArtifact/);
   assert.doesNotMatch(
-    storeSource.match(/shouldOpenReviewArtifact\(\{[\s\S]*?\}\)/)?.[0] ?? "",
-    /activeSessionId|sessionId/,
+    storeSource,
+    /openWorkPanelTabForSession\([\s\S]{0,120}toolWorkPanelTab\("review"\)/,
   );
+  assert.match(storeSource, /openWorkPanelTabForSession:/);
 });
 
 test("work panel context is retained by session instead of cleared on selection", () => {
@@ -614,7 +615,12 @@ test("preview mode keeps shell actions and restores routes before navigation", (
   assert.match(appSource, /className=\{cx\([\s\S]*?"window-chrome-row"/);
   assert.match(appSource, /data-nav="new-task"/);
   assert.match(appSource, /<CollapsedTitlebarActions[\s\S]*?onNewTask=/);
-  assert.match(appSource, /<WindowControls contained \/>/);
+  // `showSplash` stays true until the shell is ready, so the controls have to
+  // follow the boot surface that is actually up (splash or startup recovery).
+  assert.match(
+    appSource,
+    /\{\(ready && !showSplash\) \|\| startupPhase !== "starting" \? \(\s*<WindowControls \/>/,
+  );
   assert.match(appSource, /const workPanelMaximizedRef = useRef\(false\)/);
   assert.match(
     appSource,

@@ -38,6 +38,11 @@
 
 ## 2. 文件布局
 
+正式打包版把上述目录树放在 `~/.pi-desktop`；开发构建放在 `~/.pi-desktop-dev`，
+因为正式版与 `pnpm dev` 是两个需要同时运行的安装（D599、ADR 0094）。
+`PI_DESKTOP_DATA_DIR` 会整体替换任一默认根目录，并在作为子进程环境变量传给
+host-core 之前被解析为绝对路径。
+
 ```text
 ~/.pi-desktop/
  ├── pi.sqlite            # index database (WAL: + -wal/-shm) — host-core only
@@ -54,11 +59,15 @@
  ├── plugins/             # code + data + registry.json (unchanged, spec 07-11)
  ├── logs/                # NDJSON app/<category>, host/<category>, agent/<category> logs
  ├── cache/               # disposable caches
+ ├── crash-dumps/         # local Crashpad minidumps (never uploaded; D602)
+ ├── crash-dumps.json     # last-reported dump mtime (best-effort marker)
  ├── review-changes/<sessionId>/<snapshotId>/
  │    ├── before          # bounded pre-tool bytes, when reversible
  │    └── meta.json       # path, hashes, diff state, and ownership
  └── scratch/<sessionId>/ # per-session agent temp files (D114), including
                           # composer pasted files under pasted/ — deleted
+                          # with the session; startup sweep removes orphans
+
                           # with the session; startup sweep removes orphans
                           # and stale dirs
 ```
@@ -348,7 +357,7 @@ CREATE TABLE sessions (
   mode        TEXT NOT NULL DEFAULT 'agent',   -- plan | agent
   thinking_level TEXT NOT NULL DEFAULT 'off'
                 CHECK (thinking_level IN ('off', 'minimal', 'low', 'medium',
-                                          'high', 'xhigh', 'max')),
+                                          'high', 'xhigh', 'max', 'omit')),
   permission_mode TEXT NOT NULL DEFAULT 'inherit' -- D115: inherit follows settings
                 CHECK (permission_mode IN ('inherit', 'ask', 'accept-edits', 'auto')),
   source      TEXT,                            -- import origin: claude-code | codex | opencode | pi
@@ -434,6 +443,11 @@ CREATE INDEX idx_session_import_origins_plugin
   消息。 Assistant Edit 使用该子项并记录 original/edited
   子级现有 `message_revisions` 存储中的响应尾部；来源
   抄本和源版本的修订永远不会被重写。
+- 分支将已有且被引用的 `scratch/<sourceId>/pasted/` 文件复制到
+  `scratch/<childId>/pasted/`，在建立索引前更新消息和检查点中的路径。
+  删除原任务不会删除子任务的副本。未引用文件、截断点之后独有的输入和其他
+  scratch 输出不复制；已过期的文件仍不可用，不新增跨任务读取授权。
+  分支失败时清理已复制的输入及子任务转录本。
 
 ### 4.6 turns — 每次 agent 运行一行
 
@@ -674,7 +688,16 @@ type Block =
       completedAt?: string; durationMs?: number;
       toolUsage?: ToolTokenUsage }
   | { type: "attachment"; kind: "image" | "file"; name: string;
-      ref: string /* attachments/<sha256> or absolute path */ };
+      ref: string /* attachments/<sha256> or absolute path */ }
+  | { type: "hostedSearch"; status: "searching" | "completed" | "failed";
+      rounds: Array<{ id: string;
+        status: "searching" | "completed" | "failed";
+        kind?: "search" | "openPage" | "findInPage";
+        query?: string; url?: string;
+        sources: Array<{ url: string; title?: string }> }>;
+      replay?: Array<{ type: "hostedSearch"; phase: string;
+        blockId?: string; name?: string; input?: unknown;
+        status?: string; isError?: boolean; wire?: unknown }> };
 ```
 
 - 工具结果存储**截断后**（16 个工具结果限制）；满
@@ -868,7 +891,17 @@ CREATE INDEX idx_task_runs ON task_runs(task_id, started_at DESC);
 ```
 
 生成会话的运行通过 `session_id` 免费获取其转录本。
-更精细的计划 (cron) 无需迁移即可登陆 `config_json`。
+`config_json` 保存 `schedule: {hour, minute, weekday}`、毫秒时间戳 `nextRunAt`、
+`workspacePath`，以及可选的任务级 `permissionMode` 与成对的 `providerId`／`modelId`。
+这些新增字段无需物理表迁移。缺少模型字段时仍在运行时读取应用默认值；缺少权限字段时，
+自动运行继续使用 Ask，立即运行继续继承全局权限。每天、每周按宿主本地时区计算。每小时采用 `nextRunAt = now + 3_600_000`，
+忽略日历时间字段。可选 `weekdays` 保存 1–7 个不重复的 0–6 整数，覆盖每周的旧 `weekday`；
+缺失时保留单日语义，空数组、重复或越界值在写入前拒绝。无需表结构迁移。
+无 `schedule` 的旧任务不会自动运行；无需修改表或迁移数据库。见 ADR 0305。
+
+任务还可独立保存 `thinkingLevel`，取值与会话相同（包括 `off` 和 `omit`）。
+模型和推理等级直接复用主对话框的完整选择器及交互逻辑，仅将保存回调接到任务草稿。
+未配置此字段的旧任务仍以 `off` 运行；清空字段恢复旧行为，不需要数据库迁移。
 
 计划任务 `config_json.mode` 是持久操作模式值。有
 故意没有物理 `scheduled_tasks.mode` 列。 v7→v8
@@ -1284,4 +1317,24 @@ UI投影损失
 最新检查点。如果主机调用尚未完成时出现更新的追加快照，outbox 同样保留该快照。
 若 `messages.id` 已属于另一会话，主机在写 JSONL 之前改写为 `{sessionId}:{id}`；
 重放原始 id 对该改写行无操作。outbox 把 `UNIQUE constraint failed: messages.id`
-当作确认并继续排空（D444）。无需存储架构迁移。
+当作确认并继续排空（D444）。带 `PERMISSION_DENIED:` 前缀的永久拒绝同样丢弃该行
+以便 FIFO 继续；`PLUGIN_PERMISSION_DENIED` 和其他宿主失败仍暂停（D597）。
+向已认领的协作投递回合做 steering 是额外的人类输入：必须指向该投递的会话，
+不受投递内容/附件契约约束，不继承投递来源，并清掉客户端带来的
+`session_message`。无需存储架构迁移。
+
+### Provider display order
+
+`kv(ns="app", key="providers.order")` stores an ordered array of provider IDs.
+Host-core owns updates through `providers.reorder`; missing metadata preserves
+creation order, new IDs follow saved IDs, and deleted IDs are ignored. This
+preference does not rewrite provider configuration or require a schema migration.
+
+### 定时任务日历配置来源
+
+可选的 `config_json.calendarConfigured` 布尔值独立记录明确的日历配置意图，
+不与 Hourly 间隔内部需要的 schedule 对象混用。旧版 Daily／Weekly 行只要保存了
+schedule 就推断为日历配置；旧版 Hourly 行保留字段，但转换时需要明确确认日历时间。
+已知意图在周期切换和数据库重开后仍然保留。该新增 JSON 字段不需要表或 schema
+版本迁移；旧版本会忽略它，也无法执行新的转换保护。
+

@@ -15,9 +15,15 @@ import { loadStyles } from "./helpers/styles.mjs";
 const composerSource = await readComposerSource();
 const composerToolbarSource = await readComposerModule("ComposerToolbar.tsx");
 const composerModelPickerSource = await readComposerModule("ComposerModelPicker.tsx");
+const composerPermissionPickerSource = await readComposerModule("ComposerPermissionPicker.tsx");
+const scheduledModelPickerSource = await readFile(
+  new URL("../src/features/scheduled/ScheduledModelPicker.tsx", import.meta.url),
+  "utf8",
+);
 const transcriptSource = await readTranscriptSource();
 const transcriptSharedSource = await readTranscriptModule("shared.tsx");
 const transcriptToolRowSource = await readTranscriptModule("ToolRow.tsx");
+const transcriptDisclosureSource = await readTranscriptModule("disclosure.tsx");
 const transcriptActivityGroupSource = await readTranscriptModule("ActivityGroup.tsx");
 const appSource = await readFile(
   new URL("../src/components/ChatSurface.tsx", import.meta.url),
@@ -51,7 +57,7 @@ const settingsSource = (
 const stylesSource = await loadStyles();
 
 test("composer exposes the runtime thinking level order and provider filtering", () => {
-  for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+  for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max", "omit"]) {
     assert.match(composerSource, new RegExp(`"${level}"`));
   }
   assert.match(composerSource, /supportedThinkingLevels/);
@@ -79,20 +85,25 @@ test("thinking levels use their canonical English values without i18n", () => {
 });
 
 test("Composer owns the mode and model controls", () => {
-  const leftToolbar = composerSource.slice(
-    composerSource.indexOf('<div className="composer-left">'),
-    composerSource.indexOf('<div className="composer-right">'),
+  const leftToolbar = composerToolbarSource.slice(
+    composerToolbarSource.indexOf('<div className="composer-left">'),
+    composerToolbarSource.indexOf('<div className="composer-right">'),
   );
   const modeControl = leftToolbar.indexOf(
     'className="icon-btn mode-chip composer-mode-chip"',
   );
-  const permissionControl = leftToolbar.indexOf('className="composer-permission"');
+  const permissionControl = leftToolbar.indexOf("<ComposerPermissionPicker");
   const rightToolbar = composerToolbarSource.slice(
     composerToolbarSource.indexOf('<div className="composer-right">'),
   );
 
   assert.ok(modeControl >= 0);
   assert.ok(permissionControl > modeControl);
+  // The task draft has no session, so its picker must not claim one: with
+  // `activeSessionId` unset the menu resolves the selected model's binding
+  // default thinking level instead of pinning the draft to its current value.
+  assert.match(scheduledModelPickerSource, /activeSessionId: null/);
+  assert.doesNotMatch(scheduledModelPickerSource, /useId\(/);
   assert.doesNotMatch(leftToolbar, /composer-thinking|thinking-chip/);
   assert.doesNotMatch(topbarSource, /ModelSelect|model-chip/);
   assert.doesNotMatch(topbarSource, /ct-mode|ct-mode-btn|configureActiveSession/);
@@ -108,8 +119,13 @@ test("conversation topbar keeps the title and actions free of a running indicato
   assert.doesNotMatch(topbarSource, /className="ct-project"/);
   assert.doesNotMatch(topbarSource, /className="ct-title-chevron"/);
   assert.match(topbarSource, /className="ct-title"/);
+  assert.doesNotMatch(topbarSource, /TOPBAR_TITLE_MAX_LENGTH|truncateTopbarTitle/);
   assert.doesNotMatch(topbarSource, /runningSessions|const isRunning|ct-running|role="status"/);
   assert.match(stylesSource, /\.conversation-topbar \.ct-title-wrap[\s\S]*?align-items: center/);
+  assert.match(
+    stylesSource,
+    /\.conversation-topbar \.ct-title[\s\S]*?overflow:\s*hidden[\s\S]*?text-overflow:\s*ellipsis[\s\S]*?white-space:\s*nowrap/,
+  );
   assert.match(
     stylesSource,
     /\.conversation-topbar \.ct-title[\s\S]*?font-size: var\(--text-base\)/,
@@ -231,22 +247,22 @@ test("expanded assistant activity rails collapse their disclosures", () => {
   assert.match(stylesSource, /\.disclosure-collapse-rail:focus-visible\s*\{/);
 });
 
-test("live thinking follows the latest step without auto-expanding tool details", () => {
-  assert.match(transcriptSource, /function useAutomaticDisclosure\(automaticOpen: boolean, revealRequest\?: number\)/);
-  assert.match(transcriptSource, /const userInteractedRef = useRef\(false\)/);
-  assert.match(transcriptSource, /useLayoutEffect\(\(\) => \{/);
-  assert.match(transcriptSource, /if \(userInteractedRef\.current\) return/);
-  assert.match(transcriptSource, /const \{ open, toggle: toggleDisclosure, collapse: collapseDisclosure \}/);
-  assert.match(transcriptSource, /useAutomaticDisclosure\(live, revealRequest\)/);
+test("detailed mode opens the last tool while compact keeps payloads collapsed", () => {
+  assert.match(transcriptDisclosureSource, /export function useAutomaticDisclosure\(/);
+  assert.match(transcriptDisclosureSource, /revealRequest\?: number/);
+  assert.match(transcriptDisclosureSource, /const currentOpen = useRef\(open\)/);
+  assert.match(transcriptDisclosureSource, /const setManualOpen = useCallback/);
+  assert.match(transcriptSource, /useAutomaticDisclosure\(\s*hasSubagentTopology \? live : visibleItems\.length <= 1/);
   assert.match(
     transcriptSource,
-    /<ThinkingRow[\s\S]*?autoOpen=\{live && itemIndex === items\.length - 1\}/,
+    /<ThinkingRow[\s\S]*?autoOpen=\{live && itemIndex === items.length - 1\}/,
   );
-  assert.doesNotMatch(
+  assert.match(
     transcriptSource,
-    /<ToolRow[\s\S]{0,220}autoOpen=\{live && itemIndex === items\.length - 1\}/,
+    /const autoOpenLatest =\s*!compact && isLast && itemIndex === items.length - 1/,
   );
-  assert.match(transcriptSource, /const disclosure = useAutomaticDisclosure\(false\)/);
+  assert.match(transcriptSource, /<ToolRow[\s\S]*?autoOpen=\{autoOpenLatest\}/);
+  assert.match(transcriptToolRowSource, /const disclosure = useAutomaticDisclosure\(\s*autoOpen && !failed && status !== "denied",\s*revealRequest/);
   assert.match(transcriptSource, /onClick=\{toggleDisclosure\}/);
   assert.match(transcriptSource, /onCollapse=\{collapseDisclosure\}/);
   assert.match(transcriptSource, /onUserInteraction=\{claimDisclosure\}/);

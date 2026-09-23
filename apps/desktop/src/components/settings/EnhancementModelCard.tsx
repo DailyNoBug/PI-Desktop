@@ -1,20 +1,19 @@
 /**
- * Enhancement prompt model and reasoning (ADR 0121).
+ * Enhancement model and reasoning rows (ADR 0121).
  *
- * Which model rewrites the Composer draft, and with how much reasoning, are
- * model decisions, so they live on this page next to the default model. They get
- * their own card rather than joining the Defaults card: that card's rows pair a
- * short value with one control, and the enhancement model needs a title, the
- * current value, and a picker — the same shape as the default-model row, which
- * has a card of its own for exactly that reason.
+ * Which model rewrites the Composer draft, and with how much reasoning, live
+ * on the Settings → AI Prompt enhancement card, as rows below the custom-template
+ * switch. They are rows rather than a second card so the template, model, and
+ * reasoning for the same action share one heading.
  *
- * The picker reuses the default-model anchored menu so the page offers one kind
+ * The picker reuses the default-model anchored menu so Settings offers one kind
  * of model picker, and the reasoning row reuses the shared settings menu select.
  */
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   THINKING_LEVELS,
+  canonicalThinkingLevel,
   modelIdsMatch,
   type AppSettings,
   type ThinkingLevel,
@@ -25,6 +24,7 @@ import {
 } from "../../features/chat/composer/model";
 import { useAppStore } from "../../stores/app-store";
 import { api } from "../../lib/api";
+import { providerDisplayName, providerSearchText } from "../../lib/provider-display";
 import { Button, Input, cx } from "../ui";
 import { IconCheck, IconChevronDown, IconSearch } from "../icons";
 import { AnchoredMenu } from "./AnchoredMenu";
@@ -69,7 +69,7 @@ export function EnhancementModelCard() {
     const needle = query.trim().toLowerCase();
     if (!needle) return options;
     return options.filter(({ provider, modelId }) =>
-      `${provider.name} ${modelId}`.toLowerCase().includes(needle),
+      `${providerSearchText(provider)} ${modelId}`.toLowerCase().includes(needle),
     );
   }, [options, query]);
 
@@ -116,7 +116,7 @@ export function EnhancementModelCard() {
   const storedReasoning = settings?.promptEnhancementThinkingLevel ?? "off";
   const reasoning = useMemo(() => {
     if (!reasoningProvider) return storedReasoning;
-    return thinkingLevelForProvider(reasoningProvider, storedReasoning);
+    return canonicalThinkingLevel(thinkingLevelForProvider(reasoningProvider, storedReasoning));
   }, [reasoningProvider, storedReasoning]);
 
   // Every hook runs before this: `settings` arrives after the first bootstrap,
@@ -150,25 +150,23 @@ export function EnhancementModelCard() {
       promptEnhancementProviderId: providerId,
       promptEnhancementModelId: modelId,
       promptEnhancementThinkingLevel: nextProvider
-        ? thinkingLevelForProvider(nextProvider, stored)
+        ? canonicalThinkingLevel(thinkingLevelForProvider(nextProvider, stored))
         : stored,
     });
     setPicking(false);
   };
 
   return (
-    <section className="settings-card-block">
-      <div className="model-config-section-head">
-        <h3 className="settings-card-heading">{t("settings.promptEnhancementModelTitle")}</h3>
-      </div>
-      <div className="settings-panel model-default-panel">
+    <>
         <SettingsRow
           title={t("settings.promptEnhancementModel")}
-          description={
+          detail={
             settings.promptEnhancementProviderId && settings.promptEnhancementModelId ? (
               <span className="model-default-value">
                 <span className="model-default-provider">
-                  {pinnedProvider?.name ?? settings.promptEnhancementProviderId}
+                  {pinnedProvider
+                    ? providerDisplayName(pinnedProvider)
+                    : settings.promptEnhancementProviderId}
                 </span>
                 <span className="model-default-sep" aria-hidden>
                   ·
@@ -269,14 +267,14 @@ export function EnhancementModelCard() {
                             index > 0 && "has-divider",
                           )}
                         >
-                          {provider.name}
+                          {providerDisplayName(provider)}
                         </div>
                       ) : null}
                       <button
                         type="button"
                         role="option"
                         aria-selected={isCurrent}
-                        aria-label={`${provider.name} · ${modelId}`}
+                        aria-label={`${providerDisplayName(provider)} · ${modelId}`}
                         className={cx("model-default-option", isCurrent && "is-current")}
                         onClick={() => void pickModel(provider.id, modelId)}
                       >
@@ -310,13 +308,14 @@ export function EnhancementModelCard() {
                 // Clamp through the same resolver the row displays, so the value
                 // stored is always one this model can run.
                 promptEnhancementThinkingLevel: reasoningProvider
-                  ? thinkingLevelForProvider(reasoningProvider, id as ThinkingLevel)
+                  ? canonicalThinkingLevel(
+                      thinkingLevelForProvider(reasoningProvider, id as ThinkingLevel),
+                    )
                   : (id as ThinkingLevel),
               })
             }
           />
         </SettingsRow>
-      </div>
-    </section>
+    </>
   );
 }

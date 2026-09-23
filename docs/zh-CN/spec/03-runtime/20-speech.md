@@ -6,13 +6,13 @@
 > `apps/desktop/electron/main/ipc/voice-ipc.ts`、
 > `apps/desktop/electron/main/plugin-runtime.ts`、
 > `apps/desktop/resources/plugins/pi.local-voice/`。
-> ADR：[0297-local-voice-plugin](/adr/0297-local-voice-plugin)。
+> ADR：[0313-local-voice-plugin](/adr/0313-local-voice-plugin)。
 
 语音转文字是插件能力，不再是宿主服务。没有内置语音协议、没有
 `AppSettings.speech` 绑定，也没有已移除云路径的 speech 通道；听写从冻结的
 voice IPC 域进入，由插件注册的 speech 适配器执行。已发布的实现是随应用内置的
-第一方插件 `pi.local-voice`，它用本地 Whisper ONNX 模型转写（ADR 0297，取代
-ADR 0296 的第一阶段云 STT）。
+第一方插件 `pi.local-voice`，它用本地 Whisper ONNX 模型转写（ADR 0313，取代
+ADR 0312 的第一阶段云 STT）。
 
 ## 1. IPC 入口（冻结）
 
@@ -45,6 +45,10 @@ preferredMimeType ("audio/pcm;rate=16000") }`；只有当本地语音插件已�
 role: "transcribe" }`，回复必须是 `{ kind: "text", text }`。音频仅存内存——
 绝不写入磁盘、转录或日志——也不会通过 `agent/prompt` 自动发送任何内容。失败
 返回结构化 `VOICE_*` 错误码；转写失败不会影响 agent 运行时。
+
+适配器协议 id 匹配 `^[a-z][a-z0-9._-]{0,63}$`（`packages/shared/src/speech.ts`）。
+语音没有已配置的宿主状态——适配器缺失是唯一的未配置状态——任何应用界面都不
+读取语音绑定：调用方只有冻结的 voice IPC 域与插件适配器（ADR 0291、ADR 0313）。
 
 ## 3. 内置 `pi.local-voice` 插件
 
@@ -94,3 +98,7 @@ false`，权重只从插件的模型目录加载，模型缺失即失败关闭�
 - `speech.handle` 的调用预算为 120 秒（从通用 60 秒上调），一次本地 Whisper
   推理可覆盖最长允许的录音。
 - `SPEECH_PROTOCOL_UNSUPPORTED` 是适配器注册表对未知语音协议的回答。
+- 设置页面**不提供**任何云语音入口（ADR 0291）：本 fork 没有
+  `AppSettings.speech` 绑定，也没有 `speech/*` IPC，唯一的设置界面是本地语音
+  **Voice** 卡片（ADR 0313）。Whisper / TTS 模型不得出现在聊天模型选择器中。
+- v1 不实现 Realtime 与 agent 工具；麦克风采集即上面的听写路径。

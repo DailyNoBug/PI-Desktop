@@ -5,8 +5,6 @@ import {
   composerModelBadges,
   composerModelDisplayName,
   composerModelMatchesQuery,
-  composerProviderDisplayName,
-  composerProviderSearchText,
   composerModelsForProvider,
 } from "../src/lib/composer-models.ts";
 
@@ -62,6 +60,15 @@ test("configured models remain selectable when discovery is unavailable", () => 
   assert.equal(models[0].displayName, "my-model-v2");
 });
 
+test("Composer preserves configured order even when discovery returns another order", () => {
+  const configured = ["z-custom", "gpt-6-astra", "claude-opus-4-6"];
+  const models = composerModelsForProvider(
+    { id: "custom", models: configured.map(binding) },
+    [model("claude-opus-4-6"), model("gpt-6-astra")],
+  );
+  assert.deepEqual(models.map(({ modelId }) => modelId), configured);
+});
+
 test("legacy providers fall back to their default model binding", () => {
   const models = composerModelsForProvider(
     { id: "legacy", models: [], defaultModelId: "legacy-model" },
@@ -108,36 +115,6 @@ test("the selected label keeps its alias across equivalent model ids", () => {
       "GPT-5.3 Codex Spark",
     ),
     "Spark",
-  );
-});
-
-test("the Composer uses a vendor account label for its provider heading", () => {
-  assert.equal(
-    composerProviderDisplayName({
-      name: "Anthropic",
-      oauthAccountLabel: "Work account",
-    }),
-    "Work account",
-  );
-});
-
-test("the Composer falls back to the provider name without an account label", () => {
-  assert.equal(
-    composerProviderDisplayName({
-      name: "Anthropic",
-      oauthAccountLabel: "  ",
-    }),
-    "Anthropic",
-  );
-});
-
-test("the Composer searches both the account label and vendor name", () => {
-  assert.equal(
-    composerProviderSearchText({
-      name: "Anthropic",
-      oauthAccountLabel: "Work account",
-    }),
-    "Work account Anthropic",
   );
 });
 

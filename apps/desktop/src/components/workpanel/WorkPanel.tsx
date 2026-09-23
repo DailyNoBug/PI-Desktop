@@ -9,6 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { useBlockingOverlayActive } from "../../lib/blocking-overlay";
 import { isRemoteProjectPath, type PluginViewMeta } from "@pi-desktop/shared";
 import {
   isKnownWorkPanelTab,
@@ -46,6 +47,8 @@ import {
   WORK_PANEL_MIN_WIDTH,
   clampWorkPanelWidth,
   workPanelLayout,
+  workPanelResetWidth,
+  workPanelWidthBounds,
 } from "../../lib/work-panel-resize";
 
 const TAB_ICONS = {
@@ -176,6 +179,7 @@ export function WorkPanel({
   onToggleMaximize?: () => void;
 }) {
   const { t } = useTranslation();
+  const blockingOverlayActive = useBlockingOverlayActive();
   const rawTabs = useAppStore((s) => s.workPanelTabs);
   const tabs = rawTabs.filter(isKnownWorkPanelTab);
   const activeTabId = useAppStore((s) => s.activeWorkPanelTabId);
@@ -282,6 +286,17 @@ export function WorkPanel({
     },
     [closeTab, tabs],
   );
+  const closeSubagentPanelAndFocus = useCallback(() => {
+    const delegationId = subagentPanel?.delegationId;
+    onCloseSubagentPanel?.();
+    if (!delegationId) return;
+    requestAnimationFrame(() => {
+      const trigger = [...document.querySelectorAll<HTMLElement>("[data-subagent-trigger]")].find(
+        (candidate) => candidate.dataset.subagentTrigger === delegationId,
+      );
+      trigger?.focus({ preventScroll: true });
+    });
+  }, [onCloseSubagentPanel, subagentPanel?.delegationId]);
 
   const onTabKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>, tabId: string) => {
@@ -406,8 +421,10 @@ export function WorkPanel({
       // While maximized there is no second column to trade width with.
       if (maximized) return;
       const step = event.shiftKey ? 32 : 16;
-      const minimum = Math.min(panelMinimum, layout.maxPanelWidth);
-      const maximum = Math.max(minimum, layout.maxPanelWidth);
+      const { minimum, maximum } = workPanelWidthBounds(
+        panelMinimum,
+        layout.maxPanelWidth,
+      );
       let nextWidth: number | null = null;
       if (event.key === "ArrowLeft") nextWidth = renderPanelWidth + step;
       else if (event.key === "ArrowRight") nextWidth = renderPanelWidth - step;
@@ -418,6 +435,25 @@ export function WorkPanel({
       setWidth(clampWorkPanelWidth(nextWidth, minimum));
     },
     [finishPanelResize, layout.maxPanelWidth, maximized, panelMinimum, renderPanelWidth, setWidth],
+  );
+
+  /**
+   * Double-click reset: the default width, kept inside the same live bounds
+   * the keyboard path uses, so a reset never breaches the MainChat floor or
+   * reopens a compact panel wider than the window allows.
+   */
+  const onPanelResizeReset = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      // While maximized there is no second column to trade width with.
+      if (maximized) return;
+      // A gesture that is still open (a second pointer) must not overwrite the
+      // reset when it is finally released.
+      const drag = panelResizeState.current;
+      if (drag) finishPanelResize(event.currentTarget, drag.pointerId, true);
+      setPanelDragWidth(null);
+      setWidth(workPanelResetWidth(panelMinimum, layout.maxPanelWidth));
+    },
+    [finishPanelResize, layout.maxPanelWidth, maximized, panelMinimum, setWidth],
   );
 
   const activePluginView =
@@ -476,6 +512,7 @@ export function WorkPanel({
         onPointerCancel={onPanelResizeCancel}
         onLostPointerCapture={onPanelResizeCancel}
         onKeyDown={onPanelResizeKeyDown}
+        onDoubleClick={onPanelResizeReset}
       />
       <div className="work-panel-main">
         <header className="work-panel-header">
@@ -549,7 +586,7 @@ export function WorkPanel({
                 className="work-panel-subagent-back"
                 tooltip={t("panel.subagentClose")}
                 ariaLabel={t("panel.subagentClose")}
-                onClick={onCloseSubagentPanel}
+                onClick={closeSubagentPanelAndFocus}
               >
                 <IconChevronLeft size={15} />
               </TooltipButton>
@@ -636,7 +673,7 @@ export function WorkPanel({
                     sessionId={activeSessionId ?? undefined}
                     location={activeTab.location}
                     // Native WebContentsViews composite above renderer content.
-                    blocked={exiting || panelBlocked}
+                    blocked={exiting || panelBlocked || blockingOverlayActive}
                   />
                 </div>
               );

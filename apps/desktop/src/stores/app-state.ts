@@ -23,7 +23,7 @@ import type {
   ProviderPublic,
   ReviewRollbackResult,
   SessionSummary,
-  ThinkingLevel,
+  SessionThinkingLevel,
   UiMessage,
 } from "@pi-desktop/shared";
 import type { SettingsTabId } from "../lib/settings-search";
@@ -95,7 +95,7 @@ export type RefreshSessionsOptions = {
 /** Toolbar selections retained on the unpersisted new-task draft. */
 export type DraftSessionConfiguration = {
   mode: Mode;
-  thinkingLevel: ThinkingLevel;
+  thinkingLevel: SessionThinkingLevel;
   providerId?: string;
   modelId?: string;
   permissionMode?: PermissionMode;
@@ -175,6 +175,8 @@ export type AppState = {
   settingsTab: SettingsTabId;
   /** Pending row anchor (i18n key) to flash after landing on a settings tab. */
   settingsAnchor: string | null;
+  /** Bumped by every setSettingsTab so a same-tab navigation is observable. */
+  settingsTabNonce: number;
   navStack: Array<{ page: AppState["page"]; sessionId?: string }>;
   navIndex: number;
   error?: string | null;
@@ -198,7 +200,7 @@ export type AppState = {
     mode: Mode;
     providerId?: string;
     modelId?: string;
-    thinkingLevel: ThinkingLevel;
+    thinkingLevel: SessionThinkingLevel;
     permissionMode?: PermissionMode;
   }) => Promise<void>;
   /** Returns true once accepted unless concurrent smart Stop restores it. */

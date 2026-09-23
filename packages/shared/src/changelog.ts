@@ -29,6 +29,38 @@ export type ChangelogEntry = {
 
 const enEntries: ChangelogEntry[] = [
   {
+    version: "0.15.2",
+    date: "2026-09-21",
+    highlights: [
+      "Generate and edit images in chat, choose one image model, and create batches with the built-in imagegen skill.",
+      "Keep tool activity aligned with the conversation width and contain long activity labels cleanly.",
+      "Preserve pasted file attachments when a paste finishes after switching sessions.",
+      "Keep the selected default model when editing providers, and fall back safely when it is removed.",
+      "Make nested thinking and tool activity disclosures easier to read, navigate, and recover.",
+      "Improve Composer layouts, reasoning controls, and theme consistency across the workspace.",
+      "Add an opt-in Settings switch to keep retrying network and transient provider failures until they succeed.",
+    ],
+  },
+
+  {
+    version: "0.15.1",
+    date: "2026-09-19",
+    highlights: [
+      "Pair and manage remote hosts over SSH from Settings, including password login, install, and reconnect on launch.",
+      "Configure prompt enhancement (template, model, and reasoning) from the AI settings card.",
+      "Drag selected models to reorder them, and add an omit thinking level that sends no provider override.",
+      "Resize or collapse the sidebar, and restore default sidebar or panel width with a double-click.",
+      "Manage projects in a grouped archive with an inspector, and import each kind from its own workbench.",
+      "Scan and batch-import skills and MCP servers from other agent tools.",
+      "Keep the macOS menu-bar extra on a native status item, with bounded tray session shortcuts.",
+      "Ship signed and notarized official macOS builds with in-app updates.",
+      "Install from a two-icon signed macOS DMG; the unsigned-opening note stays in the ZIP only.",
+      "Open Review only when you ask, and land on the latest turn when opening a session.",
+      "Recover a stuck send queue, and ignore forged steering origin.",
+    ],
+  },
+
+  {
     version: "0.15.0",
     date: "2026-09-17",
     highlights: [
@@ -793,6 +825,38 @@ const enEntries: ChangelogEntry[] = [
 
 const zhCNEntries: ChangelogEntry[] = [
   {
+    version: "0.15.2",
+    date: "2026-09-21",
+    highlights: [
+      "支持聊天生图与图片编辑，可设置唯一生图模型，并通过内置 imagegen 技能批量生成。",
+      "让工具活动跟随对话宽度排列，并妥善收纳过长的活动名称。",
+      "切换会话后，如果粘贴操作稍后完成，文件附件也会保留。",
+      "编辑提供商时保留已选的默认模型；模型被移除后安全回退。",
+      "优化嵌套思考和工具活动的展开收起，更易阅读、导航和恢复。",
+      "改进 Composer 布局、推理强度控制和工作区主题一致性。",
+      "设置里新增可选的无尽重试：网络或临时服务故障会一直重试到成功。",
+    ],
+  },
+
+  {
+    version: "0.15.1",
+    date: "2026-09-19",
+    highlights: [
+      "在设置里通过 SSH 配对和管理远程主机，支持密码登录、安装和启动时重连。",
+      "在 AI 设置卡片里配置提示词增强：模板、模型和推理强度。",
+      "拖动已选模型即可排序，并新增「省略思考」档位，不再向供应商覆盖思考级别。",
+      "可调整或折叠侧边栏，双击分隔条即可恢复默认侧边栏或面板宽度。",
+      "项目改为分组归档加检查器管理，导入页按类型拆成独立工作台。",
+      "可扫描并批量导入其他 Agent 工具里的 Skills 和 MCP 服务器。",
+      "macOS 菜单栏额外项改用原生状态项，并提供有上限的托盘会话快捷入口。",
+      "官方 macOS 构建改为签名、公证，并支持应用内更新。",
+      "已签名的 macOS DMG 改为双图标拖入 Applications 安装，未签名打开说明只保留在 ZIP 里。",
+      "仅在主动打开时显示 Review 面板，打开会话时落在最新一轮。",
+      "卡住的发送队列可自动恢复，并忽略伪造来源的转向消息。",
+    ],
+  },
+
+  {
     version: "0.15.0",
     date: "2026-09-17",
     highlights: [
@@ -1556,6 +1620,38 @@ const zhCNEntries: ChangelogEntry[] = [
 ];
 
 const zhTWEntries: ChangelogEntry[] = [
+  {
+    version: "0.15.2",
+    date: "2026-09-21",
+    highlights: [
+      "支援聊天生圖與圖片編輯，可設定唯一生圖模型，並透過內建 imagegen 技能批次生成。",
+      "讓工具活動跟隨對話寬度排列，並妥善收納過長的活動名稱。",
+      "切換工作階段後，即使貼上操作稍後完成，檔案附件也會保留。",
+      "編輯提供商時保留已選的預設模型；模型被移除後安全回退。",
+      "優化巢狀思考和工具活動的展開收合，更易閱讀、導覽和恢復。",
+      "改進 Composer 版面、推理強度控制和工作區主題一致性。",
+      "設定裡新增可選的無盡重試：網路或暫時性服務故障會持續重試到成功。",
+    ],
+  },
+
+  {
+    version: "0.15.1",
+    date: "2026-09-19",
+    highlights: [
+      "在設定裡透過 SSH 配對和管理遠端主機，支援密碼登入、安裝和啟動時重連。",
+      "在 AI 設定卡片裡設定提示詞增強：模板、模型和推理強度。",
+      "拖曳已選模型即可排序，並新增「省略思考」檔位，不再向供應商覆寫思考層級。",
+      "可調整或摺疊側邊欄，雙擊分隔條即可恢復預設側邊欄或面板寬度。",
+      "專案改為分組封存加檢查器管理，匯入頁依類型拆成獨立工作台。",
+      "可掃描並批次匯入其他 Agent 工具裡的 Skills 和 MCP 伺服器。",
+      "macOS 選單列額外項改用原生狀態項，並提供有上限的托盤工作階段捷徑。",
+      "官方 macOS 建置改為簽名、公證，並支援應用程式內更新。",
+      "已簽名的 macOS DMG 改為雙圖示拖入 Applications 安裝，未簽名開啟說明只保留在 ZIP 裡。",
+      "僅在主動開啟時顯示 Review 面板，開啟工作階段時落在最新一輪。",
+      "卡住的傳送佇列可自動恢復，並忽略偽造來源的轉向訊息。",
+    ],
+  },
+
   {
     version: "0.15.0",
     date: "2026-09-17",

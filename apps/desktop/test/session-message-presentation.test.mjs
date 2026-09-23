@@ -42,18 +42,12 @@ function loadComponent(name, extras = {}) {
     "../../../components/Markdown": { Markdown: ({ source: text }) => text },
     "../../../components/icons": new Proxy({}, { get: () => Icon }),
     "../../../components/ui": { TooltipButton },
-    "../../../lib/hosted-search-ui": {
-      HOSTED_SEARCH_PREVIEW_COUNT: 5,
-      hostedSearchHost: () => "",
-      hostedSearchFaviconCandidates: () => [],
-      hostedSearchLabel: () => "",
-      hostedSearchTitle: () => "",
-      rewriteInlineCitationMarkup: (text) => text,
-      urlsReferToSameSource: () => false,
-      sourcesForHref: () => [],
-      openChatHttpUrl: () => {},
-    },
     "./shared": shared,
+    "./menu-items": { userMessageMenuItems: () => [] },
+    "./TranscriptMenu": {
+      useTranscriptMenu: () => () => {},
+      useChatTextActions: () => ({ copyText: () => {}, selectText: () => {} }),
+    },
     ...extras,
   };
   const module = { exports: {} };

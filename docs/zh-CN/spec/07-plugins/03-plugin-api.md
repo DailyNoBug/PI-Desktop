@@ -132,7 +132,7 @@ pi.rpc.unregister(): Promise<void>
 JSON 序列化，每次调用都在宿主命令预算内。卸载、禁用或崩溃都会注销处理器。内置
 的 `pi.local-voice` 插件——其 `status` / `models.list` / `models.download` /
 `models.remove` / `models.setActive` 方法驱动设置中的语音卡片——是仓库内的示例
-（ADR 0297）。
+（ADR 0313）。
 
 
 ### 用户界面
@@ -999,7 +999,7 @@ view.setModal(input: { modal: boolean }): Promise<{
   范围由 `manifest.fs` 限定（ADR 0088）
 - `agent.registerTool` / `unregisterTool` / `agent.complete`
 - `speech.registerAdapter` / `unregisterAdapter`（`speech.adapter.register`）
-- `rpc.register` / `unregister`（`plugin.rpc`；渲染器管理调用，ADR 0297）
+- `rpc.register` / `unregister`（`plugin.rpc`；渲染器管理调用，ADR 0313）
 
 - `models.list`、`session.getLlmContext`
 - `clipboard.*`、`shell.openExternal`、`net.fetch`

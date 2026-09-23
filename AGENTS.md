@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Policy-Sync: 2026-02-16.2
+Policy-Sync: 2026-09-21.2
 
 Mandatory rules for AI coding agents working in PI-Desktop.
 
@@ -235,6 +235,21 @@ cd <worktree-path>
 All implementation, targeted validation, conflict resolution, and
 task-candidate E2E happen inside the task's dedicated worktree.
 
+### E2E environment reuse
+
+Task-candidate E2E runs from the dedicated request worktree but reuses the
+host development environment already provisioned in the primary checkout.
+Reuse the host Node/pnpm toolchain, compatible `node_modules`, Electron,
+Rust/Cargo targets, package-manager stores, build caches, and ignored local
+configuration by reference or link when needed.
+
+Do not run `pnpm install`, `npm install`, or create a second dependency or
+runtime environment solely to execute E2E. Keep only mutable test state
+(temporary profiles, data directories, sockets, ports, logs, and artifacts)
+isolated to the request worktree or its scratch directory. Install or rebuild
+dependencies only when the host environment is missing or incompatible, and
+record that reason. Clean CI and release runners may install from lockfiles.
+
 ### Before candidate validation
 
 Refresh the task against the latest remote `main`.
@@ -253,6 +268,22 @@ integration strategy or rely on the PR integration candidate per § 16.
 Resolve conflicts inside your own worktree. Never resolve task conflicts
 by modifying the primary checkout.
 
+### Before opening or updating a PR
+
+The request head must contain the latest `origin/main`. `origin/main`
+must be an ancestor of that head:
+
+```bash
+git fetch origin main
+git merge-base --is-ancestor origin/main HEAD
+pnpm check:pr-base
+```
+
+If that fails, refresh in the task worktree (`git rebase origin/main` on
+a private branch; a non-destructive merge when rewriting history would
+be unsafe), then re-run the check. Do not open or update a PR that is
+behind `origin/main`.
+
 ### Fixed delivery order
 
 ```text
@@ -261,7 +292,7 @@ by modifying the primary checkout.
 3. run targeted static/unit/integration checks
 4. review the task diff
 5. commit the task
-6. refresh the task branch against latest origin/main
+6. refresh the task branch against latest origin/main (`pnpm check:pr-base`)
 7. resolve conflicts inside the task worktree
 8. run required task-candidate E2E in the task worktree
 9. push the request branch
@@ -274,7 +305,8 @@ by modifying the primary checkout.
 
 Do not insert `merge task → local main` between steps 6 and 8. The task
 branch itself becomes the local integration candidate by incorporating
-the latest `origin/main`.
+the latest `origin/main`. Do not open or update a PR that is behind
+`origin/main`.
 
 A task-candidate E2E result is valid only when its tested commit and
 base revision are known. The PR integration gate then protects against
@@ -713,15 +745,40 @@ and leave it open. Do not implement first and investigate later.
 
 ## 15. GitHub Pull Request Intake
 
-For a linked pull request, evaluate whether its **principle and
-direction** are sound before replacing anything.
+For a linked pull request, fetch it first. Do not replace the
+contributor's work until the review below is complete.
 
-If the direction is sound:
+A sound direction is not enough to land. Independently verify that the
+change must fix the reported root cause with the smallest coherent
+change:
+
+1. The reported problem is real (same bar as § 14).
+2. The diff removes that failure mode at the root — not a nearby
+   symptom, a docs-only restatement, a config contract test, or a
+   partial workaround that leaves the original path intact.
+3. Extra files, refactors, and spec theater do not compensate for an
+   incomplete fix.
+
+If (2) or (3) fail:
+
+* do not merge
+* do not approve as "direction is fine, follow up later"
+* comment with the evidence in the pull request's language
+* prefer a minimal completion of the author's approach when that
+  approach can actually reach the root cause
+* do not rewrite from scratch, force-push, or silently reimplement
+  unless the user asks to take the work over
+
+If (1)–(3) hold:
 
 * preserve the contributor's work and authorship
 * do not force-push a contributor's branch
 * do not ask them to restart for minor style / completeness issues
-* make only minimal landing fixes when necessary
+* missing specs, extra tests, i18n, naming, or formatting are
+  follow-up only when they are not required to prove the root-cause
+  fix (see § 12)
+* make only minimal landing fixes when a landing blocker would
+  break `main`
 
 Do not merge a draft PR unless explicitly authorized or marked ready.
 
@@ -732,11 +789,14 @@ Landing blockers:
 * relevant test failure
 * required E2E failure
 * merge conflict
+* PR head does not contain the latest `origin/main`
 * data corruption risk
 * security violation
 * secret leakage
 * privilege / sandbox bypass
 * unresolved incompatible protocol change
+* does not actually fix the reported root cause
+* larger than the smallest coherent fix without a stated reason
 
 A sound idea does not override a failing landing gate.
 

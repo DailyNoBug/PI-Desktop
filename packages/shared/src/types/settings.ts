@@ -2,6 +2,7 @@
 import type { CommandShellId } from "../command-shells.js";
 import type { KeybindingOverrides } from "../keyboard-shortcuts.js";
 import type { NetworkProxySettings } from "../network-proxy.js";
+import type { NetworkPolicySettings } from "../network-policy.js";
 import type { ContextCompactionSettings } from "./sessions.js";
 import type { Mode } from "./common.js";
 import type { GlobalPermissionMode } from "./permissions.js";
@@ -22,9 +23,17 @@ export type ThemePreference = "system" | "light" | "dark" | `plugin:${string}`;
 export type CloseBehavior = "ask" | "tray" | "quit";
 
 export type AppSettings = {
+  imageGeneration?: import("../image-generation.js").ImageGenerationBinding | null;
+  /** All models marked for image generation; absent falls back to imageGeneration. */
+  imageGenerationModels?: import("../image-generation.js").ImageGenerationBinding[] | null;
   defaultProviderId?: string;
   defaultModelId?: string;
   defaultMode: Mode;
+  /**
+   * Keep retryable provider/network failures retrying until the request succeeds.
+   * Absent and false use the bounded ten-retry policy.
+   */
+  infiniteProviderRetry?: boolean;
   /** Configured command shell for the agent Bash protocol tool. */
   defaultCommandShell?: CommandShellId;
   /**
@@ -108,16 +117,17 @@ export type AppSettings = {
    */
   networkProxy?: NetworkProxySettings;
   /**
+   * Trust policy for the network endpoints the user enters themselves: how a
+   * user-supplied model base URL, MCP server, or market source is judged.
+   * Absent means the defaults in `network-policy.ts`.
+   */
+  networkPolicy?: NetworkPolicySettings;
+  /**
    * Preferred destination when clicking HTTP/HTTPS links in chat messages.
    * `workpanel`: Preview in the Work Panel browser tab (default).
    * `external`: Open directly in the system's default web browser.
    */
   linkOpenTarget?: LinkOpenTarget;
-  /**
-   * Attach vendor hosted-search tools when the current wire API supports them.
-   * Absent means off.
-   */
-  nativeWebSearchEnabled?: boolean;
   /**
    * Which context figure the composer ring and its summary lead with (D398).
    * `remaining` (default, absent) counts down from 100%; `used` counts up.

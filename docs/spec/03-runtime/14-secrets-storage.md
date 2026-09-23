@@ -59,8 +59,8 @@ account, or both. The OAuth ref stores the serialized pi-ai `OAuthCredential`
 path, so it is encrypted by the same backend but is not indexed in
 `secrets_meta`; provider delete clears both refs and any metadata row for them.
 
-The removed `voice/stt` ref (D439 / ADR 0296) held the cloud-STT API key; it
-was deleted with the cloud speech path (ADR 0297) and local dictation now
+The removed `voice/stt` ref (D628 / ADR 0312) held the cloud-STT API key; it
+was deleted with the cloud speech path (ADR 0313) and local dictation now
 reads no secret at all. A stored value in an existing profile is an orphan
 nothing reads.
 
@@ -96,6 +96,11 @@ Renderer uses provider methods that accept optional `secretValue` on create/upda
 5. Uninstall/reset app deletes secrets unless future explicit migrate tool says otherwise
 6. Provider delete defaults to deleting linked secret — both the API key and the OAuth credential
 7. An OAuth refresh token never crosses a process boundary: only Electron main reads it, and only to mint request auth
+8. Portable configuration sync exports provider API keys or MCP
+   environment/header values only after explicit credential opt-in. Values
+   remain inside host-owned encrypted staging and are restored through the
+   receiving device's local secret store. WebDAV credentials, machine
+   encryption keys, OAuth sessions, and cookies are never portable.
 
 ## 7. Redaction policy
 

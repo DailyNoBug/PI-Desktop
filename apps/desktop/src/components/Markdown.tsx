@@ -17,12 +17,14 @@ import {
   type ReactNode,
 } from "react";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { lexer } from "marked";
+import {
+  advanceMarkdownBlocks,
+  emptyMarkdownBlockCache,
+  markdownRemarkPlugins,
+} from "../lib/markdown-blocks";
 import { useTranslation } from "react-i18next";
 import type { ThemedToken } from "shiki";
 import "katex/dist/katex.min.css";
@@ -37,8 +39,7 @@ import {
   IconWorkflow,
 } from "./icons";
 import { TooltipButton } from "./ui";
-import { CitationBadge, useHostedSearchCitationSources } from "./CitationBadge";
-import { createPortal } from "react-dom";
+import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { api } from "../lib/api";
 import { openHttpUrl } from "../lib/open-http-url";
 import {
@@ -52,6 +53,7 @@ import {
 } from "../lib/latex-math";
 import { useAppStore } from "../stores/app-store";
 import { useReferencedImageDataUrl } from "../lib/use-referenced-image-data-url";
+import { absoluteImagePath, remarkLocalImagePaths } from "../lib/markdown-image-paths";
 import { useOpenChatFileRef } from "../hooks/use-preview-target";
 import {
   remarkChatFileLinks,
@@ -79,10 +81,12 @@ import {
 /*
  * Streaming-optimized chat markdown renderer.
  *
- * The source is split into top-level markdown blocks with marked's lexer and
- * each block renders through a memoized <ReactMarkdown>. While streaming only
- * the tail block's raw text changes, so every settled block skips re-parsing
- * entirely — total work stays linear in message length instead of quadratic.
+ * The source is split with the rendering grammar, and each block renders
+ * through a memoized <ReactMarkdown>. Streaming re-parses the growing tail
+ * while retaining the completed prefix; a long unclosed block still has to
+ * be parsed in full until its boundary is known. A source carrying link or
+ * footnote definitions opts out of splitting altogether — `markdown-blocks`
+ * states why, and why that trade is the right one.
  */
 
 export function useCopy() {
@@ -501,75 +505,16 @@ function Anchor({
   const openFileRef = useOpenChatFileRef();
   const openUrl = useAppStore((s) => s.openUrlInWorkPanel);
   const showToast = useAppStore((s) => s.showToast);
-  const citationSources = useHostedSearchCitationSources(href);
 
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const anchorRef = useRef<HTMLAnchorElement | null>(null);
+  const { contextMenu, openContextMenu, closeContextMenu } = useContextMenu();
 
-  useEffect(() => {
-    if (!menuPosition) return;
-    const close = () => setMenuPosition(null);
-    const onPointerDown = (event: PointerEvent) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      close();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      close();
-      requestAnimationFrame(() => anchorRef.current?.focus());
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("keydown", onKeyDown);
-    const focusFrame = requestAnimationFrame(() => {
-      menuRef.current
-        ?.querySelector<HTMLButtonElement>('[role="menuitem"]')
-        ?.focus();
-    });
-    return () => {
-      cancelAnimationFrame(focusFrame);
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuPosition]);
-
-  const onContextMenu = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!href || !/^https?:\/\//i.test(href)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const x = Math.min(e.clientX, window.innerWidth - 200);
-    const y = Math.min(e.clientY + 4, window.innerHeight - 150);
-    setMenuPosition({ top: y, left: x });
-  };
-
-  const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const items = Array.from(
-      event.currentTarget.querySelectorAll<HTMLButtonElement>(
-        '[role="menuitem"]:not(:disabled)',
-      ),
-    );
-    if (!items.length) return;
-    event.preventDefault();
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
-    const next =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? items.length - 1
-          : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) %
-            items.length;
-    items[next]?.focus();
-  };
-
-  const copyLink = async () => {
-    setMenuPosition(null);
-    if (!href) return;
+  /*
+    Copying reports through the toast host: the menu closes the moment the item
+    runs, so there is no button left to carry its own copied state.
+  */
+  const copyLink = async (target: string) => {
     try {
-      await navigator.clipboard.writeText(href);
+      await navigator.clipboard.writeText(target);
       showToast(t("settings.linkCopied", { defaultValue: "Link copied to clipboard" }), {
         variant: "success",
       });
@@ -581,11 +526,49 @@ function Anchor({
     }
   };
 
+  /*
+    A link keeps the renderer's own menu instead of the platform's so both
+    destinations the app can send it to stay one press away. The surface is the
+    shared pointer-anchored menu, which measures before it reveals, clamps inside
+    the viewport, and owns dismissal and arrow-key navigation; only the items are
+    link-specific.
+  */
+  const onContextMenu = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!href || !/^https?:\/\//i.test(href)) return;
+    const target = href;
+    openContextMenu(event, {
+      items: [
+        {
+          id: "open-external",
+          label: t("settings.linkContextMenuOpenExternal", {
+            defaultValue: "Open in default browser",
+          }),
+          icon: <IconExternal size={14} />,
+          onSelect: () => void api.browserOpenExternal(target),
+        },
+        {
+          id: "open-workpanel",
+          label: t("settings.linkContextMenuOpenWorkpanel", {
+            defaultValue: "Open in work panel",
+          }),
+          icon: <IconGlobe size={14} />,
+          onSelect: () => openUrl(target),
+        },
+        {
+          id: "copy-address",
+          label: t("settings.linkContextMenuCopy", {
+            defaultValue: "Copy link address",
+          }),
+          icon: <IconCopy size={14} />,
+          separatorBefore: true,
+          onSelect: () => void copyLink(target),
+        },
+      ],
+    });
+  };
+
   // Plain click follows Link open destination. Modifier clicks fall through
   // to _blank, which main routes to shell.openExternal.
-  if (citationSources.length > 0) {
-    return <CitationBadge sources={citationSources} />;
-  }
 
   const onClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -604,7 +587,6 @@ function Anchor({
   return (
     <>
       <a
-        ref={anchorRef}
         {...rest}
         href={href}
         onClick={onClick}
@@ -614,52 +596,7 @@ function Anchor({
       >
         {children}
       </a>
-      {menuPosition &&
-        createPortal(
-          <div
-            ref={menuRef}
-            className="sidebar-row-menu sidebar-floating-menu"
-            role="menu"
-            onKeyDown={onMenuKeyDown}
-            style={{
-              top: menuPosition.top,
-              left: menuPosition.left,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuPosition(null);
-                if (href) void api.browserOpenExternal(href);
-              }}
-            >
-              <IconExternal size={14} />
-              {t("settings.linkContextMenuOpenExternal", { defaultValue: "Open in default browser" })}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuPosition(null);
-                if (href) openUrl(href);
-              }}
-            >
-              <IconGlobe size={14} />
-              {t("settings.linkContextMenuOpenWorkpanel", { defaultValue: "Open in work panel" })}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => void copyLink()}
-            >
-              <IconCopy size={14} />
-              {t("settings.linkContextMenuCopy", { defaultValue: "Copy link address" })}
-            </button>
-          </div>,
-          document.body,
-        )}
+      <ContextMenu state={contextMenu} onClose={closeContextMenu} />
     </>
   );
 }
@@ -689,7 +626,7 @@ function MarkdownImage({
     !isRemote && /^attachments\/[0-9a-f]{64}$/i.test(decoded.replace(/\\/g, "/"))
       ? decoded.replace(/\\/g, "/")
       : null;
-  const localRef = rel ?? attachmentRef;
+  const localRef = (isRemote ? null : absoluteImagePath(source)) ?? rel ?? attachmentRef;
   // Always run the hook before any branch so hook order stays stable when a
   // streaming src flips between remote and local. Remote images pass null.
   const dataUrl = useReferencedImageDataUrl(isRemote ? null : localRef);
@@ -784,7 +721,10 @@ const markdownComponents: Components = {
   table: Table,
 };
 
-const staticRemarkPlugins = [remarkGfm, remarkMath];
+// The grammar the block splitter parses with, plus the renderer-only rewrite
+// of local image paths. `remarkLocalImagePaths` transforms URLs and moves no
+// block boundary, so the splitter has no reason to run it.
+const staticRemarkPlugins = [...markdownRemarkPlugins, remarkLocalImagePaths];
 
 // Extend the default schema only for the media elements rendered above, plus
 // `remark-math`'s math classes on `<code>`: the default `language-*` allow list
@@ -812,58 +752,15 @@ const rehypePlugins = [rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex]
 
 /* ---------- block splitting ---------- */
 
-function parseBlocks(source: string): string[] {
-  const blocks: string[] = [];
-  let sourceOffset = 0;
-  const hasWindowsLines = source.includes("\r\n");
-  for (const token of lexer(source)) {
-    if (!token.raw) continue;
-    const start = sourceOffset;
-    // Marked normalizes CRLF before tokenizing. Preserve original slices so
-    // parser offsets and incremental block lengths still refer to stored text.
-    if (hasWindowsLines) {
-      for (let i = 0; i < token.raw.length; i++, sourceOffset++) {
-        if (source[sourceOffset] === "\r" && source[sourceOffset + 1] === "\n") sourceOffset++;
-      }
-    } else {
-      sourceOffset += token.raw.length;
-    }
-    const raw = source.slice(start, sourceOffset);
-    // Fold blank-line runs into the previous block so joining blocks
-    // reconstructs the source and block boundaries stay append-stable.
-    if (token.type === "space" && blocks.length > 0) {
-      blocks[blocks.length - 1] += raw;
-    } else {
-      blocks.push(raw);
-    }
-  }
-  return blocks;
-}
-
 /*
- * Incremental re-lex: while streaming appends text, all blocks before the
- * last are settled (markdown blocks never merge backwards across a completed
- * boundary), so only the tail block is re-lexed each frame.
+ * Splitting and its streaming reuse live in `markdown-blocks`, which owns the
+ * rules a slice has to satisfy before it can be parsed on its own.
  */
 function useBlocks(source: string): string[] {
-  const cacheRef = useRef({ consumed: "", blocks: [] as string[] });
+  const cacheRef = useRef(emptyMarkdownBlockCache);
   return useMemo(() => {
-    const cache = cacheRef.current;
-    let stable: string[] = [];
-    let tail = source;
-    if (
-      cache.blocks.length > 0 &&
-      source.length >= cache.consumed.length &&
-      source.startsWith(cache.consumed)
-    ) {
-      stable = cache.blocks.slice(0, -1);
-      const lastStart =
-        cache.consumed.length - cache.blocks[cache.blocks.length - 1].length;
-      tail = source.slice(lastStart);
-    }
-    const blocks = tail ? [...stable, ...parseBlocks(tail)] : stable;
-    cacheRef.current = { consumed: source, blocks };
-    return blocks;
+    cacheRef.current = advanceMarkdownBlocks(cacheRef.current, source);
+    return cacheRef.current.blocks;
   }, [source]);
 }
 
@@ -928,15 +825,9 @@ export const Markdown = memo(function Markdown({
   baseDir?: string;
 }) {
   const workspaceRoot = useAppStore((s) => s.workspace?.path);
-  // Normalize once at the source level: marked's block lexer runs on the raw
-  // text and would otherwise split `\[ … \]` display math whose body puts a
-  // lone `=`/`-` (setext underline) or `+`/`*` (list marker) on its own line,
-  // stranding `\[` and `\]` in different blocks so the delimiters escape as
-  // literal `[`/`]`. The normalizer both rewrites the delimiters to `$$` and
-  // flattens newlines inside every paired region, keeping the whole formula
-  // inside a single markdown block. The rewrite is length-preserving, so we
-  // can still slice the original text at the same offsets for downstream
-  // plugins that need the pre-normalized delimiters.
+  // Keep normalization length-preserving so source anchors and the bracket
+  // display plugin still address the original text. Block splitting uses the
+  // same math grammar as rendering, including unclosed streaming math blocks.
   const normalizedSource = useMemo(
     () => normalizeLatexMathDelimiters(source),
     [source],

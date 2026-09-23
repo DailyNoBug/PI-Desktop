@@ -1,5 +1,4 @@
 import { dialog, globalShortcut, shell, type BrowserWindow } from "electron";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   IPC,
@@ -40,6 +39,7 @@ import { UserMcpRuntime } from "../user-mcp";
 import {
   MCP_CALL_TIMEOUT_MS,
   MCP_CONNECT_TIMEOUT_MS,
+  MCP_TOOL_DISCOVERY_TIMEOUT_MS,
   McpServerClient,
 } from "../plugin-mcp";
 import { McpOAuthManager } from "../mcp-oauth";
@@ -410,11 +410,14 @@ export function createPluginServices({
     },
     // A plugin host process dying is contained: contributions are already
     // deregistered by the runtime, we only have to tell the user and the UI.
-    onPluginCrash: ({ pluginId, exitCode }) => {
+    onPluginCrash: ({ pluginId, exitCode, exitCodeHex }) => {
       logger.app("plugin", "error", "plugin host process crashed", {
         pluginId,
         code: "PLUGIN_CRASHED",
-        data: { exitCode },
+        data: {
+          exitCode,
+          ...(exitCodeHex ? { exitCodeHex } : {}),
+        },
       });
       // No toast here: the runtime already raised one through `showToast` on the
       // same code path, and a second identical message reads as two failures.
@@ -483,6 +486,7 @@ export function createPluginServices({
     oauth: mcpOAuth,
     connectTimeoutMs: MCP_CONNECT_TIMEOUT_MS,
     callTimeoutMs: MCP_CALL_TIMEOUT_MS,
+    discoveryTimeoutMs: MCP_TOOL_DISCOVERY_TIMEOUT_MS,
     audit: (entry) => logger.app("plugin", "info", "mcp.api", entry),
     log: (level, message, data) => logger.app("plugin", level, message, { data }),
   });
@@ -569,10 +573,7 @@ export function createPluginServices({
     },
     getScratchDir: (sessionId) => {
       if (!sessionId) return null;
-      const root =
-        process.env.PI_DESKTOP_DATA_DIR?.trim() ||
-        join(homedir(), ".pi-desktop");
-      return join(root, "scratch", sessionId);
+      return join(dataDir, "scratch", sessionId);
     },
     onState: emitBrowserState,
   });

@@ -11,15 +11,15 @@
   width: 100%;
 }
 
-/* Thread mode: floating bottom dock. The transcript already reserves the
- * composer's measured height, so a full-width gradient veil is unnecessary
- * and makes the lower half of the conversation look hazy. */
+/* Thread mode: floating bottom dock. The transcript reserves the composer's
+ * measured height for scrolling, while this solid workspace-coloured band
+ * clips transcript paint before it can remain visible below the shell. */
 .composer-dock-docked {
   position: absolute;
   inset-inline: 0;
   bottom: 0;
   padding: 0 24px 16px;
-  background: transparent;
+  background: var(--ds-bg-primary);
 }
 
 /* Home mode: the shell is owned by the bottom-reserved home composer region. */
@@ -399,18 +399,6 @@
   color: var(--ds-text-primary);
 }
 
-.composer-toolbar .icon-btn.composer-web-search-on,
-.composer-toolbar .icon-btn.composer-web-search-on:hover,
-.composer-right .icon-btn.composer-web-search-on,
-.composer-right .icon-btn.composer-web-search-on:hover {
-  color: var(--color-success);
-}
-:root[data-theme="dark"] .composer-toolbar .icon-btn.composer-web-search-on,
-:root[data-theme="dark"] .composer-toolbar .icon-btn.composer-web-search-on:hover,
-:root[data-theme="dark"] .composer-right .icon-btn.composer-web-search-on,
-:root[data-theme="dark"] .composer-right .icon-btn.composer-web-search-on:hover {
-  color: var(--color-success);
-}
 .icon-btn.active {
   background: var(--ds-bg-active);
   color: var(--ds-text-primary);

@@ -1,19 +1,25 @@
-import {
-  hostedSearchHasContent,
-  type ContextCompactionMark,
-  type MessageUsage,
-  type UiMessage,
+import type {
+  ContextCompactionMark,
+  HostedSearchRound,
+  MessageUsage,
+  UiMessage,
 } from "@pi-desktop/shared";
+import { hostedSearchRounds } from "@pi-desktop/shared";
 import { isDelegationStartTool } from "./tool-display";
 
 export type AssistantActivityItem =
   | { kind: "thinking"; message: UiMessage }
-  | { kind: "hostedSearch"; message: UiMessage }
   | {
       kind: "tool";
       message: UiMessage;
       /** Present on a `Task` call: what the delegate it spawned did. */
       delegate?: SubagentRun;
+    }
+  | {
+      kind: "hostedSearch";
+      message: UiMessage;
+      /** One provider search round of the message; each round is a row. */
+      round: HostedSearchRound;
     };
 
 /** One row a delegate produced, in the order the delegate produced it. */
@@ -66,6 +72,7 @@ function isVisibleMessage(message: UiMessage): boolean {
     message.role === "assistant" &&
     !(message.content || "").trim() &&
     !messageThinking(message) &&
+    !message.hostedSearch &&
     !message.error
   );
 }
@@ -243,8 +250,8 @@ export function buildTranscriptEntries(
     const current = ensureTurn(message);
     const thinking = messageThinking(message);
     if (thinking) pushActivity({ kind: "thinking", message });
-    if (hostedSearchHasContent(message.hostedSearch)) {
-      pushActivity({ kind: "hostedSearch", message });
+    for (const round of hostedSearchRounds(message.hostedSearch)) {
+      pushActivity({ kind: "hostedSearch", message, round });
     }
     if ((message.content || "").trim() || !thinking || message.error) {
       current.parts.push({ kind: "message", message });

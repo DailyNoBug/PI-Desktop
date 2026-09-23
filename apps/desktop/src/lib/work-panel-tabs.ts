@@ -25,12 +25,6 @@ export type WorkPanelContext = WorkPanelTabsState & {
   fileRequest: { path: string; seq: number; mimeType?: string } | null;
 };
 
-export type ReviewArtifactEvent = {
-  toolName?: string;
-  isError?: boolean;
-  result: unknown;
-};
-
 let newWorkPanelTabSequence = 0;
 
 export function emptyWorkPanelContext(): WorkPanelContext {
@@ -136,6 +130,35 @@ export function fileManagerPluginTab(location: string): WorkPanelTab {
   };
 }
 
+/** The identity of one plugin-contributed view, as tabs and manifests key it. */
+export type PluginViewRef = { pluginId: string; viewId: string };
+
+/** Whether that view is currently launchable in the work panel. */
+export function hasPluginView(
+  views: readonly PluginViewRef[],
+  target: PluginViewRef,
+): boolean {
+  return views.some(
+    (view) => view.pluginId === target.pluginId && view.viewId === target.viewId,
+  );
+}
+
+/**
+ * The tab the host opens a project file in when the host, not the user, chose
+ * the file: the bundled file view whenever it is launchable, and the host file
+ * tab otherwise — the same preference and fallback a chat file reference
+ * already uses, so a plan or goal artifact lands where the user's other file
+ * work lives. The bundle is never required: an absent view leaves the host tab.
+ */
+export function preferredFileWorkPanelTab(
+  path: string,
+  pluginViews: readonly PluginViewRef[],
+): WorkPanelTab {
+  return hasPluginView(pluginViews, FILE_MANAGER_PLUGIN_TAB)
+    ? fileManagerPluginTab(path)
+    : fileWorkPanelTab(path);
+}
+
 export function parsePluginViewRef(
   resource: string | undefined,
 ): { pluginId: string; viewId: string } | null {
@@ -225,22 +248,6 @@ export function fileWorkPanelTab(path: string, mimeType?: string): WorkPanelTab 
     resource,
     ...(mimeType ? { mimeType } : {}),
   };
-}
-
-export function toolResultRoot(result: unknown): string | null {
-  if (!result || typeof result !== "object") return null;
-  const details = (result as { details?: unknown }).details;
-  if (!details || typeof details !== "object") return null;
-  const root = (details as { root?: unknown }).root;
-  return typeof root === "string" ? root : null;
-}
-
-export function shouldOpenReviewArtifact(event: ReviewArtifactEvent): boolean {
-  return (
-    (event.toolName === "Write" || event.toolName === "Edit") &&
-    event.isError !== true &&
-    toolResultRoot(event.result) === "workspace"
-  );
 }
 
 export function openWorkPanelTabState(

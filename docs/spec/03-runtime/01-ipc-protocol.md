@@ -169,13 +169,14 @@ The renderer changes those values through
 type ThinkingLevel =
   | "off" | "minimal" | "low" | "medium"
   | "high" | "xhigh" | "max";
+type SessionThinkingLevel = ThinkingLevel | "omit";
 
 type SessionConfigureRequest = {
   id: string;
   mode: "plan" | "goal" | "agent";
   providerId?: string;
   modelId?: string;
-  thinkingLevel: ThinkingLevel;
+  thinkingLevel: SessionThinkingLevel;
 };
 ```
 
@@ -322,6 +323,18 @@ type AgentCompactResponse = { accepted: boolean };
 session. It is available even when automatic context protection is disabled.
 Missing provider/session configuration fails through the normal `AppError`
 envelope; an active turn or compaction returns `AGENT_BUSY`.
+
+`agent.compact` is a blocking summary request, not a status poll: the sidecar
+serializes the conversation into one prompt, streams one model summary, and may
+retry a transient failure. Its transport deadline is therefore derived from that
+budget — `(1 + 3) × 180s` stream watchdog `+ 14s` of retry backoff `+ 10s`
+slack — instead of the flat 130s default, which expired while the sidecar was
+still summarizing a large context (**D614**, issue #795). The host also treats a
+transport deadline as "unknown" rather than "failed": when the call times out it
+re-reads the session's durable record, and reports success when a new checkpoint
+landed, because the sidecar persists through host-core whether or not Electron
+received the reply. A verdict the sidecar itself reported (for example
+`CONTEXT_COMPACTION_FAILED`) is never reconciled this way.
 
 ### 5.5 Plan and Goal checkpoint approval
 
@@ -492,7 +505,7 @@ type AgentActivity =
      reason: "manual" | "threshold" | "overflow" }
  | { phase: "recovering"; since: number }
  | { phase: "retrying"; since: number; attempt: number;
-     retryDelayMs?: number; error?: AgentActivityError }
+     infinite?: boolean; retryDelayMs?: number; error?: AgentActivityError }
  | { phase: "waiting-subagents"; since: number; subagentCount: number;
      agents?: AgentActivityAgent[] };
 
@@ -868,7 +881,7 @@ type SessionSummary = {
  modelId?: string;
  providerId?: string;
   mode: "plan" | "goal" | "agent";
- thinkingLevel: ThinkingLevel;
+ thinkingLevel: SessionThinkingLevel;
  supportsReasoning?: boolean;
  supportedThinkingLevels?: ThinkingLevel[];
  updatedAt: string;
@@ -932,8 +945,10 @@ Electron main enriches session list/get/create/fork/configure results with
 effective reasoning capability from the local models.dev record for that
 session's exact provider/API URL and model. Sessions without a pinned
 `providerId`/`modelId` inherit the app default provider/model for this
-enrichment only; the durable ids remain unset so later default-model changes
-still apply. An ID absent from the snapshot, or a session with no resolvable
+enrichment only. Desktop session create writes the then-current default (or an
+explicit Composer draft override) into the durable ids; later default-model
+changes do not rewrite an already created session. A home draft with no session
+still follows the live default. An ID absent from the snapshot, or a session with no resolvable
 default, gets `supportsReasoning: false` and `off`; cached/provider claims do
 not replace catalog semantics. The Rust host remains authoritative only for the
 durable `thinkingLevel`.
@@ -1014,7 +1029,7 @@ Minimal interface:
   directory, creates it if missing, and opens it in the system file manager.
   The renderer supplies only the session id; Main rejects a path outside the
   scratch root.
-- `session/importScan`
+- `session/importScan -> { sessions, truncated? }`
 - `session/importRun(candidates) -> { imported, skipped, failed }`
 - `modelConfig/importScan -> { providers }`
 - `modelConfig/importRun(candidates) -> { imported, skipped, failed }`
@@ -1024,13 +1039,17 @@ Import candidates carry `projectPath: string | null` and
 importer's sampled-scan threshold; larger files are sampled (head + tail) so
 scanning a multi-gigabyte archive stays interactive, and their `messageCount`
 is null — the import list renders an em dash for it, while imported sessions
-always compute their real message count at convert time. Scan titles come
+always compute their real message count at convert time. Codex discovery also
+caps traversal at 250 session files, walking `YYYY/MM/DD` paths newest-first
+(path date, not `updatedAt`). Hitting that cap sets `truncated.codex` to 250
+so the renderer can say the list is incomplete. Scan titles come
 from the first real user message: known synthetic injections (repo
 instructions, the IDE-context family such as `# Context from my IDE setup:`
 or `# Browser comments:`) are skipped, while pasted markdown starting with
 `#` is kept. A corrupt or out-of-range stored timestamp falls back to the
 source file's mtime, never to the import moment. A successful import
 refreshes both sessions and the durable Projects index.
+
 
 `modelConfig/importScan` reads Claude Code, Codex, OpenCode, Pi, and CC
 Switch config files from the user home directory and returns public provider drafts
@@ -1390,7 +1409,7 @@ Minimal interface:
 - `plugin/getPermissions(id)`
 - `plugin/setPermission(id, permission, allowed)` (optional fine-grained)
 - `plugin/setScope(id, scope)` (D192)
-- `plugin/rpc(pluginId, method, params?)` (D451 / ADR 0297) — deliver a
+- `plugin/rpc(pluginId, method, params?)` (D629 / ADR 0313) — deliver a
   renderer management call to a plugin's registered `pi.rpc` handler; the
   plugin must hold `plugin.rpc` and the result must be JSON-serializable
 
@@ -1525,9 +1544,11 @@ Desktop-only skill market channels (not host RPC) live on Electron IPC:
   still return. `failureKinds` maps each name in `failedSources` to `policy`
   (the guard judged the target's own non-public address and refused it),
   `fake-ip` (it judged a fake-IP placeholder the local proxy invented for the
-  name — Clash's `198.18.0.0/15`; still refused on a direct or unreadable route,
-  where the guard fails closed and this app would dial that address itself, but a
-  condition of the local network rather than a fact about the source),
+  name — Clash's `198.18.0.0/15`; it remains refused on a direct or unreadable
+  route by default, while the explicit `allowFakeIp` setting may permit only
+  the benchmark placeholder for a transparent router/TUN deployment),
+  `unresolved` (the local DNS lookup returned no answer, so no address was
+  judged), or `network`.
   `unresolved` (the local DNS lookup returned no answer, so no address was
   judged), or `network`.
   `failureDetails` carries the same keys with the host that actually failed, the
@@ -1552,10 +1573,12 @@ Desktop-only skill market channels (not host RPC) live on Electron IPC:
 Desktop-only MCP market channels (not host RPC) live on Electron IPC:
 
 - `pi-desktop/mcp/market/search` — `{ query?, sources[], more? }` →
-  `{ entries, failedSources, exhausted }`. Main validates source URLs, pins
-  each resolved public address, follows only bounded HTTPS redirects, and keeps
-  cursor state for browse and server-side search. One failed source does not
-  discard successful sources; the response and caches are bounded.
+  `{ entries, failedSources, exhausted }`. Main validates source URLs and asks
+  the Electron session for the route on every hop. Fully proxied hops use the
+  session transport; direct and unknown hops pin the resolved public address by
+  default, with explicit `allowFakeIp` limited to benchmark placeholders.
+  Redirects stay bounded HTTPS, browse/search cursors are retained, and one
+  failed source does not discard successful sources; responses and caches are bounded.
 
 ### MCP OAuth (ADR 0283)
 
@@ -1881,6 +1904,26 @@ Window bounds persistence and display reconciliation therefore operate on the
 ordinary application bounds; there is no panel-specific width or x-offset
 reservation, and background artifacts cannot change visible window geometry.
 
+### Tray session shortcuts (ADR tray-session-shortcuts)
+
+- `pi-desktop/tray/setSessionPreferences({ sessionMeta, archivedProjectPaths, sort })`
+  returns `{ ok: true }`. `sessionMeta` maps IDs to optional boolean `pinned`
+  and `archived` flags plus a non-negative safe integer `order`. `sort` is
+  `recent`, `created`, `oldest`, `name`, or `manual`; the renderer mirrors the
+  sidebar's effective sort. Main validates the payload, strips unrelated
+  metadata, and rejects senders other than the current main window. The setter
+  is excluded from the local MCP catalog and persists nothing.
+- Main emits `pi-desktop/tray/event/sessionActivated { sessionId: string | null }`
+  after restoring/focusing the window, waiting for post-bootstrap
+  `menu/rendererReady`, and checking that the session still exists and is not
+  archived. Renderer enters normal session selection, including cross-project
+  navigation and unread acknowledgement. A null ID closes search, returns to
+  the conversation page, and expands the sidebar for View more. Merely opening
+  the menu is read-only.
+- Main reads existing Host session/inbox APIs, observes root runtime events and
+  successful session/inbox mutations, and combines them with the ephemeral
+  organization copy. No host protocol or storage schema changes.
+
 ## 13c. Composer input APIs (D123/D124/D197, ADR 0024/0059)
 
 Electron-only channels backing composer autocomplete and file references.
@@ -1914,6 +1957,17 @@ Templates load from `<workspace>/.pi/prompts/*.md` and
 `~/.pi/agent/prompts/*.md` (project wins name conflicts; short TTL cache).
 Without a workspace only user-global templates, builtins, and plugin
 commands return.
+
+A source that fails is not an empty command list (**D613**, issue #795).
+Submit-time resolution distinguishes three outcomes: a resolved
+builtin/plugin/extension command dispatches locally, a template, an unknown
+alias, and a command entry without a dispatchable id stay on the prompt path,
+and an unreadable source refuses the submission. The refusal is deliberate —
+with the source down the composer cannot prove `/compact` is not a builtin, and
+a control command sent to the model as literal text is acted on. The refusal
+keeps the draft, shows `chat.slashCommandSourceUnavailable`, and leaves the TTL
+cache cold so the next submit retries the read; a warm cache keeps resolving
+through a source blip.
 
 ### fs/index
 
@@ -2155,7 +2209,7 @@ event, so an external Agent can create a session, open a project, or submit a
 prompt while the visible desktop follows the same state. A control-server
 startup failure is logged and does not prevent the desktop from launching.
 
-## 13e. Voice dictation API (D451 / ADR 0297)
+## 13e. Voice dictation API (D629 / ADR 0313)
 
 Three invoke channels under `pi-desktop/voice/*` carry batch speech-to-text
 from the composer to the bundled local-voice plugin. All three are accepted
@@ -2253,3 +2307,45 @@ submissions remain distinct; SDK entry IDs are never rewritten. Desktop event
 semantics are unchanged. Native terminal completion follows SDK settlement,
 not intermediate retry/compaction loop ends. Native abort never invokes
 `replaceSessionMessages` and reloads durable detail after abort returns.
+
+### Provider ordering
+
+`pi-desktop/providers/reorder({ id, targetId, placement: "before" | "after" })`
+returns `{ ok: true }` and forwards to host `providers.reorder`. The sandboxed
+preload permits this channel through the shared IPC registry. Invalid placement
+or missing providers returns `INVALID_PARAMS`; configuration and defaults are
+unchanged. See [provider configuration](12-provider-config-schema.md).
+
+## 15. Cloud configuration sync
+
+The Settings → Cloud sync page uses the following renderer-to-Main channels;
+all are forwarded to the Host-owned `configSync.*` RPC methods:
+
+| IPC channel | Host method | contract |
+|---|---|---|
+| `pi-desktop/configSync/getState` | `configSync.getState` | redacted status, category selections, preview counts, and pending approval summaries |
+| `pi-desktop/configSync/test` | `configSync.test` | WebDAV capability probe using a temporary object; no configuration is persisted |
+| `pi-desktop/configSync/configure` | `configSync.configure` | validates the endpoint, stores encrypted local sync metadata, and enables the vault |
+| `pi-desktop/configSync/syncNow` | `configSync.syncNow` | runs one Host-owned reconciliation cycle |
+| `pi-desktop/configSync/pause` | `configSync.pause` | pauses or resumes this device only |
+| `pi-desktop/configSync/unlock` | `configSync.unlock` | unlocks the local vault for the current process/device |
+| `pi-desktop/configSync/approve` / `reject` | `configSync.approve` / `configSync.reject` | records a digest-bound local activation decision |
+| `pi-desktop/configSync/mapProject` | `configSync.mapProject` | binds one opaque project/group identity to one or more explicitly selected local folders, preserving primary-root order |
+| `pi-desktop/configSync/listHistory` | `configSync.listHistory` | lists redacted reachable revision metadata only |
+| `pi-desktop/configSync/restore` | `configSync.restore` | creates a new propagated revision from an explicitly acknowledged historical revision and stages local approvals/recovery |
+| `pi-desktop/configSync/changePassword` | `configSync.changePassword` | CAS-rewraps the vault key header without returning keys or secret values |
+| `pi-desktop/configSync/disconnect` | `configSync.disconnect` | removes local sync metadata and keys; it does not delete remote vault data |
+
+Input passwords are accepted only for the operation that needs them. No raw
+secret, vault key, decrypted resource, or remote archive crosses back to the
+renderer. The `configSync.changed` event carries the same redacted state and
+is emitted by Host-originated changes, including the Host scheduler. Main is a
+transport/lifecycle coordinator and does not schedule, merge, encrypt, or
+apply configuration.
+
+A manual sync reports `configSync.progress` while it runs: the phase
+(`capture`, `download`, `merge`, `upload`, `apply`, or `cleanup`), the units
+done and total for that phase, and the bytes when they are known. A long upload
+of many resource objects is therefore not an interface with nothing to show.
+Background polls report nothing, since only the manual path has a caller
+watching.

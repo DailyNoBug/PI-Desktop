@@ -235,7 +235,6 @@ fn parse_message(
         steering: None,
         created_at,
         thinking: None,
-        hosted_search: None,
         status: None,
         model_id,
         provider_id,
@@ -256,6 +255,7 @@ fn parse_message(
         is_error: None,
         parent_tool_call_id: None,
         agent_name: None,
+        hosted_search: None,
         session_message: None,
     })
 }

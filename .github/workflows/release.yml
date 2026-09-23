@@ -7,12 +7,12 @@
 #   git push origin <branch> v0.2.0        # push → this workflow builds & publishes
 #
 # Builds installers for every platform defined in the electron-builder config
-# (macOS dmg/zip arm64 and x64, Windows NSIS and portable x64, Linux
+# (macOS dmg/zip arm64 and x64, Windows NSIS and portable ZIP x64, Linux
 # AppImage/deb/rpm x64), each
 # with its native pi-desktop-host-core Rust sidecar. The Linux app.asar is also
 # exported as a system-Electron repackaging asset, and all outputs — with their
 # electron-updater latest*.yml feeds — are published to the GitHub Release
-# (D126/D285/D364). macOS tag artifacts are Developer ID-signed, notarized, and
+# (D126/D285/D364/D603). macOS tag artifacts are Developer ID-signed, notarized, and
 # stapled before upload (D450 / ADR 0289); repos without the signing secrets
 # fall back to the unsigned ad-hoc-sealed lane.
 #
@@ -223,6 +223,14 @@ jobs:
           # makes arm64 Gatekeeper report the app as damaged.
           pnpm --filter @pi-desktop/desktop run dist:mac -- --${{ matrix.arch }} -c.mac.identity=-
 
+      - name: Diagnose macOS signing environment
+        # Records the runner baseline (system, codesign, identities, keychain,
+        # Xcode tools, Apple timestamp reachability) before electron-builder
+        # imports the certificate. Informational: the Developer ID identity is
+        # absent here by design and is imported from CSC_LINK during packaging.
+        if: matrix.platform == 'macos'
+        run: scripts/macos-signing-diagnostics.sh
+
       - name: Require macOS signing and notarization secrets
         if: matrix.platform == 'macos' && env.MACOS_SIGN_RELEASE == 'true'
         env:
@@ -254,22 +262,71 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_NAME: "Developer ID Application: XingYu Liu (DUV63RKYTW)"
+          # electron-builder rejects the "Developer ID Application:" prefix on
+          # identity names and resolves the certificate itself, so CSC_NAME
+          # carries the bare common name only.
+          CSC_NAME: "XingYu Liu (DUV63RKYTW)"
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # electron-builder prints one "signing PI-Desktop.app" line and then
+          # goes quiet: @electron/osx-sign walks Contents and codesigns every
+          # Mach-O serially, builder-util silently retries a failing pass up to
+          # three times, and @electron/notarize zips, uploads, and waits for
+          # Apple's queue. These two namespaces expose all three phases without
+          # leaking credentials, because both render their own command lines
+          # through a password filter. `electron-builder` itself is deliberately
+          # absent: builder-util's `executing` debug line prints every spawned
+          # command with only its own stem list redacted, and that list does not
+          # cover `security set-key-partition-list -k <p12 password>`. The
+          # watchdog redacts the secret values and any --password/-k argument on
+          # top of that.
+          DEBUG: "electron-osx-sign*,electron-notarize*"
+          # 30 minutes keeps a stuck signing/notarization phase reported by the
+          # watchdog (diagnostics + summary) inside the 60-minute job budget.
+          PI_SIGNING_TIMEOUT_SECONDS: "1800"
+          PI_SIGNING_STALL_SECONDS: "300"
         run: |
           set -euo pipefail
           # Artifact names are defined in apps/desktop/package.json: the mac
           # pattern labels ZIPs, and the dmg target pattern labels DMGs.
-          pnpm --filter @pi-desktop/desktop run dist:mac -- --${{ matrix.arch }} \
-            -c.mac.identity="Developer ID Application: XingYu Liu (DUV63RKYTW)" \
-            -c.mac.forceCodeSigning=true \
-            -c.mac.notarize=true
+          # The watchdog forwards every line unchanged and keeps the child's
+          # exit code; it adds a heartbeat while the phase is silent, dumps the
+          # active codesign target and process state when it stalls, reports
+          # per-file codesign timings, and fails the step after
+          # PI_SIGNING_TIMEOUT_SECONDS instead of waiting for the job timeout.
+          node scripts/macos-signing-watchdog.mjs \
+            --label "dist:mac-${{ matrix.arch }}" \
+            -- pnpm --filter @pi-desktop/desktop run dist:mac -- --${{ matrix.arch }} \
+              -c.mac.forceCodeSigning=true \
+              -c.mac.notarize=true
 
-      - name: Staple macOS installer ticket
+      - name: Analyze the packaged macOS app bundle
+        # Reports the file / Mach-O / framework / nested-bundle counts that
+        # determine how much work the signing phase had, on the exact bundle the
+        # release just produced. Diagnosis only: continue-on-error keeps a
+        # surprising bundle layout from failing a release.
+        if: matrix.platform == 'macos'
+        continue-on-error: true
+        run: node scripts/macos-bundle-inventory.mjs apps/desktop/release
+
+      - name: Notarize and staple the macOS DMG
         if: matrix.platform == 'macos' && env.MACOS_SIGN_RELEASE == 'true'
-        run: scripts/staple-macos-release-dmg.sh apps/desktop/release
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # 20 minutes bounds the second Apple wait; the packaging phase owns
+          # the first one.
+          PI_SIGNING_TIMEOUT_SECONDS: "1200"
+          PI_SIGNING_STALL_SECONDS: "300"
+        run: |
+          set -euo pipefail
+          # notarytool submit --wait blocks until Apple answers; the watchdog
+          # keeps that wait observable and bounded.
+          node scripts/macos-signing-watchdog.mjs \
+            --label "notarize-dmg-${{ matrix.arch }}" \
+            -- scripts/notarize-and-staple-macos-release-dmg.sh apps/desktop/release
 
       - name: Verify signed and notarized macOS installer
         if: matrix.platform == 'macos' && env.MACOS_SIGN_RELEASE == 'true'
@@ -312,7 +369,7 @@ jobs:
         run: mv apps/desktop/release/latest-mac.yml apps/desktop/release/latest-mac-${{ matrix.arch }}.yml
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.artifact }}
           if-no-files-found: error
@@ -447,7 +504,7 @@ jobs:
           cat "$out/${name}.tar.gz.sha256"
 
       - name: Upload pi-host bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pi-host-linux-${{ matrix.arch }}
           if-no-files-found: error
@@ -508,12 +565,49 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          # D126/D285/D364: all desktop platforms and both native macOS
+          # D126/D285/D364/D603: all desktop platforms and both native macOS
           # architectures ship from tag builds — installers, the Windows
-          # portable exe, the Linux ASAR, blockmaps, and the latest*.yml
+          # portable ZIP, the Linux ASAR, blockmaps, and the latest*.yml
           # feeds that drive electron-updater on each platform (in-app for
-          # Windows NSIS and Linux AppImage; macOS and Windows portable remain
+          # Windows NSIS and Linux AppImage; macOS and Windows ZIP remain
           # manual-delivery by product policy).
           files: dist/*
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+  docs-deploy:
+    name: Deploy documentation
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@59.23.2
+
+      - name: Pull Vercel production configuration
+        working-directory: docs
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build the documentation deployment
+        working-directory: docs
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Publish the documentation deployment
+        working-directory: docs
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

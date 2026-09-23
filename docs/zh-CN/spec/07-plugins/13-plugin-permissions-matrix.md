@@ -54,7 +54,7 @@
 | `usage.read` | 中等 | `pi.usage.listTurns` | 安装时确认 | 已完成 turn 事实行的只读列举（每回合 token 计数与标识符，keyset 分页）；不含消息正文，无写路径 |
 | `agent.complete` | 高 | `pi.agent.complete` | 安装时确认 | 宿主代发一次性补全；消耗用户额度；`includeSessionContext` 还需要 `session.read` |
 | `speech.adapter.register` | 高 | `pi.speech.registerAdapter` / `unregisterAdapter` | 安装时确认 | 注册语音协议。handle 留在插件进程；HTTP 计划由宿主用绑定密钥代发且必须同 origin |
-| `plugin.rpc` | 中等 | `pi.rpc.register` / `unregister` ——一个处理器经 `pi-desktop/plugin/rpc` 接收渲染器管理调用 | 安装时确认 | `(method, params)` 分发受宿主命令预算约束；params 与回复必须可 JSON 序列化；内置 `pi.local-voice` 插件是示例（ADR 0297） |
+| `plugin.rpc` | 中等 | `pi.rpc.register` / `unregister` ——一个处理器经 `pi-desktop/plugin/rpc` 接收渲染器管理调用 | 安装时确认 | `(method, params)` 分发受宿主命令预算约束；params 与回复必须可 JSON 序列化；内置 `pi.local-voice` 插件是示例（ADR 0313） |
 
 ## 2A. 权限是开关，manifest 承载范围
 

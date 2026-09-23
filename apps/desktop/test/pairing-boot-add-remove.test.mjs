@@ -219,13 +219,17 @@ test("list surface strips device tokens even when the record is on disk", async 
     deviceToken: "device-secret",
   });
   const listed = await boot.list();
-  // The summary shape has these four fields and nothing else.
+  // The summary shape has exactly these five fields: the four the pairing UX
+  // has always shown, plus the transport marker the SSH bootstrap added. A
+  // record with no metadata is a direct host, so the marker defaults there.
   assert.deepEqual(Object.keys(listed[0]).sort(), [
     "connected",
     "hostKey",
     "label",
+    "transport",
     "url",
   ]);
+  assert.equal(listed[0].transport, "direct");
   await boot.closeAll();
   await cleanup();
 });

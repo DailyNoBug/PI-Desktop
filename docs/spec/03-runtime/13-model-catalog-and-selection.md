@@ -74,6 +74,37 @@ entitled to it.
 - A custom model ID is always accepted, so a gateway without a `/models` route
   stays usable.
 
+### Settings: selected model order
+
+The AI service and OAuth vendor-account editors share the selected-model pane.
+Each selected row has a dedicated reorder handle: drag it before or after
+another visible row, or focus it and press the Up or Down arrow key to move it
+past the neighboring visible row. Reordering is disabled while the form is
+busy or fewer than two selected rows are visible. Dragging text still selects
+it for copying; checkbox, Advanced, and Remove actions keep their existing
+behavior and do not start a reorder.
+
+The complete `models` binding array owns the order. Filtering only hides rows:
+a move inserts the existing binding before or after the visible target in that
+complete array, preserving hidden bindings and their relative order. Model IDs,
+aliases, and advanced overrides travel with their bindings. A canceled drag or
+a drop outside a selected row does not change the draft.
+
+Saving persists the new order through the existing provider update flow, and
+reopening either editor displays it again. Canceling the editor discards its
+unsaved order. The provider's compatibility `defaultModelId` still mirrors the
+first binding on save, so moving a model to the head changes that provider
+default. When the edited service or account is the app's default provider,
+saving also synchronizes the app-level default model to that first binding,
+as the existing save flow does. The app default is unchanged when editing
+another provider, and an explicitly bound session keeps its stored model
+choice. Adding a provider is not a way to change either app default: the
+default model, and the default image model when the new service brings image
+models, move to it only while nothing resolves for the app — an empty
+selection, or one whose provider or model is gone. A default the user can
+still run stays where it is until they repoint it. No storage schema or IPC
+contract changes are required.
+
 ### Discovery precedence
 
 `providers.listModels` resolves in this order, and the order is load-bearing:
@@ -158,27 +189,33 @@ Each session stores:
 
 - `providerId`
 - `modelId`
-- `thinkingLevel` (`off|minimal|low|medium|high|xhigh|max`)
+- `thinkingLevel` (`off|minimal|low|medium|high|xhigh|max|omit`)
 
 Changing model or thinking level mid-session affects subsequent turns only.
 The stored thinking preference survives restart; the effective request level
 is clamped against the selected model binding's enabled levels at execution
-time. An empty binding or a binding containing only `off` resolves to `off`.
+time, except `omit`, which is preserved on a reasoning model and sends no
+thinking override. An empty binding or a binding containing only `off`
+resolves to `off`.
 
 For a newly created session, the renderer resolves the selected (or app-default)
 model's `ModelBinding`. A reasoning model starts at that binding's
-`defaultThinkingLevel`, clamped onto the enabled levels. When the default is
-unset it falls back to the highest enabled level seeded from published
-`supportedThinkingLevels`. A non-reasoning or unknown model starts at `off`
-until the user enables a non-`off` level. This is a creation default only and
-never rewrites an existing session's stored choice.
+`defaultThinkingLevel` (`omit` is preserved; other values are clamped onto the
+enabled levels). When the default is unset it falls back to the highest enabled
+level seeded from published `supportedThinkingLevels`. A non-reasoning or
+unknown model starts at `off` until the user enables a non-`off` level. This is
+a creation default only and never rewrites an existing session's stored choice.
 
 Unpinned sessions still advertise that inherited default model's reasoning
 capability on session list/get/create/fork/configure. Enrichment does not pin
-`providerId`/`modelId`. The Composer never treats a `supportsReasoning: false`
-or empty thinking-level snapshot as authoritative when the selected
-catalog/binding model exposes levels, so a mid-turn thinking or model pick
-cannot collapse the menu to Off-only.
+`providerId`/`modelId`; desktop session create does, by writing the then-current
+app default (or Composer draft override) into the durable ids. Later Settings
+default-model changes do not rewrite an already created session. Opening a
+legacy row whose ids are still empty snapshots the last used turn, else the
+current default, so it stops following Settings. The Composer never treats a
+`supportsReasoning: false` or empty thinking-level snapshot as authoritative
+when the selected catalog/binding model exposes levels, so a mid-turn thinking
+or model pick cannot collapse the menu to Off-only.
 
 ## 5. Capability warnings
 
@@ -302,6 +339,12 @@ models still use the conservative 128k generic window and are never promoted fro
 an ID pattern alone. The marker is optional in the persisted record, so a config
 written by an older version stays readable and a downgrade ignores it.
 
+The configured user value remains persisted and visible in Advanced settings, but
+provider safety does not trust an enlarged override beyond a known published
+window. Outbound output caps, automatic compaction, and overflow classification
+use the smaller of the configured and published windows; a smaller user value
+continues to narrow the runtime budget.
+
 ### 9.2 Conversation Composer scope
 
 The conversation Composer is a configured-model picker, not a raw discovery
@@ -336,13 +379,23 @@ use the configured model alias or published model name.
 App-level default:
 - first successfully tested provider + its default/recommended model
 - the Settings default-model picker lists every configured model under its provider; selecting an entry persists both the owning provider and that exact model ID
+- saving that provider preserves the selected app-default model while it remains configured; removing it falls back to the first remaining binding
 - the picker supports local search across provider name and model ID; its result list scrolls within the floating surface and shows an explicit empty state when no model matches
 - the picker uses concise settings-specific search copy; each result gives visual priority to the model ID and keeps the provider as secondary metadata
 - results are grouped by provider so a provider name is shown once per group rather than repeated on every model row
+- a provider is named the same way here as in the Composer menu: an OAuth row
+  uses its non-secret account label when present, so two accounts of one vendor
+  stay distinguishable in the group heading, in the summary line that reports
+  the current default, and in each option's accessible name. Search matches the
+  account label and the vendor name, so either spelling reaches the row
+- the Settings prompt-enhancement model picker reuses this menu and resolves its
+  provider names the same way
 - if none configured, onboarding checklist requires provider setup before first agent run
 
 Session-level:
-- inherits app default at creation
+- inherits app default at creation and stores that `providerId`/`modelId` pair
+- later Settings default-model changes apply only to new sessions and the
+  unpersisted home draft, not to already created sessions
 - initializes thinking to the highest level enabled by the inherited model's
   binding; published levels seed a new binding, while an empty or `off`-only
   binding starts at `off`
@@ -457,6 +510,11 @@ same model to the check mark, the toggle and the duplicate guard.
       output-token entry; overrides stay behind a per-model Advanced disclosure
 - [ ] the API-key path and the OAuth vendor-account path use the same live model
       list and the same binding shape
+- [ ] selected models can be reordered by drag handle or Up/Down arrow keys in
+      both editors; saving and reopening preserves the order, aliases, and
+      overrides, and a filtered move preserves hidden bindings and their order
+- [ ] canceling a drag or the editor preserves the previous applicable order;
+      busy forms disable reordering, and text-copy and row actions still work
 - [ ] an unsaved provider can be probed from the form before it is persisted,
       and a saved one reuses its stored secret without a retyped key
 - [ ] custom model id path works without catalog hit
@@ -466,6 +524,7 @@ same model to the check mark, the toggle and the duplicate guard.
       refresh keeps the cached picker populated
 - [ ] capability badges visible
 - [ ] session model change applies to next turn only
+- [ ] a newly created session stores the then-current default provider/model, and later default-model changes do not rewrite that session
 - [ ] a new session defaults a reasoning-capable inherited model to that
       binding's stored default thinking level (clamped onto the enabled set;
       strongest-enabled only when unset) and otherwise defaults to `off`
@@ -491,3 +550,10 @@ same model to the check mark, the toggle and the duplicate guard.
 - [ ] compact limit text never reads above the published value, keeps the
       neighbouring 1M-line windows apart (`1M` / `1.05M` / `1.1M`), and never
       renders a `K` mantissa at or above 1000
+
+## Image model binding
+
+The default conversation model has a separate **Image generation model** row below
+it. Model Advanced can select that unique binding; provider form Save commits it,
+Cancel discards it, and replacing it leaves the conversation default unchanged.
+See [image generation and editing](21-image-generation.md) for the tool and batch contract.

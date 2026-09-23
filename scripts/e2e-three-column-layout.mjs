@@ -716,7 +716,7 @@ async function main() {
         const actions = [...row.querySelectorAll("[data-nav]")];
         const headerBox = header.getBoundingClientRect();
         const firstTab = document.querySelector(".work-panel-tab");
-        const controls = row.querySelector(".window-controls");
+        const controls = document.querySelector(".window-controls");
         const sidebar = document.querySelector(".sidebar");
         const platform = document.documentElement.dataset.platform;
         const inset = parseFloat(getComputedStyle(row).paddingLeft);
@@ -779,7 +779,7 @@ async function main() {
         sidebarToggle:
           !!document.querySelector('.window-chrome-row [data-nav="toggle-sidebar"]') ||
           !!document.querySelector('.sidebar [data-nav="toggle-sidebar"]'),
-        controls: !!document.querySelector(".window-chrome-row .window-controls"),
+        controls: !!document.querySelector(".window-controls"),
       };
     })()`);
     check(
@@ -1061,7 +1061,7 @@ async function main() {
     };
     const e2eChromeProbe = `(() => {
       const band = document.querySelector(".window-chrome-row");
-      const controls = document.querySelector(".window-chrome-row .window-controls");
+      const controls = document.querySelector(".window-controls");
       const sidebar = document.querySelector(".sidebar, .sidebar-rail");
       const handle = document.querySelector(".sidebar-resize-handle");
       const panel = document.querySelector('[data-testid="work-panel"]');
@@ -1124,17 +1124,17 @@ async function main() {
     const e2eChromeSidebar = await cdp.evaluate(e2eChromeProbe);
     check(
       e2eChromeSidebar.sidebarWidth === null || e2eChromeSidebar.sidebarWidth === 275,
-      "sidebar stays at its fixed width",
+      "sidebar defaults to 275px when no preference is stored",
       JSON.stringify(e2eChromeSidebar),
     );
     check(
-      e2eChromeSidebar.handleVisible === false,
-      "the sidebar edge is no longer a resize affordance",
+      e2eChromeSidebar.sidebarWidth === null || e2eChromeSidebar.handleVisible === true,
+      "the expanded sidebar edge is a resize affordance",
       JSON.stringify(e2eChromeSidebar),
     );
     check(
       e2eChromeSidebar.storedWidth === null,
-      "sidebar width is no longer persisted",
+      "no sidebar width preference is stored at launch",
       JSON.stringify(e2eChromeSidebar),
     );
 

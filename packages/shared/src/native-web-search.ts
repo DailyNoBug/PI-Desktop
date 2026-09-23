@@ -1,556 +1,388 @@
 /**
- * Provider-native (hosted) web search: which wire APIs can carry a vendor
- * server tool, how to attach that tool, and how to recover queries/sources
- * from leaked client tool calls or stream events.
+ * Evaluation helpers for the provider-hosted web search tool.
  *
- * Detection is the resolved wire API / apiStyle, never the vendor display
- * name or a model-id substring. Custom Chat Completions stay off unless the
- * target is xAI (`vendorKey` or api.x.ai).
+ * - `nativeWebSearchSupportedOn` gates the settings checkbox. It accepts
+ *   stored apiStyle (`responses`, `anthropic_messages`) and resolved wire
+ *   APIs (`openai-responses`, `anthropic-messages`, `azure-openai-responses`).
+ * - `resolveNativeWebSearch` is the runtime decision: capable wire AND the
+ *   binding opt-in. Adapters then key on `model.webSearch`, which
+ *   `modelConfigWithBinding` copies from that opt-in.
+ * - `hostedSearchFromMessage` is what the runtime persists: display rounds
+ *   plus raw `replay` blocks for convertMessages after a restart.
+ *
+ * Vendor display names, base URL hostnames, and model id substrings are
+ * intentionally not consulted. An endpoint either carries the tool on the
+ * wire named here or it does not; guessing breeds silent behavior drift.
  */
 
-
-
-export type HostedSearchStatus = "searching" | "completed" | "failed";
-
-export type HostedSearchSource = {
-  url: string;
-  title?: string;
-  /** Vendor-supplied publisher/site name when present. Usually absent. */
-  publisher?: string;
-  /** Vendor-supplied publication date when present. Usually absent. */
-  publishedAt?: string;
-};
-
-export type HostedSearch = {
-  status: HostedSearchStatus;
-  queries: string[];
-  sources: HostedSearchSource[];
-};
-
-// Keep the Anthropic server tool on the stable GA contract. Newer dated
-// versions are recognized if already present, but not sent: Claude relays
-// reject unsupported tool types with 400 and expose no capability signal.
-export const ANTHROPIC_WEB_SEARCH_TOOL_TYPE = "web_search_20250305" as const;
-
-
-const NATIVE_WEB_SEARCH_WIRE_APIS = new Set([
+/** Wire APIs whose request format defines a provider-hosted search tool. */
+export const NATIVE_WEB_SEARCH_WIRE_APIS = new Set([
   "anthropic-messages",
   "openai-responses",
+  "azure-openai-responses",
 ]);
 
-const NATIVE_WEB_SEARCH_API_STYLES = new Set([
-  "anthropic_messages",
-  "responses",
-]);
+/** Tool definition attached to an anthropic-messages request. */
+export const ANTHROPIC_WEB_SEARCH_TOOL = {
+  type: "web_search_20250305",
+  name: "web_search",
+} as const;
 
-const NATIVE_SEARCH_TOOL_NAMES = new Set([
-  "websearch",
-  "web_search",
-  "builtin_web_search",
-  "web_search_20250305",
-  "web_search_20260209",
-  "web_search_20260318",
-  "web_search_preview",
-  "web_search_call",
-  "x_search",
-  "x_keyword_search",
-  "x_semantic_search",
-]);
+/** Tool definition attached to an openai-responses request. */
+export const OPENAI_RESPONSES_WEB_SEARCH_TOOL = {
+  type: "web_search",
+} as const;
 
-const NATIVE_FETCH_TOOL_NAMES = new Set([
-  "webfetch",
-  "web_fetch",
-  "builtin_web_fetch",
-]);
+export type NativeWebSearchDecision = "on" | "off";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+export function resolveNativeWebSearch(input: {
+  wireApi: string;
+  modelWebSearch?: boolean;
+}): NativeWebSearchDecision {
+  const wire = input.wireApi.trim().toLowerCase();
+  if (!NATIVE_WEB_SEARCH_WIRE_APIS.has(wire)) return "off";
+  return input.modelWebSearch === true ? "on" : "off";
 }
 
-function normalizeName(value: string | undefined): string {
-  return value?.trim().toLowerCase() ?? "";
-}
-
-export function wireApiSupportsNativeWebSearch(api: string | undefined): boolean {
-  return NATIVE_WEB_SEARCH_WIRE_APIS.has((api ?? "").trim().toLowerCase());
-}
-
-export function apiStyleSupportsNativeWebSearch(
-  apiStyle: string | undefined,
-): boolean {
-  const style = (apiStyle ?? "").trim().toLowerCase();
-  if (NATIVE_WEB_SEARCH_API_STYLES.has(style)) return true;
-  return wireApiSupportsNativeWebSearch(style);
-}
-export type NativeWebSearchTarget = {
-  api?: string;
-  apiStyle?: string;
-  vendorKey?: string;
-  baseUrl?: string;
-};
-
-function hostnameOf(baseUrl: string | undefined): string {
-  if (!baseUrl?.trim()) return "";
-  try {
-    return new URL(baseUrl).hostname.toLowerCase();
-  } catch {
-    return "";
+/** The tool definition a wire API expects, or undefined when unsupported. */
+export function nativeWebSearchToolFor(
+  wireApi: string,
+):
+  | { type: "web_search_20250305"; name: "web_search" }
+  | { type: "web_search" }
+  | undefined {
+  const wire = wireApi.trim().toLowerCase();
+  if (wire === "anthropic-messages") return { ...ANTHROPIC_WEB_SEARCH_TOOL };
+  if (wire === "openai-responses" || wire === "azure-openai-responses") {
+    return { ...OPENAI_RESPONSES_WEB_SEARCH_TOOL };
   }
+  return undefined;
 }
 
-export function isXaiNativeSearchTarget(target: NativeWebSearchTarget | undefined): boolean {
-  const vendor = (target?.vendorKey ?? "").trim().toLowerCase();
-  if (vendor === "xai" || vendor === "x-ai") return true;
-  const host = hostnameOf(target?.baseUrl);
-  return host === "api.x.ai" || host.endsWith(".x.ai");
+const NATIVE_WEB_SEARCH_API_STYLES = new Set(["responses", "anthropic_messages"]);
+
+/**
+ * Whether a stored apiStyle or a resolved wire API can carry the hosted
+ * search tool. Settings UI gates the checkbox with this; it accepts both
+ * spellings because the pane sees `responses` / `anthropic_messages` while
+ * the runtime sees `openai-responses` / `anthropic-messages`.
+ */
+export function nativeWebSearchSupportedOn(api: string | undefined): boolean {
+  const value = (api ?? "").trim().toLowerCase();
+  if (!value) return false;
+  if (NATIVE_WEB_SEARCH_WIRE_APIS.has(value)) return true;
+  if (NATIVE_WEB_SEARCH_API_STYLES.has(value)) return true;
+  return NATIVE_WEB_SEARCH_WIRE_APIS.has(value.replace(/_/g, "-"));
 }
 
-
-export function supportsNativeWebSearch(target: NativeWebSearchTarget | undefined): boolean {
-  if (!target) return false;
-  if (wireApiSupportsNativeWebSearch(target.api)) return true;
-  if (apiStyleSupportsNativeWebSearch(target.apiStyle)) return true;
-  return isXaiNativeSearchTarget(target);
-}
-
-export function isNativeWebSearchToolName(toolName: string | undefined): boolean {
-  const normalized = normalizeName(toolName);
-  if (!normalized) return false;
-  if (NATIVE_SEARCH_TOOL_NAMES.has(normalized)) return true;
-  return (
-    normalized.startsWith("web_search_call") ||
-    normalized.startsWith("x_search_call")
-  );
-}
-
-export function isNativeWebFetchToolName(toolName: string | undefined): boolean {
-  const normalized = normalizeName(toolName);
-  if (!normalized) return false;
-  if (NATIVE_FETCH_TOOL_NAMES.has(normalized)) return true;
-  return normalized.startsWith("web_fetch_2") || normalized.startsWith("web_fetch_call");
-}
-
-export function isHiddenNativeWebToolName(toolName: string | undefined): boolean {
-  return isNativeWebSearchToolName(toolName) || isNativeWebFetchToolName(toolName);
-}
-
-function isHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    return url.hostname.includes(".");
-  } catch {
-    return false;
+/**
+ * Capture the adapter's hostedSearch content parts for convertMessages
+ * replay. Streaming scratch (`index`, `inputJson`) is dropped; unknown
+ * shapes are ignored. Display normalization is `hostedSearchFromBlocks`.
+ */
+export function hostedSearchReplayBlocks(
+  content: unknown,
+): import("./types/messages.js").HostedSearchReplayBlock[] {
+  if (!Array.isArray(content)) return [];
+  const replay: import("./types/messages.js").HostedSearchReplayBlock[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const block = part as Record<string, unknown>;
+    if (block.type !== "hostedSearch") continue;
+    const phase = typeof block.phase === "string" ? block.phase.trim() : "";
+    if (!phase) continue;
+    const next: import("./types/messages.js").HostedSearchReplayBlock = {
+      type: "hostedSearch",
+      phase,
+    };
+    if (typeof block.blockId === "string" && block.blockId) next.blockId = block.blockId;
+    if (typeof block.name === "string" && block.name) next.name = block.name;
+    if (block.input !== undefined) next.input = block.input;
+    if (typeof block.status === "string") next.status = block.status;
+    if (block.isError === true) next.isError = true;
+    if (block.wire && typeof block.wire === "object") next.wire = block.wire;
+    replay.push(next);
   }
-}
-function sourceKey(source: HostedSearchSource): string {
-  return source.url;
+  return replay;
 }
 
-/** Drop citation indexes and raw URLs that Grok sometimes ships as `title`. */
-function usableSourceTitle(value: string | undefined): string {
-  const title = value?.trim() ?? "";
-  if (!title || /^https?:\/\//i.test(title) || /^\d+$/.test(title)) return "";
-  return title;
+/**
+ * Display rounds plus replay payload. Runtime persistence and stream
+ * updates go through this so a restart can rebuild the same content
+ * parts convertMessages expects.
+ */
+export function hostedSearchFromMessage(input: {
+  content: unknown;
+  citations?: unknown;
+}): import("./types/messages.js").HostedSearch | undefined {
+  const search = hostedSearchFromBlocks(input);
+  if (!search) return undefined;
+  const replay = hostedSearchReplayBlocks(input.content);
+  return replay.length > 0 ? { ...search, replay } : search;
 }
 
-function collapsePrefixDuplicates(values: string[]): string[] {
-  const unique = uniqueStrings(values);
-  return unique.filter(
-    (value) => !unique.some((other) => other.length > value.length && other.startsWith(value)),
-  );
-}
+/**
+ * Normalize pi-ai hostedSearch content blocks and message citations into the
+ * shared `HostedSearch` shape: one round per provider search call, in block
+ * order. Input is untrusted provider data: every field is shape-checked and
+ * unknown shapes are ignored, never thrown.
+ *
+ * Round pairing:
+ * - anthropic-messages emits a `server_tool_use` block (query) followed by a
+ *   `web_search_tool_result` block (sources); both carry the same blockId.
+ * - openai-responses emits one `web_search_call` block per call; status and
+ *   the action payload live on the preserved wire item.
+ * Citation annotations belong to the message, not a round; citation-only URLs
+ * fold into the most recent round so they still render exactly once.
+ */
+export function hostedSearchFromBlocks(input: {
+  content: unknown;
+  citations?: unknown;
+}): import("./types/messages.js").HostedSearch | undefined {
+  const blocks = Array.isArray(input.content) ? input.content : [];
+  const rounds: import("./types/messages.js").HostedSearchRound[] = [];
+  const byId = new Map<string, import("./types/messages.js").HostedSearchRound>();
 
+  const roundFor = (
+    id: unknown,
+    fallback: string,
+    create: boolean,
+  ): import("./types/messages.js").HostedSearchRound | undefined => {
+    const key = typeof id === "string" && id ? id : fallback;
+    const existing = byId.get(key);
+    if (existing) return existing;
+    if (!create) return undefined;
+    const round: import("./types/messages.js").HostedSearchRound = {
+      id: key,
+      status: "searching",
+      sources: [],
+    };
+    byId.set(key, round);
+    rounds.push(round);
+    return round;
+  };
 
-function readString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
+  for (let index = 0; index < blocks.length; index++) {
+    const part = blocks[index];
+    if (!part || typeof part !== "object") continue;
+    const block = part as {
+      type?: string;
+      phase?: string;
+      blockId?: unknown;
+      name?: unknown;
+      isError?: boolean;
+      status?: string;
+      input?: unknown;
+      wire?: unknown;
+    };
+    if (block.type !== "hostedSearch") continue;
+    const wire =
+      block.wire && typeof block.wire === "object"
+        ? (block.wire as Record<string, unknown>)
+        : undefined;
 
-function uniqueStrings(values: string[]): string[] {
-  const out: string[] = [];
-  for (const value of values) {
-    const text = value.trim();
-    if (!text || out.includes(text)) continue;
-    out.push(text);
+    if (block.phase === "server_tool_use") {
+      // The round stays "searching" until its result block lands.
+      const round = roundFor(block.blockId, `anon-${index}`, true);
+      if (!round) continue;
+      // web_fetch is the Anthropic open-page call: it carries a url, no query.
+      if (block.name === "web_fetch") {
+        round.kind = "openPage";
+        const inputUrl = (value: unknown) =>
+          value && typeof value === "object"
+            ? hostedSearchUrl((value as Record<string, unknown>).url)
+            : undefined;
+        const url = inputUrl(block.input) ?? inputUrl(wire?.input);
+        if (url && !round.url) round.url = url;
+        continue;
+      }
+      const query = hostedSearchQuery(wire, block.phase, block.input);
+      if (query && !round.query) round.query = query;
+      continue;
+    }
+
+    if (block.phase === "web_search_tool_result") {
+      // A result whose id matches no call pairs with the latest open round;
+      // a gateway that drops ids still renders one row per round.
+      const round =
+        roundFor(block.blockId, "", false) ??
+        [...rounds].reverse().find((r) => r.status === "searching") ??
+        roundFor(undefined, `anon-${index}`, true);
+      if (!round) continue;
+      round.status = block.isError === true || block.status === "failed"
+        ? "failed"
+        : "completed";
+      collectHostedSearchSources(wire, round.sources);
+      continue;
+    }
+
+    if (block.phase === "web_search_call") {
+      const round = roundFor(block.blockId, `anon-${index}`, true);
+      if (!round) continue;
+      const status = typeof block.status === "string" ? block.status : wireStatus(wire);
+      round.status =
+        status === "completed"
+          ? "completed"
+          : status === "failed" || block.isError === true
+            ? "failed"
+            : "searching";
+      // Responses actions: `search` carries a query, `open_page` a url,
+      // `find_in_page` both. Items can arrive action-less mid-stream, so the
+      // kind lands whenever the action finally does.
+      const action =
+        wire && typeof wire.action === "object" && wire.action !== null
+          ? (wire.action as Record<string, unknown>)
+          : undefined;
+      if (action?.type === "open_page") round.kind = "openPage";
+      else if (action?.type === "find_in_page") round.kind = "findInPage";
+      const url = hostedSearchUrl(action?.url);
+      if (url && !round.url && (round.kind === "openPage" || round.kind === "findInPage")) {
+        round.url = url;
+      }
+      const query = hostedSearchQuery(wire, block.phase, block.input);
+      if (query && !round.query) round.query = query;
+      collectHostedSearchSources(wire, round.sources);
+      continue;
+    }
   }
-  return out;
-}
 
-export function hostedSearchHasContent(search: HostedSearch | undefined): boolean {
-  if (!search) return false;
-  return search.queries.length > 0 || search.sources.length > 0;
-}
+  if (rounds.length === 0) return undefined;
 
-export function mergeHostedSearch(
-  previous: HostedSearch | undefined,
-  next: Partial<HostedSearch> | undefined,
-): HostedSearch | undefined {
-  if (!previous && !next) return undefined;
-  const queries = collapsePrefixDuplicates([
-    ...(previous?.queries ?? []),
-    ...(next?.queries ?? []),
-  ]);
-  const sourcesByUrl = new Map<string, HostedSearchSource>();
-  for (const source of [...(previous?.sources ?? []), ...(next?.sources ?? [])]) {
-    if (!source.url || !isHttpUrl(source.url)) continue;
-    const existing = sourcesByUrl.get(sourceKey(source));
-    sourcesByUrl.set(sourceKey(source), {
-      url: source.url,
-      title: usableSourceTitle(source.title) || usableSourceTitle(existing?.title),
-
-      publisher: source.publisher?.trim() || existing?.publisher,
-      publishedAt: source.publishedAt?.trim() || existing?.publishedAt,
+  const citations = Array.isArray(input.citations) ? input.citations : [];
+  const last = rounds[rounds.length - 1];
+  for (const citation of citations) {
+    if (!citation || typeof citation !== "object") continue;
+    const c = citation as { url?: unknown; title?: unknown };
+    if (typeof c.url !== "string" || !/^https?:\/\//i.test(c.url)) continue;
+    if (rounds.some((r) => r.sources.some((s) => s.url === c.url))) continue;
+    last.sources.push({
+      url: c.url,
+      ...(typeof c.title === "string" && c.title.trim() ? { title: c.title } : {}),
     });
   }
-  const sources = collapsePrefixDuplicates([...sourcesByUrl.keys()]).map((url) => {
-    const source = sourcesByUrl.get(url)!;
-    return {
-      url,
-      ...(source.title ? { title: source.title } : {}),
-      ...(source.publisher ? { publisher: source.publisher } : {}),
-      ...(source.publishedAt ? { publishedAt: source.publishedAt } : {}),
-    };
-  }).slice(0, 20);
-  const status = next?.status ?? previous?.status ?? "searching";
-  if (queries.length === 0 && sources.length === 0) {
-    return status === "searching" ? { status, queries, sources } : undefined;
-  }
-  return { status, queries, sources };
-}
 
-function hasAnthropicWebSearchTool(tool: unknown): boolean {
-  if (!isRecord(tool)) return false;
-  return (
-    tool.name === "web_search" ||
-    tool.type === ANTHROPIC_WEB_SEARCH_TOOL_TYPE ||
-    tool.type === "web_search_20260209" ||
-    tool.type === "web_search_20260318"
-  );
-}
-
-function hasOpenAIResponsesWebSearchTool(tool: unknown): boolean {
-  if (!isRecord(tool)) return false;
-  const type = tool.type;
-  return (
-    type === "web_search" ||
-    type === "web_search_2025_08_26" ||
-    type === "web_search_preview" ||
-    type === "web_search_preview_2025_03_11"
-  );
-}
-
-function appendUniqueTool(
-  payload: Record<string, unknown>,
-  tool: Record<string, unknown>,
-  matches: (candidate: unknown) => boolean,
-): Record<string, unknown> {
-  const tools = Array.isArray(payload.tools) ? payload.tools : [];
-  if (tools.some(matches)) return payload;
-  return { ...payload, tools: [...tools, tool] };
-}
-
-function appendXaiLiveSearch(payload: Record<string, unknown>): Record<string, unknown> {
-  if (isRecord(payload.search_parameters)) return payload;
   return {
-    ...payload,
-    search_parameters: {
-      mode: "on",
-      return_citations: true,
-    },
+    status: rounds.some((r) => r.status === "failed")
+      ? "failed"
+      : rounds.some((r) => r.status === "searching")
+        ? "searching"
+        : "completed",
+    rounds,
   };
 }
 
 /**
- * Attach the vendor hosted-search tool for the resolved wire API / xAI Live Search.
- * Unknown Chat Completions endpoints stay unchanged.
+ * Read the rounds of a persisted/streamed `HostedSearch`, tolerating the v1
+ * aggregate shape (`queries`/`sources`, no rounds) written by development
+ * builds before per-round rows existed. Such transcripts collapse to a single
+ * legacy round instead of losing the row entirely.
  */
-export function attachNativeWebSearchToPayload(
-  payload: unknown,
-  apiOrTarget: string | NativeWebSearchTarget | undefined,
-): unknown {
-  const target: NativeWebSearchTarget =
-    typeof apiOrTarget === "string" || apiOrTarget === undefined
-      ? { api: apiOrTarget }
-      : apiOrTarget;
-  if (!isRecord(payload) || !supportsNativeWebSearch(target)) return payload;
-
-
-  const wire = (target.api ?? "").trim().toLowerCase();
-  if (wire === "anthropic-messages" || target.apiStyle === "anthropic_messages") {
-    return appendUniqueTool(
-      payload,
-      { type: ANTHROPIC_WEB_SEARCH_TOOL_TYPE, name: "web_search" },
-      hasAnthropicWebSearchTool,
+export function hostedSearchRounds(
+  search: import("./types/messages.js").HostedSearch | undefined,
+): import("./types/messages.js").HostedSearchRound[] {
+  if (!search || typeof search !== "object") return [];
+  const rounds = (search as { rounds?: unknown }).rounds;
+  if (Array.isArray(rounds)) {
+    return rounds.filter(
+      (r): r is import("./types/messages.js").HostedSearchRound =>
+        !!r && typeof r === "object",
     );
   }
-  if (wire === "openai-responses" || target.apiStyle === "responses") {
-    return appendUniqueTool(payload, { type: "web_search" }, hasOpenAIResponsesWebSearchTool);
-  }
-  if (isXaiNativeSearchTarget(target)) {
-    if (wire === "openai-responses" || target.apiStyle === "responses") {
-      return appendUniqueTool(payload, { type: "web_search" }, hasOpenAIResponsesWebSearchTool);
-    }
-    return appendXaiLiveSearch(payload);
-  }
-  return payload;
+  const legacy = search as { queries?: unknown; sources?: unknown };
+  const queries = Array.isArray(legacy.queries) ? legacy.queries : [];
+  const sources = Array.isArray(legacy.sources) ? legacy.sources : [];
+  if (queries.length === 0 && sources.length === 0) return [];
+  return [
+    {
+      id: "legacy",
+      status: search.status === "failed" ? "failed" : "completed",
+      ...(typeof queries[0] === "string" && queries[0] ? { query: queries[0] } : {}),
+      sources: sources.filter(
+        (s): s is import("./types/messages.js").HostedSearchSource =>
+          !!s && typeof s === "object" && typeof (s as { url?: unknown }).url === "string",
+      ),
+    },
+  ];
 }
 
-function readQuery(record: Record<string, unknown>): string {
-  return (
-    readString(record.query) ||
-    readString(record.search_query) ||
-    readString(record.additionalContext)
-  );
+function hostedSearchUrl(value: unknown): string | undefined {
+  return typeof value === "string" && /^https?:\/\//i.test(value)
+    ? value
+    : undefined;
 }
 
-function collectSources(value: unknown, into: HostedSearchSource[]): void {
-  if (typeof value === "string") {
-    const url = value.trim();
-    if (url && isHttpUrl(url)) into.push({ url });
-    return;
+function wireStatus(wire: Record<string, unknown> | undefined): string | undefined {
+  if (!wire) return undefined;
+  return typeof wire.status === "string" ? wire.status : undefined;
+}
+
+function hostedSearchQuery(
+  wire: Record<string, unknown> | undefined,
+  phase: string | undefined,
+  input: unknown,
+): string | undefined {
+  // `query` is the Anthropic/OpenAI field; gateways that relay to a native
+  // search tool (GLM web_search_prime et al.) may name it `search_query`.
+  const inputRecord =
+    input && typeof input === "object"
+      ? (input as Record<string, unknown>)
+      : undefined;
+  const fromInput = inputRecord?.query ?? inputRecord?.search_query;
+  if (typeof fromInput === "string" && fromInput.trim()) {
+    return fromInput.trim();
   }
-  if (Array.isArray(value)) {
-    for (const entry of value) collectSources(entry, into);
-    return;
+  if (!wire) return undefined;
+  const action = wire.action as Record<string, unknown> | undefined;
+  const query =
+    action && typeof action === "object" && typeof action.query === "string"
+      ? action.query
+      : action && typeof action === "object" && typeof action.pattern === "string"
+        ? action.pattern
+        : typeof wire.query === "string"
+          ? wire.query
+          : undefined;
+  if (query && query.trim()) return query.trim();
+  // Anthropic server_tool_use input carries the query.
+  const wireInput = wire.input as Record<string, unknown> | undefined;
+  if (phase === "server_tool_use" && wireInput) {
+    const wireQuery = wireInput.query ?? wireInput.search_query;
+    if (typeof wireQuery === "string") return wireQuery.trim() || undefined;
   }
-  if (!isRecord(value)) return;
-  const url = readString(value.url ?? value.uri ?? value.link);
-  if (url && isHttpUrl(url)) {
-    const title = usableSourceTitle(readString(value.title ?? value.name));
-    const publisher = readString(
-      value.publisher ?? value.site_name ?? value.siteName,
-    );
-    const publishedAt = readString(
-      value.publishedAt ?? value.published_date ?? value.published_at ?? value.date,
-    );
-    into.push({
+  return undefined;
+}
+
+function collectHostedSearchSources(
+  wire: Record<string, unknown> | undefined,
+  sources: { url: string; title?: string }[],
+): void {
+  if (!wire) return;
+  const action = wire.action as Record<string, unknown> | undefined;
+  const candidates = [
+    ...(Array.isArray(wire.results) ? wire.results : []),
+    ...(Array.isArray(wire.sources) ? wire.sources : []),
+    ...(Array.isArray(wire.search_results) ? wire.search_results : []),
+    // Anthropic web_search_tool_result carries web_search_result entries.
+    ...(Array.isArray(wire.content) ? wire.content : []),
+    // OpenAI Responses nests sources under the search action.
+    ...(action && Array.isArray(action.sources) ? action.sources : []),
+    ...(action && Array.isArray(action.results) ? action.results : []),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const entry = candidate as { url?: unknown; uri?: unknown; title?: unknown };
+    const url =
+      typeof entry.url === "string"
+        ? entry.url
+        : typeof entry.uri === "string"
+          ? entry.uri
+          : undefined;
+    if (!url || !/^https?:\/\//i.test(url)) continue;
+    if (sources.some((s) => s.url === url)) continue;
+    sources.push({
       url,
-      ...(title ? { title } : {}),
-      ...(publisher ? { publisher } : {}),
-      ...(publishedAt ? { publishedAt } : {}),
+      ...(typeof entry.title === "string" && entry.title.trim()
+        ? { title: entry.title }
+        : {}),
     });
   }
-
-  for (const key of ["sources", "citations", "results", "output", "groundingChunks"] as const) {
-    if (value[key] !== undefined) collectSources(value[key], into);
-  }
-  if (isRecord(value.web)) collectSources(value.web, into);
-  if (isRecord(value.action)) collectSources(value.action, into);
-  if (isRecord(value.annotation) && readString(value.annotation.type) === "url_citation") {
-    collectSources(value.annotation, into);
-  }
-}
-
-function collectNamedQueries(record: Record<string, unknown>, into: string[]): void {
-  const query = readQuery(record);
-  if (query) into.push(query);
-  if (Array.isArray(record.queries)) {
-    for (const entry of record.queries) {
-      const text = readString(entry);
-      if (text) into.push(text);
-    }
-  }
-  if (Array.isArray(record.webSearchQueries)) {
-    for (const entry of record.webSearchQueries) {
-      const text = readString(entry);
-      if (text) into.push(text);
-    }
-  }
-  if (isRecord(record.action)) collectNamedQueries(record.action, into);
-  else if (typeof record.action === "string") {
-    try {
-      const parsed = JSON.parse(record.action) as unknown;
-      if (isRecord(parsed)) collectNamedQueries(parsed, into);
-    } catch {
-      /* ignore */
-    }
-  }
-  if (isRecord(record.input)) collectNamedQueries(record.input, into);
-  if (isRecord(record.arguments)) collectNamedQueries(record.arguments, into);
-}
-
-function extractCitationSearch(raw: Record<string, unknown>): HostedSearch | undefined {
-  const sources: HostedSearchSource[] = [];
-  collectSources(raw.citations, sources);
-  const choices = Array.isArray(raw.choices) ? raw.choices : [];
-  for (const choice of choices) {
-    if (!isRecord(choice)) continue;
-    collectSources(choice.citations, sources);
-    if (isRecord(choice.delta)) collectSources(choice.delta.citations, sources);
-    if (isRecord(choice.message)) collectSources(choice.message.citations, sources);
-  }
-  return packSearch([], sources, "completed");
-}
-
-function packSearch(
-  queries: string[],
-  sources: HostedSearchSource[],
-  status?: HostedSearchStatus,
-): HostedSearch | undefined {
-  const uniqueQueries = uniqueStrings(queries);
-  const merged = mergeHostedSearch(undefined, {
-    status: status ?? (sources.length > 0 ? "completed" : uniqueQueries.length > 0 ? "searching" : undefined),
-    queries: uniqueQueries,
-    sources,
-  });
-  if (!merged) return undefined;
-  if (!hostedSearchHasContent(merged) && merged.status !== "searching") return undefined;
-  return merged;
-}
-
-function toolCallName(part: Record<string, unknown>): string {
-  return readString(part.name ?? part.toolName);
-}
-
-function isSearchContentPart(part: Record<string, unknown>): boolean {
-  const type = readString(part.type);
-  const name = toolCallName(part);
-  if (isHiddenNativeWebToolName(name)) return true;
-  if (type === "web_search_call" || type === "x_search_call" || type === "web_search_tool_result") {
-    return true;
-  }
-  if (type === "server_tool_use") return isHiddenNativeWebToolName(name);
-  if (type === "url_citation") return true;
-  return false;
-}
-
-/**
- * Recover hosted-search metadata from a pi-ai assistant `content` array or a
- * leaked client tool-call payload. Only native search/fetch blocks count —
- * MCP, Playwright, and other local tools must not become search queries.
- */
-export function extractHostedSearchFromAssistantContent(
-  content: unknown,
-): HostedSearch | undefined {
-  if (isRecord(content) && isSearchContentPart(content)) {
-    const queries: string[] = [];
-    const sources: HostedSearchSource[] = [];
-    collectNamedQueries(content, queries);
-    collectSources(content.arguments ?? content.input ?? content.content ?? content, sources);
-    return packSearch(queries, sources);
-  }
-  if (!Array.isArray(content)) return undefined;
-  let found: HostedSearch | undefined;
-  for (const part of content) {
-    if (!isRecord(part)) continue;
-    if (Array.isArray(part.citations)) {
-      const sources: HostedSearchSource[] = [];
-      collectSources(part.citations, sources);
-      found = mergeHostedSearch(found, packSearch([], sources, "completed"));
-    }
-    if (!isSearchContentPart(part)) continue;
-    const queries: string[] = [];
-    const sources: HostedSearchSource[] = [];
-    collectNamedQueries(part, queries);
-    collectSources(part.arguments ?? part.input ?? part.content ?? part, sources);
-    found = mergeHostedSearch(found, packSearch(queries, sources));
-  }
-  return found;
-}
-
-function isXaiSearchItemType(itemType: string): boolean {
-  return (
-    itemType === "web_search_call" ||
-    itemType === "x_search_call" ||
-    itemType === "x_search_call_output"
-  );
-}
-
-/**
- * Parse one SSE/JSON stream event from OpenAI Responses, xAI, or Anthropic.
- * Unrelated tool traffic returns undefined.
- */
-export function parseHostedSearchStreamEvent(raw: unknown): HostedSearch | undefined {
-  if (!isRecord(raw)) return undefined;
-  const citations = extractCitationSearch(raw);
-  const type = readString(raw.type);
-
-  if (type === "response.output_item.added" || type === "response.output_item.done") {
-    const item = isRecord(raw.item) ? raw.item : {};
-    const itemType = readString(item.type);
-    const name = readString(item.name);
-    const customSearch =
-      itemType === "custom_tool_call" &&
-      (name === "x_keyword_search" || name === "x_semantic_search");
-    if (isXaiSearchItemType(itemType) || isHiddenNativeWebToolName(name) || customSearch) {
-      const queries: string[] = [];
-      const sources: HostedSearchSource[] = [];
-      collectNamedQueries(item, queries);
-      collectSources(item, sources);
-      const done = type.endsWith(".done") || itemType.endsWith("_output");
-      return mergeHostedSearch(
-        citations,
-        packSearch(queries, sources, done || sources.length > 0 ? "completed" : "searching"),
-      ) ?? citations;
-    }
-    return citations;
-  }
-
-  if (type.startsWith("response.web_search_call.") || type.startsWith("response.x_search_call.")) {
-    const suffix = type.split(".").pop() ?? "";
-    const failed = /fail|error|cancel/.test(suffix);
-    const done = /complete|completed|done/.test(suffix);
-    const item = isRecord(raw.item) ? raw.item : raw;
-    const queries: string[] = [];
-    const sources: HostedSearchSource[] = [];
-    if (isRecord(item)) {
-      collectNamedQueries(item, queries);
-      collectSources(item, sources);
-    }
-    return mergeHostedSearch(
-      citations,
-      packSearch(
-        queries,
-        sources,
-        failed ? "failed" : done || sources.length > 0 ? "completed" : "searching",
-      ),
-    ) ?? citations;
-  }
-
-  if (type === "response.output_text.annotation.added") {
-    const sources: HostedSearchSource[] = [];
-    collectSources(raw, sources);
-    return packSearch([], sources, "completed");
-  }
-
-  if (type === "content_block_start") {
-    const block = isRecord(raw.content_block) ? raw.content_block : {};
-    const blockType = readString(block.type);
-    const name = readString(block.name);
-    if (blockType === "server_tool_use" && isHiddenNativeWebToolName(name)) {
-      const queries: string[] = [];
-      collectNamedQueries(block, queries);
-      return packSearch(queries, [], "searching");
-    }
-    if (blockType === "web_search_tool_result" || blockType === "web_search_tool_result_error") {
-      const sources: HostedSearchSource[] = [];
-      collectSources(block.content, sources);
-      return packSearch(
-        [],
-        sources,
-        blockType.endsWith("_error") ? "failed" : "completed",
-      );
-    }
-    return undefined;
-  }
-
-  if (type === "content_block_delta") {
-    const delta = isRecord(raw.delta) ? raw.delta : {};
-    if (readString(delta.type) === "citations_delta") {
-      const sources: HostedSearchSource[] = [];
-      collectSources(delta, sources);
-      return packSearch([], sources, "completed") ?? citations;
-    }
-  }
-
-  return citations;
-}
-
-export function normalizeHostedSearchStatus(
-  value: string | undefined,
-): HostedSearchStatus {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (/fail|error|cancel/.test(normalized)) return "failed";
-  if (/complete|completed|done|succeeded|finished/.test(normalized)) return "completed";
-  return "searching";
 }

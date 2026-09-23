@@ -51,7 +51,7 @@ Provide a permission–capability–risk–default-policy reference table for re
 | `usage.read` | medium | `pi.usage.listTurns` | Confirm at install | Read-only listing of completed-turn facts (per-turn token counters and identifiers, keyset-paginated); no message body and no write path |
 | `agent.complete` | high | `pi.agent.complete` | Confirm at install | Host-owned one-shot; spends user quota; `includeSessionContext` also needs `session.read` |
 | `speech.adapter.register` | high | `pi.speech.registerAdapter` / `unregisterAdapter` | Confirm at install | Registers a speech protocol. Handles stay in the guest; HTTP plans are executed by the host with the bound provider key and must stay on that origin. There are no built-in protocol ids any more; every protocol is plugin-registered |
-| `plugin.rpc` | medium | `pi.rpc.register` / `unregister` — one handler receiving renderer-originated management calls over `pi-desktop/plugin/rpc` | Confirm at install | `(method, params)` dispatch under the host's command budget; params and replies must be JSON-serializable; the bundled `pi.local-voice` plugin is the example (ADR 0297) |
+| `plugin.rpc` | medium | `pi.rpc.register` / `unregister` — one handler receiving renderer-originated management calls over `pi-desktop/plugin/rpc` | Confirm at install | `(method, params)` dispatch under the host's command budget; params and replies must be JSON-serializable; the bundled `pi.local-voice` plugin is the example (ADR 0313) |
 
 ## 2A. A permission is the switch; the manifest carries the range
 

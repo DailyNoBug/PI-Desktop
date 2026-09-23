@@ -7,11 +7,63 @@
  * Companion of `RemoteHostRecord` inside main (which additionally carries
  * `deviceToken`). See ADR 0286 §Registry and R2b pairing UX.
  */
+
+/**
+ * How the desktop reaches a paired host.
+ *
+ * - `direct`: a URL the user supplied, including a forward they opened
+ *   themselves with `ssh -L` (`RemoteHostPairRequest`).
+ * - `ssh`: a host the desktop bootstrapped itself and keeps a port forward
+ *   open for (spec §5.2). The stored URL is derived from that forward, so the
+ *   SSH descriptor is the durable half of the record.
+ */
+export type RemoteHostTransport = "direct" | "ssh";
+
+/**
+ * How the desktop authenticates the SSH session itself.
+ *
+ * - `key`: the user's agent, `~/.ssh/config`, and identity files — the only
+ *   mode that existed before password auth, and still the default.
+ * - `password`: the desktop supplies a login password through OpenSSH's
+ *   askpass helper. The secret is never an `ssh` argument and never appears in
+ *   a renderer payload; it is stored encrypted (see `RemoteHostSshMetadata`).
+ */
+export type RemoteHostSshAuth = "key" | "password";
+
+/**
+ * The SSH descriptor a bootstrapped host reconnects through. Persisted in the
+ * host record so the forward can be re-established on the next launch without
+ * another bootstrap.
+ *
+ * The password for an `auth: "password"` descriptor is deliberately *not* part
+ * of this shape: this type is persisted in plaintext metadata and is echoed
+ * back to the renderer inside `RemoteHostBootstrapResult`. The secret lives in
+ * a separate encrypted record field instead.
+ */
+export type RemoteHostSshMetadata = {
+  /** Host name or address as `ssh` receives it (no `user@` prefix). */
+  host: string;
+  /** `ssh -p` value; absent means the SSH default. */
+  port?: number;
+  /** `ssh` login user; absent means the local user name. */
+  user?: string;
+  /** `ssh -i` value; absent means the agent and `~/.ssh/config` decide. */
+  identityFile?: string;
+  /** Absent means `key`, so descriptors written before password auth read back unchanged. */
+  auth?: RemoteHostSshAuth;
+  /** `pi-host`'s loopback port on the remote machine. */
+  remotePort: number;
+  /** Release version the bootstrap installed, checked against `APP_VERSION`. */
+  version: string;
+};
+
 export type RemoteHostSummary = {
   hostKey: string;
   label: string;
   url: string;
   connected: boolean;
+  /** Absent on records written before the SSH bootstrap existed → `direct`. */
+  transport?: RemoteHostTransport;
 };
 
 /**
@@ -40,4 +92,47 @@ export type RemoteHostPairResult = {
 
 export type RemoteHostRemoveRequest = {
   hostKey: string;
+};
+
+/**
+ * Input for `remoteHostBootstrap`: install and pair a `pi-host` on a machine
+ * the user can already reach over SSH (spec §5.2). The desktop uses the user's
+ * own SSH configuration and keys, so no credential ever crosses this IPC
+ * channel.
+ */
+export type RemoteHostBootstrapRequest = {
+  /** Human label for the host list, and the device label the host records. */
+  label: string;
+  /** SSH host name or address, without a `user@` prefix. */
+  host: string;
+  /** `ssh -p` value; absent means the SSH default. */
+  port?: number;
+  /** SSH login user; absent means the local user name. */
+  user?: string;
+  /** `ssh -i` value; absent means the agent and `~/.ssh/config` decide. */
+  identityFile?: string;
+  /**
+   * Loopback port `pi-host` should bind on the remote machine. `0` or absent
+   * lets the host pick a free port and report it back.
+   */
+  remotePort?: number;
+  /** Optional stable routing key; absent means the desktop mints one. */
+  hostKey?: string;
+  /**
+   * SSH login password, when the user chose password auth instead of a key.
+   * Absent keeps the key/agent path byte-for-byte unchanged. It is passed to
+   * the `ssh` client through an askpass helper, never as an argument, and is
+   * persisted encrypted with the OS keychain so the next launch can reconnect.
+   * A newline cannot be expressed — OpenSSH reads the helper's answer up to the
+   * first line break — so such a value is rejected with `INVALID_ARGUMENT`.
+   */
+  password?: string;
+};
+
+export type RemoteHostBootstrapResult = {
+  host: RemoteHostSummary;
+  /** The descriptor the desktop reconnects through on later launches. */
+  ssh: RemoteHostSshMetadata;
+  /** Ordered bootstrap steps that completed, for a Settings progress line. */
+  steps: string[];
 };

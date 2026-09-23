@@ -1308,7 +1308,7 @@ D375 (2026-09-10) re-sequenced the deployments and extended the catalog:
   30-minute default approval lifetime for remote subscribers, and the
   `applyCeilingToPairedDevices` policy.
 
-D434 (2026-09-12) made the SSH runtime concrete:
+D626 (2026-09-12) made the SSH runtime concrete:
 
 - initialization results may carry the Host protocol/storage versions and the
   one-time pairing exchange's device token;

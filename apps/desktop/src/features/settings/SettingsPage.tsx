@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   AppSettings,
@@ -9,10 +9,12 @@ import type {
 import { useAppStore } from "../../stores/app-store";
 import { api } from "../../lib/api";
 import {
-  SETTINGS_NAV,
+  isSettingsDestinationHidden,
   SETTINGS_NAV_GROUP_LABELS,
+  visibleSettingsNav,
   type SettingsNavGroupId,
 } from "../../lib/settings-search";
+import { pluginViewIcon } from "../../lib/plugin-view-icons";
 import {
   IconArchive,
   IconBookOpen,
@@ -23,14 +25,16 @@ import {
   IconGlobe,
   IconInfo,
   IconKeyboard,
+  IconPalette,
   IconSearch,
   IconServer,
   IconSliders,
   IconSparkles,
+  IconCloudDown,
 } from "../../components/icons";
-import { Button, cx } from "../../components/ui";
- import { ModelConfigPage } from "../../components/settings/ModelConfigPage";
- import { VoiceSettingsSection } from "./VoiceSettingsSection";
+import { Badge, Button, cx } from "../../components/ui";
+import { ModelConfigPage } from "../../components/settings/ModelConfigPage";
+import { VoiceSettingsSection } from "./VoiceSettingsSection";
 import { KeyboardShortcutsSection } from "../../components/settings/KeyboardShortcutsSection";
 import { FontFamilyRow } from "../../components/settings/FontFamilyRow";
 import { ThinkingDisplayModeRow } from "../../components/settings/ThinkingDisplayModeRow";
@@ -53,14 +57,12 @@ import {
   SettingsCard,
   SettingsRow,
 } from "./primitives";
-import {
-  AgentInstructionsSection,
-  ImportSection,
-  UpdatesRow,
-} from "./agent-sections";
+import { AgentInstructionsSection, UpdatesRow } from "./agent-sections";
+import { ImportSection } from "./import-page";
 import { PromptEnhancementCard } from "./prompt-enhancement-card";
 import { CloseBehaviorSection, DeveloperSection } from "./developer-sections";
 import { PluginScenicThemesDestination } from "../../components/settings/PluginScenicThemesDestination";
+import { ConfigSyncPage } from "../../components/settings/ConfigSyncPage";
 
 type SettingsTab = ReturnType<typeof useAppStore.getState>["settingsTab"];
 
@@ -79,6 +81,7 @@ export function SettingsPage() {
   const tab = useAppStore((s) => s.settingsTab);
   const setSettingsTab = useAppStore((s) => s.setSettingsTab);
   const settingsAnchor = useAppStore((s) => s.settingsAnchor);
+  const settingsTabNonce = useAppStore((s) => s.settingsTabNonce);
   const setSettingsAnchor = useAppStore((s) => s.setSettingsAnchor);
   const setPage = useAppStore((s) => s.setPage);
   const settings = useAppStore((s) => s.settings);
@@ -86,11 +89,35 @@ export function SettingsPage() {
   const refreshProviders = useAppStore((s) => s.refreshProviders);
   const platform = (window.piDesktop?.platform ?? "darwin") as ShortcutPlatform;
 
+  // Developer-only destinations (Remote Hosts) exist only while developer
+  // mode is on; the rail, the page, and settings search drop them together.
+  const developerMode = settings?.developerMode === true;
+  const navEntries = useMemo(() => visibleSettingsNav(developerMode), [developerMode]);
+  const tabHidden = isSettingsDestinationHidden(tab, developerMode);
+
   const [query, setQuery] = useState("");
   const [recoveringSettings, setRecoveringSettings] = useState(!settings);
   const [settingsRecoveryFailed, setSettingsRecoveryFailed] = useState(false);
   const [extensions, setExtensions] = useState<PluginScenicThemesDestinationMeta[]>([]);
   const [activeExtension, setActiveExtension] = useState<PluginScenicThemesDestinationMeta | null>(null);
+  const seenSettingsTabNonce = useRef(settingsTabNonce);
+  // setSettingsTab means "show this built-in category", even when the tab id
+  // does not change. Dismiss a plugin page before paint; an anchor-only deep
+  // link has to do the same or the row lookup hits the plugin instead.
+  if (
+    seenSettingsTabNonce.current !== settingsTabNonce ||
+    (activeExtension && settingsAnchor)
+  ) {
+    seenSettingsTabNonce.current = settingsTabNonce;
+    if (activeExtension) setActiveExtension(null);
+  }
+  const contentRef = useRef<HTMLDivElement>(null);
+  const destination = activeExtension ? `extension:${activeExtension.ref}` : `builtin:${tab}`;
+
+  useLayoutEffect(() => {
+    // Reset before paint and before the search-anchor effect positions its row.
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [destination]);
 
   useEffect(() => {
     const refresh = () => void api.listPluginScenicThemesDestinations().then(setExtensions, () => setExtensions([]));
@@ -104,6 +131,14 @@ export function SettingsPage() {
       setSettingsTab("general");
     }
   }, [activeExtension, extensions, setSettingsTab]);
+
+  // A hidden destination must not keep rendering: leave the page the rail no
+  // longer offers (for example Remote Hosts once developer mode is switched
+  // off) and fall back to General.
+  useEffect(() => {
+    if (!settings || !tabHidden) return;
+    setSettingsTab("general");
+  }, [settings, tabHidden, setSettingsTab]);
 
   const recoverSettings = useCallback(async () => {
     setRecoveringSettings(true);
@@ -124,10 +159,12 @@ export function SettingsPage() {
   }, [settings, recoverSettings]);
 
   // Arriving from the global search dialog: scroll to and flash the row
-  // whose title matches the pending anchor key. Rows are located by their
-  // translated title so async tab content (providers, import) needs no
-  // per-row wiring; a short retry window covers late mounts.
-  useEffect(() => {
+  // whose title matches the pending anchor key. This runs after the
+  // destination reset and before paint, so a category change does not flash
+  // the top. Rows are located by their translated title so async tab content
+  // (providers, import) needs no per-row wiring; a short retry window covers
+  // late mounts.
+  useLayoutEffect(() => {
     if (!settingsAnchor) return;
     const target = t(settingsAnchor).trim();
     let cancelled = false;
@@ -193,10 +230,11 @@ export function SettingsPage() {
       connections: <IconServer size={14} />,
       import: <IconDownload size={14} />,
       projects: <IconArchive size={14} />,
+      sync: <IconCloudDown size={14} />,
       remoteHosts: <IconGlobe size={14} />,
       about: <IconInfo size={14} />,
     };
-    return SETTINGS_NAV.map((entry) => ({
+    return navEntries.map((entry) => ({
       id: entry.id,
       labelKey: entry.labelKey,
       titleKey: entry.titleKey,
@@ -204,7 +242,7 @@ export function SettingsPage() {
       group: entry.group,
       keywordKeys: entry.keywordKeys,
     }));
-  }, []);
+  }, [navEntries]);
 
   // Search matches the tab label and the titles of the rows inside it, so
   // typing e.g. "theme" or "主题" surfaces Basics even though the tab is
@@ -275,6 +313,11 @@ export function SettingsPage() {
                   >
                     <span className="settings-nav-icon">{item.icon}</span>
                     <span className="settings-nav-label">{t(item.labelKey)}</span>
+                    {item.id === "remoteHosts" ? (
+                      <Badge tone="warning" className="settings-nav-experimental">
+                        {t("settings.remoteHosts.experimental")}
+                      </Badge>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -286,12 +329,19 @@ export function SettingsPage() {
               {extensions.filter((entry) => {
                 const q = query.trim().toLowerCase();
                 return !q || [entry.label, ...entry.keywords].some((value) => value.toLowerCase().includes(q));
-              }).map((entry) => (
-                <button key={entry.ref} className={cx("settings-nav-item", activeExtension?.ref === entry.ref && "active")} onClick={() => setActiveExtension(entry)}>
-                  <span className="settings-nav-icon"><IconBookOpen size={14} /></span>
-                  <span className="settings-nav-label">{entry.label}</span>
-                </button>
-              ))}
+              }).map((entry) => {
+                const ExtensionIcon = pluginViewIcon(entry.icon) ?? IconPalette;
+                return (
+                  <button
+                    key={entry.ref}
+                    className={cx("settings-nav-item", activeExtension?.ref === entry.ref && "active")}
+                    onClick={() => setActiveExtension(entry)}
+                  >
+                    <span className="settings-nav-icon"><ExtensionIcon size={14} /></span>
+                    <span className="settings-nav-label">{entry.label}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -312,10 +362,15 @@ export function SettingsPage() {
         </div>
       </aside>
 
-      <div className="settings-content">
+      <div className="settings-content" ref={contentRef}>
         <div className="settings-content-inner">
           <div className="settings-content-enter">
-          <h1 className="settings-section-title">{activeExtension?.label ?? t(activeTitleKey)}</h1>
+          <h1 className="settings-section-title">
+            <span>{activeExtension?.label ?? t(activeTitleKey)}</span>
+            {!activeExtension && tab === "remoteHosts" && !tabHidden ? (
+              <Badge tone="warning">{t("settings.remoteHosts.experimental")}</Badge>
+            ) : null}
+          </h1>
 
           {activeExtension ? (
             <PluginScenicThemesDestination destination={activeExtension} selectTheme={selectPluginTheme} />
@@ -382,7 +437,6 @@ export function SettingsPage() {
                 </SettingsRow>
               </SettingsCard>
 
-
               <SettingsCard title={t("settings.defaultsTitle")}>
                 <SettingsRow title={t("settings.mode")} description={t("settings.modeDesc")}>
                   <div
@@ -434,6 +488,28 @@ export function SettingsPage() {
                     <span className="settings-toggle-thumb" />
                   </button>
                 </SettingsRow>
+                <SettingsRow
+                  title={t("settings.infiniteProviderRetry")}
+                  description={t("settings.infiniteProviderRetryDesc")}
+                >
+                  <button
+                    type="button"
+                    className={cx(
+                      "settings-toggle",
+                      settings.infiniteProviderRetry === true && "on",
+                    )}
+                    role="switch"
+                    aria-checked={settings.infiniteProviderRetry === true}
+                    aria-label={t("settings.infiniteProviderRetry")}
+                    onClick={() =>
+                      void saveSettings({
+                        infiniteProviderRetry: settings.infiniteProviderRetry !== true,
+                      })
+                    }
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
+                </SettingsRow>
                 <LargePasteThresholdRow
                   settings={settings}
                   saveSettings={saveSettings}
@@ -480,7 +556,9 @@ export function SettingsPage() {
 
           {tab === "projects" && <ProjectsPage />}
 
-          {tab === "remoteHosts" && <RemoteHostsPage />}
+          {tab === "sync" && <ConfigSyncPage />}
+
+          {tab === "remoteHosts" && !tabHidden && <RemoteHostsPage />}
 
           {tab === "about" && (
             <div className="settings-stack">

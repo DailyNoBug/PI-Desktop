@@ -9,12 +9,12 @@ import {
    Tray,
  } from "electron";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import {
   applyNetworkProxyFromAppSettings,
   currentNetworkProxy,
   testNetworkProxy,
 } from "./network-proxy";
+import { installInsecureEndpointNotice } from "./network-notice";
 import {
   APP_ID,
   APP_NAME,
@@ -97,6 +97,7 @@ import {
   planExecutionFromUnknown,
 } from "@pi-desktop/host-runtime";
 import { readWindowState, writeWindowState } from "./window-preferences";
+import { applyDevelopmentUserData, desktopDataDir } from "./data-paths";
 import { createPlanUiProbe } from "./plan-ui-probe";
 import type { McpControlController, McpControlServer } from "./mcp-control";
 import type { AgentHostBridge } from "./agent-host-bridge";
@@ -114,7 +115,6 @@ import {
 } from "./ipc/composer-ipc";
 import { registerWindowIpc } from "./ipc/window-ipc";
 import { registerPullsIpc } from "./ipc/pulls-ipc";
-import { registerScheduledIpc } from "./ipc/scheduled-ipc";
 import { registerAgentIpc } from "./ipc/agent-ipc";
  import { registerIpcHandlers } from "./ipc/register";
  import { installVoiceMediaPermissionPolicy } from "./voice/voice-media-permission";
@@ -184,23 +184,19 @@ const ErrorCodes = {
 ignoreBrokenStdio();
 installMainProcessErrorHandlers();
 
+const isDevelopmentBuild =
+  process.env.PI_DESKTOP_DEV === "1" || !app.isPackaged;
+
 app.setName(APP_NAME);
+applyDevelopmentUserData(app, isDevelopmentBuild);
 if (process.platform === "win32") {
   app.setAppUserModelId(APP_ID);
 }
 
-// One data directory admits exactly one desktop process. host-core owns
-// `pi.sqlite` exclusively (D002), Electron main owns the persistence outbox and
-// the log tree beside it, and the tray, the global launcher shortcut, and the
-// updater are singletons of the running app — a second process fights the first
-// for every one of them and leaves the user with two shells over one database.
-//
-// Electron keeps the lock in `userData`, which is derived from the app name set
-// just above, so it is taken after `setName` and before anything else in this
-// module touches the data directory. That scope is the installation, not
-// `PI_DESKTOP_DATA_DIR`: a run pointed at its own data directory (E2E
-// harnesses, the capture rig, a side-by-side profile) shares no state with the
-// default installation and stays launchable while one is running.
+// One installation, one process. The lock lives in `userData` (set just
+// above), so it is taken after `setName` and before anything else here
+// touches the data directory. A development build is its own installation;
+// `PI_DESKTOP_DATA_DIR` still opts a run out of the lock (E2E, capture rig).
 const singleInstanceRequired = !process.env.PI_DESKTOP_DATA_DIR;
 const hasSingleInstanceLock = singleInstanceRequired
   ? app.requestSingleInstanceLock()
@@ -250,9 +246,6 @@ const launcherState: LauncherState = {
 };
 let windowCreationPromise: Promise<void> | null = null;
 let applicationBooted = false;
-const isDevelopmentBuild =
-  process.env.PI_DESKTOP_DEV === "1" || !app.isPackaged;
-
 // pi-desktop:// deep links (add an SSH connection, open a remote project).
 if (!isDevelopmentBuild) app.setAsDefaultProtocolClient("pi-desktop");
 const pendingApplicationMenuCommands: AppMenuCommand[] = [];
@@ -529,8 +522,11 @@ const {
   safeOpenExternal,
 } = desktopServices;
 
-const dataDir =
-  process.env.PI_DESKTOP_DATA_DIR || join(homedir(), ".pi-desktop");
+const dataDir = desktopDataDir(isDevelopmentBuild);
+// The plugin runtime resolves this root from the environment rather than taking
+// it as a parameter, and a profile split across two directories is the
+// divergence D236 closes.
+process.env.PI_DESKTOP_DATA_DIR = dataDir;
 
 // Agent extensions (D387/D388, ADR 0214): plugins contribute the modules,
 // the sidecar loads them; this bridge carries commands, diagnostics, and
@@ -829,6 +825,7 @@ function isHostUnavailable(error: unknown): boolean {
 
 /** Pull the user's MCP server records from host-core into the local runtime. */
 function sendToRenderer(channel: string, payload: unknown) {
+  applicationLifecycle?.traySessions.observeEvent(channel, payload);
   if (channel === IPC.event.pluginChanged) {
     applicationLifecycle?.applyNativeThemeSource({
       theme: applicationAppearanceState.appThemePreference,
@@ -852,7 +849,10 @@ function sendToRenderer(channel: string, payload: unknown) {
     // it. Notifying a gone frame is routine teardown, never an error:
     // supervision must keep running with no window attached.
   }
+
 }
+
+installInsecureEndpointNotice(sendToRenderer);
 
 let appliedMenuSettings: string | null = null;
 
@@ -913,6 +913,7 @@ const applicationAppearanceState: ApplicationAppearanceState = {
 };
 
 applicationLifecycle = createApplicationLifecycle({
+  getRunningSessionIds: () => activeTurns.keys(),
   state: windowLifecycleState,
   appState: applicationLifecycleState,
   appearanceState: applicationAppearanceState,
@@ -1449,6 +1450,7 @@ async function drainPendingDeepLinks(): Promise<void> {
 
 function registerIpc() {
   return registerIpcHandlers({
+    traySessions: applicationLifecycle!.traySessions,
     ipcMain,
     getRemoteManager: () => remoteManager,
     getMainWindow: () => mainWindow,
@@ -1505,6 +1507,7 @@ function registerIpc() {
     markMenuRendererReady,
     executeNativeMenuAction,
     scheduledRunsBySession,
+    isQuitting: () => quitting,
     isDevelopmentBuild,
     browserHost,
     clipboardHistory,

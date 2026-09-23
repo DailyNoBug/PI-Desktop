@@ -74,6 +74,8 @@
 > （SIL OFL 1.1）字体——Geist、Inter、Noto Sans SC 和 LXGW WenKai——
 > 随应用本地发布并附带许可证文本，系统已安装字体由 Electron
 > 主进程通过新增的白名单通道 `pi-desktop/app/systemFonts` 枚举。
+> D598 / ADR 0298 后来移除了内置字体：应用不再自带任何字体，
+> 选择器只提供「跟随系统」与系统已安装字体，每个字体栈以纯系统 CJK 回退层收尾。
 > 主机协议或存储架构没有更改。
 
 > 当前基线后的修订通过 ADR 0200 / D367 增加了 P0/P1 宿主拥有的插件会话
@@ -87,8 +89,8 @@
 > ADR 0205 / D373 定义未来 MVP 后 Agent Host、Gateway 和多绑定控制面的目标；
 > D374 将其修订为单一规范 WebSocket 绑定、无头 Agent Host 模块和完整本地审批词汇；
 > D375 将 SSH 隧道远端 Host 排在首位，Gateway 与浏览器访问不排期。
-> 当前基线仍排除远程 Gateway / WebUI 控制。语音听写（D439 / ADR 0296，由
-> D451 / ADR 0297 取代）经冻结的 `pi-desktop/voice/*` IPC 域运行在内置本地语音
+> 当前基线仍排除远程 Gateway / WebUI 控制。语音听写（D628 / ADR 0312，由
+> D629 / ADR 0313 取代）经冻结的 `pi-desktop/voice/*` IPC 域运行在内置本地语音
 > 插件 `pi.local-voice` 上：本地 Whisper 转写，无云 STT/TTS 绑定、无密钥引用——
 > 协议与存储 schema 版本均不变。
 

@@ -11,9 +11,55 @@
  * `packages/racp/src/test-harness.ts` so the adapter exercises the real
  * `RacpClient` state machine without a socket.
  */
-import { RacpClient, type ClientTransportFactory, type RacpClientState } from "@pi-desktop/racp";
-import type { RacpEventEnvelope } from "@pi-desktop/shared";
+import {
+  RacpClient,
+  wsClientTransport,
+  type ClientTransportFactory,
+  type RacpClientState,
+} from "@pi-desktop/racp";
+import { ErrorCodes, type RacpEventEnvelope } from "@pi-desktop/shared";
 import type { RemoteHostClient } from "./remote-host-connection.js";
+
+export type PairingExchangeOptions = {
+  /** Loopback RACP endpoint, either pasted by the user or forwarded by us. */
+  url: string;
+  /** Single-use `ppt1.` token the host printed at start. */
+  pairingToken: string;
+  /** Device label the host records against the minted device. */
+  label: string;
+  clientInfo: { name: string; version: string };
+  log?: (level: "info" | "warn", message: string, data?: Record<string, unknown>) => void;
+};
+
+/**
+ * Spend a single-use pairing token on a throwaway connection and return the
+ * durable `pdt1.` device token the host minted (spec §3.4).
+ *
+ * The connection is closed on every path — success, refusal, and transport
+ * failure — because the token is consumed by the exchange and a lingering
+ * unprivileged socket would only keep a half-paired session open.
+ */
+export async function exchangePairingToken(options: PairingExchangeOptions): Promise<string> {
+  const pairing = createRacpRemoteHostClient({
+    transport: wsClientTransport({ url: options.url, token: options.pairingToken }),
+    clientInfo: options.clientInfo,
+    log: options.log,
+  });
+  try {
+    await pairing.connect();
+    const result = (await pairing.client.request("connection/pair", {
+      deviceLabel: options.label,
+    })) as { deviceToken?: unknown };
+    if (typeof result?.deviceToken !== "string" || result.deviceToken.length === 0) {
+      throw Object.assign(new Error("pi-host did not return a device token"), {
+        errorCode: ErrorCodes.PAIRING_FAILED,
+      });
+    }
+    return result.deviceToken;
+  } finally {
+    await pairing.close().catch(() => undefined);
+  }
+}
 
 export type RacpRemoteHostClientOptions = {
   transport: ClientTransportFactory;

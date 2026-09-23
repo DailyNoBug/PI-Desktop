@@ -138,10 +138,15 @@ Deliverables:
 - the remote session ownership split of architecture §6.3;
 - the reverse tool relay: `tools/advertise` and the `tool/execute` server
   request, so desktop MCP servers and workspace-free plugin tools run on the
-  desktop for a remote session; and
+  desktop for a remote session;
 - the terminal: `terminal/open`, `terminal/input`, `terminal/resize`,
   `terminal/close`, `terminal.output`, and a bounded replay ring, running on
-  the remote machine.
+  the remote machine; and
+- the Settings → Remote Hosts destination: a compact host inventory and one
+  Add form with SSH and Pair tabs, no instructional copy, marked Experimental
+  on the settings rail and page title because the topology may still fail, and
+  shown — with its settings-search hits — only while developer mode is on
+  (`04-ux/06-settings-ia.md` §1, §3).
 
 Design decisions (D375, recorded 2026-09-10):
 
@@ -434,16 +439,35 @@ Recorded on the `feat/remote-agent-host` branch, 2026-09-10:
   server and client cores, the `ws` binding on loopback, and device-token
   pairing; handshake, authorization, idempotency, queue order, approvals,
   cursor replay, eviction, epoch change, slow clients, and reconnect without
-  duplicate execution are package tests. The `pi-host` bundle, the SSH
-  bootstrap, and the desktop adapter are not started.
-- Remote SSH line (D434 / ADR 0294), in progress: the loopback `RACP-WS` server/client with
-  one-time pairing and cursor replay, the Linux `packages/pi-host` runtime,
-  workspace boundary and checksummed x64/arm64 release bundles, and Electron
-  Main's SSH discovery/bootstrap/port-forward/reconnect supervisor plus
-  Connections UI, renderer session routing, reverse tool relay execution, and
-  native remote capability labeling are implemented and unit- or source-test
-  covered. Live SSH E2E remains open; the RACP PTY terminal lifecycle and
-  remote Skill catalog/read path are unit- or source-test covered.
+  duplicate execution are package tests. The `pi-host` bundle, the desktop
+  adapter, and the SSH bootstrap have since started: the R2a desktop kernel
+  (D449 / ADR 0286) brought the adapter and the bundle, and the SSH bootstrap
+  followed in D453 / ADR 0292.
+- R2b partial (2026-09-19, D453 / ADR 0292): the desktop installs and pairs
+  a `pi-host` over the user's own `ssh` client with `BatchMode=yes`, so the
+  user's configuration, agent, and jump hosts apply and no SSH secret reaches
+  the app. `remote/pi-host-release.ts` holds the pure release coordinates
+  (remote platform, desktop version, published SHA-256, refusal of unpublished
+  targets) and `remote/pi-host-bootstrap-script.ts` generates the single
+  `umask 077` script that downloads, verifies, installs under the remote
+  `$HOME`, restarts the host on loopback with `--pair`, and echoes
+  `PI_HOST_READY` / `PI_HOST_PAIRING_TOKEN`; `remote/ssh-transport.ts` is the
+  injectable transport port and `remote/ssh-tunnel.ts` owns one durable
+  `ssh -N -L` forward per host, re-established on every launch and adopted
+  from the bootstrap so pairing opens exactly one tunnel. Records carry
+  `metadata.transport = "ssh"` plus an SSH descriptor instead of a URL, and
+  `pi-desktop/remoteHost/bootstrap` joins `list` / `pair` / `remove`. The
+  terminal work-panel client, the reverse tool relay, and provider-configuration
+  propagation over the SSH channel are not in this slice.
+- Remote SSH line (D626 / ADR 0310), in progress: the loopback `RACP-WS`
+  server/client with one-time pairing and cursor replay, the Linux
+  `packages/pi-host` runtime, workspace boundary and checksummed x64/arm64
+  release bundles, and Electron Main's SSH discovery/bootstrap/port-forward/
+  reconnect supervisor plus Connections UI, renderer session routing, reverse
+  tool relay execution, and native remote capability labeling are implemented
+  and unit- or source-test covered. Live SSH E2E remains open; the RACP PTY
+  terminal lifecycle and remote Skill catalog/read path are unit- or
+  source-test covered.
 
 ## 8. Amendment history
 

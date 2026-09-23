@@ -3,11 +3,14 @@ import type {
   Mode,
   PermissionMode,
   ProviderPublic,
+  SessionThinkingLevel,
   ThinkingLevel,
 } from "@pi-desktop/shared";
 import {
+  isSessionThinkingLevel,
   modelIdsMatch,
   PERMISSION_MODES,
+  sessionThinkingMenuLevels,
 } from "@pi-desktop/shared";
 import { providerThinkingLevels } from "../../../lib/session-thinking";
 
@@ -35,12 +38,7 @@ export const MODE_LABEL_KEYS: Record<Mode, string> = {
   goal: "settings.modeGoal",
 };
 
-export const PERMISSION_MODE_I18N_KEYS: Record<PermissionMode, string> = {
-  inherit: "chat.permissionInherit",
-  ask: "chat.permissionAsk",
-  "accept-edits": "chat.permissionAcceptEdits",
-  auto: "chat.permissionAuto",
-};
+export { PERMISSION_MODE_I18N_KEYS } from "../../../lib/permission-mode-labels";
 
 export const THINKING_LEVELS: readonly ThinkingLevel[] = [
   "off",
@@ -79,8 +77,8 @@ export function nextMode(mode: Mode): Mode {
   return MODE_CYCLE[(index + 1) % MODE_CYCLE.length] ?? "agent";
 }
 
-export function isThinkingLevel(value: unknown): value is ThinkingLevel {
-  return typeof value === "string" && THINKING_LEVELS.includes(value as ThinkingLevel);
+export function isThinkingLevel(value: unknown): value is SessionThinkingLevel {
+  return isSessionThinkingLevel(value);
 }
 
 export function isPermissionMode(value: unknown): value is PermissionMode {
@@ -96,10 +94,11 @@ export function isPermissionMode(value: unknown): value is PermissionMode {
  */
 export function thinkingLevelForProvider(
   provider: ProviderPublic | null | undefined,
-  current: ThinkingLevel,
-): ThinkingLevel {
+  current: SessionThinkingLevel,
+): SessionThinkingLevel {
   const available = providerThinkingLevels(provider);
   if (!provider?.supportsReasoning) return "off";
+  if (current === "omit") return "omit";
   if (available.includes(current)) return current;
   const requestedIndex = THINKING_LEVELS.indexOf(current);
   for (let index = requestedIndex; index < THINKING_LEVELS.length; index += 1) {
@@ -151,3 +150,5 @@ export function cssPixels(value: string): number {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+
+export { sessionThinkingMenuLevels };

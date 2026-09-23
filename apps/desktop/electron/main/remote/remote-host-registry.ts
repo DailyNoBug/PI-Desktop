@@ -26,7 +26,7 @@ export interface EncryptionPort {
   decryptString(ciphertext: Buffer): string;
 }
 
-/** One paired host as it lives on disk (token stays encrypted at rest). */
+/** One paired host as it lives on disk (every secret stays encrypted at rest). */
 export type RemoteHostRecord = {
   /** Stable id used in `remote:<hostKey>:<...>` renderer session ids. */
   hostKey: string;
@@ -36,19 +36,33 @@ export type RemoteHostRecord = {
   url: string;
   /** Device token issued at pairing, presented on every reconnect. */
   deviceToken: string;
+  /**
+   * SSH login password for a host that authenticates with one instead of a
+   * key. Optional and normally absent. It is the second encrypted-at-rest
+   * value in the record and, unlike `metadata`, it is never handed to the
+   * renderer — the only consumers are the tunnel's `ssh` spawn and the
+   * bootstrap that is about to write it.
+   */
+  sshSecret?: string;
   /** Room for later fields (roles, protocol hints) without a schema bump. */
   metadata?: Record<string, unknown>;
 };
 
-/** The on-disk record: the plaintext deviceToken is replaced with base64
- * ciphertext + version byte, so a token cannot be recovered without the
- * matching safeStorage keychain. */
+/** The on-disk record: the plaintext secrets are replaced with base64
+ * ciphertext + version byte, so neither can be recovered without the matching
+ * safeStorage keychain. */
 type SerializedRecord = {
   hostKey: string;
   label: string;
   url: string;
   /** Base64 of the `safeStorage.encryptString` output. */
   encryptedDeviceToken: string;
+  /**
+   * Base64 of the encrypted SSH password. Absent for a key-authenticated host
+   * and for every record written before password auth existed, so the file
+   * format needs no version bump.
+   */
+  encryptedSshSecret?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -120,11 +134,29 @@ export function createRemoteHostRegistry(
         try {
           const buffer = Buffer.from(record.encryptedDeviceToken, "base64");
           const deviceToken = options.encryption.decryptString(buffer);
+          // A host whose SSH password will not decrypt still has a usable
+          // device token, and dropping the whole record over it would hide a
+          // paired host from the user. It reads back as "no password", which
+          // is exactly the pre-password-auth behaviour.
+          let sshSecret: string | undefined;
+          if (record.encryptedSshSecret) {
+            try {
+              sshSecret = options.encryption.decryptString(
+                Buffer.from(record.encryptedSshSecret, "base64"),
+              );
+            } catch (error) {
+              log("warn", "remote host ssh credential could not be decrypted; dropping it", {
+                hostKey: record.hostKey,
+                error: String(error),
+              });
+            }
+          }
           decoded.push({
             hostKey: record.hostKey,
             label: record.label,
             url: record.url,
             deviceToken,
+            ...(sshSecret !== undefined ? { sshSecret } : {}),
             ...(record.metadata ? { metadata: record.metadata } : {}),
           });
         } catch (error) {
@@ -153,6 +185,13 @@ export function createRemoteHostRegistry(
         label: record.label,
         url: record.url,
         encryptedDeviceToken: ciphertext,
+        ...(record.sshSecret
+          ? {
+              encryptedSshSecret: options.encryption
+                .encryptString(record.sshSecret)
+                .toString("base64"),
+            }
+          : {}),
         ...(record.metadata ? { metadata: record.metadata } : {}),
       };
       const next = file.hosts.filter((existing) => existing.hostKey !== record.hostKey);

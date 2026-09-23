@@ -7,6 +7,9 @@ const {
   projectTurnProcess,
   visibleProcessSteps,
   resolveThinkingDisplayMode,
+  isLastActivityPart,
+  shouldAutoOpenTurnProcess,
+  shouldGroupTurnProcess,
   turnProcessTiming,
 } = await import("../src/lib/turn-process.ts");
 
@@ -96,6 +99,39 @@ test("missing and unknown display settings retain detailed mode", () => {
   assert.equal(resolveThinkingDisplayMode("compact"), "compact");
 });
 
+test("both display modes group a turn and only compact auto-opens active failures", () => {
+  assert.equal(shouldGroupTurnProcess("detailed"), true);
+  assert.equal(shouldGroupTurnProcess("compact"), true);
+  assert.equal(shouldAutoOpenTurnProcess("detailed", false, false), true);
+  assert.equal(shouldAutoOpenTurnProcess("detailed", true, false), true);
+  assert.equal(shouldAutoOpenTurnProcess("detailed", true, true), true);
+  assert.equal(shouldAutoOpenTurnProcess("compact", false, false), false);
+  assert.equal(shouldAutoOpenTurnProcess("compact", true, false), false);
+  assert.equal(shouldAutoOpenTurnProcess("compact", true, true), true);
+  assert.equal(shouldAutoOpenTurnProcess("compact", false, true), false);
+});
+
+test("the last activity part owns detailed-mode's default-open tool", () => {
+  const entry = turn([
+    message("intro", "assistant", "Inspect", { thinking: "Plan" }),
+    message("read", "tool", "result", { toolName: "Read" }),
+    message("progress", "assistant", "Next"),
+    message("edit", "tool", "updated", { toolName: "Edit" }),
+    message("final", "assistant", "Fixed"),
+  ]);
+  const activities = entry.parts.filter((part) => part.kind === "activity");
+  assert.ok(activities.length >= 2);
+  assert.equal(isLastActivityPart(entry.parts, activities[0]), false);
+  assert.equal(isLastActivityPart(entry.parts, activities.at(-1)), true);
+  assert.equal(
+    isLastActivityPart(
+      entry.parts,
+      entry.parts.find((part) => part.kind === "message"),
+    ),
+    false,
+  );
+});
+
 test("history timing uses recorded ends and rejects invalid timestamps and durations", () => {
   const entry = turn([
     message("read", "tool", "", { toolCompletedAt: "2026-09-17T00:00:02.000Z" }),
@@ -141,6 +177,12 @@ test("settings writes validate the mode without changing other preferences", asy
     onboardingDismissed: false,
   };
   assert.equal(validateSettingsWrite(settings), settings);
+  const infiniteSettings = { ...settings, infiniteProviderRetry: true };
+  assert.equal(validateSettingsWrite(infiniteSettings), infiniteSettings);
+  assert.throws(
+    () => validateSettingsWrite({ ...settings, infiniteProviderRetry: "yes" }),
+    /infiniteProviderRetry is invalid/,
+  );
   for (const thinkingDisplayMode of ["detailed", "compact"]) {
     const next = { ...settings, thinkingDisplayMode };
     assert.equal(validateSettingsWrite(next), next);

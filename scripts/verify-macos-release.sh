@@ -6,7 +6,11 @@ set -euo pipefail
 
 RELEASE_DIR="${1:-apps/desktop/release}"
 PRODUCT_NAME="PI-Desktop"
-EXPECTED_IDENTITY="${MAC_SIGNING_IDENTITY:-Developer ID Application: XingYu Liu (DUV63RKYTW)}"
+# Accepts either the bare common name ("XingYu Liu (DUV63RKYTW)") or the full
+# certificate label ("Developer ID Application: XingYu Liu (DUV63RKYTW)").
+IDENTITY_NAME="${MAC_SIGNING_IDENTITY:-XingYu Liu (DUV63RKYTW)}"
+IDENTITY_NAME="${IDENTITY_NAME#Developer ID Application: }"
+EXPECTED_IDENTITY="Developer ID Application: ${IDENTITY_NAME}"
 
 if [[ ! -d "$RELEASE_DIR" ]]; then
   echo "error: release directory does not exist: $RELEASE_DIR" >&2

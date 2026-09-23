@@ -3,6 +3,8 @@ import {
   ErrorCodes as SharedErrorCodes,
   isActiveInProject,
   isCommandShellCatalog,
+  imageGenerationBindings,
+  isImageGenerationModel,
   normalizeMode,
   resolveBindingContextWindow,
   trustedExtensionAgentKeyFromProviderId,
@@ -11,7 +13,7 @@ import {
   type ModelBinding,
   type Mode,
   type Risk,
-  type ThinkingLevel,
+  type SessionThinkingLevel,
   type UserSkillRecord,
   type UserSubagentRecord,
 } from "@pi-desktop/shared";
@@ -19,6 +21,7 @@ import {
   capabilitiesFromModelConfig,
   clampThinkingLevel,
   genericModelConfig,
+  loadCustomSystemPrompt,
   loadInstructionChain,
   loadSubagentDefinitions,
   modelConfigWithBinding,
@@ -80,7 +83,7 @@ export type SessionLaunchRuntimeDependencies = {
     modelConfig: ReturnType<typeof modelConfigWithBinding>;
     capabilities: ReturnType<typeof capabilitiesFromModelConfig>;
   };
-  normalizeThinkingLevel: (value: unknown) => ThinkingLevel;
+  normalizeThinkingLevel: (value: unknown) => SessionThinkingLevel;
   getRemoteManager: () => RemoteManager | null;
 };
 
@@ -267,7 +270,7 @@ export function createSessionLaunchRuntime({
       turnId?: string;
       providerId?: string;
       modelId?: string;
-      thinkingLevel?: ThinkingLevel;
+      thinkingLevel?: SessionThinkingLevel;
     } = {},
   ) {
     if (!runtimeState.host) throw new Error("host unavailable");
@@ -329,6 +332,15 @@ export function createSessionLaunchRuntime({
         errorCode: ErrorCodes.MODEL_NOT_CONFIGURED,
       });
     }
+    if (isImageGenerationModel(
+      imageGenerationBindings(settings.imageGenerationModels, settings.imageGeneration),
+      provider.id,
+      modelId,
+    )) {
+      throw Object.assign(new Error("The image model cannot be used for conversation; select a chat model"), {
+        errorCode: ErrorCodes.MODEL_NOT_CONFIGURED,
+      });
+    }
     // The authenticated collection owns a vendor account's available model IDs
     // and wire endpoint. models.dev owns metadata; one account can span multiple
     // wire APIs and gateway catalogs.
@@ -370,6 +382,9 @@ export function createSessionLaunchRuntime({
         ? session.projectPath.trim()
         : undefined;
     let projectInstructions = await loadInstructionChain(projectPath);
+    // pi-compatible SYSTEM.md / APPEND_SYSTEM.md (issue #542): resolved once
+    // per launch; a change retires the runtime through the reuse match.
+    const customSystemPrompt = await loadCustomSystemPrompt(projectPath);
     let projectMemory: string | undefined;
     if (projectPath) {
       try {
@@ -611,11 +626,12 @@ export function createSessionLaunchRuntime({
         ),
         ...(overrides.turnId ? { turnId: overrides.turnId } : {}),
         thinkingLevel,
-        nativeWebSearch: settings?.nativeWebSearchEnabled === true,
+        infiniteProviderRetry: settings.infiniteProviderRetry === true,
         commandShell,
         scratchDir: join(dataDir, "scratch", sessionId),
         attachmentsDir: join(dataDir, "attachments"),
         projectPath,
+        customSystemPrompt,
         projectInstructions,
         projectMemory,
         provider: {

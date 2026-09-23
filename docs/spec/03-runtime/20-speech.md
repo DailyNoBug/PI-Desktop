@@ -4,15 +4,15 @@
 > `apps/desktop/electron/main/ipc/voice-ipc.ts`,
 > `apps/desktop/electron/main/plugin-runtime.ts`,
 > `apps/desktop/resources/plugins/pi.local-voice/`.
-> ADR: [0297-local-voice-plugin](../../adr/0297-local-voice-plugin.md).
+> ADR: [0313-local-voice-plugin](../../adr/0313-local-voice-plugin.md).
 
 Speech-to-text is a plugin capability, not a host service. There are no builtin
 speech protocols, no `AppSettings.speech` bindings, and no speech channels of
 the removed cloud path; dictation enters through the frozen voice IPC domain
 and runs on a speech adapter registered by a plugin. The shipped implementation
 is the bundled first-party plugin `pi.local-voice`, which transcribes locally
-on a Whisper ONNX model (ADR 0297, superseding the Phase 1 cloud STT of
-ADR 0296).
+on a Whisper ONNX model (ADR 0313, superseding the Phase 1 cloud STT of
+ADR 0312).
 
 ## 1. IPC entry (frozen)
 
@@ -49,6 +49,12 @@ role: "transcribe" }` and the reply must be `{ kind: "text", text }`. Audio is
 memory-only — never written to disk, transcripts, or logs — and no transcript
 is auto-sent through `agent/prompt`. Failures surface the structured `VOICE_*`
 codes; a transcription failure never disturbs an agent runtime.
+
+Speech adapter protocol ids match `^[a-z][a-z0-9._-]{0,63}$`
+(`packages/shared/src/speech.ts`). Speech has no configured host state — an
+absent adapter is the only unconfigured state — and no app surface reads a
+speech binding: callers are the frozen voice IPC domain and plugin adapters
+(ADR 0291, ADR 0313).
 
 ## 3. Bundled `pi.local-voice` plugin
 
@@ -107,3 +113,9 @@ bundled local-voice plugin. Unload unregisters.
   local Whisper pass over the longest allowed clip fits inside one call.
 - `SPEECH_PROTOCOL_UNSUPPORTED` is the adapter registry's answer for an unknown
   speech protocol.
+- Settings exposes **no** cloud speech surface (ADR 0291): this fork has no
+  `AppSettings.speech` bindings and no `speech/*` IPC, and the only Settings
+  surface is the local-voice **Voice** card (ADR 0313). Whisper / TTS models
+  must not appear in the chat model picker.
+- v1 does not implement Realtime or agent tools; microphone capture is the
+  dictation path above.

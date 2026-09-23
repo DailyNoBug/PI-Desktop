@@ -530,22 +530,3 @@ test("reuses unchanged activity parts when only the tail thinking token changes"
   assert.notEqual(sharedThink, firstThink);
   assert.equal(sharedThink.items[0].message, nextThinking);
 });
-
-test("surfaces hosted search as an activity row with an icon-bearing message", () => {
-  const assistant = message("a1", "assistant", "Here is what I found.", {
-    hostedSearch: {
-      status: "completed",
-      queries: ["pi-desktop web search"],
-      sources: [{ url: "https://example.com", title: "Example" }],
-    },
-  });
-  const { entries } = buildTranscriptEntries([
-    message("u1", "user", "Search that"),
-    assistant,
-  ]);
-  const turn = entries.find((entry) => entry.kind === "assistant-turn");
-  assert.ok(turn);
-  const activity = turn.parts.find((part) => part.kind === "activity");
-  assert.equal(activity?.items[0]?.kind, "hostedSearch");
-  assert.equal(activity.items[0].message.hostedSearch.sources[0].url, "https://example.com");
-});

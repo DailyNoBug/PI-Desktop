@@ -1,6 +1,6 @@
 import {
   ErrorCodes as SharedErrorCodes,
-  THINKING_LEVELS,
+  SESSION_THINKING_LEVELS,
   defaultCommandShellForPlatform,
   isCommandShellId,
   modelIdsMatch,
@@ -9,7 +9,7 @@ import {
   normalizeVoiceSettings,
   type CommandShellId,
   type ModelBinding,
-  type ThinkingLevel,
+  type SessionThinkingLevel,
 } from "@pi-desktop/shared";
 import {
   capabilitiesFromModelConfig,
@@ -53,7 +53,7 @@ export type RuntimeProvider = {
 export type RuntimeSession = {
   providerId?: string;
   modelId?: string;
-  thinkingLevel?: ThinkingLevel;
+  thinkingLevel?: SessionThinkingLevel;
 };
 
 export type SessionCapabilityDefaults = {
@@ -166,10 +166,10 @@ export function createProviderCatalogRuntime({
     };
   };
 
-  const normalizeThinkingLevel = (value: unknown): ThinkingLevel =>
+  const normalizeThinkingLevel = (value: unknown): SessionThinkingLevel =>
     typeof value === "string" &&
-    (THINKING_LEVELS as readonly string[]).includes(value)
-      ? (value as ThinkingLevel)
+    (SESSION_THINKING_LEVELS as readonly string[]).includes(value)
+      ? (value as SessionThinkingLevel)
       : "off";
 
   const normalizeSettings = <T>(
@@ -180,6 +180,8 @@ export function createProviderCatalogRuntime({
     ) as T & { defaultCommandShell?: unknown };
     return {
       ...(value as T),
+      infiniteProviderRetry: (value as T & { infiniteProviderRetry?: unknown })
+        .infiniteProviderRetry === true,
       defaultCommandShell: isCommandShellId(value.defaultCommandShell)
         ? value.defaultCommandShell
         : defaultCommandShellForPlatform(process.platform),
@@ -192,6 +194,7 @@ export function createProviderCatalogRuntime({
     }
     const value = settings as T & {
       defaultCommandShell?: unknown;
+      infiniteProviderRetry?: unknown;
       networkProxy?: unknown;
     };
     if (
@@ -200,6 +203,14 @@ export function createProviderCatalogRuntime({
     ) {
       throw Object.assign(new Error("defaultCommandShell is invalid"), {
         errorCode: ErrorCodes.COMMAND_SHELL_INVALID,
+      });
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(value, "infiniteProviderRetry") &&
+      typeof value.infiniteProviderRetry !== "boolean"
+    ) {
+      throw Object.assign(new Error("infiniteProviderRetry is invalid"), {
+        errorCode: ErrorCodes.INVALID_PARAMS,
       });
     }
     if (Object.prototype.hasOwnProperty.call(value, "networkProxy")) {

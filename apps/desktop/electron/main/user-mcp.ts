@@ -55,6 +55,7 @@ export type UserMcpRuntimeOptions = {
   log?: (level: "info" | "warn" | "error", message: string, data?: unknown) => void;
   connectTimeoutMs?: number;
   callTimeoutMs?: number;
+  discoveryTimeoutMs?: number;
 };
 
 type Entry = {
@@ -388,6 +389,7 @@ export class UserMcpRuntime {
       auditScope: "mcp",
       connectTimeoutMs: this.options.connectTimeoutMs,
       callTimeoutMs: this.options.callTimeoutMs,
+      discoveryTimeoutMs: this.options.discoveryTimeoutMs,
     });
     const entry: Entry = {
       record,
