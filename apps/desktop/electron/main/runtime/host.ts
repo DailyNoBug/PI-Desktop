@@ -44,6 +44,7 @@ export type HostRuntimeDependencies = {
   superviseRestart: (kind: "host" | "sidecar") => Promise<void>;
   isQuitting: () => boolean;
   getRemoteManager: () => RemoteManager | null;
+  ensureSystemProxyRelay: () => Promise<string>;
 };
 
 export function createHostRuntime({
@@ -70,6 +71,7 @@ export function createHostRuntime({
   superviseRestart,
   isQuitting,
   getRemoteManager,
+  ensureSystemProxyRelay,
 }: HostRuntimeDependencies): {
   wireHost: (host: HostProcess) => void;
   startHost: () => Promise<void>;
@@ -137,6 +139,9 @@ export function createHostRuntime({
             ...(asking?.parentToolCallId
               ? { parentToolCallId: asking.parentToolCallId }
               : {}),
+            ...(asking?.nestedParentToolCallId
+              ? { nestedParentToolCallId: asking.nestedParentToolCallId }
+              : {}),
           },
         },
       };
@@ -185,14 +190,16 @@ export function createHostRuntime({
           }
         } else if (q.toolName.startsWith("mcp_")) {
           try {
-            const result = await userMcp.callTool(q.toolName, q.args, projectPath);
+            const result = await userMcp.callTool(q.toolName, q.args, projectPath, q.sessionId);
             payload = { executionId: q.executionId, ok: true, content: result ?? null };
           } catch (e) {
             payload = {
               executionId: q.executionId,
               ok: false,
               errorCode:
-                (e as { errorCode?: string })?.errorCode ?? "TOOL_FAILED",
+                (e as { code?: string; errorCode?: string })?.code === "TOOL_ABORTED"
+                  ? "TOOL_ABORTED"
+                  : (e as { errorCode?: string })?.errorCode ?? "TOOL_FAILED",
               content: { error: e instanceof Error ? e.message : String(e) },
             };
           }
@@ -294,7 +301,7 @@ export function createHostRuntime({
             payload = {
               executionId: q.executionId,
               ok: false,
-              errorCode: code === "PERMISSION_DENIED" ? "PERMISSION_DENIED" : "TOOL_FAILED",
+              errorCode: code === "PERMISSION_DENIED" || code === "TOOL_ABORTED" ? code : "TOOL_FAILED",
               content: { error: e instanceof Error ? e.message : String(e) },
             };
           }
@@ -327,6 +334,8 @@ export function createHostRuntime({
       );
     } else if (method === "plans.changed") {
       sendToRenderer(IPC.event.plansChanged, params);
+    } else if (method === "todos.changed") {
+      sendToRenderer(IPC.event.todosChanged, params);
     } else if (method === "configSync.changed") {
       sendToRenderer(IPC.event.configSyncChanged, params);
     } else if (method === "configSync.progress") {
@@ -380,11 +389,15 @@ export function createHostRuntime({
   const startHost = async (): Promise<void> => {
 
   assertLinuxGlibcSupported();
+  const systemProxyRelayUrl = await ensureSystemProxyRelay();
   const h = new HostProcess(dataDir, (text) => logger.child("host", text));
   wireHost(h);
   runtimeState.host = h;
   try {
     await h.handshake();
+    await h.call("network.configureSystemProxyRelay", {
+      url: systemProxyRelayUrl,
+    });
     logger.app("runtime", "info", "host-core handshake ok", {
       data: { generation: h.generation },
     });

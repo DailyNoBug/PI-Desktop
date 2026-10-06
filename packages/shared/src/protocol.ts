@@ -2,7 +2,7 @@ export const PROTOCOL_VERSION = 11 as const;
 export const SCHEMA_VERSION = 16 as const;
 export const APP_ID = "net.aiuo.pi-desktop";
 export const APP_NAME = "PI-Desktop";
-export const APP_VERSION = "0.15.2";
+export const APP_VERSION = "0.16.1";
 
 export const APP_MENU_COMMANDS = [
   "newTask",
@@ -50,6 +50,11 @@ export type WindowControlAction = (typeof WINDOW_CONTROL_ACTIONS)[number];
 
 export const IPC = {
   invoke: {
+    storageGet: "pi-desktop/storage/get",
+    storageChoose: "pi-desktop/storage/choose",
+    storageMigrate: "pi-desktop/storage/migrate",
+    storageClearCache: "pi-desktop/storage/clearCache",
+    storageRemoveBackup: "pi-desktop/storage/removeBackup",
     appGetVersion: "pi-desktop/app/getVersion",
     appOpenFeedback: "pi-desktop/app/openFeedback",
     appHealth: "pi-desktop/app/health",
@@ -68,6 +73,8 @@ export const IPC = {
     updatesDownload: "pi-desktop/updates/download",
     updatesInstall: "pi-desktop/updates/install",
     updatesOpenReleases: "pi-desktop/updates/openReleases",
+    /** Persist the user's decision to stop nudging about one version (#1317). */
+    updatesDismiss: "pi-desktop/updates/dismiss",
     notificationList: "pi-desktop/notification/list",
     notificationMarkRead: "pi-desktop/notification/markRead",
     notificationMarkAllRead: "pi-desktop/notification/markAllRead",
@@ -77,6 +84,36 @@ export const IPC = {
     agentPrompt: "pi-desktop/agent/prompt",
     agentSteer: "pi-desktop/agent/steer",
     promptEnhance: "pi-desktop/prompt/enhance",
+    speechTranscribe: "pi-desktop/speech/transcribe",
+    speechSynthesize: "pi-desktop/speech/synthesize",
+    speechGetStatus: "pi-desktop/speech/getStatus",
+    voiceStart: "pi-desktop/voice/start",
+    voiceStop: "pi-desktop/voice/stop",
+    voiceCancel: "pi-desktop/voice/cancel",
+    voiceGetState: "pi-desktop/voice/getState",
+    voiceGetDevices: "pi-desktop/voice/getDevices",
+    voiceGetModels: "pi-desktop/voice/getModels",
+    voiceDownloadModel: "pi-desktop/voice/downloadModel",
+    voiceDeleteModel: "pi-desktop/voice/deleteModel",
+    voiceUpdateSettings: "pi-desktop/voice/updateSettings",
+    voiceCheckPermission: "pi-desktop/voice/checkPermission",
+    voiceRequestPermission: "pi-desktop/voice/requestPermission",
+    liveVoiceStatus: "pi-desktop/voice/live/status",
+    liveVoicePrepare: "pi-desktop/voice/live/prepare",
+    liveVoiceConnect: "pi-desktop/voice/live/connect",
+    liveVoiceSetMuted: "pi-desktop/voice/live/setMuted",
+    liveVoiceReportMedia: "pi-desktop/voice/live/reportMedia",
+    liveVoiceReportPlayback: "pi-desktop/voice/live/reportPlayback",
+    liveVoiceReportDelegation: "pi-desktop/voice/live/reportDelegation",
+    liveVoiceReportControlApplied: "pi-desktop/voice/live/reportControlApplied",
+    liveVoiceEnd: "pi-desktop/voice/live/end",
+    liveVoiceHeartbeat: "pi-desktop/voice/live/heartbeat",
+    liveVoiceResolveWorkSelection: "pi-desktop/voice/live/work/resolveSelection",
+    liveVoiceStopWorkOperation: "pi-desktop/voice/live/work/stopOperation",
+    liveVoiceCancelQueuedOperation: "pi-desktop/voice/live/work/cancelQueuedOperation",
+    liveVoiceWidgetAction: "pi-desktop/voice/live/widget/action",
+    liveVoiceWidgetOwnerState: "pi-desktop/voice/live/widget/ownerState",
+    liveVoiceWidgetVisibility: "pi-desktop/voice/live/widget/visibility",
     agentCompact: "pi-desktop/agent/compact",
     agentAbort: "pi-desktop/agent/abort",
     agentStop: "pi-desktop/agent/stop",
@@ -180,7 +217,6 @@ export const IPC = {
     remoteTerminalResize: "pi-desktop/remote/terminal/resize",
     remoteTerminalClose: "pi-desktop/remote/terminal/close",
     projectRemove: "pi-desktop/project/remove",
-    pullsList: "pi-desktop/pulls/list",
     scheduledList: "pi-desktop/scheduled/list",
     scheduledCreate: "pi-desktop/scheduled/create",
     scheduledUpdate: "pi-desktop/scheduled/update",
@@ -189,8 +225,10 @@ export const IPC = {
     scheduledExecute: "pi-desktop/scheduled/execute",
     scheduledListRuns: "pi-desktop/scheduled/listRuns",
     toolResolvePermission: "pi-desktop/tool/resolvePermission",
+    todosGet: "pi-desktop/todos/get",
     askToolResolve: "pi-desktop/agent/askTool/resolve",
     plansPending: "pi-desktop/plans/pending",
+    pendingInteractive: "pi-desktop/agent/pendingInteractive",
     plansResolve: "pi-desktop/plans/resolve",
     /**
      * List every paired remote `pi-host` this desktop knows, redacted so no
@@ -244,6 +282,8 @@ export const IPC = {
     providersOauthCancel: "pi-desktop/providers/oauth/cancel",
     providersOauthDelete: "pi-desktop/providers/oauth/delete",
     pluginList: "pi-desktop/plugin/list",
+    /** A renderer slot component asking its own plugin for one JSON answer. */
+    pluginRendererCall: "pi-desktop/plugin/rendererCall",
     /** Plugin-contributed agent extensions (D387/D388, ADR 0214). */
     pluginImportExtension: "pi-desktop/plugin/importExtension",
     extensionsCommandRun: "pi-desktop/extensions/commands/run",
@@ -361,10 +401,14 @@ export const IPC = {
     menuRendererReady: "pi-desktop/menu/rendererReady",
     traySetSessionPreferences: "pi-desktop/tray/setSessionPreferences",
     nativeMenuAction: "pi-desktop/menu/nativeAction",
-    /** Voice dictation domain (ADR: voice dictation, Phase 1). */
-    voiceCapabilities: "pi-desktop/voice/capabilities",
-    voiceTranscribe: "pi-desktop/voice/transcribe",
-    voiceCancel: "pi-desktop/voice/cancel",
+    /**
+     * Local plugin dictation domain (fork feature, ADR 0329). Kept on its own
+     * `pi-desktop/dictation/*` namespace so it never collides with the
+     * upstream host voice/live-voice channels.
+     */
+    dictationCapabilities: "pi-desktop/dictation/capabilities",
+    dictationTranscribe: "pi-desktop/dictation/transcribe",
+    dictationCancel: "pi-desktop/dictation/cancel",
   },
   event: {
     pluginChanged: "pi-desktop/event/pluginChanged",
@@ -401,10 +445,20 @@ export const IPC = {
     notificationChanged: "pi-desktop/notification/event/changed",
     sessionsChanged: "pi-desktop/session/event/changed",
     notificationActivated: "pi-desktop/notification/event/activated",
+    notificationSound: "pi-desktop/notification/event/sound",
     plansChanged: "pi-desktop/plans/event/changed",
+    todosChanged: "pi-desktop/todos/event/changed",
     providersOauth: "pi-desktop/providers/oauth/event",
     mcpOauth: "pi-desktop/mcp/oauth/event",
     updatesState: "pi-desktop/updates/event/state",
+    voiceStateChanged: "pi-desktop/voice/event/stateChanged",
+    voiceModelProgress: "pi-desktop/voice/event/modelProgress",
+    liveVoiceChanged: "pi-desktop/voice/live/event/changed",
+    liveVoicePort: "pi-desktop/voice/live/event/port",
+    liveVoiceControl: "pi-desktop/voice/live/event/control",
+    liveVoiceTranscript: "pi-desktop/voice/live/event/transcript",
+    liveVoiceWidgetState: "pi-desktop/voice/live/event/widgetState",
+    liveVoiceWidgetAction: "pi-desktop/voice/live/event/widgetAction",
   },
 } as const;
 

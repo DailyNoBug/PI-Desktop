@@ -1,8 +1,8 @@
 import i18n from "i18next";
 import type {
-  ReviewRollbackResult,
   UiMessage,
 } from "@pi-desktop/shared";
+import { isRenderableAttachment } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import { resolveComposerSmartStop } from "../../lib/composer-smart-stop";
 import {
@@ -44,6 +44,7 @@ export function createTranscriptSlice({
   | "compactContext"
   | "retryAssistantMessage"
   | "editUserMessage"
+  | "prepareUserMessageEdit"
   | "retryLastPrompt"
   | "clearError"
   | "activateMessageRevision"
@@ -109,6 +110,14 @@ export function createTranscriptSlice({
       await get().editUserMessage(root.id, root.content, root.attachments);
     },
 
+    prepareUserMessageEdit: async (messageId, signal) => {
+      const prepared = await prepareTranscriptAction({ get, set }, runtime, messageId, signal);
+      const state = get();
+      if (!prepared || state.activeSessionId !== prepared.activeSessionId || state.isRunning) return null;
+      const message = state.messages.find((candidate) => candidate.id === messageId);
+      return message?.role === "user" && !message.sessionMessage ? message : null;
+    },
+
     editUserMessage: async (messageId, content, attachments) => {
       const prepared = await prepareTranscriptAction({ get, set }, runtime, messageId);
       const state = get();
@@ -135,14 +144,16 @@ export function createTranscriptSlice({
       const optimisticMessage = optimisticUserMessage(
         crypto.randomUUID(),
         prompt,
-        (attachments ?? state.messages[userIndex].attachments ?? []).map(
-          (attachment) => ({
+        (attachments ?? state.messages[userIndex].attachments ?? [])
+          // A session reference re-resolves from its link text on send; it is
+          // not an optimistic file reference.
+          .filter(isRenderableAttachment)
+          .map((attachment) => ({
             path: attachment.ref,
             name: attachment.name,
             kind: attachment.kind,
             mimeType: attachment.mimeType,
-          }),
-        ),
+          })),
       );
 
       set((current) => ({

@@ -22,6 +22,7 @@
 - [04-documentation-site.md](/zh-CN/spec/02-architecture/04-documentation-site)
 - [03-repo-structure.md](/zh-CN/spec/02-architecture/03-repo-structure)
 - [05-remote-agent-control.md](/zh-CN/spec/02-architecture/05-remote-agent-control)
+- [06-pi-runtime-dependency-boundary.md](/zh-CN/spec/02-architecture/06-pi-runtime-dependency-boundary)
 
 ## 3. 运行时
 - [README.md](/zh-CN/spec/03-runtime/README)
@@ -46,8 +47,11 @@
 - [19-remote-agent-control-protocol.md](/zh-CN/spec/03-runtime/19-remote-agent-control-protocol)
 - [20-remote-ssh-desktop.md](/zh-CN/spec/03-runtime/20-remote-ssh-desktop)
 - [20-speech.md](/zh-CN/spec/03-runtime/20-speech)
+- [live-voice.md](/zh-CN/spec/03-runtime/live-voice)
+- [live-work-session.md](/zh-CN/spec/03-runtime/live-work-session)
 - [21-image-generation.md](/zh-CN/spec/03-runtime/21-image-generation)
 - [22-config-sync.md](/zh-CN/spec/03-runtime/22-config-sync)
+- [svg-attachment-input.md](/zh-CN/spec/03-runtime/svg-attachment-input)
 
 ## 4. 用户体验
 - [README.md](/zh-CN/spec/04-ux/README)

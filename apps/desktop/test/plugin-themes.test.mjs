@@ -2,9 +2,16 @@ import { readAppSourceSync, readSettingsSourceSync, readStoreSourceSync, readMai
 import { sanitizeThemeCss } from "@pi-desktop/plugin-sdk";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import {
+  readThemeAssetBytes,
+  resolvePackageThemeAssetPath,
+  themeAssetGroupWithinBudget,
+} from "../electron/main/plugin-theme-assets.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = join(here, "..");
@@ -195,13 +202,18 @@ test("declared theme assets are served over a host-owned scheme", () => {
     join(desktopRoot, "electron/main/bootstrap/startup.ts"),
     "utf8",
   );
+  const schemesSrc = readFileSync(
+    join(desktopRoot, "electron/main/plugin-schemes.ts"),
+    "utf8",
+  );
   const htmlSrc = readFileSync(join(desktopRoot, "index.html"), "utf8");
 
   // The scheme is reserved before the app is ready, then handled by a resolver
   // that only answers for paths the loaded plugin actually declared.
-  assert.match(startupSrc, /registerPluginAssetScheme\(\);/);
+  assert.match(startupSrc, /registerPluginSchemes\(\);/);
   assert.match(startupSrc, /installPluginAssetProtocol\(/);
-  assert.match(protocolSrc, /registerSchemesAsPrivileged/);
+  assert.match(protocolSrc, /scheme: THEME_ASSET_SCHEME/);
+  assert.match(schemesSrc, /registerSchemesAsPrivileged\(\[[^\]]*PLUGIN_ASSET_SCHEME_PRIVILEGES/);
   assert.match(protocolSrc, /protocol\.handle\(THEME_ASSET_SCHEME/);
   assert.match(protocolSrc, /resolve\(pluginId, assetPath\)/);
   assert.match(protocolSrc, /x-content-type-options/);
@@ -228,7 +240,9 @@ test("a contributed window background needs its own grant", () => {
   const register = runtimeSrc.slice(runtimeSrc.indexOf("private registerThemes"));
   assert.match(register, /permissions\.has\("ui\.window\.appearance"\)/);
   assert.match(register, /resolveWindowBackground\(/);
+  assert.match(register, /resolveWindowCornerRadius\(/);
   assert.match(runtimeSrc, /windowBackground\?: \{ light\?: string; dark\?: string \}/);
+  assert.match(runtimeSrc, /windowCornerRadius\?: number/);
 });
 
 test("the shipped example theme survives sanitation", () => {
@@ -239,4 +253,59 @@ test("the shipped example theme survives sanitation", () => {
   // The file only *names* the banned token, inside its header comment.
   assert.match(css, /@import/);
   assert.equal(sanitizeThemeCss(css).ok, true);
+});
+
+test("package-relative theme assets stay canonicalized inside their plugin", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "pi-plugin-theme-assets-"));
+  const plugin = join(parent, "plugin");
+  const asset = join(plugin, "art/bg.png");
+  const secondAsset = join(plugin, "art/second.png");
+  try {
+    await mkdir(dirname(asset), { recursive: true });
+    await writeFile(asset, "image");
+    await writeFile(secondAsset, "image");
+    const registered = resolvePackageThemeAssetPath(plugin, "art/bg.png");
+    const secondRegistered = resolvePackageThemeAssetPath(plugin, "art/second.png");
+    assert.ok(registered);
+    assert.ok(secondRegistered);
+    assert.equal(registered, realpathSync(asset));
+    const initialBytes = readThemeAssetBytes(registered);
+    assert.equal(Buffer.from(initialBytes ?? []).toString("utf8"), "image");
+    assert.equal(
+      resolvePackageThemeAssetPath(plugin, "../outside.png"),
+      null,
+    );
+
+    const group = new Map([
+      ["art/bg.png", registered],
+      ["art/second.png", secondRegistered],
+    ]);
+    assert.equal(themeAssetGroupWithinBudget(plugin, group), true);
+    const twoMiBPlusOne = Buffer.alloc(2 * 1024 * 1024 + 1);
+    await writeFile(asset, twoMiBPlusOne);
+    await writeFile(secondAsset, twoMiBPlusOne);
+    assert.equal(themeAssetGroupWithinBudget(plugin, group), false);
+
+    await writeFile(asset, Buffer.alloc(4 * 1024 * 1024 + 1));
+    assert.equal(readThemeAssetBytes(registered), null);
+    await writeFile(asset, "image");
+
+    if (process.platform !== "win32") {
+      const outside = join(parent, "outside.png");
+      await writeFile(outside, "outside");
+      await rm(asset);
+      await symlink(outside, asset);
+      assert.equal(resolvePackageThemeAssetPath(plugin, "art/bg.png"), null);
+      assert.equal(readThemeAssetBytes(registered), null);
+    }
+
+    assert.match(runtimeSrc, /resolvePackageThemeAssetPath\(pluginPath,\s*normalized\)/);
+    assert.match(runtimeSrc, /resolvePackageThemeAssetPath\(loaded\.path,\s*normalized\)/);
+    assert.match(runtimeSrc, /themeAssetGroupWithinBudget\(loaded\.path, group\)/);
+    const assetProtocolSrc = readFileSync(join(desktopRoot, "electron/main/plugin-asset-protocol.ts"), "utf8");
+    assert.match(assetProtocolSrc, /PluginAssetResolver = .*Uint8Array \| null/);
+    assert.doesNotMatch(assetProtocolSrc, /readFileSync/);
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
 });

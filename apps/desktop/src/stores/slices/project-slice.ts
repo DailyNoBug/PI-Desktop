@@ -1,8 +1,5 @@
 import i18n from "i18next";
-import type {
-  ProjectWorkspace,
-  SessionSummary,
-} from "@pi-desktop/shared";
+import type { ProjectWorkspace } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
 import {
   rememberProject,
@@ -30,9 +27,6 @@ import {
   sortSessions,
   normalizeProjectName,
   type ProjectMeta,
-  type ProjectSort,
-  type SessionMeta,
-  type SessionSort,
 } from "../../lib/sidebar-preferences";
 import {
   normalizeProjectPath,
@@ -102,6 +96,28 @@ async function createNamedProjectGroup(
     ),
   ];
   const intent = runtime.beginNavigationIntent();
+  // Closing a project only removes it from the sidebar. Its host-owned group
+  // remains durable, so choosing that one folder again means reopen the group
+  // instead of trying to create a duplicate owner for the same path.
+  if (orderedFolders.length === 1) {
+    const { groups } = await api.listProjectGroups();
+    if (!runtime.navigationIntentIsCurrent(intent)) return;
+    const selectedPath = normalizeProjectPath(orderedFolders[0]);
+    const existing = groups.find((group) =>
+      group.roots.some((root) => normalizeProjectPath(root.path) === selectedPath),
+    );
+    if (existing) {
+      const existingPrimary = existing.primaryPath || orderedFolders[0];
+      const workspace = await get().activateProject(existingPrimary, {
+        navigationIntent: intent,
+      });
+      if (!workspace || !runtime.navigationIntentIsCurrent(intent)) return;
+      const onboarding = await api.getOnboarding();
+      if (!runtime.navigationIntentIsCurrent(intent)) return;
+      set({ createProjectDialogOpen: false, onboarding, page: "chat" });
+      return;
+    }
+  }
   const created = await api.createProjectGroup(normalizedName, orderedFolders);
   if (!runtime.navigationIntentIsCurrent(intent)) return;
   const groupPrimary = created.group.primaryPath || primary;
@@ -559,6 +575,8 @@ export function createProjectSlice({
     deleteSession: async (id) => {
       if (!id) return;
       await api.deleteSession(id);
+      void api.pluginViewClose("pi.browser", "browser", { sessionId: id })
+        .catch((error) => get().showToast(String(error), { variant: "error" }));
       clearLocalSessionState(
         { get, set, runtime, manualSessionTitles, withoutRecordKey },
         id,

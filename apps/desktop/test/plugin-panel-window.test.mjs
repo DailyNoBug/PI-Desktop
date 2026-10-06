@@ -96,6 +96,10 @@ test("plugin panel close does not read destroyed webContents", () => {
     hostSource.indexOf("this.windows.set(request.pluginId, win);"),
   );
   assert.doesNotMatch(closedHandler, /win\.webContents/);
+  // The hidden window loads through the ready budget (issue #998 item 5), and
+  // the open path's catch still destroys it on a failed load.
+  assert.match(hostSource, /await panelReadyWithin\(\s*win\.loadURL\(/);
+  assert.match(hostSource, /if \(!win\.isDestroyed\(\)\) \{\s*win\.destroy\(\);\s*\}/);
 });
 
 test("plugin content is offset below the strict 46px host drag band", () => {
@@ -118,6 +122,9 @@ test("plugin content is offset below the strict 46px host drag band", () => {
   assert.match(preloadSource, /locale\.startsWith\("de"\)/);
   assert.match(preloadSource, /locale\.startsWith\("es"\)/);
   assert.match(preloadSource, /locale\.startsWith\("fr"\)/);
+  assert.match(preloadSource, /locale\.startsWith\("pt"\)/);
+  assert.match(preloadSource, /Controles de janela do painel do plugin/);
+  assert.match(preloadSource, /os 46px superiores são apenas para arrastar/);
   assert.match(preloadSource, /locale === "zh-tw"/);
   assert.match(preloadSource, /locale === "zh-hant"/);
   assert.match(preloadSource, /--pi-plugin-panel-theme=/);

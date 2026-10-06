@@ -183,8 +183,9 @@ type PluginThemeContrib = {
  label: string;
  path: string; // relative `.css` file
  base?: "light" | "dark"; // palette the overrides layer on, default `dark`
- assets?: string[]; // 绝对路径的 png/jpg/jpeg/webp/avif/svg/woff2，总和上限 4 MB；
-                    // 命中的 `url()` 会被改写为 `plugin-asset://`
+ assets?: string[]; // 插件包内相对路径或绝对路径；png/jpg/jpeg/webp/avif/svg/woff2 白名单，总和上限 4 MB；
+                    // 相对路径在插件根目录内解析，拒绝路径穿越和 `node_modules`；
+                    // 命中的 `url()` 改写为 `plugin-asset://`
 };
 
 type PluginWindowAppearanceContrib = {
@@ -277,6 +278,7 @@ type PluginPermission =
  | "agent.prompt.inject"
  | "provider.register"
  | "net.fetch"
+ | "net.anyHost"
  | "shell.openExternal"
  | "mcp.server.local"
  | "mcp.server.remote"
@@ -360,6 +362,15 @@ type PluginNetDomains = string[]; // "api.example.com" 或 "*.example.com"
 连接被限定在 `manifest.net.domains` 之内，未被声明的主机会在传输被要求
 打开任何东西之前就被拒绝。
 
+### 5.3.1 net.anyHost —— 豁免通道
+
+`"net.anyHost"` 面向端点由用户填写（自建服务器、个人域名等清单无法提前
+写明）的插件。持有该权限后，上述所有出网路径都对任意 http(s)/ws(s) 主机
+放行 —— 云元数据端点（`169.254.169.254` 等）除外，授权永远到不了那里：
+它们的应答是实例凭据。`net.domains` 已声明的主机保持现有行为，存量清单
+不受影响；未持有该权限的插件同样零变化。它与其他权限一样在安装/更新
+确认页展示，请求时不再有任何弹窗。
+
 ## 5. 1 总线主题语法
 
 主题最多是与 `[a-zA-Z0-9][a-zA-Z0-9_-]*` 匹配的点分隔段
@@ -388,7 +399,10 @@ type PluginNetDomains = string[]; // "api.example.com" 或 "*.example.com"
 - `baseUrl` 可选，但必须是绝对 `http(s)` URL
 - `apiStyle` 可选，默认 `chat_completions`；可取值是 provider 配置中除 `auto`
   以外的风格
-- `authKind` 可选，为 `api_key`（默认）或 `none`
+- `authKind` 可选，为 `api_key`（默认）、`none` 或 `oauth`
+- OAuth provider 需要 `provider.register` 和独立高风险权限 `provider.oauth`，还需要
+  绝对 HTTP(S) `baseUrl` 及插件主模块导出的 `onProviderOAuth`；`oauth` 元数据可设置
+  `loginLabel` 和 `isSubscription`
 - `models` 要求 1..64 条，id 唯一且长度为 1..256
 
 非空的 `contributes.providers` 需要高风险权限 `provider.register`
@@ -396,9 +410,11 @@ type PluginNetDomains = string[]; // "api.example.com" 或 "*.example.com"
 声明会在每次插件加载时重新读取，并对其自身字段具有权威；禁用插件会保留这些行并
 将其关闭，而删除声明或卸载插件会连同已存凭据一起删除该行。
 
-`oauth` **暂不支持**：宿主还没有插件 OAuth 登录流程，因此 `oauth` 块或
-`authKind: \"oauth\"` 会在清单元数据校验阶段被拒绝。计划中的 `provider.oauth`
-权限与宿主自有的登录流程属于未来工作，当前不可用。
+OAuth 登录使用宿主自有的账号界面和加密凭据存储。宿主通过
+`pi.providers.oauth.prompt` / `notify` 显示登录提示和进度；OAuth 回调只收到该插件
+自身 provider 的凭据。刷新令牌保留在 Electron 主进程与宿主密钥库内，Agent Runtime
+只接收请求所需的访问令牌。每个 provider 声明目前只支持一个账号；宿主插件进程不是
+操作系统沙箱，因此授予 `provider.oauth` 表示信任该插件处理此 provider 的凭据。
 ## 6. activationEvents（可选）
 
 示例：

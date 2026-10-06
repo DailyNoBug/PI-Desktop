@@ -7,7 +7,7 @@
 
 The shipped Scheduled page stores a cadence but never dispatches work when
 that cadence becomes due. The pinned pi-ai, pi-agent-core and pi-coding-agent
-0.86.1 packages supply agent execution, not a persistent desktop wall-clock
+0.87.1 packages supply agent execution, not a persistent desktop wall-clock
 scheduler. The existing Host-owned task and run tables already provide the
 appropriate storage boundary.
 
@@ -82,4 +82,3 @@ The UI offers four time periods (09:00, 14:00, 19:00, 22:00) to keep setup
 simple. AI tools retain precise local time configuration, and the form preserves
 those custom times. Direct database access or renderer-mediated tool mutation
 would duplicate ownership or bypass permission gates and is rejected.
-

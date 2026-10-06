@@ -1,7 +1,7 @@
-import { type CSSProperties, lazy, type ReactNode, Suspense } from "react";
-import { ChatSurface } from "../../components/ChatSurface";
+import { type CSSProperties, lazy, type ReactNode, Suspense, useEffect } from "react";
 import { ConversationTopbar } from "../../components/ConversationTopbar";
 import { ExtensionPromptHost } from "../../components/ExtensionPromptDialog";
+import { PluginRendererHost } from "../../plugins/renderer-host/PluginRendererHost";
 import {
   IconNewSession,
   IconPanel,
@@ -10,25 +10,22 @@ import {
 import { ProjectCreateDialog } from "../../components/ProjectCreateDialog";
 import { SearchDialog } from "../../components/SearchDialog";
 import { Sidebar } from "../../components/Sidebar";
+import { StartupRecovery } from "../../components/StartupRecovery";
 import { ToastHost } from "../../components/Toast";
 import { UpdateBanner } from "../../components/UpdateBanner";
 import { cx, TooltipButton } from "../../components/ui";
-import { StartupRecovery } from "../../components/StartupRecovery";
 import { WindowControls } from "../../components/WindowControls";
-import { WorkPanel } from "../../components/workpanel/WorkPanel";
 import { useCopyTex } from "../../hooks/use-copy-tex";
 import { api } from "../../lib/api";
+import { PortalVisibilityProvider } from "../../lib/portal-visibility";
+import { workPanelLayout } from "../../lib/work-panel-resize";
+import { LiveVoiceStatusHost } from "../voice/live/LiveVoiceStatusHost";
 import { CollapsedTitlebarActions, RoutePending } from "./chrome";
 import { useAppShellRuntime } from "./useAppShellRuntime";
 
 const SettingsPage = lazy(() =>
   import("../../pages/SettingsPage").then((module) => ({
     default: module.SettingsPage,
-  })),
-);
-const PullRequestsPage = lazy(() =>
-  import("../../pages/PullRequestsPage").then((module) => ({
-    default: module.PullRequestsPage,
   })),
 );
 const ScheduledPage = lazy(() =>
@@ -41,6 +38,16 @@ const PluginsPage = lazy(() =>
     default: module.PluginsPage,
   })),
 );
+const loadChatSurface = () => import("../../components/ChatSurface");
+const ChatSurface = lazy(() =>
+  loadChatSurface().then((module) => ({
+    default: module.ChatSurface,
+  })),
+);
+const loadWorkPanel = () => import("../../components/workpanel/WorkPanel");
+const WorkPanel = lazy(() =>
+  loadWorkPanel().then((module) => ({ default: module.WorkPanel })),
+);
 
 export function AppShell() {
   const {
@@ -48,9 +55,6 @@ export function AppShell() {
     ready,
     page,
     activeSessionId,
-    subagentPanel,
-    subagentPanelOpen,
-    closeSubagentPanel,
     workPanelOpen,
     searchOpen,
     setSearchOpen,
@@ -87,8 +91,30 @@ export function AppShell() {
     startupRetrying,
     sidebarToggleShortcut,
     workPanelToggleTooltip,
+    workPanelWidth,
   } = useAppShellRuntime();
   useCopyTex();
+
+  useEffect(() => {
+    void loadChatSurface().catch((error: unknown) => {
+      console.error("Failed to preload the chat surface", error);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!ready || page !== "chat" || !workPanelOpen) return;
+    void loadWorkPanel().catch((error: unknown) => {
+      console.error("Failed to preload the work panel", error);
+    });
+  }, [page, ready, workPanelOpen]);
+
+  const pendingWorkPanelWidth = workPanelLayout({
+    containerWidth: shellWidth,
+    sidebarWidth,
+    sidebarCollapsed,
+    requestedPanelWidth: workPanelWidth,
+    maximized: workPanelMaximized,
+  }).panelWidth;
 
   // A boot that never reaches the shell gets a surface it can act on instead of
   // a window that only knows how to wait (issue #831). Rendered as a direct child
@@ -106,212 +132,224 @@ export function AppShell() {
 
   let shell: ReactNode = null;
   if (ready) {
-    if (page === "settings") {
-      shell = (
-        <>
-          <Suspense fallback={<RoutePending />}>
-            <SettingsPage />
-          </Suspense>
-          <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
-          <ToastHost />
-          <ExtensionPromptHost />
-          <UpdateBanner />
-        </>
-      );
-    } else {
-      shell = (
-        <>
-          {!sidebarCollapsed || sidebarExiting ? (
-            <Sidebar
-              className={cx(sidebarEntering && "is-entering", sidebarExiting && "is-exiting")}
-              onAnimationEnd={handleSidebarAnimationEnd}
-              onToggleSidebar={toggleSidebar}
-              sidebarToggleShortcut={sidebarToggleShortcut}
-              sidebarWidth={sidebarWidth}
-              widthMax={sidebarWidthMax}
-              onWidthChange={handleSidebarWidthChange}
-              onWidthCommit={handleSidebarWidthCommit}
-              onResizeCollapse={handleSidebarResizeCollapse}
-            />
-          ) : null}
-
-          {workPanelMaximized && (
-            /* MainChat is absent; the panel header owns dragging while this
-               pass-through row keeps the shell controls available. */
-            <div
-              className={cx(
-                "window-chrome-row",
-                !sidebarCollapsed && "sidebar-expanded",
-              )}
-            >
-              {sidebarCollapsed && (
-                <CollapsedTitlebarActions
-                  onToggleSidebar={toggleSidebar}
-                  onNewTask={() => void runMenuCommand("newTask")}
-                  sidebarToggleShortcut={sidebarToggleShortcut}
-                />
-              )}
-              {!sidebarCollapsed && (
-                <TooltipButton
-                  type="button"
-                  className="title-nav-btn"
-                  tooltip={t("nav.newTask")}
-                  ariaLabel={t("nav.newTask")}
-                  data-nav="new-task"
-                  onClick={() => void runMenuCommand("newTask")}
-                >
-                  <IconNewSession size={15} />
-                </TooltipButton>
-              )}
-              <div className="window-chrome-drag" aria-hidden />
-            </div>
-          )}
-
-          {!workPanelMaximized && (
-          <section className="main-pane">
-            {page === "chat" ? (
-              <ConversationTopbar
-                sidebarCollapsed={sidebarCollapsed}
-                workPanelOpen={presentedWorkPanelOpen}
+    shell = (
+      <>
+        <PortalVisibilityProvider visible={page !== "settings"}>
+          <div
+            className="app-chat-shell"
+            hidden={page === "settings"}
+            inert={page === "settings" ? true : undefined}
+          >
+            {!sidebarCollapsed || sidebarExiting ? (
+              <Sidebar
+                className={cx(sidebarEntering && "is-entering", sidebarExiting && "is-exiting")}
+                onAnimationEnd={handleSidebarAnimationEnd}
                 onToggleSidebar={toggleSidebar}
-                onNewTask={() => void runMenuCommand("newTask")}
-                onOpenSearch={() => setSearchOpen(true)}
+                sidebarToggleShortcut={sidebarToggleShortcut}
+                sidebarWidth={sidebarWidth}
+                widthMax={sidebarWidthMax}
+                onWidthChange={handleSidebarWidthChange}
+                onWidthCommit={handleSidebarWidthCommit}
+                onResizeCollapse={handleSidebarResizeCollapse}
               />
-            ) : (
+            ) : null}
+
+            {workPanelMaximized && (
+              /* MainChat is absent; the panel header owns dragging while this
+                 pass-through row keeps the shell controls available. */
               <div
                 className={cx(
-                  "main-titlebar",
-                  presentedWorkPanelOpen && "work-panel-open",
+                  "window-chrome-row",
+                  !sidebarCollapsed && "sidebar-expanded",
                 )}
               >
                 {sidebarCollapsed && (
-                  <div className="main-titlebar-left no-drag">
-                    <CollapsedTitlebarActions
-                      onToggleSidebar={reopenSidebar}
-                      onNewTask={() => void runMenuCommand("newTask")}
-                      sidebarToggleShortcut={sidebarToggleShortcut}
-                    />
+                  <CollapsedTitlebarActions
+                    onToggleSidebar={toggleSidebar}
+                    onNewTask={() => void runMenuCommand("newTask")}
+                    sidebarToggleShortcut={sidebarToggleShortcut}
+                  />
+                )}
+                {!sidebarCollapsed && (
+                  <TooltipButton
+                    type="button"
+                    className="title-nav-btn"
+                    tooltip={t("nav.newTask")}
+                    ariaLabel={t("nav.newTask")}
+                    data-nav="new-task"
+                    onClick={() => void runMenuCommand("newTask")}
+                  >
+                    <IconNewSession size={15} />
+                  </TooltipButton>
+                )}
+                <div className="window-chrome-drag" aria-hidden />
+              </div>
+            )}
+
+            {!workPanelMaximized && (
+              <section className="main-pane">
+                {page === "chat" ? (
+                  <ConversationTopbar
+                    sidebarCollapsed={sidebarCollapsed}
+                    workPanelOpen={presentedWorkPanelOpen}
+                    onToggleSidebar={toggleSidebar}
+                    onNewTask={() => void runMenuCommand("newTask")}
+                    onOpenSearch={() => setSearchOpen(true)}
+                  />
+                ) : (
+                  <div
+                    className={cx(
+                      "main-titlebar",
+                      presentedWorkPanelOpen && "work-panel-open",
+                    )}
+                  >
+                    {sidebarCollapsed && (
+                      <div className="main-titlebar-left no-drag">
+                        <CollapsedTitlebarActions
+                          onToggleSidebar={reopenSidebar}
+                          onNewTask={() => void runMenuCommand("newTask")}
+                          sidebarToggleShortcut={sidebarToggleShortcut}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
-            <UpdateBanner />
+                {page !== "settings" ? <UpdateBanner /> : null}
 
-            {backendDown && (
-              <div
-                className={`backend-banner no-drag ${backendDown.fatal ? "fatal" : "warn"}`}
-                role="status"
-              >
-                <span className="backend-dot" aria-hidden />
-                <span>
-                  {backendDown.fatal
-                    ? backendDown.message === "GLIBC_UNSUPPORTED"
-                      ? t("status.unsupportedGlibc")
-                      : backendDown.message === "DB_SCHEMA_TOO_NEW"
-                        ? t("status.dbSchemaTooNew", {
-                            found: backendDown.schema?.found ?? "?",
-                            supported: backendDown.schema?.supported ?? "?",
-                          })
-                        : t("status.fatal")
-                    : t("status.restarting")}
-                </span>
-                {backendDown.fatal && (
-                  <button
-                    type="button"
-                    className="backend-action"
-                    onClick={() => void api.openLogs()}
+                {backendDown && (
+                  <div
+                    className={`backend-banner no-drag ${backendDown.fatal ? "fatal" : "warn"}`}
+                    role="status"
                   >
-                    {t("status.openLogs")}
-                  </button>
+                    <span className="backend-dot" aria-hidden />
+                    <span>
+                      {backendDown.fatal
+                        ? backendDown.message === "GLIBC_UNSUPPORTED"
+                          ? t("status.unsupportedGlibc")
+                          : backendDown.message === "DB_SCHEMA_TOO_NEW"
+                            ? t("status.dbSchemaTooNew", {
+                                found: backendDown.schema?.found ?? "?",
+                                supported: backendDown.schema?.supported ?? "?",
+                              })
+                            : t("status.fatal")
+                        : t("status.restarting")}
+                    </span>
+                    {backendDown.fatal && (
+                      <button
+                        type="button"
+                        className="backend-action"
+                        onClick={() => void api.openLogs()}
+                      >
+                        {t("status.openLogs")}
+                      </button>
+                    )}
+                  </div>
                 )}
-              </div>
+
+                {archMismatch && (
+                  <div className="backend-banner no-drag warn" role="status">
+                    <span className="backend-dot" aria-hidden />
+                    <span>
+                      {t("status.archMismatch", {
+                        buildArch: t(
+                          `status.archNames.${archMismatch.platform}.${archMismatch.processArch}`,
+                          { defaultValue: archMismatch.processArch },
+                        ),
+                        machineArch: t(
+                          `status.archNames.${archMismatch.platform}.${archMismatch.machineArch}`,
+                          { defaultValue: archMismatch.machineArch },
+                        ),
+                      })}
+                    </span>
+                    <button
+                      type="button"
+                      className="backend-action"
+                      onClick={() => setArchMismatch(null)}
+                    >
+                      {t("status.dismissArchMismatch")}
+                    </button>
+                  </div>
+                )}
+
+                <Suspense fallback={<RoutePending />}>
+                  {page === "scheduled" ? (
+                    <div className="route-surface route-page">
+                      <ScheduledPage />
+                    </div>
+                  ) : page === "plugins" ? (
+                    <div className="route-surface route-page">
+                      <PluginsPage />
+                    </div>
+                  ) : (
+                    <ChatSurface visible={page === "chat"} />
+                  )}
+                </Suspense>
+              </section>
             )}
 
-            {archMismatch && (
-              <div className="backend-banner no-drag warn" role="status">
-                <span className="backend-dot" aria-hidden />
-                <span>
-                  {t("status.archMismatch", {
-                    buildArch: t(
-                      `status.archNames.${archMismatch.platform}.${archMismatch.processArch}`,
-                      { defaultValue: archMismatch.processArch },
-                    ),
-                    machineArch: t(
-                      `status.archNames.${archMismatch.platform}.${archMismatch.machineArch}`,
-                      { defaultValue: archMismatch.machineArch },
-                    ),
-                  })}
-                </span>
-                <button
-                  type="button"
-                  className="backend-action"
-                  onClick={() => setArchMismatch(null)}
-                >
-                  {t("status.dismissArchMismatch")}
-                </button>
-              </div>
+            {(presentedWorkPanelOpen || workPanelExiting) && (
+              <Suspense
+                fallback={
+                  <aside
+                    className="work-panel work-panel-pending"
+                    role="status"
+                    aria-label={t("app.loadingView")}
+                    style={
+                      {
+                        "--work-panel-width": `${pendingWorkPanelWidth}px`,
+                      } as CSSProperties
+                    }
+                  >
+                    <span className="route-pending-indicator" aria-hidden />
+                  </aside>
+                }
+              >
+                <WorkPanel
+                  panelBlocked={searchOpen}
+                  exiting={workPanelExiting}
+                  onExitAnimationEnd={() =>
+                    finishWorkPanelExit(workPanelExitGeneration.current)
+                  }
+                  containerWidth={shellWidth}
+                  sidebarWidth={sidebarWidth}
+                  sidebarCollapsed={sidebarCollapsed}
+                  sidebarExiting={sidebarExiting}
+                  onAutoCollapseSidebar={autoCollapseSidebar}
+                  maximized={workPanelMaximized}
+                  onToggleMaximize={toggleWorkPanelMaximize}
+                />
+              </Suspense>
             )}
 
-            <Suspense fallback={<RoutePending />}>
-              {page === "pulls" ? (
-                <div className="route-surface route-page">
-                  <PullRequestsPage />
-                </div>
-              ) : page === "scheduled" ? (
-                <div className="route-surface route-page">
-                  <ScheduledPage />
-                </div>
-              ) : page === "plugins" ? (
-                <div className="route-surface route-page">
-                  <PluginsPage />
-                </div>
-              ) : (
-                <ChatSurface />
-              )}
-            </Suspense>
-          </section>
-          )}
-
-          {(presentedWorkPanelOpen || workPanelExiting) && (
-            <WorkPanel
-              panelBlocked={searchOpen}
-              exiting={workPanelExiting}
-              onExitAnimationEnd={() =>
-                finishWorkPanelExit(workPanelExitGeneration.current)
-              }
-              subagentPanel={subagentPanelOpen ? subagentPanel : null}
-              onCloseSubagentPanel={closeSubagentPanel}
-              containerWidth={shellWidth}
-              sidebarWidth={sidebarWidth}
-              sidebarCollapsed={sidebarCollapsed}
-              sidebarExiting={sidebarExiting}
-              onAutoCollapseSidebar={autoCollapseSidebar}
-              maximized={workPanelMaximized}
-              onToggleMaximize={toggleWorkPanelMaximize}
-            />
-          )}
-
-          <TooltipButton
-            type="button"
-            className="app-work-panel-toggle no-drag"
-            tooltip={workPanelToggleTooltip}
-            ariaLabel={workPanelToggleTooltip}
-            aria-pressed={workPanelOpen || presentedWorkPanelOpen}
-            disabled={!activeSessionId && !presentedWorkPanelOpen && !workPanelExiting}
-            onClick={togglePresentedWorkPanel}
-          >
-            <span className="app-work-panel-toggle-icon" aria-hidden>
-              <IconPanel size={15} />
-              <IconPanelOpen size={15} />
-            </span>
-          </TooltipButton>
-
-          <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
-          <ToastHost />
-          <ExtensionPromptHost />
-        </>
-      );
-    }
+            <TooltipButton
+              type="button"
+              className="app-work-panel-toggle no-drag"
+              tooltip={workPanelToggleTooltip}
+              ariaLabel={workPanelToggleTooltip}
+              aria-pressed={workPanelOpen || presentedWorkPanelOpen}
+              disabled={!activeSessionId && !presentedWorkPanelOpen && !workPanelExiting}
+              onClick={togglePresentedWorkPanel}
+            >
+              <span className="app-work-panel-toggle-icon" aria-hidden>
+                <IconPanel size={15} />
+                <IconPanelOpen size={15} />
+              </span>
+            </TooltipButton>
+          </div>
+        </PortalVisibilityProvider>
+        {page === "settings" ? (
+          <Suspense fallback={<RoutePending />}>
+            <SettingsPage />
+          </Suspense>
+        ) : null}
+        <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
+        <ToastHost />
+        <LiveVoiceStatusHost />
+        <PluginRendererHost />
+        <ExtensionPromptHost />
+        {page === "settings" ? <UpdateBanner /> : null}
+      </>
+    );
   }
 
   return (

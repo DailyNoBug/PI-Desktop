@@ -14,8 +14,9 @@ import {
   validateNetworkProxy,
 } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
-import { Button, Input, cx } from "../ui";
+import { Button, Input, SegmentedControl, SettingsToggle, cx } from "../ui";
 import { SettingsRow } from "../../features/settings/primitives";
+import { useAppStore } from "../../stores/app-store";
 
 const MODES: NetworkProxyMode[] = ["system", "direct", "custom"];
 
@@ -37,7 +38,7 @@ export function NetworkProxySection({
     saved.bypass ?? DEFAULT_NETWORK_PROXY_BYPASS,
   );
   const [urlError, setUrlError] = useState(false);
-  const [saveError, setSaveError] = useState(false);
+  const showToast = useAppStore((state) => state.showToast);
   const [testState, setTestState] = useState<"idle" | "busy" | "ok" | "fail">(
     "idle",
   );
@@ -56,11 +57,10 @@ export function NetworkProxySection({
       return;
     }
     setUrlError(false);
-    setSaveError(false);
     try {
       await saveSettings({ networkProxy: validated.value });
     } catch {
-      setSaveError(true);
+      showToast(t("settings.proxySaveError"), { variant: "error" });
     }
   };
 
@@ -149,7 +149,6 @@ export function NetworkProxySection({
    * mode is the only thing this switch changes.
    */
   const persistNetworkPolicy = async (mode: NetworkPolicyMode) => {
-    setSaveError(false);
     const next: NetworkPolicySettings = { mode };
     if (settings.networkPolicy?.insecureNoticeAcknowledged === true) {
       next.insecureNoticeAcknowledged = true;
@@ -157,7 +156,7 @@ export function NetworkProxySection({
     try {
       await saveSettings({ networkPolicy: next });
     } catch {
-      setSaveError(true);
+      showToast(t("settings.proxySaveError"), { variant: "error" });
     }
   };
 
@@ -169,27 +168,15 @@ export function NetworkProxySection({
           title={t("settings.proxy")}
           description={t("settings.proxyDesc")}
         >
-          <div
-            className="settings-segment"
-            role="radiogroup"
-            aria-label={t("settings.proxy")}
-          >
-            {MODES.map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                role="radio"
-                aria-checked={saved.mode === mode}
-                className={cx(
-                  "settings-segment-item",
-                  saved.mode === mode && "active",
-                )}
-                onClick={() => chooseMode(mode)}
-              >
-                {t(`settings.proxy${mode[0]!.toUpperCase()}${mode.slice(1)}`)}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={saved.mode}
+            onChange={(mode) => chooseMode(mode)}
+            options={MODES.map((mode) => ({
+              value: mode,
+              label: t(`settings.proxy${mode[0]!.toUpperCase()}${mode.slice(1)}`),
+            }))}
+            label={t("settings.proxy")}
+          />
         </SettingsRow>
         <SettingsRow
           title={t("settings.networkRelaxedMode")}
@@ -199,18 +186,11 @@ export function NetworkProxySection({
               : t("settings.networkRelaxedModeStrictDesc")
           }
         >
-          <button
-            type="button"
-            className={cx("settings-toggle", relaxed && "on")}
-            role="switch"
-            aria-checked={relaxed}
-            aria-label={t("settings.networkRelaxedMode")}
-            onClick={() =>
-              void persistNetworkPolicy(relaxed ? "strict" : "relaxed")
-            }
-          >
-            <span className="settings-toggle-thumb" />
-          </button>
+          <SettingsToggle
+            checked={relaxed}
+            label={t("settings.networkRelaxedMode")}
+            onChange={() => void persistNetworkPolicy(relaxed ? "strict" : "relaxed")}
+          />
         </SettingsRow>
 
         {saved.mode === "custom" ? (
@@ -284,11 +264,6 @@ export function NetworkProxySection({
           </>
         ) : null}
 
-        {saveError ? (
-          <span className="settings-command-shell-state error" role="status">
-            {t("settings.proxySaveError")}
-          </span>
-        ) : null}
       </div>
     </section>
   );

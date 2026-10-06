@@ -154,6 +154,9 @@ const speechHandles = new Map();
 // Renderer-facing management RPC registered via `pi.rpc.register`. The host
 // routes `pi-desktop/plugin/rpc` requests here; one handler per plugin.
 let rpcHandler = null;
+// Parent initiated OAuth callbacks can outlive the UI prompt. Their own
+// cancellation signal lets the plugin stop polling or clean up local state.
+const parentCallControllers = new Map();
 // Resident services declared in the manifest. The broker decides when they run;
 // this map only holds the callables and whether they are currently up.
 const services = new Map();
@@ -269,6 +272,12 @@ function buildApi() {
     },
     project: {
       create: (input) => call("project.create", [input ?? {}]),
+    },
+    providers: {
+      oauth: {
+        prompt: (loginId, input) => call("providers.oauth.prompt", [loginId, input]),
+        notify: (loginId, event) => call("providers.oauth.notify", [loginId, event]),
+      },
     },
     workspace: {
       get: () => call("workspace.get"),
@@ -528,11 +537,19 @@ async function handleInit(message) {
 
   globalThis.pi = buildApi();
   pluginModule = await loadPluginModule(entry);
+  const oauthProviders = Array.isArray(manifest?.contributes?.providers)
+    ? manifest.contributes.providers.filter((provider) => provider?.authKind === "oauth")
+    : [];
+  if (oauthProviders.length > 0 && typeof pluginModule?.onProviderOAuth !== "function") {
+    const error = new Error("OAuth providers require an onProviderOAuth hook");
+    error.code = "PLUGIN_INVALID";
+    throw error;
+  }
   if (pluginModule?.onLoad) await pluginModule.onLoad();
   return { pluginId };
 }
 
-async function handleParentCall(method, payload, invocationId) {
+async function handleParentCall(method, payload, invocationId, callId) {
   switch (method) {
     case "panel.invoke": {
       const invoke = pluginModule?.onPanelInvoke;
@@ -542,6 +559,26 @@ async function handleParentCall(method, payload, invocationId) {
         throw error;
       }
       return invoke(String(payload?.channel ?? ""), payload?.payload ?? {});
+    }
+    case "provider.oauth": {
+      const handle = pluginModule?.onProviderOAuth;
+      if (typeof handle !== "function") {
+        const error = new Error("plugin does not expose provider OAuth operations");
+        error.code = "UNSUPPORTED";
+        throw error;
+      }
+      if (typeof callId !== "string" || !callId || parentCallControllers.has(callId)) {
+        const error = new Error("provider OAuth requires a unique parent call ID");
+        error.code = "INVALID_ARGUMENT";
+        throw error;
+      }
+      const controller = new AbortController();
+      parentCallControllers.set(callId, controller);
+      try {
+        return await handle(payload ?? {}, { signal: controller.signal });
+      } finally {
+        parentCallControllers.delete(callId);
+      }
     }
     case "command.run": {
       const run = commands.get(String(payload?.id ?? ""));
@@ -622,8 +659,36 @@ async function handleParentCall(method, payload, invocationId) {
       if (entry.stop) await entry.stop();
       return { ok: true };
     }
+    case "renderer.call": {
+      const handler = pluginModule?.onRendererCall;
+      if (typeof handler !== "function") {
+        const error = new Error("plugin does not implement onRendererCall");
+        error.code = "PLUGIN_CALL_NO_HANDLER";
+        throw error;
+      }
+      const answer = await handler(String(payload?.method ?? ""), payload?.args ?? {});
+      // The relay answers JSON only. A cycle, a BigInt or a bare function is
+      // the plugin's bug and is reported as one, instead of surfacing as a
+      // structured-clone failure without a code.
+      let text;
+      try {
+        text = JSON.stringify(answer ?? null);
+      } catch {
+        text = undefined;
+      }
+      if (text === undefined) {
+        const error = new Error("onRendererCall answer is not JSON");
+        error.code = "PLUGIN_CALL_UNSERIALIZABLE";
+        throw error;
+      }
+      return JSON.parse(text);
+    }
     case "lifecycle.unload": {
       for (const id of invocations.keys()) cancelInvocation(id, "Plugin unloaded");
+      for (const [id, controller] of parentCallControllers) {
+        controller.abort(toolAbortedError("Plugin unloaded"));
+        parentCallControllers.delete(id);
+      }
       // Best effort: a throwing onUnload must not block teardown.
       try {
         if (pluginModule?.onUnload) await pluginModule.onUnload();
@@ -657,6 +722,12 @@ onHostMessage((message) => {
     return;
   }
   if (message.t === "cancel") {
+    if (typeof message.callId === "string") {
+      const controller = parentCallControllers.get(message.callId);
+      if (controller && !controller.signal.aborted) {
+        controller.abort(toolAbortedError(String(message.reason ?? "Plugin call cancelled")));
+      }
+    }
     cancelInvocation(message.invocationId, String(message.reason ?? ""));
     return;
   }
@@ -677,7 +748,7 @@ onHostMessage((message) => {
     return;
   }
   if (message.t === "call") {
-    void invocationContext.run(undefined, () => handleParentCall(message.method, message.payload, message.invocationId))
+    void invocationContext.run(undefined, () => handleParentCall(message.method, message.payload, message.invocationId, message.id))
       .then((value) => send({ t: "res", id: message.id, ok: true, value: value ?? null }))
       .catch((error) =>
         send({

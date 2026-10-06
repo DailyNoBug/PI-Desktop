@@ -1,6 +1,6 @@
 {
   "name": "@pi-desktop/desktop",
-  "version": "0.16.0-alpha.2",
+  "version": "0.16.1",
   "desktopName": "pi-desktop.desktop",
   "protocols": [
     {
@@ -36,14 +36,16 @@
     "dist": "pnpm run build:deps && pnpm run build:host-release && pnpm run bundle:runtime && electron-vite build && node ../../scripts/build-desktop-release.mjs",
     "dist:mac": "pnpm run build:deps && pnpm run build:host-release && pnpm run bundle:runtime && electron-vite build && electron-builder --mac --publish never",
     "dist:win": "pnpm run build:deps && pnpm run build:host-release && pnpm run bundle:runtime && electron-vite build && node ../../scripts/build-desktop-release.mjs win",
-    "dist:linux": "pnpm run build:deps && pnpm run build:host-release && pnpm run bundle:runtime && electron-vite build && electron-builder --linux --publish never",
-    "install:plugin-deps": "node scripts/install-local-voice-deps.mjs"
+    "dist:linux": "pnpm run build:deps && pnpm run build:host-release && pnpm run bundle:runtime && electron-vite build && electron-builder --linux --publish never"
   },
   "dependencies": {
+    "@picovoice/pvrecorder-node": "1.2.9",
+    "transcribe-cpp": "0.2.2",
     "electron-updater": "^6.8.9"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.86.1",
+    "@earendil-works/pi-ai": "1.0.1",
+    "@earendil-works/pi-mcp": "1.0.1",
     "@pi-desktop/agent-host": "workspace:*",
     "@pi-desktop/agent-runtime": "workspace:*",
     "@pi-desktop/host-runtime": "workspace:*",
@@ -52,6 +54,7 @@
     "@pi-desktop/plugin-sdk": "workspace:*",
     "@pi-desktop/racp": "workspace:*",
     "@pi-desktop/shared": "workspace:*",
+    "@pi-desktop/voice-runtime": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
@@ -87,7 +90,6 @@
   "build": {
     "appId": "net.aiuo.pi-desktop",
     "productName": "PI-Desktop",
-    "afterPack": "./scripts/after-pack.cjs",
     "directories": {
       "output": "release"
     },
@@ -121,7 +123,9 @@
       "de",
       "es",
       "fr",
-      "ko"
+      "ko",
+      "pt-BR",
+      "pt_BR"
     ],
     "extraResources": [
       {
@@ -167,7 +171,7 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "NSLocalNetworkUsageDescription": "PI-Desktop needs local network access so agents can reach OpenAI-compatible providers, Ollama, and other AI endpoints running on your LAN. / PI-Desktop 需要本地网络访问权限，以便助手请求同一局域网中的 OpenAI 兼容服务、Ollama 等本地 AI 端点。",
-        "NSMicrophoneUsageDescription": "PI-Desktop plugins may use the microphone after you grant them audio access. / 在你授权后，PI-Desktop 插件可以使用麦克风。",
+        "NSMicrophoneUsageDescription": "PI-Desktop uses the microphone for Live voice calls and authorized plugin audio access. / PI-Desktop 使用麦克风进行实时语音通话，以及你已授权的插件音频访问。",
         "NSBonjourServices": [
           "_http._tcp",
           "_https._tcp"
@@ -182,10 +186,6 @@
           "from": "build/tray-icon-mac.png",
           "to": "tray-icon-mac.png"
         }
-      ],
-      "extraDistFiles": [
-        "PI-Desktop-macOS-open.command",
-        "PI-Desktop-macOS-opening-help.txt"
       ]
     },
     "dmg": {
@@ -226,6 +226,12 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico",
@@ -246,6 +252,9 @@
       "shortcutName": "PI-Desktop",
       "artifactName": "PI-Desktop-Setup-${version}.${ext}"
     },
+    "portable": {
+      "artifactName": "PI-Desktop-Portable-${version}.${ext}"
+    },
     "deb": {
       "packageName": "pi-desktop",
       "artifactName": "pi-desktop_${version}_${arch}.${ext}"
@@ -261,24 +270,16 @@
     "linux": {
       "executableName": "pi-desktop",
       "syncDesktopName": true,
+      "artifactName": "PI-Desktop-${version}-linux-${arch}.${ext}",
       "target": [
         {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
+          "target": "AppImage"
         },
         {
-          "target": "deb",
-          "arch": [
-            "x64"
-          ]
+          "target": "deb"
         },
         {
-          "target": "rpm",
-          "arch": [
-            "x64"
-          ]
+          "target": "rpm"
         }
       ],
       "category": "Development",
@@ -290,6 +291,12 @@
         }
       ]
     },
+    "asarUnpack": [
+      "node_modules/transcribe-cpp/**/*.node",
+      "node_modules/transcribe-cpp/**/bin/**",
+      "node_modules/@picovoice/pvrecorder-node/**/*.node",
+      "node_modules/@picovoice/pvrecorder-node/**/lib/**"
+    ],
     "asar": {
       "smartUnpack": false
     }

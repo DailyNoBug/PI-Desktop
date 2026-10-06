@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   AgentEventEnvelope,
   AgentPromptAttachment,
@@ -178,11 +179,13 @@ function toIpcError(error: unknown): Error & { errorCode?: string; details?: unk
 }
 
 function bootstrapScriptPath(): string {
+  // Electron main ships as ESM: resolve sibling assets from this module's URL.
+  const moduleDir = fileURLToPath(new URL(".", import.meta.url));
   const candidates = [
     process.env.PI_DESKTOP_PI_HOST_BOOTSTRAP,
     join(process.resourcesPath || "", "pi-host/bootstrap.sh"),
-    join(__dirname, "../../../scripts/pi-host-bootstrap.sh"),
-    join(__dirname, "../../../../scripts/pi-host-bootstrap.sh"),
+    join(moduleDir, "../../../scripts/pi-host-bootstrap.sh"),
+    join(moduleDir, "../../../../scripts/pi-host-bootstrap.sh"),
   ].filter((value): value is string => Boolean(value));
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;

@@ -459,7 +459,7 @@ Recorded on the `feat/remote-agent-host` branch, 2026-09-10:
   `pi-desktop/remoteHost/bootstrap` joins `list` / `pair` / `remove`. The
   terminal work-panel client, the reverse tool relay, and provider-configuration
   propagation over the SSH channel are not in this slice.
-- Remote SSH line (D626 / ADR 0310), in progress: the loopback `RACP-WS`
+- Remote SSH line (D654 / ADR 0326), in progress: the loopback `RACP-WS`
   server/client with one-time pairing and cursor replay, the Linux
   `packages/pi-host` runtime, workspace boundary and checksummed x64/arm64
   release bundles, and Electron Main's SSH discovery/bootstrap/port-forward/

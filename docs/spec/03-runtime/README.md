@@ -22,6 +22,7 @@
 | [18-line-anchored-edit-contract.md](18-line-anchored-edit-contract.md) | Line-anchored Edit contract |
 | [19-remote-agent-control-protocol.md](19-remote-agent-control-protocol.md) | Remote Agent Control Protocol |
 | [20-remote-ssh-desktop.md](20-remote-ssh-desktop.md) | Remote SSH desktop client and supervisor |
-| [20-speech.md](20-speech.md) | Local voice plugin (dictation) |
+| [20-speech.md](20-speech.md) | Local voice plugin (dictation) + host speech (ASR/TTS) |
+| [live-voice.md](live-voice.md) | App-owned real-time voice calls |
 | [21-image-generation.md](21-image-generation.md) | Image generation and editing |
 | [22-config-sync.md](22-config-sync.md) | Portable configuration sync |

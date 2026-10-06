@@ -37,7 +37,7 @@ export const VOICE_DICTATION_TOGGLE_EVENT = "pi-desktop:voice-dictation-toggle";
 export type UseVoiceDictationOptions = {
   composerId: string;
   sessionId: string | null;
-  /** Language hint from trusted settings (AppSettings.voice.language). */
+  /** Language hint from trusted settings (AppSettings.dictation.language). */
   language?: string;
   /** Mic affordance renders only when the local voice plugin is ready. */
   enabled: boolean;

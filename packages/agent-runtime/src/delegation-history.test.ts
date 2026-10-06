@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateTokens } from "@earendil-works/pi-agent-core";
+import { estimateTokens } from "./pi-runtime-estimates.js";
 import type { Message } from "@earendil-works/pi-ai";
 import { MAX_RESUMABLE_READ_LINES, type UiMessage } from "@pi-desktop/shared";
 import {
@@ -318,6 +318,41 @@ describe("seedDelegateMessages", () => {
       toolCallId: "t1",
       toolName: "Read",
       isError: false,
+    });
+  });
+
+  it("keeps legacy ToolSearch activation markers in resumed history", () => {
+    const rows: UiMessage[] = [
+      delegateTool(
+        "search-1",
+        "ToolSearch",
+        { query: "BrowserPreview" },
+        {
+          content: [{ type: "text", text: "Activated on-demand tools: BrowserPreview." }],
+          addedToolNames: ["BrowserPreview"],
+          details: {
+            query: "BrowserPreview",
+            activated: ["BrowserPreview"],
+            addedToolNames: ["Glob"],
+          },
+        },
+        "call-1",
+      ),
+    ];
+    const messages = seedDelegateMessages({
+      originalTask: "explore",
+      rows,
+      provider: provider(),
+      model: buildProviderModel(provider()),
+      budget: generousBudget(),
+    });
+    expect(messages.at(-1)).toMatchObject({
+      role: "toolResult",
+      details: {
+        query: "BrowserPreview",
+        activated: ["BrowserPreview"],
+        addedToolNames: ["Glob"],
+      },
     });
   });
 

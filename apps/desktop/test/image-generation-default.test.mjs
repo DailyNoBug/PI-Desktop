@@ -8,10 +8,11 @@
  * choice stops being *runnable*.
  *
  * "Runnable" is the strict rule the picker row and the runtime apply: enabled
- * provider, non-OAuth, base URL, a usable credential and one of the provider's
- * configured models matched exactly. `providerOffersModel` is deliberately
- * looser — it answers whether a row *names* a model for the summary line — so
- * the assertions here must not accept it as proof that a default can run.
+ * provider, base URL, a usable credential and a model the provider serves —
+ * either one it configures, or the image model a signed-in vendor account
+ * answers with. `providerOffersModel` is deliberately looser — it answers
+ * whether a row *names* a model for the summary line — so the assertions here
+ * must not accept it as proof that a default can run.
  */
 import assert from "node:assert/strict";
 import { register } from "node:module";
@@ -24,7 +25,7 @@ const {
   planImageGenerationDefaults,
   resolvesImageGenerationDefault,
 } = await import("../src/components/settings/image-generation-default.ts");
-const { MAX_IMAGE_GENERATION_MODELS } = await import("@pi-desktop/shared");
+const { MAX_IMAGE_GENERATION_MODELS, imageGenerationBindings, isImageGenerationModel } = await import("@pi-desktop/shared");
 
 /** A runnable image provider row; `over` overrides any field. */
 const provider = (id, modelIds, over = {}) => ({
@@ -40,6 +41,21 @@ const provider = (id, modelIds, over = {}) => ({
 });
 
 const binding = (providerId, modelId) => ({ providerId, modelId });
+
+test("image bindings distinguish full routes and providers while ignoring case", () => {
+  const prefixed = binding("x", "generic/model");
+  const plain = binding("x", "model");
+  assert.deepEqual(imageGenerationBindings([prefixed, plain, binding("x", "GENERIC/MODEL")], null),
+    [prefixed, plain]);
+  assert.equal(isImageGenerationModel([prefixed], "x", "model"), false);
+  assert.equal(isImageGenerationModel([prefixed], "y", "generic/model"), false);
+  assert.equal(isImageGenerationModel([prefixed], "x", "GENERIC/MODEL"), true);
+  assert.equal(imageGenerationBindingAvailable(provider("x", ["generic/model"]), "model"), false);
+  assert.equal(imageGenerationBindingAvailable(provider("x", ["generic/model"]), "GENERIC/MODEL"), false);
+  const plan = planImageGenerationDefaults({ imageGeneration: prefixed }, "x", ["model"],
+    [provider("x", ["generic/model", "model"])]);
+  assert.deepEqual(plan.imageGeneration, plain);
+});
 
 test("a saved image selection extends the candidates without taking the default", () => {
   const plan = planImageGenerationDefaults(
@@ -356,4 +372,47 @@ test("unchecking every image model on the active provider clears the settings ch
   );
   assert.equal(plan.imageGeneration, null);
   assert.deepEqual(plan.imageGenerationModels, [binding("y", "img-y")]);
+});
+
+/** The provider row a ChatGPT (Codex) login creates: OAuth only, no API key. */
+const codexAccount = (over = {}) => provider("codex", [], {
+  vendorKey: "openai-codex",
+  authKind: "oauth",
+  hasSecret: false,
+  hasOauth: true,
+  baseUrl: "https://chatgpt.com/backend-api",
+  ...over,
+});
+
+test("a signed-in Codex account runs its image model and never one of its chat models", () => {
+  const signedIn = codexAccount({ models: [{ id: "gpt-6.1-sol" }] });
+  assert.equal(imageGenerationBindingAvailable(signedIn, "gpt-image-2"), true);
+  // Being OAuth does not turn a chat model into an image model.
+  assert.equal(imageGenerationBindingAvailable(signedIn, "gpt-6.1-sol"), false);
+  // Signed out, disabled, or another vendor's OAuth row still cannot generate.
+  assert.equal(imageGenerationBindingAvailable(codexAccount({ hasOauth: false }), "gpt-image-2"), false);
+  assert.equal(imageGenerationBindingAvailable(codexAccount({ enabled: false }), "gpt-image-2"), false);
+  assert.equal(imageGenerationBindingAvailable(
+    provider("a", [], { vendorKey: "anthropic", authKind: "oauth", hasOauth: true }),
+    "gpt-image-2",
+  ), false);
+});
+
+test("the Codex image model is offered as a candidate without being stored as a model", async () => {
+  const { vendorAccountImageCandidates } = await import("@pi-desktop/shared");
+  assert.deepEqual(
+    vendorAccountImageCandidates([codexAccount(), provider("x", ["img-x"])]),
+    [
+      { providerId: "codex", modelId: "gpt-image-2.5" },
+      { providerId: "codex", modelId: "gpt-image-2" },
+    ],
+  );
+  // A chosen Codex binding survives a provider save, because the row can run it.
+  const plan = planImageGenerationDefaults(
+    { imageGeneration: binding("codex", "gpt-image-2") },
+    "codex",
+    ["gpt-image-2"],
+    [codexAccount()],
+  );
+  assert.deepEqual(plan.imageGeneration, binding("codex", "gpt-image-2"));
 });

@@ -58,7 +58,7 @@ export function VoiceSettingsSection({
   saveSettings: (patch: Partial<AppSettings>) => Promise<void>;
 }) {
   const { t } = useTranslation();
-  const voice = settings.voice ?? {};
+  const voice = settings.dictation ?? {};
   const [languageDraft, setLanguageDraft] = useState(voice.language ?? "");
   const [status, setStatus] = useState<LocalVoiceStatus | null>(null);
   const [catalog, setCatalog] = useState<LocalVoiceCatalog | null>(null);
@@ -141,7 +141,7 @@ export function VoiceSettingsSection({
   };
 
   const saveVoice = async (patch: Partial<VoiceSettings>) => {
-    await saveSettings({ voice: { ...voice, ...patch } });
+    await saveSettings({ dictation: { ...voice, ...patch } });
   };
 
   const commitLanguage = async () => {
@@ -192,7 +192,7 @@ export function VoiceSettingsSection({
               title={model.label}
               description={
                 model.sizeApproxMB
-                  ? t("settings.voiceModelSize", { size: model.sizeApproxMB })
+                  ? t("settings.voiceDictationModelSize", { size: model.sizeApproxMB })
                   : model.repoId
               }
             >
@@ -206,7 +206,7 @@ export function VoiceSettingsSection({
                     disabled={busyAction}
                     onClick={() => void runAction("models.download", { id: model.id })}
                   >
-                    {t("settings.voiceModelDownload")}
+                    {t("settings.voiceDictationModelDownload")}
                   </Button>
                 ) : null}
                 {model.installed && !model.active ? (

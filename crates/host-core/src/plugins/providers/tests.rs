@@ -91,9 +91,9 @@ fn declaration_manifest(providers: Value, permissions: Value) -> Value {
 #[test]
 fn a_new_database_carries_the_owner_column_at_the_current_schema_version() {
     let (_dir, db, _secrets) = test_context();
-    // v17 added the owner column, v18 the turn-queue priority column, v19 session omit; a fresh
+    // v17 added the owner column, v18 the turn-queue priority column, v19 session omit, and v21 the session Todo checklist; a fresh
     // database is stamped with the newest, so the column set is the current one.
-    assert_eq!(SCHEMA_VERSION, 19);
+    assert_eq!(SCHEMA_VERSION, 21);
     let version: i64 = db
         .conn()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -176,6 +176,118 @@ fn sync_is_declarative_and_drops_a_removed_declaration() {
             .is_none()
     );
     assert!(!secrets.has(&key_ref));
+}
+
+/// A declaration that stops naming a model forgets the row cached for it, the
+/// same way a user save does: the cache must not keep describing a model this
+/// provider no longer declares.
+#[test]
+fn dropping_a_declared_model_forgets_its_cached_row() {
+    let (_dir, db, secrets) = test_context();
+    let declared = declared_providers(&manifest());
+    sync_plugin_providers(&db, &secrets, "demo.provider", &declared, true).unwrap();
+    let row_id = "plugin:demo.provider:demo";
+    providers::cache_discovered_models(
+        &db,
+        row_id,
+        &[
+            providers::DiscoveredModelInput {
+                model_id: "demo-large".into(),
+                display_name: "Demo Large".into(),
+                capabilities: vec!["text".into()],
+                context_window: Some(200_000),
+            },
+            providers::DiscoveredModelInput {
+                model_id: "demo-small".into(),
+                display_name: "Demo Small".into(),
+                capabilities: vec!["text".into()],
+                context_window: Some(32_000),
+            },
+            providers::DiscoveredModelInput {
+                model_id: "demo-extra".into(),
+                display_name: "Demo Extra".into(),
+                capabilities: vec!["text".into()],
+                context_window: None,
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(providers::list_models(&db, Some(row_id)).unwrap().len(), 3);
+
+    let mut value = serde_json::to_value(manifest()).unwrap();
+    value["contributes"]["providers"][0]["models"] = json!([{
+        "id": "demo-large",
+        "name": "Demo Large",
+        "contextWindow": 200000,
+        "maxTokens": 8192
+    }]);
+    let shrunk: PluginManifest = serde_json::from_value(value).unwrap();
+    sync_plugin_providers(
+        &db,
+        &secrets,
+        "demo.provider",
+        &declared_providers(&shrunk),
+        true,
+    )
+    .unwrap();
+
+    let mut cached: Vec<String> = providers::list_models(&db, Some(row_id))
+        .unwrap()
+        .into_iter()
+        .map(|model| model.model_id)
+        .collect();
+    cached.sort();
+    assert_eq!(cached, vec!["demo-extra", "demo-large"]);
+}
+
+/// A declaration that moves its endpoint abandons the discovery answer the
+/// previous one produced: those rows describe a service this provider no longer
+/// points at.
+#[test]
+fn moving_a_declared_endpoint_forgets_the_discovered_answer() {
+    let (_dir, db, secrets) = test_context();
+    let declared = declared_providers(&manifest());
+    sync_plugin_providers(&db, &secrets, "demo.provider", &declared, true).unwrap();
+    let row_id = "plugin:demo.provider:demo";
+    providers::cache_discovered_models(
+        &db,
+        row_id,
+        &[
+            providers::DiscoveredModelInput {
+                model_id: "demo-large".into(),
+                display_name: "Demo Large".into(),
+                capabilities: vec!["text".into()],
+                context_window: Some(200_000),
+            },
+            providers::DiscoveredModelInput {
+                model_id: "demo-remote-only".into(),
+                display_name: "Demo Remote Only".into(),
+                capabilities: vec!["text".into()],
+                context_window: Some(8_000),
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(providers::list_models(&db, Some(row_id)).unwrap().len(), 2);
+
+    let mut value = serde_json::to_value(manifest()).unwrap();
+    value["contributes"]["providers"][0]["baseUrl"] = json!("https://mirror.example.com/v1");
+    let moved: PluginManifest = serde_json::from_value(value).unwrap();
+    sync_plugin_providers(
+        &db,
+        &secrets,
+        "demo.provider",
+        &declared_providers(&moved),
+        true,
+    )
+    .unwrap();
+
+    let cached: Vec<String> = providers::list_models(&db, Some(row_id))
+        .unwrap()
+        .into_iter()
+        .map(|model| model.model_id)
+        .collect();
+    assert_eq!(cached, vec!["demo-large"]);
 }
 
 #[test]
@@ -419,26 +531,76 @@ fn the_declaration_shape_is_validated() {
     );
     assert!(read_manifest_err(&root).contains("declares model m twice"));
 
-    // OAuth needs the Host-owned login flow, which does not exist yet.
+    // OAuth declarations require an explicit OAuth capability grant.
     write_plugin(
         &root,
         declaration_manifest(
             json!([{ "id": "demo", "name": "Demo", "authKind": "oauth",
-                     "models": [{ "id": "m" }] }]),
-            permissions,
+                     "baseUrl": "https://api.example.com/v1", "models": [{ "id": "m" }] }]),
+            permissions.clone(),
         ),
     );
-    assert!(read_manifest_err(&root).contains("unsupported authKind oauth"));
+    assert!(read_manifest_err(&root).contains("require the provider.oauth permission"));
 
     write_plugin(
         &root,
         declaration_manifest(
             json!([{ "id": "demo", "name": "Demo", "authKind": "oauth",
-                     "oauth": { "label": "Demo" }, "models": [{ "id": "m" }] }]),
-            json!(["provider.register"]),
+                     "baseUrl": "https://api.example.com/v1",
+                     "oauth": { "loginLabel": "Continue in browser", "isSubscription": true },
+                     "models": [{ "id": "m" }] }]),
+            json!(["provider.register", "provider.oauth"]),
         ),
     );
-    assert!(read_manifest_err(&root).contains("not supported in this release"));
+    assert!(PluginManager::read_manifest(&root).is_ok());
+
+    let oauth_permissions = json!(["provider.register", "provider.oauth"]);
+    let invalid_oauth_providers = [
+        (
+            json!([{ "id": "demo", "name": "Demo", "authKind": "oauth",
+                     "models": [{ "id": "m" }] }]),
+            "requires baseUrl for OAuth",
+        ),
+        (
+            json!([{ "id": "demo", "name": "Demo", "authKind": "api_key",
+                     "baseUrl": "https://api.example.com/v1",
+                     "oauth": { "loginLabel": "Continue" },
+                     "models": [{ "id": "m" }] }]),
+            "requires authKind oauth",
+        ),
+        (
+            json!([{ "id": "demo", "name": "Demo", "authKind": "oauth",
+                     "baseUrl": "https://api.example.com/v1", "oauth": "invalid",
+                     "models": [{ "id": "m" }] }]),
+            "oauth must be an object",
+        ),
+        (
+            json!([{ "id": "demo", "name": "Demo", "authKind": "oauth",
+                     "baseUrl": "https://api.example.com/v1",
+                     "oauth": { "unexpected": true }, "models": [{ "id": "m" }] }]),
+            "oauth has unsupported field unexpected",
+        ),
+        (
+            json!([{ "id": "demo", "name": "Demo", "authKind": "oauth",
+                     "baseUrl": "https://api.example.com/v1", "oauth": { "loginLabel": " " },
+                     "models": [{ "id": "m" }] }]),
+            "oauth.loginLabel must be a non-empty string",
+        ),
+        (
+            json!([{ "id": "demo", "name": "Demo", "authKind": "oauth",
+                     "baseUrl": "https://api.example.com/v1",
+                     "oauth": { "isSubscription": "yes" }, "models": [{ "id": "m" }] }]),
+            "oauth.isSubscription must be a boolean",
+        ),
+    ];
+    for (providers, expected_error) in invalid_oauth_providers {
+        write_plugin(
+            &root,
+            declaration_manifest(providers, oauth_permissions.clone()),
+        );
+        let error = read_manifest_err(&root);
+        assert!(error.contains(expected_error), "{error}");
+    }
 }
 
 /// A row id already in use by something other than this plugin cannot arise

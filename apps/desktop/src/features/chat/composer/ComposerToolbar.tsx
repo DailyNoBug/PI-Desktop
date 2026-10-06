@@ -12,6 +12,7 @@ import { useAppStore } from "../../../stores/app-store";
 import type { AppState } from "../../../stores/app-store";
 import { ComposerPermissionPicker } from "./ComposerPermissionPicker";
 import { ContextUsageInspector } from "../../../components/ContextUsageInspector";
+import { ComposerControlSlots } from "./ComposerControlSlots";
 import { TooltipButton } from "../../../components/ui";
 import {
   IconArrowUp,
@@ -21,6 +22,7 @@ import {
   IconUndo2,
 } from "../../../components/icons";
 import { ModeIcon } from "./ComposerModeIcon";
+import { LiveVoiceControls } from "../../voice/live/LiveVoiceControls";
 import { ComposerModelPicker } from "./ComposerModelPicker";
 import {
   MODE_LABEL_KEYS,
@@ -58,13 +60,14 @@ export type ComposerToolbarProps = {
   enhancementUndoText: string | null;
   enhancePrompt: () => Promise<void>;
   undoPromptEnhancement: () => void;
-  clearEnhancementError: () => void;
   runActive: boolean;
   hasDraftContent: boolean;
    abort: AppState["abort"];
    /** Optional voice dictation affordance (rendered only when configured). */
    voiceSlot?: ReactNode;
   submit: () => Promise<void>;
+  workSessionId?: string;
+  workSessionLabel?: string;
 };
 
 /** Composer controls: mode, permission, model, enhancement, and send/stop. */
@@ -95,12 +98,13 @@ export function ComposerToolbar({
   enhancementUndoText,
   enhancePrompt,
   undoPromptEnhancement,
-  clearEnhancementError,
   runActive,
   hasDraftContent,
   abort,
   submit,
   voiceSlot,
+  workSessionId,
+  workSessionLabel,
 }: ComposerToolbarProps) {
   const platform = (window.piDesktop?.platform ?? "darwin") as ShortcutPlatform;
   const steeringShortcut = keybindingDisplayParts("Alt+Enter", platform).join("+");
@@ -128,6 +132,7 @@ export function ComposerToolbar({
             </TooltipButton>
           </div>
         )}
+        <LiveVoiceControls t={t} workSessionId={workSessionId} />
         <TooltipButton
           type="button"
           className="icon-btn mode-chip composer-mode-chip"
@@ -180,11 +185,12 @@ export function ComposerToolbar({
                   });
                 }
           }} />
+        <ComposerControlSlots side="left" />
       </div>
 
       <div className="composer-right">
         {voiceSlot ?? null}
-        {contextUsage ? <ContextUsageInspector {...contextUsage} /> : null}
+        <ComposerControlSlots side="right" />
         {contextUsage ? <ContextUsageInspector {...contextUsage} /> : null}
         <ComposerModelPicker
           t={t}

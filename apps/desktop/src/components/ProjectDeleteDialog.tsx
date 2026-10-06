@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useBlockingOverlay } from "../lib/blocking-overlay";
+import { portalToBody } from "../lib/portal-visibility";
 import { useTranslation } from "react-i18next";
 import { ErrorCodes } from "@pi-desktop/shared";
 import { useAppStore } from "../stores/app-store";
@@ -28,6 +29,7 @@ export function ProjectDeleteDialog({
   onDeleted: () => void | Promise<void>;
   onError: (error: unknown) => void;
 }) {
+  useBlockingOverlay();
   const { t } = useTranslation();
   const deleteProject = useAppStore((s) => s.deleteProject);
   const abortSession = useAppStore((s) => s.abortSession);
@@ -183,5 +185,5 @@ export function ProjectDeleteDialog({
     </div>
   );
 
-  return typeof document === "undefined" ? dialog : createPortal(dialog, document.body);
+  return typeof document === "undefined" ? dialog : portalToBody(dialog);
 }

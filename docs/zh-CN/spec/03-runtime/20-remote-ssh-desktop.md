@@ -1,7 +1,7 @@
 # 20. Remote SSH 桌面客户端
 
 - 状态：已接受待实现
-- 决策：D626 / ADR 0310
+- 决策：D654 / ADR 0326
 - 传输：系统 OpenSSH 本地端口转发上的 `RACP-WS`
 - 远端 Host：Linux x64 / arm64 `pi-host`
 - 英文源规格：[英文源规格](/spec/03-runtime/20-remote-ssh-desktop)

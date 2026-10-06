@@ -5,8 +5,10 @@ import { I18nextProvider } from "react-i18next";
 import { catalogs } from "@pi-desktop/i18n";
 import type { ProviderPublic, ProviderCreateInput, ProviderUpdateInput } from "@pi-desktop/shared";
 import { ProviderSetupDialog, type ProviderSetupDialogProps } from "../../apps/desktop/src/components/settings/ProviderSetupDialog";
+import { VendorAccountDialog, type VendorAccountForm } from "../../apps/desktop/src/components/settings/VendorAccountDialog";
 import { API_STYLE_LABEL_KEYS, CUSTOM_PROVIDER_API_STYLES } from "../../apps/desktop/src/components/settings/provider-api-style";
 import { copyProviderConfiguration } from "../../apps/desktop/src/components/settings/provider-copy";
+import { CUSTOM_SERVICE } from "../../apps/desktop/src/components/settings/service-catalog";
 import { api } from "../../apps/desktop/src/lib/api";
 
 declare global { var providerApiStyleProbe: () => Promise<unknown>; }
@@ -50,6 +52,13 @@ globalThis.providerApiStyleProbe = async () => {
   };
   api.listProviderModels = async (input) => {
     discoveries.push(structuredClone(input));
+    if (input.baseUrl === "https://api.stepfun.com/step_plan/v1") {
+      return { models: [{
+        modelId: "step-5-preview", displayName: "Step 5 Preview", providerId: "stepfun-fixture",
+        source: "discovered", capabilities: ["text", "tools", "vision", "reasoning"],
+        supportedThinkingLevels: ["low", "medium", "high"], contextWindow: 1000000, maxTokens: 65536,
+      }], source: "remote" };
+    }
     return { models: [], source: "remote" };
   };
   /* The root container only mounts React; every production surface under test
@@ -63,6 +72,8 @@ globalThis.providerApiStyleProbe = async () => {
     flushSync(() => root.render(<I18nextProvider i18n={i18n}>
       <ProviderSetupDialog key={++key} onClose={() => { closes++; }} onSaved={() => {}} {...props} />
     </I18nextProvider>));
+    const advanced = document.querySelector<HTMLButtonElement>(".provider-chosen-advanced-toggle");
+    if (advanced?.getAttribute("aria-expanded") === "false") flushSync(() => advanced.click());
   };
   const click = (element: HTMLElement | null | undefined) => {
     assert(element, "missing click target");
@@ -151,17 +162,72 @@ globalThis.providerApiStyleProbe = async () => {
   };
 
   const results: string[] = [];
+  const until = async (condition: () => boolean, label: string) => {
+    const deadline = performance.now() + 5000;
+    while (!condition()) {
+      assert(performance.now() < deadline, `timed out: ${label}`);
+      await frame();
+    }
+  };
+  const searchInput = () => [...document.querySelectorAll<HTMLInputElement>("input[type=checkbox]")]
+    .find((input) => input.closest("label")?.textContent?.trim() === i18n.t("settings.nativeWebSearch"));
+  const openModelManager = async () => {
+    // The model panel is on screen when the editor opens (D625): no Manage
+    // models step, only the per-model controls the scenario waits for.
+    await until(() => Boolean(searchInput()), "model capability settings");
+  };
   try {
     for (const locale of ["en", "zh-CN"]) {
       await i18n.changeLanguage(locale);
       render();
-      const serviceTrigger = document.querySelector<HTMLButtonElement>(".provider-service-trigger");
-      assert(serviceTrigger, "service picker trigger missing");
-      serviceTrigger.scrollIntoView({ block: "center" });
+      const beforeStepfunCreate = creates.length;
+      const beforeStepfunDiscovery = discoveries.length;
+      const stepfunTile = document.querySelector<HTMLElement>('[data-service-id="stepfun-plan"]');
+      assert(stepfunTile?.textContent?.includes("api.stepfun.com/step_plan/v1"),
+        `${locale}: StepFun chooser hides the subscription path`);
+      click(stepfunTile);
       await frame();
-      click(serviceTrigger);
-      click(document.querySelector(".provider-service-option"));
+      assert(document.querySelector(".provider-service-chip-host")?.textContent === "api.stepfun.com/step_plan/v1",
+        `${locale}: StepFun connection summary hides the subscription path`);
+      const keyInput = document.querySelector<HTMLInputElement>('input[type="password"]');
+      assert(keyInput, `${locale}: StepFun key input missing`);
+      flushSync(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!
+          .call(keyInput, "stepfun-fixture-key");
+        keyInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await until(() => discoveries.length > beforeStepfunDiscovery, "StepFun discovery");
+      const discovery = discoveries.at(-1)!;
+      assert(discovery.baseUrl === "https://api.stepfun.com/step_plan/v1" &&
+        discovery.apiStyle === "anthropic_messages" && discovery.apiKey === "stepfun-fixture-key",
+        `${locale}: StepFun discovery used the wrong route or credentials`);
+      const stepfunCheckbox = () => [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+        .find((input) => input.closest("label")?.textContent?.includes("step-5-preview"));
+      await until(() => Boolean(stepfunCheckbox()), "StepFun discovered model");
+      // Exercise explicit selection even when the recommendation preselected it.
+      if (stepfunCheckbox()!.checked) click(stepfunCheckbox());
+      click(stepfunCheckbox());
+      assert(stepfunCheckbox()!.checked, `${locale}: StepFun model was not selected`);
+      await until(() => !control("settings.saveProvider").disabled, "StepFun save enabled");
+      click(control("settings.saveProvider"));
+      await until(() => creates.length === beforeStepfunCreate + 1, "StepFun saved");
+      const savedStepfun = creates.at(-1)!;
+      assert(savedStepfun.vendorKey === "stepfun-step-plan" &&
+        savedStepfun.baseUrl === "https://api.stepfun.com/step_plan/v1" &&
+        savedStepfun.apiStyle === "anthropic_messages", `${locale}: StepFun saved the wrong preset`);
+      assert(savedStepfun.models?.length === 1 && savedStepfun.models[0].id === "step-5-preview",
+        `${locale}: StepFun saved the wrong model selection`);
+      results.push(`${locale}:stepfun-plan-choose-key-discover-select-save`);
+      render();
+      // A new service opens on the chooser (D625, D626); the custom endpoint
+      // leads the API-key tiles, and picking it moves to the form.
+      const tiles = [...document.querySelectorAll<HTMLButtonElement>("[data-service-id]")];
+      assert(tiles.length > 1, `${locale}: service chooser tiles missing`);
+      assert(tiles.at(0)?.dataset.serviceId === CUSTOM_SERVICE, `${locale}: custom endpoint is not first`);
+      assert(!apiStyleTrigger(), `${locale}: form rendered before a service was chosen`);
+      click(tiles.at(0));
       await frame();
+      assert(!document.querySelector("[data-service-id]"), `${locale}: chooser stayed open after a pick`);
       await openApiStyleMenu();
       const newCustomOptions = optionSnapshot();
       assert(JSON.stringify(newCustomOptions.map((option) => option.label)) === JSON.stringify(customLabels()),
@@ -221,6 +287,107 @@ globalThis.providerApiStyleProbe = async () => {
         assert(JSON.stringify(original) === before, "edit/copy mutated source object");
         results.push(`${locale}:${style}:edit-change-copy-cancel`);
       }
+      for (const [vendorKey, baseUrl, modelId] of [
+        ["deepseek", "https://api.deepseek.com", "deepseek-v4-flash"],
+        ["xai", "https://api.x.ai/v1", "grok-4.7"],
+        ["openai", "https://api.openai.com/v1", "gpt-6-sol"],
+      ]) {
+        const original = { ...fixture("chat_completions"), name: "My service", vendorKey, baseUrl,
+          models: [{ ...fixture("chat_completions").models[0], id: modelId }] };
+        render({ provider: original });
+        await openModelManager();
+        await until(() => Boolean(searchInput()), "official model settings");
+        assert(!searchInput()?.disabled && !searchInput()?.checked, `${vendorKey}: search must be directly selectable and default off`);
+        assert(!document.querySelector(".provider-endpoint-guidance"), "official search requires an extra interface action");
+        const count = updates.length;
+        click(searchInput());
+        click(control("settings.cancel"));
+        assert(updates.length === count, "cancel persisted the search opt-in");
+        render({ provider: original });
+        await openModelManager();
+        click(searchInput());
+        click(control("settings.saveProvider"));
+        await until(() => updates.length === count + 1, "save search opt-in");
+        const update = updates.at(-1)!;
+        assert(update.apiStyle === original.apiStyle && update.baseUrl === original.baseUrl,
+          "search opt-in rewrote the saved service transport");
+        assert(update.name === original.name && !("secretValue" in update), "search opt-in replaced name or key");
+        assert(update.models?.[0].nativeWebSearch === true && update.models[0].alias === "Fixture alias", "model settings lost");
+        render({ provider: { ...original, ...update } });
+        await openModelManager();
+        assert(searchInput()?.checked && !searchInput()?.disabled, "search opt-in was lost on reopen");
+        click(searchInput());
+        click(control("settings.saveProvider"));
+        await until(() => updates.length === count + 2, "save search off");
+        assert(!updates.at(-1)?.models?.[0].nativeWebSearch, "search opt-out was not saved");
+        assert(updates.at(-1)?.apiStyle === original.apiStyle && updates.at(-1)?.baseUrl === original.baseUrl,
+          "search opt-out changed the stored route");
+        results.push(`${locale}:${vendorKey}:single-entry-search-cancel-save-reopen-off`);
+      }
+
+      for (const [operation, style] of [["responses", "responses"], ["messages", "anthropic_messages"]] as const) {
+        const relay = { ...fixture("chat_completions"), baseUrl: `https://relay.example/v1/${operation}` };
+        render({ provider: relay });
+        assert(apiStyleTrigger()?.textContent?.includes(apiStyleLabel("chat_completions")), "URL advice silently changed protocol");
+        click(control("settings.applyEndpointFormat"));
+        assert(apiStyleTrigger()?.textContent?.includes(apiStyleLabel(style)), "suggested format not applied");
+        const count = updates.length;
+        click(control("settings.saveProvider"));
+        await until(() => updates.length === count + 1, "save suggested format");
+        assert(updates.at(-1)?.baseUrl === "https://relay.example/v1" && updates.at(-1)?.apiStyle === style,
+          "suggestion changed destination or retained the operation suffix");
+        render({ provider: { ...relay, ...updates.at(-1)! } });
+        assert(!button("settings.applyEndpointFormat"), "suggestion reappeared after save");
+      }
+      results.push(`${locale}:relay-explicit-format-suggestion-save-reopen`);
+
+      const manual = { ...fixture("chat_completions"), vendorKey: "openai" };
+      render({ provider: manual });
+      assert(apiStyleTrigger()?.textContent?.includes(apiStyleLabel("chat_completions")), "named host overwrote manual format");
+      const beforeManualSave = updates.length;
+      click(control("settings.saveProvider"));
+      await until(() => updates.length === beforeManualSave + 1, "save manual format provider");
+      assert(updates.at(-1)?.vendorKey === manual.vendorKey,
+        "a stored format differing from the preset dropped the row's vendor identity");
+      results.push(`${locale}:saved-protocol-wins-over-preset`);
+
+      const legacyUnknown = { ...fixture("future_api_format"),
+        baseUrl: "https://relay.example/v1/chat/completions" };
+      render({ provider: legacyUnknown });
+      assert(apiStyleTrigger()?.textContent?.includes(apiStyleLabel("chat_completions")),
+        "unknown stored API format did not render with the compatible fallback");
+      const beforeUnknownSave = updates.length;
+      click(control("settings.saveProvider"));
+      await until(() => updates.length === beforeUnknownSave + 1, "save legacy unknown API format");
+      assert(updates.at(-1)?.apiStyle === "chat_completions" &&
+        updates.at(-1)?.baseUrl === "https://relay.example/v1",
+        "unknown stored format did not save the normalized compatible endpoint");
+      results.push(`${locale}:unknown-stored-api-format-open-save`);
+
+      const codexAccount = { ...fixture("openai_codex_responses"), id: "codex-account", name: "OpenAI OAuth", vendorKey: "openai-codex", type: "native", protocol: "openai", authKind: "oauth" } satisfies ProviderPublic;
+      let savedCodexAccount: VendorAccountForm | undefined;
+      flushSync(() => root.render(<I18nextProvider i18n={i18n}><VendorAccountDialog provider={codexAccount} initialName={codexAccount.name} onClose={() => { closes++; }} onSave={(form) => { savedCodexAccount = structuredClone(form); }} saving={false} /></I18nextProvider>));
+      await pause(650);
+      // The account editor opens straight on the model panel (D625): the
+      // per-model controls sit behind the row's own Advanced disclosure.
+      assert(!document.querySelector(".provider-models-summary"), `${locale}: the chosen-models summary is gone from the account dialog`);
+      await frame();
+      const advancedToggle = document.querySelector<HTMLButtonElement>(".provider-chosen-advanced-toggle");
+      assert(advancedToggle?.getAttribute("aria-expanded") === "false", `${locale}: a model opened its advanced settings on its own`);
+      click(advancedToggle);
+      await frame();
+      const findWebSearch = () => [...document.querySelectorAll<HTMLInputElement>("input[type=checkbox]")].find((input) => input.closest("label")?.textContent?.trim() === i18n.t("settings.nativeWebSearch"));
+      const searchCheckbox = findWebSearch();
+      assert(searchCheckbox, `${locale}: Codex web search checkbox missing`);
+      assert(!searchCheckbox!.disabled, `${locale}: Codex web search checkbox stayed disabled`);
+      assert(!searchCheckbox!.checked, `${locale}: native search must default off`);
+      click(searchCheckbox);
+      await frame();
+      assert(findWebSearch()?.checked, `${locale}: Codex web search opt-in did not update`);
+      click(control("settings.save"));
+      await pause();
+      assert(savedCodexAccount?.models[0]?.nativeWebSearch === true, `${locale}: Codex web search opt-in was not saved`);
+      results.push(`${locale}:codex-native-search-opt-in`);
     }
     return { ok: true, scenarios: results, creates: creates.length, updates: updates.length,
       apiBoundary: "stubbed", hostPersistence: "not exercised", liveModel: "not exercised" };

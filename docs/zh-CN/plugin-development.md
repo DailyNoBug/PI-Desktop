@@ -505,17 +505,45 @@ root 本身。`net.fetch` 接受 HTTP(S)，并且只能到达 `manifest.net.doma
         "id": "midnight",
         "label": "Midnight",
         "path": "themes/midnight.css",
-        "base": "dark"
+        "base": "dark",
+        "assets": ["themes/background.svg"]
       }
-    ]
+    ],
+    "windowAppearance": {
+      "backgroundColor": { "dark": "#141a24", "light": "#f5f7fa" }
+    }
   },
-  "permissions": ["ui.theme"]
+  "permissions": ["ui.theme", "ui.window.appearance"]
 }
 ```
 
-覆盖该 CSS 中的 PI-Desktop 设计标记。楼主对贡献的内容进行了清理
-CSS，拒绝导入和非数据 URL，每个文件的上限为 256 KiB，并允许
-每个插件有八个主题。用户在“设置”中选择主题。
+`base` 选择覆盖样式所基于的内置 `light` 或 `dark` 调色板；省略时默认
+为 `dark`。用户在“设置”中选择插件贡献的主题。
+
+覆盖设计令牌时，应使用与基础调色板相同的选择器：
+
+```css
+:root[data-theme="dark"] { --ds-bg-primary: #141a24; }
+:root[data-theme="light"] { --ds-bg-primary: #f5f7fa; }
+```
+
+主题样式表追加在宿主样式之后，但只有选择器特异度相同时，后写的声明才胜出。
+宿主调色板使用 `:root[data-theme="dark"]` 和 `:root[data-theme="light"]`；
+单独的 `:root` 特异度较低，不能保证覆盖这些声明。浅色基础主题应显式使用
+`:root[data-theme="light"]`。
+
+宿主清理 CSS，拒绝 `@import`，`url()` 目标仅允许 `data:` URI 或已声明的主题资源；每份
+样式表上限 256 KiB，每个插件最多八个主题。可选 `assets` 接受 `png`、`jpg`、
+`jpeg`、`webp`、`avif`、`svg`、`woff2` 文件，总大小上限 4 MiB。路径可以是插件包内
+相对路径（不得逃出插件根目录或引用 `node_modules`），也可以是绝对路径。
+匹配的 CSS URL 会改写为已注册、只读的 `plugin-asset://` URL；卸载插件时撤销
+注册，渲染器不会收到原始文件系统路径。
+
+可选的 `contributes.windowAppearance.backgroundColor` 为 `light`/`dark` 提供
+`#rrggbb` 或 `#rrggbbaa` 颜色，除 `ui.theme` 外还需要 `ui.window.appearance`。
+它仅在该插件的主题被选中时生效，切换到其他主题后恢复宿主背景；macOS 保留
+系统 vibrancy。完整主题与窗口外观字段参见
+[清单契约](spec/07-plugins/02-plugin-manifest-schema.md)。
 
 ### 6.8 MCP 服务器
 
@@ -550,11 +578,12 @@ MCP 服务器是声明性的。本地服务器需要 `mcp.server.local`；一个
 }
 ```
 
-stdio 命令必须是 `PATH` 上的裸命令或与插件相关的命令
-可执行文件；绝对路径被拒绝。远程 URL 可以使用 HTTP 或 HTTPS，并且主机必须
-列在 `net.domains` 中；非回环 HTTP 不加密，因此只应在可信网络中使用。设置
-引用仅读取该插件的设置——主机环境和提供商秘密永远不会被转发。MCP 工具
-遵循与手写插件工具相同的仅代理策略和命名空间。
+stdio 命令必须是 `PATH` 上的裸命令或插件相对路径的可执行文件；绝对路径会被拒绝。
+`npx` 和 `uvx` 会解析到真实的 Node.js / uv（PATH、官方 Node 安装、fnm、nvm、Volta、
+默认 uv 安装位置）。远程 URL 可以使用 HTTP 或 HTTPS，并且主机必须列在
+`net.domains` 中；非回环 HTTP 不加密，因此只应在可信网络中使用。设置引用仅读取
+该插件的设置——主机环境和提供商密钥永远不会被转发。MCP 工具遵循与手写插件工具
+相同的仅 Agent 策略和命名空间。
 
 ### 6.9 常驻服务和消息总线
 
@@ -813,10 +842,11 @@ commit 并给出警告。插件相对仓库根目录的路径也会被记录，�
 8. 运行 `pi-plugin pack` 并以干净的应用程序状态安装生成的包。
 9. 在发布工件旁边记录打印的 SHA-256。
 
-对于官方市场，请将包和目录元数据提交至
-[`vastsa/pi-desktop-plugins`](https://github.com/vastsa/pi-desktop-plugins) 和
-遵循该存储库的 `CONTRIBUTING.md`。市场目录是
-单独的存储库；在这里添加插件不会发布它。
+官方市场的发布走插件中心 [plugins.aiuo.net](https://plugins.aiuo.net)：创建插件、绑定插件所在的仓库、
+给版本打标签并提交——可以在控制台操作，也可以用发布 skill 走 MCP。平台负责打包、审查源码、记录
+SHA-256 并发布该版本，再把目录与安装包同步到
+[AIUO-Net/pi-desktop-plugins](https://github.com/AIUO-Net/pi-desktop-plugins) 作为 GitHub 备用通道。
+分发仓库不托管插件源码，向它提交「新增插件源码」的 PR 会被关闭。
 
 签名不是当前的信任原语。包 SHA-256 和显式
 许可审查是实施的基线；遵循

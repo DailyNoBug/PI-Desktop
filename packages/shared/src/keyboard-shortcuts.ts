@@ -16,6 +16,8 @@ export const KEYBOARD_SHORTCUT_IDS = [
   "zoomIn",
   "zoomOut",
   "toggleFullScreen",
+  "voiceToggle",
+  "voiceCancel",
 ] as const;
 
 export type KeyboardShortcutId = (typeof KEYBOARD_SHORTCUT_IDS)[number];
@@ -68,6 +70,16 @@ export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcutDefinition[] = [
     group: "window",
     defaultBinding: "F11",
     macDefaultBinding: "Mod+Ctrl+F",
+  },
+  {
+    id: "voiceToggle",
+    group: "agent",
+    defaultBinding: "Mod+Shift+V",
+  },
+  {
+    id: "voiceCancel",
+    group: "agent",
+    defaultBinding: "Escape",
   },
 ] as const;
 
@@ -197,6 +209,7 @@ const MODIFIER_ORDER = ["Mod", "Ctrl", "Alt", "Shift"] as const;
 const MODIFIERS = new Set<string>(MODIFIER_ORDER);
 const MODIFIER_KEY_VALUES = new Set(["Alt", "AltGraph", "Control", "Meta", "Shift"]);
 const NAMED_KEYS = new Set([
+  "Escape",
   "Enter",
   "Space",
   "Tab",
@@ -250,6 +263,7 @@ export function normalizeKeybinding(value: unknown): string | null {
   if (!key) return null;
   const modifiers = new Set(parts.slice(0, -1));
   if ([...modifiers].some((part) => !MODIFIERS.has(part))) return null;
+  if (key === "Escape" && modifiers.size > 0) return null;
   return [...MODIFIER_ORDER.filter((part) => modifiers.has(part)), key].join("+");
 }
 

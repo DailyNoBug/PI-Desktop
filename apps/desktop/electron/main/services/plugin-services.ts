@@ -2,6 +2,7 @@ import { dialog, globalShortcut, shell, type BrowserWindow } from "electron";
 import { join } from "node:path";
 import {
   IPC,
+  ErrorCodes,
   type ActivationScope,
   type AppSettings,
   type BrowserState,
@@ -29,6 +30,7 @@ import {
   type RuntimeProviderConfig,
 } from "@pi-desktop/agent-runtime";
 import { createFsConsentService } from "../plugin-fs-consent";
+import { createSpeechService } from "./speech-service";
 import { pluginWorkspaceInfo } from "../workspace-roots";
 import { createDesktopConsentService } from "../plugin-desktop-consent";
 import { PluginRuntime } from "../plugin-runtime";
@@ -48,7 +50,6 @@ import { PluginViewHost } from "../plugin-view-host";
 import { BrowserPane } from "../browser-view";
 import { BrowserHost, BROWSER_PLUGIN_ID } from "../browser-host";
 import { OAUTH_AUTH_KIND, type VendorOAuth } from "../oauth";
-import type { AgentExtensionBridge } from "../agent-extensions";
 import type { ClipboardHistory } from "../clipboard-history";
 import type { TurnEndedPayload } from "../runtime/session-coordination";
 import type { HostProcess } from "../host-process";
@@ -73,10 +74,8 @@ export type PluginServicesDependencies = {
   getPluginPanelTheme: () => "light" | "dark";
   getAppearance: () => PluginAppearance;
   getWorkspacePath: () => string | null;
-  isHostUnavailable: (error: unknown) => boolean;
   resolveAgentRuntimeLaunch: (...args: any[]) => Promise<any>;
   vendorOAuth: VendorOAuth;
-  agentExtensions: AgentExtensionBridge;
 };
 
 export function createPluginServices({
@@ -95,11 +94,13 @@ export function createPluginServices({
   getPluginPanelTheme,
   getAppearance,
   getWorkspacePath,
-  isHostUnavailable,
   resolveAgentRuntimeLaunch,
   vendorOAuth,
-  agentExtensions,
 }: PluginServicesDependencies) {
+  // A plugin request can lose its race with host shutdown or restart.
+  const isHostUnavailable = (error: unknown): boolean =>
+    (error as { errorCode?: string } | null | undefined)?.errorCode ===
+    ErrorCodes.HOST_UNAVAILABLE;
   const pluginPanels = new PluginPanelHost(
     async (pluginId, channel, payload, context) =>
       plugins.invokePanelBridge(pluginId, channel, payload, context),
@@ -201,6 +202,10 @@ export function createPluginServices({
   const plugins: PluginRuntime = new PluginRuntime({
     pluginShortcuts,
     pluginSockets,
+    providerOAuthPrompt: (pluginId, loginId, input) =>
+      vendorOAuth.promptPluginOAuth(pluginId, loginId, input),
+    providerOAuthNotify: (pluginId, loginId, event) =>
+      vendorOAuth.notifyPluginOAuth(pluginId, loginId, event),
     getWorkspacePath: () => {
       // Filled after host boots; temporary stub until services rebinding.
       return null;
@@ -211,8 +216,18 @@ export function createPluginServices({
         message: `${input.title}${input.body ? `: ${input.body}` : ""}`,
       }),
     getNotificationPermission: getPluginNotificationPermission,
-    requestNotificationPermission: requestPluginNotificationPermission,
-    showNativeNotification: showPluginNativeNotification,
+    requestNotificationPermission: async () => {
+      const permission = await requestPluginNotificationPermission();
+      if (permission === "granted") {
+        sendToRenderer(IPC.event.notificationSound, {});
+      }
+      return permission;
+    },
+    showNativeNotification: async (input) => {
+      const result = await showPluginNativeNotification(input);
+      if (result.shown) sendToRenderer(IPC.event.notificationSound, {});
+      return result;
+    },
     openExternal: async (url) => {
       await safeOpenExternal(url);
     },
@@ -442,7 +457,7 @@ export function createPluginServices({
     },
     // Hot reload happens without anyone asking for it, so it has to report
     // itself: the plugins page reads status from the host, not from the edit.
-    onPluginReloaded: ({ pluginId, name, ok, message }) => {
+    onPluginReloaded: async ({ pluginId, name, ok, message }) => {
       logger.app("plugin", ok ? "info" : "error", "development plugin reloaded", {
         pluginId,
         data: { ok, message },
@@ -450,8 +465,9 @@ export function createPluginServices({
       sendToRenderer(IPC.event.toast, {
         message: ok ? `Reloaded ${name}` : `Reload failed: ${name} — ${message ?? ""}`,
       });
-      // Views were loaded from the previous revision of the plugin's files.
+      // Views and panels were loaded from the previous revision of the plugin's files.
       pluginViews.closePlugin(pluginId);
+      await pluginPanels.close(pluginId, { force: true });
       if (pluginId === BROWSER_PLUGIN_ID) browserHost.disposeGuest();
       sendToRenderer(IPC.event.pluginChanged,{ reason: "reload", pluginId });
     },
@@ -545,7 +561,6 @@ export function createPluginServices({
       });
     }
   };
-  const browserPane = new BrowserPane(emitBrowserState);
   const pluginViews = new PluginViewHost(({ pluginId, url }) => {
     logger.app("plugin", "warn", "plugin.api", {
       pluginId,
@@ -555,7 +570,17 @@ export function createPluginServices({
   });
   pluginPanels.addSenderResolver((senderId) => pluginViews.pluginIdForSender(senderId));
   const browserHost = new BrowserHost({
-    pane: browserPane,
+    createPane: (onState, onOpenUrl) => new BrowserPane(onState, onOpenUrl),
+    onOpenUrl: (url, sessionId) => {
+      void (async () => {
+        const settings = await getHost()?.call<AppSettings>("settings.get");
+        if (!sessionId || settings?.linkOpenTarget === "external" || !/^https?:/i.test(url)) {
+          await shell.openExternal(url);
+        } else {
+          sendToRenderer(IPC.event.browserPreview, { sessionId, url });
+        }
+      })().catch((error) => logger.app("plugin", "warn", "browser.link.open.failed", { data: String(error) }));
+    },
     isPluginLoaded: (pluginId) => Boolean(plugins.getLoaded(pluginId)),
     getFileRoot: async (sessionId) => {
       if (sessionId) {
@@ -597,12 +622,12 @@ export function createPluginServices({
     agentExtensionsChanged: () =>
       sendToRenderer(IPC.event.pluginChanged, { reason: "agentExtensions" }),
     browser: {
-      navigate: (input, sessionId) => browserHost.navigate(input, sessionId),
-      action: (action) => browserHost.action(action),
+      navigate: (input, sessionId, tabId) => browserHost.navigate(input, sessionId, tabId),
+      action: (action, sessionId, tabId) => browserHost.action(action, sessionId, tabId),
       setBounds: (pluginId, hole) => browserHost.setGuestHole(pluginId, hole),
       setVisible: (pluginId, visible) => browserHost.setGuestVisible(pluginId, visible),
       getState: () => browserHost.getState(),
-      openExternal: () => browserHost.openExternal(),
+      openExternal: (sessionId, tabId) => browserHost.openExternal(sessionId, tabId),
       snapshot: () => browserHost.snapshot(),
       screenshot: (input, sessionId) => browserHost.screenshot(input, sessionId),
       click: (uid) => browserHost.click(uid),
@@ -615,6 +640,12 @@ export function createPluginServices({
       if (pluginId === BROWSER_PLUGIN_ID) browserHost.disposeGuest();
     },
   });
+  const speech = createSpeechService({
+    dataDir,
+    getHost,
+    plugins,
+    logger,
+  });
   return {
     plugins,
     userMcp,
@@ -626,6 +657,6 @@ export function createPluginServices({
     pluginPanels,
     pluginViews,
     browserHost,
-    browserPane,
+    speech,
   };
 }

@@ -1,3 +1,4 @@
+import { projectPlanHistory } from "./plan-history";
 import type {
   ScheduledTaskRun,
   ActivationScope,
@@ -13,6 +14,10 @@ import type {
   AgentPromptResponse,
   PromptEnhancementRequest,
   PromptEnhancementResponse,
+  SpeechStatus,
+  SpeechSynthesizeRequest,
+  SpeechSynthesizeResult,
+  SpeechTranscribeRequest,
   SessionSummarizeTitleRequest,
   SessionSummarizeTitleResponse,
   AgentStopResponse,
@@ -21,6 +26,7 @@ import type {
   QueuedTurnSummary,
   AgentStatus,
   AskToolResolution,
+  PendingInteractiveRequests,
   AgentInstructionFile,
   AppSettings,
   CommandShellCatalog,
@@ -75,7 +81,6 @@ import type {
   RemoteTerminalEvent,
   RemoteTerminalSnapshot,
   RemoteRelayToolDescriptor,
-  PullRequestSummary,
   ScheduledTask,
   ProviderCreateInput,
   ProviderPublic,
@@ -125,6 +130,8 @@ import type {
   TrustedExtensionStatusEvent,
   TrustedExtensionUiPrompt,
   TrustedExtensionUiPromptResponse,
+  SessionTodoSnapshot,
+  StorageInfo,
 } from "@pi-desktop/shared";
 import {
   defaultCommandShellForPlatform,
@@ -138,6 +145,7 @@ import {
   normalizeChatContentMaxWidth,
   validateNetworkPolicy,
   validateNetworkProxy,
+  validateSpeechSettings,
 } from "@pi-desktop/shared";
 
 export type ImportSource = "claude-code" | "opencode" | "codex" | "pi";
@@ -285,6 +293,9 @@ export interface ExternalMcpImportItem {
 }
 
 export interface ExternalMcpImportPayload {
+  /** Defaults to global for existing callers. */
+  level?: "global" | "project";
+  projectPath?: string;
   items: ExternalMcpImportItem[];
 }
 
@@ -299,6 +310,7 @@ declare global {
     piDesktop?: {
       invoke: <T = unknown>(channel: string, ...args: unknown[]) => Promise<Result<T>>;
       on: (channel: string, listener: (...args: unknown[]) => void) => () => void;
+      onLiveVoicePort?: () => () => void;
       channels: typeof IPC;
       platform: NodeJS.Platform;
       /** Authoritative OS locale passed from the main process at window creation. */
@@ -338,6 +350,7 @@ function normalizeSessionDetail(detail: SessionDetail | null): SessionDetail | n
   return detail
     ? {
         ...detail,
+        messages: projectPlanHistory(detail.messages, detail.planHistory ?? [], detail.id),
         mode: normalizeMode((detail as { mode?: unknown }).mode),
       }
     : null;
@@ -395,6 +408,9 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
     fontScale?: unknown;
     chatContentMaxWidth?: unknown;
     infiniteProviderRetry?: unknown;
+    smoothStreaming?: unknown;
+    updatePreference?: unknown;
+    lastNotifiedUpdateVersion?: unknown;
     networkProxy?: unknown;
     networkPolicy?: unknown;
   };
@@ -439,6 +455,33 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
       errorCode: "INVALID_PARAMS",
     });
   }
+  if (
+    Object.prototype.hasOwnProperty.call(value, "smoothStreaming") &&
+    typeof value.smoothStreaming !== "boolean"
+  ) {
+    throw Object.assign(new Error("smoothStreaming is invalid"), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(value, "updatePreference") &&
+    value.updatePreference !== "automatic" &&
+    value.updatePreference !== "manual"
+  ) {
+    throw Object.assign(new Error("updatePreference is invalid"), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(value, "lastNotifiedUpdateVersion") &&
+    (typeof value.lastNotifiedUpdateVersion !== "string" ||
+      value.lastNotifiedUpdateVersion.trim().length === 0 ||
+      value.lastNotifiedUpdateVersion.length > 128)
+  ) {
+    throw Object.assign(new Error("lastNotifiedUpdateVersion is invalid"), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
   if (Object.prototype.hasOwnProperty.call(value, "networkProxy")) {
     const proxy = validateNetworkProxy(value.networkProxy);
     if (!proxy.ok) {
@@ -456,6 +499,11 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
       });
     }
     value.networkPolicy = policy.value;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "speech")) {
+    (value as AppSettings).speech = validateSpeechSettings(
+      (value as { speech?: unknown }).speech,
+    );
   }
   return settings;
 }
@@ -512,6 +560,7 @@ export const api = {
   updatesDownload: () => invoke<UpdateState>(IPC.invoke.updatesDownload),
   updatesInstall: () => invoke(IPC.invoke.updatesInstall),
   updatesOpenReleases: () => invoke(IPC.invoke.updatesOpenReleases),
+  updatesDismiss: () => invoke(IPC.invoke.updatesDismiss),
   openFeedback: () => invoke(IPC.invoke.appOpenFeedback),
   listNotifications: (input?: { unreadOnly?: boolean; limit?: number }) =>
     invoke<NotificationListResult>(IPC.invoke.notificationList, input ?? {}),
@@ -527,6 +576,8 @@ export const api = {
     kind: "task" | "interactive";
     title: string;
     body: string;
+    /** Durable task timestamp used by Main to reject pre-dismissal replays. */
+    createdAt?: string;
   }) => invoke<{ shown: boolean }>(IPC.invoke.notificationShowNative, input),
   setNotificationViewingSession: (sessionId: string | null) =>
     invoke<{ ok: boolean }>(IPC.invoke.notificationSetViewingSession, {
@@ -604,6 +655,14 @@ export const api = {
   runImportModelConfigs: (items: ModelConfigImportCandidate[]) =>
     invoke<ImportRunResult>(IPC.invoke.modelConfigImportRun, items),
   getSettings: () => invoke<AppSettings>(IPC.invoke.settingsGet).then(normalizeSettings),
+  getStorageInfo: () => invoke<StorageInfo>(IPC.invoke.storageGet),
+  chooseStorageDirectory: () => invoke<string | null>(IPC.invoke.storageChoose),
+  migrateStorage: (input: { path: string; language: string }) =>
+    invoke<void>(IPC.invoke.storageMigrate, input),
+  clearStorageCache: (input: { language: string }) =>
+    invoke<void>(IPC.invoke.storageClearCache, input),
+  removeStorageBackup: (input: { language: string }) =>
+    invoke<void>(IPC.invoke.storageRemoveBackup, input),
   setSettings: (settings: AppSettings) =>
     invoke(IPC.invoke.settingsSet, validateSettingsWrite(settings)),
   configSyncGetState: () => invoke<ConfigSyncState>(IPC.invoke.configSyncGetState),
@@ -666,10 +725,10 @@ export const api = {
      ),
    /** Voice dictation capabilities: booleans and limits only, no secrets. */
    getVoiceCapabilities: () =>
-     invoke<VoiceCapabilities>(IPC.invoke.voiceCapabilities),
+     invoke<VoiceCapabilities>(IPC.invoke.dictationCapabilities),
    /** One-shot dictation transcription (validated audio bytes in, text out). */
    voiceTranscribe: (request: VoiceTranscribeRequest) =>
-     invoke<VoiceTranscribeResponse>(IPC.invoke.voiceTranscribe, request),
+     invoke<VoiceTranscribeResponse>(IPC.invoke.dictationTranscribe, request),
    testProvider: (id: string) => invoke(IPC.invoke.providersTest, id),
    /**
     * Discover models from the provider's own endpoint. Saved providers pass
@@ -678,8 +737,15 @@ export const api = {
    *
    * `source` reports where the list came from: `remote` is the service's own
    * answer, `catalog` means the endpoint published nothing and models.dev was
+   * `source` reports where the list came from: `remote` is the service's own
+   * answer, `catalog` means the endpoint published nothing and models.dev was
    * used instead, `cache` is the local table, `fallback` is just the configured
    * model id.
+   *
+   * The resolution fields let the form show what the probe actually did:
+   * `effectiveBaseUrl` is the address that answered (which may be a completed
+   * candidate rather than the typed URL), `discoveryStyle` is how it was asked,
+   * and `evidence` is the reason the candidate was chosen.
    */
   listProviderModels: (input: {
     providerId?: string;
@@ -693,6 +759,10 @@ export const api = {
       models: ModelInfo[];
       source: "cache" | "remote" | "catalog" | "fallback";
       error?: string;
+      effectiveBaseUrl?: string;
+      discoveryStyle?: string;
+      apiStyleHint?: string;
+      evidence?: string;
     }>(IPC.invoke.providersListModels, input),
   /**
    * Look one hand-typed model id up in the local models.dev snapshot.
@@ -894,8 +964,6 @@ export const api = {
   }) => invoke(IPC.invoke.remoteTerminalResize, input),
   closeRemoteTerminal: (input: { sessionId: string; terminalId: string }) =>
     invoke(IPC.invoke.remoteTerminalClose, input),
-  listPullRequests: () =>
-    invoke<{ pulls: PullRequestSummary[]; error?: string }>(IPC.invoke.pullsList),
   listScheduled: () =>
     invoke<{ tasks: ScheduledTask[] }>(IPC.invoke.scheduledList),
   createScheduled: (input: {
@@ -921,7 +989,12 @@ export const api = {
     invoke<{ task: ScheduledTask }>(IPC.invoke.scheduledUpdate, input),
   deleteScheduled: (id: string) => invoke(IPC.invoke.scheduledDelete, id),
   executeScheduled: (id: string) => invoke<{ sessionId: string }>(IPC.invoke.scheduledExecute, id),
-  listScheduledRuns: () => invoke<{ runs: ScheduledTaskRun[] }>(IPC.invoke.scheduledListRuns),
+  listScheduledRuns: (options: {
+    taskId?: string;
+    limit?: number;
+    /** One newest run per task, for the task column's own outcomes. */
+    latestPerTask?: boolean;
+  } = {}) => invoke<{ runs: ScheduledTaskRun[] }>(IPC.invoke.scheduledListRuns, options),
   runScheduled: (id: string) =>
     invoke<{ sessionId: string; prompt: string; task: ScheduledTask }>(
       IPC.invoke.scheduledRun,
@@ -954,12 +1027,17 @@ export const api = {
     invoke<AgentPromptResponse>(IPC.invoke.agentPrompt, req),
   enhancePrompt: (req: PromptEnhancementRequest) =>
     invoke<PromptEnhancementResponse>(IPC.invoke.promptEnhance, req),
+  speechStatus: () => invoke<SpeechStatus>(IPC.invoke.speechGetStatus),
+  speechTranscribe: (req: SpeechTranscribeRequest) =>
+    invoke<{ text: string }>(IPC.invoke.speechTranscribe, req),
+  speechSynthesize: (req: SpeechSynthesizeRequest) =>
+    invoke<SpeechSynthesizeResult>(IPC.invoke.speechSynthesize, req),
   compact: (req: AgentCompactRequest) =>
     invoke<AgentCompactResponse>(IPC.invoke.agentCompact, req),
   abort: (sessionId: string) =>
     invoke(IPC.invoke.agentAbort, { sessionId }),
-  stop: (sessionId: string) =>
-    invoke<AgentStopResponse>(IPC.invoke.agentStop, { sessionId }),
+  stop: (sessionId: string, turnId?: string) =>
+    invoke<AgentStopResponse>(IPC.invoke.agentStop, { sessionId, ...(turnId ? { turnId } : {}) }),
   queuePrompt: (req: AgentQueuePushRequest) =>
     invoke<QueuedTurnSummary>(IPC.invoke.agentQueuePush, req),
   listQueuedPrompts: (sessionId: string) =>
@@ -991,6 +1069,8 @@ export const api = {
     invoke(IPC.invoke.toolResolvePermission, resolution),
   resolveAskTool: (resolution: AskToolResolution) =>
     invoke(IPC.invoke.askToolResolve, resolution),
+  pendingInteractive: (sessionId: string) =>
+    invoke<PendingInteractiveRequests>(IPC.invoke.pendingInteractive, { sessionId }),
   pendingPlans: (sessionId?: string) =>
     invoke<PlansPendingResult>(
       IPC.invoke.plansPending,
@@ -1000,6 +1080,9 @@ export const api = {
     invoke<PlanResolutionResult>(IPC.invoke.plansResolve, resolution),
   listPlugins: () =>
     invoke<{ plugins: PluginSummary[] }>(IPC.invoke.pluginList),
+  /** One renderer slot component asking its own plugin for one JSON answer. */
+  pluginRendererCall: (pluginId: string, method: string, args?: unknown) =>
+    invoke(IPC.invoke.pluginRendererCall, pluginId, method, args),
   /**
    * Picking a folder only reports what it declares; the load happens in
    * `confirmLoadDevPlugin` once the user has seen that.
@@ -1149,16 +1232,20 @@ export const api = {
   createUserSkill: (skill: UserSkillInput) =>
     invoke<{ skill: UserSkillRecord }>(IPC.invoke.skillCreate, skill),
   /**
-   * Opens a native picker for one file or (when `sourceKind === "dir"`) a
-   * folder; `canceled` when the user backed out. `mode: "link"` swaps copy
-   * for a symlink import.
+   * Opens a native picker for one file or multiple skill folders.
+   * Folder results report successful and failed imports independently.
    */
   importUserSkill: (
     query?: AgentCapabilityQuery & {
       sourceKind?: "file" | "dir";
       mode?: "copy" | "link";
     },
-  ) => invoke<{ canceled?: boolean; skill?: UserSkillRecord }>(IPC.invoke.skillImport, query),
+  ) => invoke<{
+    canceled?: boolean;
+    skill?: UserSkillRecord;
+    imported?: UserSkillRecord[];
+    failed?: Array<{ path: string; error: string }>;
+  }>(IPC.invoke.skillImport, query),
   /**
    * Scan third-party AI-tool skill directories. The scanner never throws;
    * a source that failed to read is reported with an `error` on its row.
@@ -1264,10 +1351,10 @@ export const api = {
   pluginViewOpen: (
     pluginId: string,
     viewId: string,
-    extra?: { sessionId?: string; location?: string },
+    extra?: { sessionId?: string; location?: string; tabId?: string },
   ) => invoke(IPC.invoke.pluginViewOpen, { pluginId, viewId, ...extra }),
-  pluginViewClose: (pluginId: string, viewId: string) =>
-    invoke(IPC.invoke.pluginViewClose, { pluginId, viewId }),
+  pluginViewClose: (pluginId: string, viewId: string, extra?: { sessionId: string; tabId?: string }) =>
+    invoke(IPC.invoke.pluginViewClose, { pluginId, viewId, ...extra }),
   pluginViewSetBounds: (bounds: {
     x: number;
     y: number;
@@ -1394,7 +1481,8 @@ export const api = {
       ...(mimeType ? { mimeType } : {}),
     }),
   fsReveal: (path: string) => invoke(IPC.invoke.fsReveal, { path }),
-  fsOpen: (path: string) => invoke(IPC.invoke.fsOpen, { path }),
+  fsOpen: (path: string, mimeType?: string) =>
+    invoke(IPC.invoke.fsOpen, { path, mimeType }),
   fsIndex: () => invoke<FsIndexResult>(IPC.invoke.fsIndex),
   /**
    * Complete a file reference from chat text to a real file (D320 follow-up).
@@ -1418,10 +1506,10 @@ export const api = {
       IPC.invoke.windowSetWorkPanelChatWidth,
       { width },
     ),
-  setWindowBackgroundColor: (theme: "light" | "dark", color?: string) =>
-    invoke<{ applied: boolean; theme: "light" | "dark"; color?: string }>(
+  setWindowBackgroundColor: (theme: "light" | "dark", color?: string, cornerRadius?: number) =>
+    invoke<{ applied: boolean; theme: "light" | "dark"; color?: string; cornerRadius?: number | null }>(
       IPC.invoke.windowSetBackgroundColor,
-      { theme, color },
+      { theme, color, cornerRadius },
     ),
   windowControl: (action: WindowControlAction) =>
     invoke<{ maximized: boolean }>(IPC.invoke.windowControl, { action }),
@@ -1530,6 +1618,14 @@ export const api = {
       listener(normalizePlansChangedEvent(payload)),
     );
   },
+  getTodos: (sessionId: string) =>
+    invoke<SessionTodoSnapshot>(IPC.invoke.todosGet, { sessionId }),
+  onTodosChanged: (listener: (snapshot: SessionTodoSnapshot) => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.todosChanged, (payload) =>
+      listener(payload as SessionTodoSnapshot),
+    );
+  },
   onOauthLogin: (listener: (event: OAuthLoginEvent) => void) => {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.providersOauth, (payload) =>
@@ -1579,6 +1675,10 @@ export const api = {
     return window.piDesktop.on(IPC.event.notificationChanged, (payload) =>
       listener((payload as { notification: AppNotification }).notification),
     );
+  },
+  onNotificationSound: (listener: () => void) => {
+    if (!window.piDesktop?.on) return () => undefined;
+    return window.piDesktop.on(IPC.event.notificationSound, () => listener());
   },
 
   // --- Remote hosts (R2b pairing UX) -----------------------------------------

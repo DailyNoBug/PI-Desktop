@@ -1,14 +1,20 @@
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, Model, Api } from "@earendil-works/pi-ai";
 import { estimateContextTokens, estimateMessageTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { convertResponsesMessages } from "@earendil-works/pi-ai/api/openai-responses-shared";
 import { LocalRequestError, localRequestErrorDetails, normalizeHostedSearchContent, normalizeContext } from "@earendil-works/pi-ai";
 import type { HostedSearchContent, AssistantMessageEvent } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import {
+  estimateContextTokens as estimateDesktopContextTokens,
+  estimateTokens as estimateDesktopTokens,
+} from "./pi-runtime-estimates.js";
 
-const require = createRequire(import.meta.url);
-const compaction = await import(pathToFileURL(require.resolve("@earendil-works/pi-agent-core/package.json").replace(/package\.json$/, "dist/harness/compaction/compaction.js")).href);
+const compaction = {
+  estimateTokens: (message: unknown) => estimateDesktopTokens(message as AgentMessage),
+  estimateContextTokens: (messages: unknown[]) =>
+    estimateDesktopContextTokens(messages as AgentMessage[]),
+};
 const apis = ["openai-responses", "azure-openai-responses", "anthropic-messages"] as const;
 function model<TApi extends Api>(api: TApi): Model<TApi> {
   return { id: "test-model", name: "test", api, provider: api === "anthropic-messages" ? "anthropic" : "openai", baseUrl: "http://localhost", reasoning: false, input: ["text"], contextWindow: 100_000, maxTokens: 1000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
@@ -159,6 +165,19 @@ describe("real dependency hosted-search estimation and requests", () => {
     expect(estimateMessageTokens(msg)).toBe(Math.ceil(JSON.stringify(same[0]).length / 4));
     const decorated = { ...(content[0] as object), query: "ignored".repeat(1000), results: [{ url: "ignored".repeat(1000) }] };
     expect(estimateMessageTokens(assistant([decorated]))).toBe(estimateMessageTokens(msg));
+  });
+
+  it("replays Responses search history to the Codex Responses adapter", () => {
+    const api = "openai-codex-responses";
+    const msg = assistant(search(api, 100), api);
+    const context = normalizeContext({ messages: [msg] });
+    const same = convertResponsesMessages(model(api), context, new Set(), {});
+    const other = convertResponsesMessages({ ...model(api), id: "other" }, context, new Set(), {});
+    expect(same).toHaveLength(1);
+    expect(same[0]).toMatchObject({ type: "web_search_call", id: "ws_1" });
+    expect(other).toHaveLength(0);
+    expect(estimateMessageTokens(msg, { ...model(api), id: "other" })).toBe(0);
+    expect(estimateMessageTokens(msg)).toBe(Math.ceil(JSON.stringify(same[0]).length / 4));
   });
   it("declares search content and events without fake name/arguments", () => {
     const block: HostedSearchContent = { type: "hostedSearch", phase: "web_search_call", blockId: "legacy" };

@@ -184,7 +184,7 @@ export function validateVoiceTranscribeRequest(input: unknown): VoiceTranscribeV
 }
 
 /**
- * Trusted, persisted voice settings (AppSettings.voice). Transcription runs on
+ * Trusted, persisted voice settings (AppSettings.dictation). Transcription runs on
  * a local plugin model, so no endpoint, model id, or API key is configured
  * here; only dictation behavior preferences live in settings.
  */
@@ -195,7 +195,7 @@ export type VoiceSettings = {
   autoSend?: boolean;
 };
 
-/** Clamp/strip an untrusted `AppSettings.voice` value; `undefined` when empty. */
+/** Clamp/strip an untrusted `AppSettings.dictation` value; `undefined` when empty. */
 export function normalizeVoiceSettings(input: unknown): VoiceSettings | undefined {
   if (!input || typeof input !== "object") return undefined;
   const raw = input as Record<string, unknown>;

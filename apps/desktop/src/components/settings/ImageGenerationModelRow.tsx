@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
 import {
   imageGenerationBindings,
-  modelIdsMatch,
+  vendorAccountImageCandidates,
   type AppSettings,
   type ImageGenerationBinding,
   type ProviderPublic,
 } from "@pi-desktop/shared";
+import { sameComposerModelId } from "../../lib/composer-models";
 import { SettingsMenuSelect } from "./SettingsMenuSelect";
 import { imageGenerationBindingAvailable } from "./image-generation-default";
 
@@ -28,16 +29,21 @@ export function ImageGenerationModelRow({
   const binding = settings.imageGeneration;
   // An explicit candidate list is the user's selection. Do not put the stored
   // default back when they cleared it; only a missing list is the legacy
-  // single-binding fallback.
-  const candidates = Array.isArray(settings.imageGenerationModels)
+  // single-binding fallback. A signed-in vendor account also offers the image
+  // model it answers with, which its chat model list does not carry.
+  const configured = Array.isArray(settings.imageGenerationModels)
     ? imageGenerationBindings(settings.imageGenerationModels, null)
     : imageGenerationBindings(undefined, binding);
+  const candidates = imageGenerationBindings(
+    [...configured, ...vendorAccountImageCandidates(providers)],
+    null,
+  );
   if (candidates.length === 0) return null;
 
   const activeCandidate = binding
     ? candidates.find((candidate) =>
       candidate.providerId === binding.providerId &&
-      modelIdsMatch(candidate.modelId, binding.modelId),
+      sameComposerModelId(candidate.modelId, binding.modelId),
     )
     : undefined;
   const provider = binding

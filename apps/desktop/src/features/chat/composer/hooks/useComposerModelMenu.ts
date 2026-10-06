@@ -1,30 +1,32 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { sameRecentModel } from "../../../../lib/recent-models";
 import type {
   Mode,
   ProviderPublic,
   SessionThinkingLevel,
 } from "@pi-desktop/shared";
 import {
-  initialThinkingLevelForBinding,
   imageGenerationBindings,
+  initialThinkingLevelForBinding,
+  initialThinkingLevelForUnmatchedModel,
   isImageGenerationModel,
-  modelIdsMatch,
 } from "@pi-desktop/shared";
-import { useAppStore } from "../../../../stores/app-store";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  composerModelBinding,
   composerModelMatchesQuery,
   composerModelsForProvider,
+  sameComposerModelId,
 } from "../../../../lib/composer-models";
 import {
   providerDisplayName,
   providerSearchText,
 } from "../../../../lib/provider-display";
 import { providerThinkingLevels } from "../../../../lib/session-thinking";
+import { useAppStore } from "../../../../stores/app-store";
 import {
   sessionThinkingMenuLevels,
   thinkingLevelForProvider,
   thinkingProviderForModel,
-  type ComposerMenuView,
 } from "../model";
 import { createLatestCommitQueue } from "../thinking-commit-queue";
 
@@ -52,6 +54,7 @@ export function useComposerModelMenu({
   configureActiveSession,
 }: UseComposerModelMenuOptions) {
   const providers = useAppStore((s) => s.providers);
+  const recentModels = useAppStore((s) => s.recentModels);
   const imageGeneration = useAppStore((s) => s.settings?.imageGeneration);
   const imageGenerationModels = useAppStore((s) => s.settings?.imageGenerationModels);
   const imageGenerationCandidates = useMemo(
@@ -62,14 +65,11 @@ export function useComposerModelMenu({
   const loadProviderModels = useAppStore((s) => s.loadProviderModels);
   const showToast = useAppStore((s) => s.showToast);
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<ComposerMenuView>("root");
+  const [otherModelsExpanded, setOtherModelsExpanded] = useState(false);
   const [query, setQuery] = useState("");
   const [modelHighlight, setModelHighlight] = useState(-1);
-  const [thinkingHighlight, setThinkingHighlight] = useState(-1);
-  const rootMenuRef = useRef<HTMLDivElement>(null);
   const modelSearchRef = useRef<HTMLInputElement>(null);
   const modelListRef = useRef<HTMLDivElement>(null);
-  const thinkingListRef = useRef<HTMLDivElement>(null);
   const thinkingConfigRef = useRef({
     mode,
     providerId: provider?.id,
@@ -140,6 +140,15 @@ export function useComposerModelMenu({
         .filter((group) => group.models.length > 0),
     [providers, providerModels, imageGenerationCandidates],
   );
+  const recentEntries = useMemo(() => {
+    const entries = modelGroups.flatMap(group => group.models.map(model => ({ provider: group.provider, model })));
+    return (recentModels ?? []).flatMap(recent => {
+      const entry = entries.find(entry => sameRecentModel(recent, {
+        providerId: entry.provider.id, modelId: entry.model.modelId,
+      }));
+      return entry ? [entry] : [];
+    }).slice(0, 3);
+  }, [modelGroups, recentModels]);
   const queryNeedle = query.trim().toLowerCase();
   const filteredModelGroups = useMemo(
     () =>
@@ -152,6 +161,7 @@ export function useComposerModelMenu({
                   model,
                   group.providerSearchText,
                   queryNeedle,
+                  composerModelBinding(group.provider, model.modelId)?.alias,
                 ),
               ),
             }))
@@ -159,12 +169,19 @@ export function useComposerModelMenu({
         : modelGroups,
     [modelGroups, queryNeedle],
   );
+  const showRecents = !queryNeedle && recentEntries.length > 0;
+  const remainingGroups = showRecents ? filteredModelGroups.map(group => ({
+    ...group,
+    models: group.models.filter(model => !recentEntries.some(entry =>
+      entry.provider.id === group.provider.id && sameComposerModelId(entry.model.modelId, model.modelId))),
+  })).filter(group => group.models.length > 0) : filteredModelGroups;
+  const visibleGroups = !showRecents || otherModelsExpanded ? remainingGroups : [];
   const flatModels = useMemo(
     () =>
-      filteredModelGroups.flatMap((group) =>
+      [...(showRecents ? recentEntries : []), ...visibleGroups.flatMap((group) =>
         group.models.map((model) => ({ provider: group.provider, model })),
-      ),
-    [filteredModelGroups],
+      )],
+    [visibleGroups, showRecents, recentEntries],
   );
   const flatModelsKey = useMemo(
     () => flatModels.map((entry) => `${entry.provider.id}:${entry.model.modelId}`).join("|"),
@@ -175,22 +192,15 @@ export function useComposerModelMenu({
       flatModels.findIndex(
         (entry) =>
           entry.provider.id === provider?.id &&
-          entry.model.modelId === modelId,
+          sameComposerModelId(entry.model.modelId, modelId ?? ""),
       ),
     [flatModels, provider?.id, modelId],
   );
 
   useEffect(() => {
-    if (!open || view !== "model") return;
+    if (!open) return;
     setModelHighlight(queryNeedle ? (flatModels.length ? 0 : -1) : activeFlatIndex);
-  }, [activeFlatIndex, flatModels.length, flatModelsKey, open, queryNeedle, view]);
-
-  useEffect(() => {
-    if (!open || view !== "thinking") return;
-    setThinkingHighlight(
-      thinkingLevel ? thinkingMenuLevels.indexOf(thinkingLevel) : -1,
-    );
-  }, [open, thinkingLevel, thinkingMenuLevels, view]);
+  }, [activeFlatIndex, flatModels.length, flatModelsKey, open, queryNeedle]);
 
   useEffect(() => {
     if (!open) return;
@@ -203,10 +213,9 @@ export function useComposerModelMenu({
 
   useEffect(() => {
     if (open) return;
-    setView("root");
+    setOtherModelsExpanded(false);
     setQuery("");
     setModelHighlight(-1);
-    setThinkingHighlight(-1);
   }, [open]);
   useEffect(() => {
     thinkingQueueRef.current?.invalidate();
@@ -219,44 +228,11 @@ export function useComposerModelMenu({
   }, [controlsBlocked]);
 
   useEffect(() => {
-    if (!open) return;
-    requestAnimationFrame(() => {
-      if (view === "root") rootMenuRef.current?.querySelector<HTMLButtonElement>(".composer-menu-entry")?.focus();
-      if (view === "model") modelSearchRef.current?.focus();
-      if (view === "thinking") thinkingListRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-      if (view === "model" && modelHighlight >= 0) {
-        modelListRef.current
-          ?.querySelector(`[data-model-index="${modelHighlight}"]`)
-          ?.scrollIntoView({ block: "nearest" });
-      }
-      if (view === "thinking" && thinkingHighlight >= 0) {
-        thinkingListRef.current
-          ?.querySelector(`[data-thinking-index="${thinkingHighlight}"]`)
-          ?.scrollIntoView({ block: "nearest" });
-      }
-    });
-  }, [open, view]);
-
-  useEffect(() => {
-    if (!open || view !== "model" || modelHighlight < 0) return;
+    if (!open || modelHighlight < 0) return;
     modelListRef.current
       ?.querySelector(`[data-model-index="${modelHighlight}"]`)
       ?.scrollIntoView({ block: "nearest" });
-  }, [modelHighlight, open, view]);
-
-  useEffect(() => {
-    if (!open || view !== "thinking" || thinkingHighlight < 0) return;
-    thinkingListRef.current
-      ?.querySelector(`[data-thinking-index="${thinkingHighlight}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [open, thinkingHighlight, view]);
-
-  const showView = (nextView: ComposerMenuView) => {
-    setView(nextView);
-    setModelHighlight(-1);
-    setThinkingHighlight(-1);
-    if (nextView !== "model") setQuery("");
-  };
+  }, [modelHighlight, open]);
 
   const selectModel = async (candidate: ProviderPublic, nextModelId: string) => {
     thinkingQueueRef.current?.invalidate();
@@ -276,14 +252,26 @@ export function useComposerModelMenu({
         providerModels[candidate.id],
       );
       const nextBinding = candidate.models.find((entry) =>
-        modelIdsMatch(entry.id, nextModelId),
+        sameComposerModelId(entry.id, nextModelId),
       );
-      const nextThinkingLevel = activeSessionId
+      const nextModel = providerModels[candidate.id]?.find((entry) =>
+        sameComposerModelId(entry.modelId, nextModelId),
+      );
+      const selectedSameModel =
+        activeSessionId &&
+        candidate.id === provider?.id &&
+        sameComposerModelId(modelId ?? "", nextModelId);
+      const nextThinkingLevel = selectedSameModel
         ? thinkingLevelForProvider(nextModelProvider, thinkingLevel)
-        : initialThinkingLevelForBinding(
-            nextBinding,
-            nextModelProvider?.supportedThinkingLevels,
-          );
+        : (nextModel?.catalogSource === "models.dev"
+          ? initialThinkingLevelForBinding(
+              nextBinding,
+              nextModelProvider?.supportedThinkingLevels,
+            )
+          : initialThinkingLevelForUnmatchedModel(
+              nextBinding,
+              nextModelProvider?.supportedThinkingLevels,
+            ));
       await configureActiveSession({
         mode,
         providerId: candidate.id,
@@ -291,9 +279,8 @@ export function useComposerModelMenu({
         thinkingLevel: nextThinkingLevel,
       });
       setQuery("");
-      setView("root");
+      setOtherModelsExpanded(false);
       setModelHighlight(-1);
-      setThinkingHighlight(-1);
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), {
         variant: "error",
@@ -313,13 +300,6 @@ export function useComposerModelMenu({
     return queue.commit(level);
   };
 
-  const selectThinkingLevel = async (level: SessionThinkingLevel) => {
-    if (!(await commitThinkingLevel(level))) return;
-    setView("root");
-    setModelHighlight(-1);
-    setThinkingHighlight(-1);
-  };
-
   const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Escape") {
@@ -327,68 +307,44 @@ export function useComposerModelMenu({
       setOpen(false);
       return;
     }
-    if (event.key === "ArrowLeft" && view !== "root") {
-      event.preventDefault();
-      showView("root");
-      return;
-    }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
-      if (event.key === "Enter" && view === "model" && event.target instanceof HTMLInputElement) {
+      if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
         const entry = flatModels[modelHighlight];
         if (entry) {
           event.preventDefault();
           void selectModel(entry.provider, entry.model.modelId);
         }
       }
-      if (event.key === "Enter" && view === "thinking") {
-        const level = thinkingMenuLevels[thinkingHighlight] ?? thinkingMenuLevels[0];
-        if (level) {
-          event.preventDefault();
-          void selectThinkingLevel(level);
-        }
-      }
       return;
     }
-    if (view === "root") return;
+    if (!(event.target instanceof HTMLInputElement)) return;
     event.preventDefault();
-    if (view === "model") {
-      if (!flatModels.length) return;
-      const delta = event.key === "ArrowDown" ? 1 : -1;
-      setModelHighlight((current) => {
-        const base = current < 0 ? (delta > 0 ? -1 : flatModels.length) : current;
-        return (base + delta + flatModels.length) % flatModels.length;
-      });
-      return;
-    }
-    if (!thinkingMenuLevels.length) return;
+    if (!flatModels.length) return;
     const delta = event.key === "ArrowDown" ? 1 : -1;
-    setThinkingHighlight((current) => {
-      const base = current < 0 ? (delta > 0 ? -1 : thinkingMenuLevels.length) : current;
-      return (base + delta + thinkingMenuLevels.length) % thinkingMenuLevels.length;
+    setModelHighlight((current) => {
+      const base = current < 0 ? (delta > 0 ? -1 : flatModels.length) : current;
+      return (base + delta + flatModels.length) % flatModels.length;
     });
   };
 
   return {
     open,
     setOpen,
-    view,
+    otherModelsExpanded,
+    setOtherModelsExpanded,
     query,
     setQuery,
     modelHighlight,
     setModelHighlight,
-    thinkingHighlight,
-    setThinkingHighlight,
-    rootMenuRef,
     modelSearchRef,
     modelListRef,
-    thinkingListRef,
-    modelGroups: filteredModelGroups,
+    modelGroups: visibleGroups,
+    recentEntries: showRecents ? recentEntries : [],
+    hasOtherModels: showRecents && remainingGroups.length > 0,
     flatModels,
     thinkingMenuLevels,
-    showView,
     selectModel,
     commitThinkingLevel,
-    selectThinkingLevel,
     onMenuKeyDown,
     controlsBlocked,
   };

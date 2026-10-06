@@ -1,25 +1,32 @@
-# 20. Speech (local voice plugin)
+# 20. Speech (local voice plugin) and host speech
 
 > Source of truth: `packages/shared/src/voice.ts`,
-> `apps/desktop/electron/main/ipc/voice-ipc.ts`,
+> `apps/desktop/electron/main/ipc/dictation-ipc.ts`,
 > `apps/desktop/electron/main/plugin-runtime.ts`,
 > `apps/desktop/resources/plugins/pi.local-voice/`.
-> ADR: [0313-local-voice-plugin](../../adr/0313-local-voice-plugin.md).
+> ADR: [0329-local-voice-plugin](../../adr/0329-local-voice-plugin.md).
 
-Speech-to-text is a plugin capability, not a host service. There are no builtin
-speech protocols, no `AppSettings.speech` bindings, and no speech channels of
-the removed cloud path; dictation enters through the frozen voice IPC domain
-and runs on a speech adapter registered by a plugin. The shipped implementation
-is the bundled first-party plugin `pi.local-voice`, which transcribes locally
-on a Whisper ONNX model (ADR 0313, superseding the Phase 1 cloud STT of
-ADR 0312).
+Dictation (speech-to-text for the composer) is a plugin capability in this
+fork, not a host service. It enters through the frozen dictation IPC domain
+(`pi-desktop/dictation/*`, renamed from the Phase 1 `pi-desktop/voice/*` when
+the 2026-10 upstream sync introduced its own host voice stack) and runs on a
+speech adapter registered by a plugin. The shipped implementation is the
+bundled first-party plugin `pi.local-voice`, which transcribes locally on a
+Whisper ONNX model (ADR 0329, superseding the Phase 1 cloud STT of ADR 0328).
+
+The 2026-10 upstream sync additionally adopted the upstream host speech
+capability (ASR/TTS via `speech-service.ts` and `AppSettings.speech`, ADR
+[0281-host-speech-capability](../../adr/0281-host-speech-capability.md)) and
+the app-owned realtime voice calls ([live-voice.md](live-voice.md)). Those are
+separate surfaces: dictation never reads host speech settings and host speech
+never touches the dictation channels.
 
 ## 1. IPC entry (frozen)
 
 ```
-pi-desktop/voice/capabilities → VoiceCapabilities (no secrets)
-pi-desktop/voice/transcribe
-pi-desktop/voice/cancel
+pi-desktop/dictation/capabilities → VoiceCapabilities (no secrets)
+pi-desktop/dictation/transcribe
+pi-desktop/dictation/cancel
 ```
 
 All three channels accept only the main application window's sender (IPC spec
@@ -34,7 +41,7 @@ its own state machine, and a late transcript is discarded.
 
 ```
 renderer WebAudio capture (mono 16-bit PCM, 16 kHz)
-  → preload IPC (pi-desktop/voice/transcribe)
+  → preload IPC (pi-desktop/dictation/transcribe)
   → Electron main voice IPC (typebox envelope + binary validation)
   → PluginRuntime.runSpeechAdapter (protocol pi.local_voice)
   → plugin process speech.handle
@@ -54,7 +61,7 @@ Speech adapter protocol ids match `^[a-z][a-z0-9._-]{0,63}$`
 (`packages/shared/src/speech.ts`). Speech has no configured host state — an
 absent adapter is the only unconfigured state — and no app surface reads a
 speech binding: callers are the frozen voice IPC domain and plugin adapters
-(ADR 0291, ADR 0313).
+(ADR 0291, ADR 0329).
 
 ## 3. Bundled `pi.local-voice` plugin
 
@@ -115,7 +122,7 @@ bundled local-voice plugin. Unload unregisters.
   speech protocol.
 - Settings exposes **no** cloud speech surface (ADR 0291): this fork has no
   `AppSettings.speech` bindings and no `speech/*` IPC, and the only Settings
-  surface is the local-voice **Voice** card (ADR 0313). Whisper / TTS models
+  surface is the local-voice **Voice** card (ADR 0329). Whisper / TTS models
   must not appear in the chat model picker.
 - v1 does not implement Realtime or agent tools; microphone capture is the
   dictation path above.

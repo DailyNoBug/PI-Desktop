@@ -15,7 +15,7 @@ export type VoiceCapabilitiesState = {
 const IDLE: VoiceCapabilitiesState = { configured: false, loading: true };
 
 /**
- * `refreshKey` should be the persisted `AppSettings.voice` reference (or any
+ * `refreshKey` should be the persisted `AppSettings.dictation` reference (or any
  * value that changes when the user edits voice settings) so the mic button
  * appears/disappears without an app restart.
  */

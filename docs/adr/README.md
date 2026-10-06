@@ -20,6 +20,12 @@ Each ADR includes:
 
 | ID | Title | Status |
 |---|---|---|
+| composer-mcp-invocations | [Composer MCP Invocations](composer-mcp-invocations.md) | Accepted |
+| chronological-system-transcript | [Preserve chronological model system state](chronological-system-transcript.md) | Accepted |
+| mcp-tool-approval-risk | [User MCP tools keep the normal approval path](mcp-tool-approval-risk.md) | Accepted |
+| models-dev-catalog-authority | [models.dev owns published model metadata](models-dev-catalog-authority.md) | Accepted for implementation |
+| pi-ai-core-0991-authority | [Pi 0.99.1 account model authority](pi-ai-core-0991-authority.md) | Superseded for chat model metadata |
+| plan-tool-declarations-and-execution-denials | [Keep known tool declarations while denying contract-mode execution](plan-tool-declarations-and-execution-denials.md) | Accepted for implementation |
 | trusted-extension-operation-ownership | [Trusted extension operation ownership](trusted-extension-operation-ownership.md) | Implemented candidate |
 | scheduled-desktop-automations | [Desktop automation scheduling](scheduled-desktop-automations.md) | Accepted for implementation |
 | subagent-model-fallback | [Ordered subagent model fallback](subagent-model-fallback.md) | Accepted for implementation |
@@ -50,7 +56,7 @@ Each ADR includes:
 | 0024 | Composer Slash Commands and @ File References | Accepted |
 | 0025 | Keep Application Menus out of Windows/Linux Windows | Accepted |
 | 0026 | Move the Projects Index into Settings as an Archive | Superseded in part by 0036 |
-| 0027 | Make pi-ai authoritative for model metadata | Accepted |
+| 0027 | Make pi-ai authoritative for model metadata | Superseded for chat metadata |
 | 0028 | Scope work-panel runtime contexts to conversations | Accepted |
 | 0029 | Separate native-window and work-panel resize ownership | Superseded in part by 0032 |
 | 0030 | Turn-boundary context checkpoint compaction | Accepted |
@@ -87,7 +93,7 @@ Each ADR includes:
 | 0061 | Imperceptible background context compaction | Accepted (amends 0030 / 0049; clauses 2/4/6/7/8 amended by 0064) |
 | 0062 | Bounded Subagents Behind a Task Tool | Accepted for implementation (`maxTurns` clause withdrawn by 0253) |
 | 0063 | A Managed Surface for Global Subagent Definitions | Accepted for implementation (`maxTurns` field withdrawn by 0253) |
-| 0064 | Codex-parity context compaction | Accepted (amends 0061 / 0030) |
+| 0064 | Codex-parity context compaction | Accepted (amended by D623 / issue #970: 90% inline trigger) |
 | 0065 | Smooth shell layout and stream feedback | Accepted for implementation |
 | 0066 | Empty home direct bottom composer | Accepted for implementation (amends D111) |
 | 0067 | ChatGPT-inspired empty-home starter guidance | Superseded by D206 |
@@ -118,6 +124,7 @@ Each ADR includes:
 | 0092 | Use a plugin-owned surface with a host window-control capsule | Accepted |
 | 0093 | Keep a strict 46px plugin drag band with a minimal capsule | Accepted |
 | 0094 | Admit one desktop instance per data directory | Accepted |
+| custom-storage-location | [Custom storage location with cold migration](custom-storage-location.md) | Accepted |
 | 0095 | Sign in with a vendor account instead of pasting an API key | Accepted for implementation |
 | 0096 | Flatten the Settings directory and colocate marketplace source configuration | Accepted |
 | 0097 | Place global defaults under the AI settings destination | Accepted |
@@ -156,8 +163,8 @@ Each ADR includes:
 | 0130 | Bounded Mounted Transcript Window | Accepted |
 | 0131 | Spill Large Composer Text Pastes into Session Scratch | Accepted |
 | 0132 | Attribute cross-display window moves to the user | Accepted |
-| 0133 | Use models.dev as the primary model catalog with pi-ai fallback | Superseded by 0134 |
-| 0134 | Use models.dev as the sole model metadata source with a local snapshot | Accepted |
+| 0133 | Use models.dev as the primary model catalog with pi-ai fallback | Superseded for chat metadata by `models-dev-catalog-authority` |
+| 0134 | Use models.dev as the sole model metadata source with a local snapshot | Superseded for chat metadata by `models-dev-catalog-authority` |
 | 0135 | Retry unchanged edited prompts | Accepted |
 | 0136 | Preserve the active task boundary across context compaction | Accepted |
 | 0137 | Retained Session Panes | Accepted (amends 0130 clauses 4/5) |
@@ -225,7 +232,7 @@ Each ADR includes:
 | 0201 | Explicit plugin project ids and host-owned session refresh | Accepted |
 | 0202 | Expose effective subagent thinking metadata | Accepted |
 | 0203 | Local MCP control plane for desktop operations | Accepted (amended by D372) |
-| 0204 | Explicit unsigned macOS first-launch helper | Accepted |
+| 0204 | Explicit unsigned macOS first-launch helper | Superseded for macOS distribution by 0309 |
 | 0205 | Remote Agent Control uses a dedicated Host boundary | Accepted for implementation (post-MVP; amended by D374, D375, and D385) |
 | 0206 | Extend provider retries and show bounded progress | Accepted |
 | 0207 | Allow three same-path mutation recovery failures | Accepted (amends 0087 / D186) |
@@ -256,7 +263,7 @@ Each ADR includes:
 | 0229 | Press-and-move project title reorder | Accepted (amends 0228) |
 | 0230 | Skill ships with the Agent core tool set | Accepted (amends D174 / ADR 0048 / ADR 0219; issue #204) |
 | 0231 | Ideographic comma opens the composer slash menu | Accepted (amends D123 / D139 / ADR 0024; issue #65) |
-| 0232 | Keep macOS DMG opening guidance text-only | Accepted (amended by 0296; amends D371 / ADR 0204) |
+| 0232 | Keep macOS DMG opening guidance text-only | Superseded for macOS distribution by 0309 |
 | 0233 | Renderer-owned multi-folder project creation | Accepted (amends ADR 0011 / ADR 0016) |
 | 0234 | Keep project memory host-owned and path-scoped | Accepted |
 | 0235 | Preserve domain facades and enforce architecture budgets | Accepted |
@@ -325,7 +332,7 @@ Each ADR includes:
 | 0293 | [SSH password authentication for the remote-host bootstrap](0293-ssh-password-authentication.md) | Accepted (D454; amends ADR 0292) |
 | 0294 | [Project archive is a list + inspector workbench](0294-project-archive-list-inspector.md) | Accepted (D455; amends D267 / D168) |
 | 0295 | [Session thinking-parameter omission](0295-session-thinking-parameter-omission.md) | Accepted (D456; amends ADR 0194 / ADR 0144 / ADR 0221) |
-| 0296 | [Signed macOS DMG is a two-icon install](0296-macos-signed-dmg-two-icon-install.md) | Accepted (D457; amends ADR 0232 / ADR 0204) |
+| 0296 | [Signed macOS DMG is a two-icon install](0296-macos-signed-dmg-two-icon-install.md) | Accepted; ZIP guidance superseded by 0309 (D634) |
 | 0297 | [Provider-hosted web search as an adapter capability](0297-provider-hosted-web-search-adapter-capability.md) | Accepted |
 | 0298 | [The app ships no fonts](0298-remove-bundled-fonts.md) | Accepted (D598; amends ADR 0083 / D232) |
 | 0299 | [Subagent context budget and delegate compaction](0299-subagent-context-budget.md) | Accepted for implementation (amends ADR 0064; extends ADR 0062 / ADR 0279) |
@@ -335,19 +342,35 @@ Each ADR includes:
 | 0303 | [A skill package carries resources far above the document cap](0303-skill-package-resource-limits.md) | Accepted for implementation (amends ADR 0300) |
 | 0304 | [Trust the network endpoints the user enters themselves](0304-user-supplied-endpoint-trust.md) | Accepted for implementation (amends ADR 0243 / 0245 / 0247; follows ADR 0142 / 0257 / 0300) |
 | 0305 | [Keep scheduled-task execution settings task-owned](0305-scheduled-task-execution-settings.md) | Accepted for implementation (amends scheduled-desktop-automations) |
+| 0306 | [Brazilian Portuguese (pt-BR) shell locale](0306-portuguese-brazil-shell-locale.md) | Accepted (amends ADR 0160 / 0183 / 0185) |
+| 0307 | [Sync the API-key service catalog with pi-ai's built-in providers](0307-pi-ai-api-key-provider-sync.md) | Accepted (amends ADR 0012 / 0020 / 0116 / 0155) |
+| 0308 | [Remove the Pull Requests destination and listing tool](0308-remove-pull-requests-destination.md) | Accepted |
+| 0309 | [Remove bundled macOS first-launch guidance](0309-remove-macos-first-launch-artifacts.md) | Accepted (D634; amends D457 / ADR 0296) |
+| 0310 | [Keep local permission approvals pending until resolved](0310-local-permission-approvals-without-deadline.md) | Accepted for implementation |
+| 0311 | [Recheck Live Work workspace identity at Host admission](0311-live-work-workspace-admission-guard.md) | Implemented candidate |
+| 0312 | [Session-scoped Todo checklist](0312-session-scoped-todo-checklist.md) | Accepted for implementation |
+| 0317 | [Preserve Windows resizing without the native frameless rim](0317-windows-borderless-window-resize.md) | Accepted (D637) |
+| 0313 | [Default Live Work to the Current Composer Session](0313-live-voice-default-session-target.md) | Accepted |
+| 0315 | [A spoken answer selects among an open asktool question's own options](0315-live-voice-spoken-asktool-answers.md) | Accepted for implementation (amends the Live Voice Work Session decision path for AskTool only) |
+| 0316 | [The Live Voice call bar is a docked desktop widget window](0316-live-voice-docked-widget.md) | Accepted |
 | turn-process-and-thinking-display | [Turn process and thinking presentation](turn-process-and-thinking-display.md) | Accepted |
 | provider-display-order | [Provider display order](provider-display-order.md) | Accepted |
 | registry-header-variable-spelling | [Remote header variables accept the registry's `{name}` spelling](registry-header-variable-spelling.md) | Proposed |
 | provider-system-certificates | [Desktop sidecar uses OS-trusted certificates](provider-system-certificates.md) | Accepted |
 | image-generation-capability | [Image generation as a configured Agent capability](image-generation-capability.md) | Accepted |
-| 0306 | [Sidebar token usage summary](0306-sidebar-token-usage-summary.md) | Accepted (amends 0173; D622) |
-| 0307 | [Bundled Git work panel](0307-bundled-git-work-panel.md) | Accepted (D623; amended by 0308 / D624) |
-| 0308 | [Tree review and AI commit messages in Git](0308-git-ai-commit-messages.md) | Accepted (D624) |
-| 0309 | [Window-sized plugin view modals](0309-window-sized-plugin-view-modals.md) | Accepted (D625) |
-| 0310 | [Remote SSH Agent Runtime](0310-remote-ssh-agent-runtime.md) | Accepted for implementation (D626) |
-| 0311 | [Managed SSH password authentication](0311-managed-ssh-password-auth.md) | Accepted (D627) |
-| 0312 | [Voice dictation, phase 1](0312-voice-dictation-phase-1.md) | Accepted for implementation (D628) |
-| 0313 | [Local voice plugin replaces cloud speech](0313-local-voice-plugin.md) | Accepted for implementation (D629) |
+| retained-browser-pages-per-tab | [Retain a host-owned browser page per resource tab](retained-browser-pages-per-tab.md) | Accepted |
+| 0318 | [Publish native Linux arm64 artifacts](0318-linux-arm64-release-lane.md) | Accepted (D638) |
+| 0319 | [Inline external imports in owning Settings destinations](0319-settings-inline-imports.md) | Accepted (D645) |
+| 0320 | [Host-owned OAuth lifecycle for plugin providers](0320-plugin-oauth-provider-callbacks.md) | Accepted for implementation (D647; amends ADR 0259) |
+| 0321 | [Pin an acceptable address for mixed direct DNS answers](0321-skill-market-direct-dns-pinning.md) | Accepted (D648; amends ADR 0272) |
+| 0322 | [Sidebar token usage summary](0322-sidebar-token-usage-summary.md) | Accepted (amends 0173; D650) |
+| 0323 | [Bundled Git work panel](0323-bundled-git-work-panel.md) | Accepted (D651; amended by 0324 / D652) |
+| 0324 | [Tree review and AI commit messages in Git](0324-git-ai-commit-messages.md) | Accepted (D652) |
+| 0325 | [Window-sized plugin view modals](0325-window-sized-plugin-view-modals.md) | Accepted (D653) |
+| 0326 | [Remote SSH Agent Runtime](0326-remote-ssh-agent-runtime.md) | Accepted for implementation (D654) |
+| 0327 | [Managed SSH password authentication](0327-managed-ssh-password-auth.md) | Accepted (D655) |
+| 0328 | [Voice dictation, phase 1](0328-voice-dictation-phase-1.md) | Accepted for implementation (D656) |
+| 0329 | [Local voice plugin replaces cloud speech](0329-local-voice-plugin.md) | Accepted for implementation (D657) |
 
 > The fork's own decisions originally took the 0230 - 0235 range that merged main
 > had already assigned, so they were renumbered to D430 - D435 and ADR 0266 - 0271
@@ -355,6 +378,8 @@ Each ADR includes:
 > fork's records moved to ADR 0273 - 0279; the next sync brought upstream ADRs
 > 0273 - 0289, so they moved to ADR 0290 - 0296; the 2026-09 upstream sync brought
 > ADRs 0290 - 0305 and also claimed the fork's D430 - D435, D439, and D451 ids
-> upstream, so they moved once more, to ADR 0306 - 0313 and D622 - D629. Note
+> upstream, so they moved to ADR 0306 - 0313 and D622 - D629. The 2026-10 sync
+> then brought upstream ADRs 0306 - 0321 and decision ids up to D648, so the
+> fork's records moved once more, to ADR 0322 - 0329 and D650 - D657. Note
 > upstream independently reused decision id D439 for its window-toggle and
-> chat-content-width records; the fork's voice-dictation record is D628.
+> chat-content-width records; the fork's voice-dictation record is D656.

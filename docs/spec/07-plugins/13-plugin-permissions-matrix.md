@@ -11,7 +11,7 @@ Provide a permission–capability–risk–default-policy reference table for re
 | `ui.panel` | low | Open the plugin panel | Granted at install | Needed by almost all UI plugins |
 | `ui.view` | low | `contributes.views` are listed in the work panel and may be opened; the active view may call the fixed host-owned modal channels | Granted at install | Same isolation as a panel window: sandboxed page, per-plugin partition, `net.domains` egress. Filtered by activation scope; modal geometry is host-owned and resets when the view is hidden |
 | `ui.theme` | low | `contributes.themes` CSS is loaded and offered in Settings; runtime `pi.themes.upsert` / `remove` / `list` and `pi.app.setTheme` (ADR 0260) | Granted at install | CSS is sanitized by the host; it cannot script. Declared `assets` are served over the host's read-only `plugin-asset:` scheme. `setTheme` may only select a built-in preference or a currently registered plugin theme. There is no per-plugin theme count cap |
-| `ui.window.appearance` | low | `contributes.windowAppearance` sets the native window background while one of the plugin's themes is selected | Granted at install | `#rrggbb` / `#rrggbbaa` only; applied per resolved palette and back to the host default once the theme is gone. macOS keeps vibrancy |
+| `ui.window.appearance` | low | `contributes.windowAppearance` sets the native window background and Windows main-window corner radius while one of the plugin's themes is selected | Granted at install | `#rrggbb` / `#rrggbbaa` background and integer `cornerRadius` 0..24 DIP; restores host background and 4 DIP radius when the theme is gone. macOS keeps vibrancy and native corners |
 | `clipboard.read` | medium | `clipboard.readText`, `clipboard.getHistory` | Confirm on first use | May read sensitive information and retained clipboard history |
 | `clipboard.write` | medium | `clipboard.writeText` | Confirm on first use | Prevents clipboard pollution |
 | `notify` | low | `ui.notify`, `ui.getNotificationPermission`, `ui.requestNotificationPermission`, `ui.showNativeNotification` | Can be granted by default | Native delivery is OS-controlled; avoid notification-spam abuse |
@@ -24,9 +24,11 @@ Provide a permission–capability–risk–default-policy reference table for re
 | `agent.tool.register` | high | Register an agent tool | Confirm at install | Tool execution is audited separately |
 | `agent.prompt.inject` | high | Inject a system prompt; activates `contributes.skills` | Deny by default / strong confirmation | Easily leads to behavior hijacking |
 | `agent.extension` | high | Run `contributes.agentExtensions` modules inside the agent process | Explicit confirmation; local imports and development plugins only in v1.1 | Same access as the agent's own tools; the plugin sandbox does not apply (spec 16) |
-| `provider.register` | high | `contributes.providers` become rows in the native provider list, owned by the plugin and refreshed from the manifest on load | Explicit confirmation; local imports and development plugins only in v1.1, matching `agent.extension` | The user path refuses the row (`PROVIDER_OWNED_BY_PLUGIN`); credentials stay in the Host secret store under the usual provider refs; `oauth` declarations are not enabled yet |
+| `provider.register` | high | `contributes.providers` become rows in the native provider list, owned by the plugin and refreshed from the manifest on load | Explicit confirmation; local imports and development plugins only in v1.1, matching `agent.extension` | The user path refuses edits to the row (`PROVIDER_OWNED_BY_PLUGIN`); API-key credentials stay in the Host secret store under the usual provider refs |
+| `provider.oauth` | high | `onProviderOAuth`; host-rendered `pi.providers.oauth.prompt` / `notify` for a declared OAuth provider | Explicit confirmation | Required with `provider.register` for `authKind: "oauth"`. The callback can read and refresh only that contribution's encrypted credential. The Host keeps refresh tokens out of the renderer and Agent Runtime. Host-mediated callback egress still needs `net.fetch` and `manifest.net.domains`; plugin entry code itself is not an OS sandbox. One account is stored per provider contribution; sign out clears it |
 | `net.fetch` | high | `net.fetch` | Deny by default | Confined to `manifest.net.domains`; an empty or malformed list means no egress (§2A) |
 | `net.websocket` | high | `pi.net.websocket.connect` / `send` / `close` (host-owned sockets; at most 4 per plugin, 1 MiB frames) | Deny by default | Confined to `manifest.net.domains` like `net.fetch`; a refused host never reaches the transport, and every socket is closed when the plugin unloads, is disabled, or crashes |
+| `net.anyHost` | high | Any host-owned egress path (`net.fetch`, `net.websocket`, panel session, remote HTTP MCP) | Confirm at install | Lifts the `manifest.net.domains` allowlist for user-typed endpoints (self-hosted servers); cloud metadata endpoints stay refused; nothing prompts at request time |
 | `shell.openExternal` | medium | Open external link | Confirm on first use | Prevents phishing links |
 | `mcp.server.local` | high | Spawn a `transport: "stdio"` MCP server declared in the manifest | Deny by default | Runs a local executable; its tools reach the agent |
 | `mcp.server.remote` | high | Connect a `transport: "http"` MCP server | Deny by default | Sends tool arguments to a third-party endpoint; non-loopback HTTP is unencrypted |
@@ -51,7 +53,7 @@ Provide a permission–capability–risk–default-policy reference table for re
 | `usage.read` | medium | `pi.usage.listTurns` | Confirm at install | Read-only listing of completed-turn facts (per-turn token counters and identifiers, keyset-paginated); no message body and no write path |
 | `agent.complete` | high | `pi.agent.complete` | Confirm at install | Host-owned one-shot; spends user quota; `includeSessionContext` also needs `session.read` |
 | `speech.adapter.register` | high | `pi.speech.registerAdapter` / `unregisterAdapter` | Confirm at install | Registers a speech protocol. Handles stay in the guest; HTTP plans are executed by the host with the bound provider key and must stay on that origin. There are no built-in protocol ids any more; every protocol is plugin-registered |
-| `plugin.rpc` | medium | `pi.rpc.register` / `unregister` — one handler receiving renderer-originated management calls over `pi-desktop/plugin/rpc` | Confirm at install | `(method, params)` dispatch under the host's command budget; params and replies must be JSON-serializable; the bundled `pi.local-voice` plugin is the example (ADR 0313) |
+| `plugin.rpc` | medium | `pi.rpc.register` / `unregister` — one handler receiving renderer-originated management calls over `pi-desktop/plugin/rpc` | Confirm at install | `(method, params)` dispatch under the host's command budget; params and replies must be JSON-serializable; the bundled `pi.local-voice` plugin is the example (ADR 0329) |
 
 ## 2A. A permission is the switch; the manifest carries the range
 
@@ -139,7 +141,7 @@ so "Modify the files it lists" is followed by the list.
 | `shell.openExternal` | Open external links | 打开外部链接 |
 | `ui.theme` | Provide a theme | 提供主题 |
 | `ui.settings` | Add a sandboxed Settings entry in Extensions | 在“扩展”中添加沙盒设置项 |
-| `ui.window.appearance` | Set the window background | 设置窗口背景 |
+| `ui.window.appearance` | Customize window appearance | 自定义窗口外观 |
 | `mcp.server.local` | Run a local MCP server | 运行本地 MCP 服务 |
 | `mcp.server.remote` | Reach a remote MCP server | 连接远端 MCP 服务 |
 | `background.service` | Keep a background service running | 保持后台服务运行 |

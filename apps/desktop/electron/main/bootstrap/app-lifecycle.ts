@@ -1,5 +1,5 @@
 import {
-  app, BrowserWindow, Menu, nativeImage, nativeTheme, Tray,
+  app, BrowserWindow, Menu, nativeImage, nativeTheme, powerSaveBlocker, Tray,
   type MenuItemConstructorOptions,
 } from "electron";
 import { existsSync } from "node:fs";
@@ -18,15 +18,18 @@ import {
 } from "@pi-desktop/shared";
 import { catalogs, resolveLocale } from "@pi-desktop/i18n";
 import { installApplicationMenu } from "../application-menu";
+import { isWindowFullScreen, setWindowFullScreen } from "../window-fullscreen";
 import { createTraySessions } from "../tray-sessions";
+import { createTaskbarUnreadBadge } from "../taskbar-unread-badge";
 import { createWindow, type WindowLifecycleState } from "./window";
 import { windowToggleAction } from "./window-visibility";
-import type { BrowserPane } from "../browser-view";
+import type { BrowserHost } from "../browser-host";
 import type { Logger } from "../logger";
 import type { PluginRuntime } from "../plugin-runtime";
 import type { PluginViewHost } from "../plugin-view-host";
 import type { HostProcess } from "../host-process";
 import { syncPluginDisplayLocale } from "../plugin-display-locale";
+import { createPowerSaveBlockerController } from "../keep-awake";
 import type { PluginAppearance } from "../../shared/plugin-panel-chrome";
 
 export type ApplicationLifecycleState = {
@@ -64,7 +67,7 @@ export type ApplicationLifecycleDependencies = {
   showPluginLauncher: () => Promise<void>;
   askCloseBehavior: (window: BrowserWindow) => Promise<CloseBehavior | null>;
   applyCloseBehavior: (behavior: CloseBehavior) => void;
-  browserPane: BrowserPane;
+  browserHost: BrowserHost;
   pluginViews: PluginViewHost;
   plugins: PluginRuntime;
   logger: Pick<Logger, "app">;
@@ -97,7 +100,7 @@ export function createApplicationLifecycle({
   showPluginLauncher,
   askCloseBehavior,
   applyCloseBehavior,
-  browserPane,
+  browserHost,
   pluginViews,
   plugins,
   logger,
@@ -113,6 +116,12 @@ export function createApplicationLifecycle({
     getRunningSessionIds,
     isQuitting: () => state.quitting,
     onChanged: () => updateTrayMenu(),
+    logger,
+  });
+  const taskbarUnreadBadge = createTaskbarUnreadBadge({
+    getHost,
+    getMainWindow: () => state.mainWindow,
+    isQuitting: () => state.quitting,
     logger,
   });
   let trayActivationGeneration = 0;
@@ -275,6 +284,9 @@ export function createApplicationLifecycle({
     state.tray.on("double-click", restoreMainWindow);
     updateTrayMenu();
     void traySessions.refresh();
+    void taskbarUnreadBadge.refresh();
+    // Window is live here; force-paint any count learned before the BrowserWindow existed.
+    taskbarUnreadBadge.replay();
   }
 
 
@@ -329,16 +341,13 @@ export function createApplicationLifecycle({
       observedWorkPanelBaseBounds,
       classifyDisplayTransition,
       resetMenuRendererReady,
-      markMenuRendererReady,
-      sendToRenderer,
       safeOpenExternal,
       showPluginLauncher,
       askCloseBehavior,
       applyCloseBehavior,
       createTray,
-      browserPane,
+      browserHost,
       pluginViews,
-      plugins,
       logger,
     });
   }
@@ -394,7 +403,7 @@ export function createApplicationLifecycle({
       const window = state.mainWindow;
       return {
         maximized: Boolean(window && !window.isDestroyed() && window.isMaximized()),
-        fullScreen: Boolean(window && !window.isDestroyed() && window.isFullScreen()),
+        fullScreen: Boolean(window && !window.isDestroyed() && isWindowFullScreen(window)),
       };
     }
     if (!target || target.isDestroyed()) {
@@ -434,7 +443,11 @@ export function createApplicationLifecycle({
         contents.setZoomFactor(1);
         break;
       case "toggleFullScreen":
-        target.setFullScreen(!target.isFullScreen());
+        setWindowFullScreen(
+          target,
+          !isWindowFullScreen(target),
+          process.platform === "win32" && target === state.mainWindow,
+        );
         break;
       case "minimize":
         target.minimize();
@@ -450,7 +463,7 @@ export function createApplicationLifecycle({
 
     return {
       maximized: !target.isDestroyed() && target.isMaximized(),
-      fullScreen: !target.isDestroyed() && target.isFullScreen(),
+      fullScreen: !target.isDestroyed() && isWindowFullScreen(target),
     };
   }
 
@@ -469,6 +482,35 @@ export function createApplicationLifecycle({
         state.mainWindow.webContents.closeDevTools();
       }
     }
+  }
+
+  const powerError = (kind: string, operation: string, error: unknown) => {
+    logger.app("lifecycle", "warn", `power blocker ${kind} ${operation} failed`, {
+      data: String(error),
+    });
+  };
+  const displayBlocker = createPowerSaveBlockerController(
+    powerSaveBlocker,
+    "prevent-display-sleep",
+    (operation, error) => powerError("display", operation, error),
+  );
+  const systemBlocker = createPowerSaveBlockerController(
+    powerSaveBlocker,
+    "prevent-app-suspension",
+    (operation, error) => powerError("system", operation, error),
+  );
+
+  function applyPreventScreenSleep(settings?: { preventScreenSleep?: unknown } | null) {
+    displayBlocker.setEnabled(settings?.preventScreenSleep === true);
+  }
+
+  function applyKeepAwakeWhileRunning(settings?: { keepAwakeWhileRunning?: unknown } | null) {
+    systemBlocker.setEnabled(settings?.keepAwakeWhileRunning === true);
+  }
+
+  function disposePowerSaveBlockers() {
+    displayBlocker.dispose();
+    systemBlocker.dispose();
   }
 
   /**
@@ -631,6 +673,7 @@ export function createApplicationLifecycle({
 
   return {
     traySessions,
+    taskbarUnreadBadge,
     applyDevelopmentBranding,
     hasVisibleWindow,
     restoreMainWindow,
@@ -647,6 +690,9 @@ export function createApplicationLifecycle({
     executeNativeMenuAction,
     dispatchNativeMenuAction,
     applyDeveloperMode,
+    applyPreventScreenSleep,
+    applyKeepAwakeWhileRunning,
+    disposePowerSaveBlockers,
     applyNativeThemeSource,
     applyAppThemePreference,
     applyApplicationMenuSettings,

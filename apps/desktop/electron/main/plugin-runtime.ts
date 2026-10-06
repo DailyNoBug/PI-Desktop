@@ -12,14 +12,16 @@ import type { Stats } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import type { LoadedSkillDocument } from "./skill-document";
+import { getModuleDirectory } from "./module-path";
 import {
   busTopicAllowed,
   isDeniedFsPath,
   isFsPathInScope,
   isValidBusTopic,
   isValidBusTopicPattern,
-  isNetUrlAllowed,
-  isNetSocketUrlAllowed,
+  isNetSocketUrlAllowedWithGrant,
+  isNetUrlAllowedWithGrant,
   matchesBusTopic,
   matchFsGlob,
   normalizeFsPath,
@@ -41,6 +43,7 @@ import {
   validatePluginThemeVariables,
   THEME_ASSET_MAX_BYTES,
   THEME_CSS_MAX_BYTES,
+  MAX_WINDOW_CORNER_RADIUS,
   WINDOW_BACKGROUND_COLOR_PATTERN,
   resolvePluginLocalizedString,
   validateManifest,
@@ -61,6 +64,11 @@ import {
   type PluginNativeNotificationInput,
   type PluginNativeNotificationResult,
   type PluginNotificationPermission,
+  type PluginNetEgressGrant,
+  type PluginProviderOAuthEvent,
+  type PluginProviderOAuthPrompt,
+  type PluginProviderOAuthRequest,
+  type PluginProviderContrib,
   type PluginServiceContrib,
   type PluginSettingContrib,
   type PluginSkillContrib,
@@ -70,6 +78,7 @@ import {
   isAllowedKeybinding,
   isReservedKeybinding,
   normalizeKeybinding,
+  type PluginRendererDescriptor,
   type PluginServiceStatus,
   type PluginSettingDefinition,
   type PluginWorkspaceInfo,
@@ -81,9 +90,21 @@ import {
   resolveWithinRoot,
 } from "@pi-desktop/host-runtime";
 import { pluginChildEnv } from "./child-process-env";
+import {
+  readThemeAssetBytes,
+  resolveAbsoluteThemeAssetPath,
+  resolvePackageThemeAssetPath,
+  themeAssetGroupWithinBudget,
+} from "./plugin-theme-assets.js";
 import { desktopDataDir } from "./data-paths";
 import { McpServerClient, type McpServerClientOptions } from "./plugin-mcp";
 import { PluginToolInvocations, type PluginToolInvocation } from "./plugin-tool-invocations";
+import { McpCallRegistry } from "./mcp-call-registry";
+import {
+  RendererCallRelay,
+  rendererDescriptorFor,
+  resolveRendererSourcePath,
+} from "./plugin-renderer-extension";
 import { DevPluginWatcher, type DevPluginWatcherDeps } from "./plugin-watcher";
 import { parseAllowedExternalUrl } from "./safe-open-external";
 import type { PluginAppearance } from "../shared/plugin-panel-chrome";
@@ -195,6 +216,7 @@ export type RegisteredPluginTheme = {
    * `ui.window.appearance` (ADR 0248).
    */
   windowBackground?: { light?: string; dark?: string };
+  windowCornerRadius?: number;
 };
 
 export type PluginPanelRequest = {
@@ -217,6 +239,8 @@ export type PluginPanelRequest = {
   resizable?: boolean;
   /** The plugin's egress allowlist; the panel session is confined to it. */
   netDomains?: readonly string[];
+  /** The install-time `net.anyHost` grant lifts the panel's allowlist too. */
+  netAnyHost?: boolean;
   /** Allows the isolated panel to request microphone audio, never camera access. */
   allowMicrophone?: boolean;
   /** Development panels show the host drag-band reminder in their chrome. */
@@ -328,6 +352,18 @@ export type PluginHostServices = {
     input: PluginNativeNotificationInput,
   ) => Promise<PluginNativeNotificationResult>;
   openExternal: (url: string) => Promise<void>;
+  /** Host-rendered prompts for an active provider OAuth login. */
+  providerOAuthPrompt?: (
+    pluginId: string,
+    loginId: string,
+    input: PluginProviderOAuthPrompt,
+  ) => Promise<string>;
+  /** Host-rendered, non-secret progress for an active provider OAuth login. */
+  providerOAuthNotify?: (
+    pluginId: string,
+    loginId: string,
+    event: PluginProviderOAuthEvent,
+  ) => Promise<void>;
   /** Open one already-authorized file with the OS-associated application. */
   openPath: (fullPath: string) => Promise<void>;
   /** Reveal one already-authorized file in the OS file manager. */
@@ -430,18 +466,19 @@ export type PluginHostServices = {
     name: string;
     ok: boolean;
     message?: string;
-  }) => void;
+  }) => Promise<void> | void;
   /** Work-panel guest + CDP, gated by `browser.cdp` in the runtime. */
   browser?: {
     navigate: (
       input: { url?: string; path?: string },
       sessionId?: string,
+      tabId?: string,
     ) => Promise<unknown>;
-    action: (action: "back" | "forward" | "reload" | "stop") => void;
+    action: (action: "back" | "forward" | "reload" | "stop", sessionId?: string, tabId?: string) => void;
     setBounds: (pluginId: string, hole: unknown) => unknown;
     setVisible: (pluginId: string, visible: boolean) => void;
     getState: () => unknown;
-    openExternal: () => void;
+    openExternal: (sessionId?: string, tabId?: string) => void;
     snapshot: () => Promise<unknown>;
     screenshot: (
       input?: { fullPage?: boolean },
@@ -490,6 +527,16 @@ export type PluginHostServices = {
   usage?: {
     listTurns: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
   };
+};
+
+export type PluginOAuthProvider = {
+  pluginId: string;
+  runtimeId: string;
+  contributionId: string;
+  providerId: string;
+  name: string;
+  loginLabel?: string;
+  isSubscription: boolean;
 };
 
 /** Host APIs a plugin process may reach. Anything else does not exist (spec 04 §2). */
@@ -584,6 +631,8 @@ const HOST_API_ALLOWLIST = new Set([
   "session.delete",
   "usage.listTurns",
   "agent.complete",
+  "providers.oauth.prompt",
+  "providers.oauth.notify",
   "keyboard.registerGlobalShortcut",
   "keyboard.unregisterGlobalShortcut",
   "keyboard.listGlobalShortcuts",
@@ -609,6 +658,8 @@ const PLUGIN_TOOL_TIMEOUT_MS = 110_000;
 export const PLUGIN_COMPLETE_TIMEOUT_MS = 90_000;
 /** Fixed panel operations are user-facing and must not hang the renderer. */
 const PLUGIN_PANEL_TIMEOUT_MS = 30_000;
+/** OAuth login may wait for browser or device approval by the user. */
+const PLUGIN_PROVIDER_OAUTH_TIMEOUT_MS = 5 * 60_000;
 const PANEL_SKILL_CHANNELS = new Set([
   "skill.list",
   "skill.read",
@@ -758,6 +809,7 @@ type PendingCall = {
 
 type LoadedPlugin = {
   manifest: PluginManifest;
+  runtimeId: string;
   path: string;
   development: boolean;
   permissions: Set<string>;
@@ -1195,10 +1247,9 @@ export function resolveInsidePlugin(pluginPath: string, relative: string): strin
 /**
  * Resolve one theme's declared assets to files inside the plugin package.
  *
- * The manifest validator already checked the shape; here each entry has to
- * exist, stay out of the dependency directory, and fit the declared total. A
- * theme that asks for more than the budget gets none of its assets, so a sheet
- * referencing one is refused instead of served from a half-honoured list.
+ * Package-relative assets are canonicalized after the plugin's `onLoad` hook
+ * and rechecked by `resolveThemeAsset` before every host-scheme read. Absolute
+ * assets retain their existing behavior.
  */
 function resolveThemeAssets(
   pluginPath: string,
@@ -1210,13 +1261,13 @@ function resolveThemeAssets(
   let dropped = 0;
   for (const asset of declared) {
     const normalized = normalizeThemeAssetPath(asset);
-    if (!normalized || normalized.split("/").includes("node_modules")) {
+    if (!normalized || normalized.split("/").some((segment) => segment.toLowerCase() === "node_modules")) {
       dropped += 1;
       continue;
     }
     const absolute = isExternalThemeAssetPath(normalized)
-      ? normalized
-      : resolveInsidePlugin(pluginPath, normalized);
+      ? resolveAbsoluteThemeAssetPath(normalized)
+      : resolvePackageThemeAssetPath(pluginPath, normalized);
     if (!absolute || !existsSync(absolute)) {
       dropped += 1;
       continue;
@@ -1254,6 +1305,15 @@ function resolveWindowBackground(
     }
   }
   return result.light || result.dark ? result : undefined;
+}
+
+function resolveWindowCornerRadius(value: unknown): number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const radius = (value as { cornerRadius?: unknown }).cornerRadius;
+  return typeof radius === "number" && Number.isInteger(radius) &&
+    radius >= 0 && radius <= MAX_WINDOW_CORNER_RADIUS
+    ? radius
+    : undefined;
 }
 
 /** Default spawner: an Electron utilityProcess per plugin. */
@@ -1348,12 +1408,15 @@ export class PluginRuntime {
    * so a path nobody declared has no URL at all (ADR 0248).
    */
   private themeAssets = new Map<string, Map<string, string>>();
+  private themeAssetGroups = new Map<string, Map<string, ReadonlyMap<string, string>>>();
   private mcpClients = new Map<string, McpServerClient[]>();
+  private readonly mcpCalls = new McpCallRegistry();
   private serviceStates = new Map<string, PluginServiceStatus>();
   private restarts = new Map<string, RestartRecord>();
   private busSubscriptions = new Map<string, BusSubscription>();
   private busRate = new Map<string, { windowStart: number; count: number }>();
   private readonly toolInvocations = new PluginToolInvocations();
+  private readonly rendererCalls = new RendererCallRelay();
   private completeRate = new Map<string, { windowStart: number; count: number }>();
   /**
    * File accesses the user allowed for the rest of the run, keyed
@@ -1573,9 +1636,11 @@ export class PluginRuntime {
   private externalThemeAsset(loaded: LoadedPlugin, target: string): string | null {
     const key = normalizeThemeAssetPath(target);
     if (!key || !isExternalThemeAssetPath(key)) return null;
+    const absolute = resolveAbsoluteThemeAssetPath(key);
+    if (!absolute) return null;
     let stats: Stats;
     try {
-      stats = statSync(key);
+      stats = statSync(absolute);
     } catch {
       return null;
     }
@@ -1585,14 +1650,25 @@ export class PluginRuntime {
       registry = new Map();
       this.themeAssets.set(loaded.manifest.id, registry);
     }
-    registry.set(key, key);
+    registry.set(key, absolute);
     return themeAssetUrl(loaded.manifest.id, key);
   }
 
-  resolveThemeAsset(pluginId: string, assetPath: string): string | null {
+  resolveThemeAsset(pluginId: string, assetPath: string): Uint8Array | null {
     const normalized = normalizeThemeAssetPath(assetPath);
     if (!normalized) return null;
-    return this.themeAssets.get(pluginId)?.get(normalized) ?? null;
+    const registered = this.themeAssets.get(pluginId)?.get(normalized);
+    if (!registered) return null;
+    const loaded = this.loaded.get(pluginId);
+    if (!loaded) return null;
+    const current = isExternalThemeAssetPath(normalized)
+      ? resolveAbsoluteThemeAssetPath(normalized)
+      : resolvePackageThemeAssetPath(loaded.path, normalized);
+    if (current !== registered) return null;
+    const groups = this.themeAssetGroups.get(pluginId);
+    const owners = groups ? [...groups.values()].filter((group) => group.has(normalized)) : [];
+    if (owners.some((group) => !themeAssetGroupWithinBudget(loaded.path, group))) return null;
+    return readThemeAssetBytes(registered);
   }
 
   /** Supervision state of every resident service, ordered for a stable list. */
@@ -1609,7 +1685,7 @@ export class PluginRuntime {
    * only, and the size cap is re-checked because the file may have changed
    * since load.
    */
-  loadSkillBody(id: string): { id: string; name: string; body: string } {
+  loadSkillBody(id: string): LoadedSkillDocument {
     const skill = this.skills.get(id);
     if (!skill) throw apiError("NOT_FOUND", `unknown skill: ${id}`);
     if (!this.loaded.has(skill.pluginId)) {
@@ -1635,11 +1711,129 @@ export class PluginRuntime {
       skillId: skill.id,
       ts: Date.now(),
     });
-    return { id: skill.id, name: skill.name, body: parsed.body };
+    return { id: skill.id, name: skill.name, body: parsed.body, location: skill.path };
+  }
+
+  /**
+   * Source resolver behind the `plugin-renderer://` scheme: the current load
+   * of a permission-granted plugin serves module files from inside its own
+   * package, and nothing else (`docs/plugin-plan/ui/`).
+   */
+  resolveRendererSource(pluginId: string, generation: number, requestPath: string): string | null {
+    return resolveRendererSourcePath(this.loaded.get(pluginId), generation, requestPath);
+  }
+
+  /** What the renderer host loads for this plugin, while it may load anything. */
+  rendererDescriptor(pluginId: string): PluginRendererDescriptor | undefined {
+    return rendererDescriptorFor(this.loaded.get(pluginId));
+  }
+
+  /**
+   * The `plugin.call` relay: a renderer slot component asks its own plugin
+   * for one JSON answer (`docs/plugin-plan/render/plugin-call/`).
+   */
+  async callRenderer(pluginId: string, method: string, args: unknown): Promise<unknown> {
+    const loaded = this.loaded.get(pluginId);
+    return this.rendererCalls.call(
+      pluginId,
+      loaded?.child ? loaded : undefined,
+      method,
+      args,
+      (plugin, payload, timeoutMs) =>
+        this.sendToChild(plugin, { t: "call", method: "renderer.call", payload }, timeoutMs),
+    );
   }
 
   getLoaded(pluginId: string): LoadedPlugin | undefined {
     return this.loaded.get(pluginId);
+  }
+
+  /** OAuth provider entries exposed to the Host's provider sign-in surface. */
+  listOAuthProviders(): PluginOAuthProvider[] {
+    const result: PluginOAuthProvider[] = [];
+    for (const loaded of this.loaded.values()) {
+      if (!loaded.permissions.has("provider.oauth")) continue;
+      const providers = (loaded.manifest.contributes?.providers ?? []) as PluginProviderContrib[];
+      for (const provider of providers) {
+        if (provider.authKind !== "oauth") continue;
+        result.push({
+          pluginId: loaded.manifest.id,
+          runtimeId: loaded.runtimeId,
+          contributionId: provider.id,
+          providerId: `plugin:${loaded.manifest.id}:${provider.id}`,
+          name: provider.name,
+          loginLabel: provider.oauth?.loginLabel,
+          isSubscription: provider.oauth?.isSubscription === true,
+        });
+      }
+    }
+    return result;
+  }
+
+  /** Invoke a declared provider's OAuth hook after rechecking its grant and owner. */
+  async invokeProviderOAuth(
+    pluginId: string,
+    contributionId: string,
+    request: PluginProviderOAuthRequest,
+    signal?: AbortSignal,
+    expectedRuntimeId?: string,
+  ): Promise<unknown> {
+    const loaded = this.loaded.get(pluginId);
+    if (!loaded || loaded.disposing) {
+      throw apiError("NOT_FOUND", `plugin not loaded: ${pluginId}`);
+    }
+    if (expectedRuntimeId && loaded.runtimeId !== expectedRuntimeId) {
+      throw apiError("PLUGIN_UNLOADED", "provider OAuth plugin runtime changed");
+    }
+    this.assertPermission(loaded, "provider.oauth");
+    const providers = (loaded.manifest.contributes?.providers ?? []) as PluginProviderContrib[];
+    const provider = providers.find((entry) => entry.id === contributionId);
+    if (!provider || provider.authKind !== "oauth") {
+      throw apiError("PERMISSION_DENIED", "provider OAuth contribution is not declared");
+    }
+    if (request.providerId !== contributionId) {
+      throw apiError("INVALID_ARGUMENT", "provider OAuth contribution does not match");
+    }
+    try {
+      const value = await this.sendToChild(
+        loaded,
+        { t: "call", method: "provider.oauth", payload: request },
+        PLUGIN_PROVIDER_OAUTH_TIMEOUT_MS,
+        signal,
+      );
+      if (this.loaded.get(pluginId) !== loaded || loaded.disposing) {
+        throw apiError("PLUGIN_UNLOADED", "provider OAuth plugin runtime changed");
+      }
+      let bytes = 0;
+      try {
+        bytes = Buffer.byteLength(JSON.stringify(value ?? null), "utf8");
+      } catch {
+        throw apiError("INVALID_ARGUMENT", "provider OAuth result must be JSON serializable");
+      }
+      if (bytes > 64 * 1024) {
+        throw apiError("LIMIT_EXCEEDED", "provider OAuth result exceeds 64 KiB");
+      }
+      this.services.audit?.({
+        pluginId,
+        api: "provider.oauth",
+        operation: request.operation,
+        providerId: contributionId,
+        ok: true,
+        ts: Date.now(),
+      });
+      return value;
+    } catch (error) {
+      this.services.audit?.({
+        pluginId,
+        api: "provider.oauth",
+        operation: request.operation,
+        providerId: contributionId,
+        ok: false,
+        errorCode: (error as { code?: string } | null | undefined)?.code ?? "PLUGIN_OAUTH_FAILED",
+        ts: Date.now(),
+      });
+      throw error;
+    }
   }
 
   /**
@@ -1844,12 +2038,15 @@ export class PluginRuntime {
             ),
           );
 
-    const entry = this.services.hostEntry ?? join(__dirname, "plugin-host-process.js");
+    const entry =
+      this.services.hostEntry ??
+      join(getModuleDirectory(import.meta.url), "plugin-host-process.js");
     const spawn = this.services.spawnProcess ?? spawnUtilityProcess;
     const child = await spawn({ pluginId: manifest.id, entry, pluginPath });
 
     const loaded: LoadedPlugin = {
       manifest,
+      runtimeId: randomUUID(),
       path: pluginPath,
       development: options.development ?? this.devPlugins.has(manifest.id),
       permissions: granted,
@@ -1922,6 +2119,7 @@ export class PluginRuntime {
   /** Abort this session's invocations without affecting sibling sessions. */
   cancelSessionTools(sessionId: string, reason = "Session tool execution aborted"): void {
     this.toolInvocations.cancelSession(sessionId, reason);
+    this.mcpCalls.cancelSession(sessionId);
   }
 
   /** Deregister contributions, run `onUnload` in the child, then stop it. */
@@ -2020,6 +2218,7 @@ export class PluginRuntime {
    * `onUnload` must never be the reason the app appears to hang on quit.
    */
   async disposeAll(): Promise<void> {
+    this.mcpCalls.cancelAll();
     const loadedPlugins = [...this.loaded.values()];
     // Mark first, in one pass: a child that dies while a sibling is still
     // stopping must already be covered by the guard in `handleChildExit`.
@@ -2101,7 +2300,7 @@ export class PluginRuntime {
         ok: true,
         ts: Date.now(),
       });
-      this.services.onPluginReloaded?.({ pluginId, name: manifest.name, ok: true });
+      await this.services.onPluginReloaded?.({ pluginId, name: manifest.name, ok: true });
     } catch (error) {
       const message = (error as Error).message;
       this.services.audit?.({
@@ -2111,7 +2310,7 @@ export class PluginRuntime {
         message,
         ts: Date.now(),
       });
-      this.services.onPluginReloaded?.({ pluginId, name, ok: false, message });
+      await this.services.onPluginReloaded?.({ pluginId, name, ok: false, message });
     } finally {
       this.reloading.delete(pluginId);
     }
@@ -2354,9 +2553,11 @@ export class PluginRuntime {
     const id = `h${loaded.nextCallId++}`;
     return new Promise((resolvePromise, rejectPromise) => {
       const cancelChild = (error: Error) => {
-        if (typeof message.invocationId !== "string") return;
+        const cancellation = typeof message.invocationId === "string"
+          ? { invocationId: message.invocationId }
+          : { callId: id };
         try {
-          child.postMessage({ t: "cancel", invocationId: message.invocationId, reason: error.message });
+          child.postMessage({ t: "cancel", ...cancellation, reason: error.message });
         } catch {
           // The process may already be gone; the host still revokes the call.
         }
@@ -2851,6 +3052,38 @@ export class PluginRuntime {
         }
         return this.services.project.create(loaded.manifest.id, { path: path.trim() });
       }
+      case "providers.oauth.prompt": {
+        this.assertPermission(loaded, "provider.oauth");
+        this.assertHasOAuthProvider(loaded);
+        const loginId = args[0];
+        const input = args[1];
+        if (typeof loginId !== "string" || !loginId || !input || typeof input !== "object") {
+          throw apiError("INVALID_ARGUMENT", "provider OAuth prompt requires a loginId and request");
+        }
+        if (!this.services.providerOAuthPrompt) {
+          throw apiError("UNSUPPORTED", "provider OAuth prompts are unavailable in this host");
+        }
+        this.services.audit?.({ pluginId, api, ok: true, ts: Date.now(), kind: "prompt" });
+        return this.services.providerOAuthPrompt(pluginId, loginId, input as PluginProviderOAuthPrompt);
+      }
+      case "providers.oauth.notify": {
+        this.assertPermission(loaded, "provider.oauth");
+        this.assertHasOAuthProvider(loaded);
+        const loginId = args[0];
+        const event = args[1];
+        if (typeof loginId !== "string" || !loginId || !event || typeof event !== "object") {
+          throw apiError("INVALID_ARGUMENT", "provider OAuth notification requires a loginId and event");
+        }
+        if (!this.services.providerOAuthNotify) {
+          throw apiError("UNSUPPORTED", "provider OAuth notifications are unavailable in this host");
+        }
+        const kind = (event as { kind?: unknown }).kind;
+        if (!new Set(["info", "authUrl", "deviceCode", "progress"]).has(String(kind))) {
+          throw apiError("INVALID_ARGUMENT", "unsupported provider OAuth event");
+        }
+        this.services.audit?.({ pluginId, api, ok: true, ts: Date.now(), kind });
+        return this.services.providerOAuthNotify(pluginId, loginId, event as PluginProviderOAuthEvent);
+      }
       case "session.list": {
         this.assertPermission(loaded, "session.read.own");
         const input = normalizePluginSessionInput(args[0] ?? {}, "other");
@@ -3240,6 +3473,7 @@ export class PluginRuntime {
     // A gone plugin must stop serving its assets; the handler resolves through
     // this map only, so clearing it revokes every `plugin-asset:` URL at once.
     this.themeAssets.delete(pluginId);
+    this.themeAssetGroups.delete(pluginId);
     // Closing the client kills the stdio child / drops the HTTP session, so a
     // disabled plugin leaves no process behind.
     for (const client of this.mcpClients.get(pluginId) ?? []) {
@@ -3451,6 +3685,9 @@ export class PluginRuntime {
     const windowBackground = loaded.permissions.has("ui.window.appearance")
       ? resolveWindowBackground(loaded.manifest.contributes?.windowAppearance)
       : undefined;
+    const windowCornerRadius = loaded.permissions.has("ui.window.appearance")
+      ? resolveWindowCornerRadius(loaded.manifest.contributes?.windowAppearance)
+      : undefined;
     if (windowAppearanceDeclared && !loaded.permissions.has("ui.window.appearance")) {
       this.services.audit?.({
         pluginId,
@@ -3518,6 +3755,12 @@ export class PluginRuntime {
         this.themeAssets.set(pluginId, registry);
       }
       for (const [assetPath, absolute] of assets.files) registry.set(assetPath, absolute);
+      let assetGroups = this.themeAssetGroups.get(pluginId);
+      if (!assetGroups) {
+        assetGroups = new Map();
+        this.themeAssetGroups.set(pluginId, assetGroups);
+      }
+      assetGroups.set(themeId, new Map(assets.files));
       this.themes.set(id, {
         id,
         pluginId,
@@ -3529,6 +3772,7 @@ export class PluginRuntime {
           ? { variablesCss: this.themeVariablesCss(loaded, id, contrib.variables) }
           : {}),
         ...(windowBackground ? { windowBackground } : {}),
+        ...(windowCornerRadius !== undefined ? { windowCornerRadius } : {}),
       });
       accepted += 1;
     }
@@ -3641,10 +3885,11 @@ export class PluginRuntime {
         continue;
       }
       // An http MCP endpoint is an outbound channel like any other, so it
-      // answers to the same allowlist rather than to its permission alone.
+      // answers to the same egress decision as pi.net.fetch: the allowlist,
+      // plus the install-time net.anyHost grant.
       if (server.transport === "http") {
         const url = String(server.url ?? "");
-        if (!isNetUrlAllowed(url, this.netDomains(loaded))) {
+        if (!isNetUrlAllowedWithGrant(url, this.netEgressGrant(loaded))) {
           this.skipMcpServer(
             pluginId,
             server.id,
@@ -3693,7 +3938,11 @@ export class PluginRuntime {
           // Remote code the desktop cannot inspect; never silently auto-approved.
           risk: "medium",
           schema: tool.inputSchema,
-          execute: async (toolArgs) => client.callTool(tool.name, toolArgs),
+          execute: async (toolArgs, ctx) => this.mcpCalls.run(
+            ctx?.sessionId,
+            (signal) => client.callTool(tool.name, toolArgs, signal),
+            ctx?.signal,
+          ),
         });
       }
     }
@@ -4036,14 +4285,27 @@ export class PluginRuntime {
   }
 
   /**
+   * The plugin's egress decision input: its allowlist plus whether the user
+   * granted `net.anyHost` at install. One shape for every chokepoint so the
+   * grant means the same thing everywhere.
+   */
+  private netEgressGrant(loaded: LoadedPlugin): PluginNetEgressGrant {
+    return {
+      domains: this.netDomains(loaded),
+      anyHost: loaded.permissions.has("net.anyHost"),
+    };
+  }
+
+  /**
    * Confine one outbound URL to the allowlist. Reading a secret only becomes a
    * leak when it can leave, so every host-owned egress path funnels through
-   * here — and an undeclared `net.domains` means nothing leaves at all.
+   * here — an undeclared `net.domains` means nothing leaves at all, unless the
+   * install-time `net.anyHost` grant lifted the allowlist.
    */
   private assertEgress(loaded: LoadedPlugin, url: string, api: string): void {
-    const domains = this.netDomains(loaded);
-    if (isNetUrlAllowed(url, domains)) return;
-    this.refuseEgress(loaded, url, api, domains);
+    const grant = this.netEgressGrant(loaded);
+    if (isNetUrlAllowedWithGrant(url, grant)) return;
+    this.refuseEgress(loaded, url, api, grant.domains);
   }
 
   /**
@@ -4052,9 +4314,9 @@ export class PluginRuntime {
    * the transport never opens a connection to an undeclared host.
    */
   private assertSocketEgress(loaded: LoadedPlugin, url: string): void {
-    const domains = this.netDomains(loaded);
-    if (isNetSocketUrlAllowed(url, domains)) return;
-    this.refuseEgress(loaded, url, "net.websocket.connect", domains);
+    const grant = this.netEgressGrant(loaded);
+    if (isNetSocketUrlAllowedWithGrant(url, grant)) return;
+    this.refuseEgress(loaded, url, "net.websocket.connect", grant.domains);
   }
 
   /** One refusal path for both schemes: same audit shape, same message. */
@@ -4388,7 +4650,9 @@ export class PluginRuntime {
     payload?: Record<string, unknown>,
   ): Promise<unknown> {
     this.assertPermission(loaded, "browser.cdp");
-    const api = this.hostApi(loaded).browser;
+    const context = loaded.manifest.id === "pi.browser" && typeof payload?.sessionId === "string" && typeof payload?.tabId === "string"
+      ? { sessionId: payload.sessionId, tabId: payload.tabId } : undefined;
+    const api = this.hostApi(loaded, context).browser;
     switch (method) {
       case "navigate":
         return api.navigate({
@@ -4475,6 +4739,13 @@ export class PluginRuntime {
       throw apiError("UNSUPPORTED", "host api not available: view modal");
     }
     return this.services.viewModal;
+  }
+
+  private assertHasOAuthProvider(loaded: LoadedPlugin): void {
+    const providers = (loaded.manifest.contributes?.providers ?? []) as PluginProviderContrib[];
+    if (!providers.some((provider) => provider.authKind === "oauth")) {
+      throw apiError("PERMISSION_DENIED", "provider OAuth requires a declared OAuth provider");
+    }
   }
 
   private sessionSource(
@@ -4903,7 +5174,7 @@ export class PluginRuntime {
     throw apiError("UNSUPPORTED", `host api not available: ${api}`);
   }
 
-  private hostApi(loaded: LoadedPlugin) {
+  private hostApi(loaded: LoadedPlugin, browserContext?: { sessionId: string; tabId: string }) {
     const pluginId = loaded.manifest.id;
     const pluginPath = loaded.path;
 
@@ -4979,6 +5250,9 @@ export class PluginRuntime {
             base,
             css: sanitized.css,
             ...(previous?.windowBackground ? { windowBackground: previous.windowBackground } : {}),
+            ...(previous?.windowCornerRadius !== undefined
+              ? { windowCornerRadius: previous.windowCornerRadius }
+              : {}),
           });
           this.services.onPluginThemesChanged?.(pluginId);
           this.services.audit?.({
@@ -5114,6 +5388,7 @@ export class PluginRuntime {
             height: loaded.manifest.ui?.height ?? 360,
             htmlPath,
             netDomains: this.netDomains(loaded),
+            netAnyHost: loaded.permissions.has("net.anyHost"),
             allowMicrophone: loaded.permissions.has("ui.microphone"),
             ...(loaded.development ? { development: true } : {}),
           });
@@ -5882,7 +6157,8 @@ export class PluginRuntime {
           }
           const result = await this.services.browser.navigate(
             input,
-            this.browserSessionId(pluginId),
+            browserContext?.sessionId ?? this.browserSessionId(pluginId),
+            browserContext?.tabId,
           );
           this.services.audit?.({
             pluginId,
@@ -5904,7 +6180,7 @@ export class PluginRuntime {
             action === "reload" ||
             action === "stop"
           ) {
-            this.services.browser.action(action);
+            this.services.browser.action(action, browserContext?.sessionId, browserContext?.tabId);
           }
         },
         setBounds: (hole: unknown) => {
@@ -5934,7 +6210,7 @@ export class PluginRuntime {
           if (!this.services.browser) {
             throw apiError("UNAVAILABLE", "browser host missing");
           }
-          this.services.browser.openExternal();
+          this.services.browser.openExternal(browserContext?.sessionId, browserContext?.tabId);
           this.services.audit?.({
             pluginId,
             api: "browser.openExternal",

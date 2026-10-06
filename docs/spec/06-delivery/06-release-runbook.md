@@ -1,8 +1,12 @@
 # 06. Desktop Release Runbook
 
 > Scope: D126/D285/D603 tag artifacts for macOS arm64 and Intel x64, Windows x64,
+<<<<<<< HEAD
 > and Linux x64, including the Linux system-Electron ASAR asset and checksummed
 > Linux x64/arm64 `pi-host` Remote SSH runtime bundles;
+=======
+> and Linux x64 and arm64, including the Linux system-Electron ASAR assets;
+>>>>>>> origin/main
 > macOS signing/notarization remains the detailed qualification lane below.
 > Cross-references: [milestones](01-mvp-milestones.md) · [process model](../03-runtime/07-process-model.md) · [security](../05-security/01-security.md)
 
@@ -114,8 +118,8 @@ Surfaces in scope:
 | Surface | Requirement |
 |---|---|
 | `apps/desktop/resources/models.dev/api.json` | Refreshed from https://models.dev/api.json before tagging; the release workflow packages this snapshot unchanged |
-| `packages/shared/src/changelog.ts` | Newest-first English, zh-CN, and zh-TW entries, matching highlight counts |
-| `packages/shared/src/changelog-de.ts`, `changelog-es.ts`, `changelog-fr.ts`, `changelog-ko.ts`, `changelog-tr.ts` | Same versions and highlight counts as English |
+| `packages/shared/src/changelog-en.ts` | Newest-first English entries (source of truth, ADR 0009) |
+| `packages/shared/src/changelog-zh-CN.ts`, `changelog-zh-TW.ts`, `changelog-tr.ts`, `changelog-de.ts`, `changelog-es.ts`, `changelog-fr.ts`, `changelog-ko.ts`, `changelog-pt-BR.ts` | Same version set and highlight counts as English; a newly shipped locale is also registered in `packages/shared/src/changelog.ts` |
 | `packages/shared/src/changelog.test.ts` | Version added at the top of the newest-first list |
 | `package.json`, `apps/*/package.json`, `packages/*/package.json`, `docs/package.json` | Same version (`docs` is a third workspace root, not under `apps`/`packages`) |
 | `Cargo.toml` `[workspace.package]`, `Cargo.lock` `host-core` | Same version |
@@ -129,11 +133,11 @@ Blocking steps:
    prereleases. A no-op refresh (already current) still counts: the snapshot
    in the tagged tree is what artifacts ship. Do not treat a minified
    one-line JSON diff as absent.
-2. Edit `packages/shared/src/changelog.ts` **before**
+2. Edit `packages/shared/src/changelog-en.ts` **before**
    `node scripts/release.mjs <version>` / `git tag`:
    - Add a **newest-first** entry under `en` and every shipped product locale
-     (`zh-CN` / `zh-TW` in this file; `de` / `es` / `fr` / `ko` / `tr` in
-     `packages/shared/src/changelog-*.ts`).
+     (`zh-CN` / `zh-TW` in `changelog-zh-CN.ts` / `changelog-zh-TW.ts`; the
+     remaining catalogs are the sibling `packages/shared/src/changelog-*.ts` files).
    - Same `version` string (semver **without** a leading `v`, matching
      `apps/desktop` / `APP_VERSION` for a stable cut).
    - Optional ISO `date` (`YYYY-MM-DD`).
@@ -173,8 +177,8 @@ Pre-tag checklist:
 
 - [ ] `apps/desktop/resources/models.dev/api.json` is refreshed or confirmed
       current in the tagged tree
-- [ ] `packages/shared/src/changelog.ts` has English / zh-CN / zh-TW entries
-      for the stable version being shipped or previewed
+- [ ] `packages/shared/src/changelog-en.ts` and every shipped locale catalog
+      carry entries for the stable version being shipped or previewed
 - [ ] `packages/shared/src/changelog-de.ts` and the other locale catalogs
       match the English version set and highlight counts
 - [ ] Highlight counts match across locales
@@ -256,33 +260,26 @@ exactly one architecture-labelled DMG and ZIP (including blockmaps) and rejects
 any unlabelled or wrong-architecture macOS artifact.
 
 The DMG uses a branded 720×440 background with a two-icon drag-to-Applications
-gesture. The app and Applications link are the only items in the window. The
-opening-help note and the executable command helper are not included in the DMG.
+gesture. The app and Applications link are the only items in the window.
 
-The macOS ZIP includes both `PI-Desktop-macOS-opening-help.txt` and the
-executable `PI-Desktop-macOS-open.command` at the package root. After moving
-`PI-Desktop.app` to `/Applications` or `~/Applications`, ZIP users can
-double-click the helper. It searches only those two fixed locations, removes
-only the recursive `com.apple.quarantine` attribute when present, and opens
-PI-Desktop. Before doing so it verifies `CFBundleIdentifier=net.aiuo.pi-desktop`.
-It does not use `sudo` or accept an arbitrary application path. The manual
-fallback for the standard system location is:
-
-```sh
-xattr -r -d com.apple.quarantine /Applications/PI-Desktop.app
-```
-
-This helper is only for a trusted unsigned artifact when macOS reports that the
-app is damaged. Signed and notarized builds should open without it.
+The macOS ZIP contains `PI-Desktop.app` at its root. Neither the DMG nor ZIP
+ships an opening-help note or executable first-launch helper, including local
+and unsigned debug builds. Tagged artifacts remain signed and notarized; the
+unsigned lane is for debugging and does not imply Gatekeeper qualification.
 
 DMG, ZIP, NSIS, AppImage, deb, rpm, blockmap, and updater feed outputs are already
 compressed or compression-insensitive. The workflow therefore uploads their
 temporary Actions artifacts with compression level zero before the publish job
-assembles the GitHub Release. The Linux runner also copies
-`linux-unpacked/resources/app.asar` to the versioned
-`PI-Desktop-<version>-linux-x64.asar` asset before upload. This preserves the
-exact archive used by the Linux installers for downstream repackaging with a
-system Electron.
+assembles the GitHub Release. The Linux runners also copy their unpacked
+`resources/app.asar` (`linux-unpacked` on x64, `linux-arm64-unpacked` on arm64)
+to the versioned `PI-Desktop-<version>-linux-<arch>.asar` asset before upload.
+This preserves the exact archive used by the Linux installers for downstream
+repackaging with a system Electron.
+
+The Linux updater feeds carry the architecture they were built for:
+`latest-linux.yml` for x64 and `latest-linux-arm64.yml` for arm64. Those are the
+channel files `electron-updater` requests on the matching architecture, so a
+lane fails before upload if its own feed is missing.
 
 Two additional native Linux jobs run `scripts/package-pi-host.mjs` for x64 and
 arm64. Each verifies its SHA-256 sibling before upload and publishes only the
@@ -290,18 +287,10 @@ versioned tarball and checksum; the publish job waits for both lanes.
 
 ### 4.4 Documentation site deployment
 
-The `pi-desktop-docs` Vercel project is published only from a published GitHub
-Release ref.
-`docs/vercel.json` disables Vercel Git auto-deployments, so pushes to `main`,
-release branches, and pull requests do not create documentation deployments or
-Vercel bot comments. The `docs-deploy` job in `.github/workflows/release.yml`
-runs after the release workflow's `publish` job succeeds, checks out the exact
-release tag, and deploys the production site with the Vercel CLI. Keeping this
-job in the same workflow avoids relying on a second workflow being triggered by
-`GITHUB_TOKEN`.
-
-The workflow requires the repository secrets `VERCEL_ORG_ID`,
-`VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`.
+The release workflow does not deploy the documentation site. Vercel Git
+Deployments are disabled in `docs/vercel.json`, so changes to documentation
+sources do not automatically update the production site. Deployments must be
+initiated manually in Vercel when required.
 
 ### 4.5 CNB mirror trigger
 
@@ -594,7 +583,7 @@ their electron-updater manifests. Run a target command on that target OS:
 macOS Apple Silicon: pnpm --filter @pi-desktop/desktop run dist:mac -- --arm64
 macOS Intel:         pnpm --filter @pi-desktop/desktop run dist:mac -- --x64
 Windows: pnpm --filter @pi-desktop/desktop dist:win
-Linux:   pnpm --filter @pi-desktop/desktop dist:linux
+Linux:   pnpm --filter @pi-desktop/desktop dist:linux -- --x64|--arm64
 ```
 
 The Windows `dist:win` command runs `scripts/build-desktop-release.mjs`,
@@ -602,8 +591,9 @@ which invokes electron-builder once for NSIS and once for ZIP so each package
 gets the correct updater distribution marker.
 
 The macOS packages include `bin/pi-desktop-host-core` built for their runner
-architecture; Windows includes `bin/pi-desktop-host-core.exe`; Linux includes
-`bin/pi-desktop-host-core`. Signing, rollback, and installer upgrade
+architecture; the Linux packages do the same on their native x64 and arm64
+runners; Windows includes `bin/pi-desktop-host-core.exe`. Signing, rollback,
+and installer upgrade
 qualification remain release hardening work; publication is active under
 D126/D285/D603.
 
@@ -615,10 +605,16 @@ Native-runner output matrix:
   `PI-Desktop-<version>-x64-mac.zip`
 - Windows x64: NSIS installer `PI-Desktop-Setup-<version>.exe` and portable
   ZIP `PI-Desktop-Portable-<version>.zip`
+<<<<<<< HEAD
 - Linux x64: AppImage, deb, and rpm
 - Linux x64 system Electron asset: `PI-Desktop-<version>-linux-x64.asar`
 - Linux x64 and arm64 Remote SSH runtime:
   `pi-host-<version>-linux-<arch>.tar.gz` and `.sha256`
+=======
+- Linux x64 and arm64: AppImage, deb, and rpm
+- Linux system Electron assets: `PI-Desktop-<version>-linux-x64.asar` and
+  `PI-Desktop-<version>-linux-arm64.asar`
+>>>>>>> origin/main
 
 The portable Windows ZIP target does not write `latest.yml`. The Windows
 release helper builds NSIS and ZIP separately and stamps the ZIP app metadata
@@ -639,7 +635,7 @@ target Electron resources layout together with the native host and other
 resources from the target package, then launch it with:
 
 ```bash
-electron PI-Desktop-<version>-linux-x64.asar
+electron PI-Desktop-<version>-linux-<arch>.asar
 ```
 
 Shell smoke on each native runner:
@@ -657,10 +653,15 @@ Shell smoke on each native runner:
 - Linux deb/rpm and the Windows portable ZIP remain notify-and-link update
   modes. Packaged macOS, Windows NSIS, and Linux AppImage use in-app
   `electron-updater`.
-- Linux x64 packages are built on Ubuntu 22.04 so host-core needs glibc 2.35
-  or newer (Ubuntu 22.04, Debian 12, Fedora 36+). The tag job runs
+- Linux x64 and arm64 packages are built on Ubuntu 22.04 (native `ubuntu-22.04`
+  and `ubuntu-22.04-arm` runners), so host-core needs glibc 2.35 or newer
+  (Ubuntu 22.04, Debian 12, Fedora 36+). Each tag job runs
   `scripts/check-linux-host-glibc.mjs` and refuses a binary that needs a
   newer glibc.
+- Linux arm64 microphone capture works on Raspberry Pi boards only:
+  `@picovoice/pvrecorder-node` classifies Linux arm64 by `/proc/cpuinfo` CPU
+  part. Speech-to-text (`transcribe-cpp` ships a `linux-arm64-cpu-vulkan`
+  bundle) and every other feature work on any arm64 Linux device.
 - Rollback, staged rollout, and prerelease channel policy remain open release
   work. Existing unsigned macOS installs may need one manual signed DMG before
   in-app updates succeed.

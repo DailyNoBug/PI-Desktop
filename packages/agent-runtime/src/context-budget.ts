@@ -6,17 +6,15 @@
  * requests the parent already considers unsafe. Both therefore read the
  * formula from here instead of each owning a copy that can drift.
  *
- * Deliberately dependency-light — token estimation is delegated to
- * pi-agent-core, and pi-ai only contributes the erased `Model`/`Api` *types*,
- * so this module stays usable from any runtime context and can never form a
- * cycle with `runtime.ts`.
+ * Deliberately dependency-light — token estimation uses the pi-ai utility
+ * boundary through the desktop-owned compatibility adapter, so this module
+ * stays usable from any runtime context and can never form a cycle with
+ * `runtime.ts`.
  */
 
 import type { Api, Model } from "@earendil-works/pi-ai";
-import {
-  estimateContextTokens,
-  type AgentMessage,
-} from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { estimateContextTokens } from "./pi-runtime-estimates.js";
 import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_MAX_TOKENS,
@@ -44,12 +42,12 @@ export const COMPACTION_MAX_KEEP_RECENT_TOKENS = 64_000;
  */
 export const COMPACTION_RETAINED_USER_MESSAGE_MAX_TOKENS = 20_000;
 
-/**
- * Context thresholds derived from the active model's window.
+/** Context limits derived from the active model's window.
  *
  * `hardLimit` is the safety boundary: the next provider request must not be
- * issued while the context is at or above it. Compaction happens inline at that
- * boundary, the way Codex does it — there is no off-critical-path variant.
+ * issued while the context is at or above it. Automatic compaction starts at
+ * 90% of that budget, inline at the next turn boundary; there is no
+ * off-critical-path variant.
  */
 export type ContextBudget = {
   /** Estimated tokens in the reconstructed model context. */
@@ -61,6 +59,19 @@ export type ContextBudget = {
   /** Approximate recent-context tokens a checkpoint should retain. */
   keepRecentTokens: number;
 };
+
+/** Fraction of the safe request budget that starts automatic compaction. */
+export const AUTO_COMPACTION_TRIGGER_RATIO = 0.9;
+
+/**
+ * Start compaction before the hard boundary so estimator drift and one-turn
+ * growth do not leave the provider request as the first overflow detector.
+ */
+export function automaticCompactionThresholdFor(
+  budget: Pick<ContextBudget, "hardLimit">,
+): number {
+  return Math.max(1, Math.floor(budget.hardLimit * AUTO_COMPACTION_TRIGGER_RATIO));
+}
 
 /**
  * The only model facts the budget depends on. Kept structural and optional so a

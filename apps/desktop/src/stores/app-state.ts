@@ -1,5 +1,7 @@
+import type { RecentModel } from "../lib/recent-models";
 import type {
   AgentEventEnvelope,
+  BrowserState,
   AgentQueueChangedEvent,
   AgentStatus,
   AppNotification,
@@ -24,6 +26,7 @@ import type {
   ReviewRollbackResult,
   SessionSummary,
   SessionThinkingLevel,
+  SessionTodoSnapshot,
   UiMessage,
 } from "@pi-desktop/shared";
 import type { SettingsTabId } from "../lib/settings-search";
@@ -40,7 +43,6 @@ import type {
   QueuedPromptDirection,
   QueuedPrompts,
 } from "../lib/queued-prompts";
-import type { SubagentPanelSelection } from "../lib/subagent-panel";
 import type {
   ComposerDraftSnapshot,
   ComposerPrefill,
@@ -58,12 +60,16 @@ export type ToastItem = {
   variant: ToastVariant;
   /** Auto-dismiss delay in ms; 0 keeps the toast until dismissed. */
   duration: number;
+  /** Notification chime is enabled by default. */
+  sound: boolean;
 };
 
 export type ToastOptions = {
   variant?: ToastVariant;
   /** Override the variant default (4s, error 8s); 0 disables auto-dismiss. */
   duration?: number;
+  /** Suppress the default soft chime when another notification surface already played it. */
+  sound?: boolean;
 };
 
 export type AgentTurnResult = {
@@ -126,6 +132,8 @@ export type AppState = {
   /** Latest user-selected session while its transcript/workspace is resolving. */
   selectingSessionId?: string;
   messages: UiMessage[];
+  /** Renderer-only visibility overrides; never persisted with transcript messages. */
+  dismissedAssistantErrorMessages: Record<string, true>;
   /** Session ids whose panes stay mounted, most recently visible first. */
   retainedSessionIds: string[];
   /** Last transcript each retained pane painted. */
@@ -144,8 +152,10 @@ export type AppState = {
   /** Latest terminal outcome per session for compact sidebar feedback. */
   sessionOutcomes: Record<string, SidebarSessionOutcome>;
   /** Every checkpoint a session has installed, oldest first. */
-  sessionCompactions: Record<string, ContextCompactionMark[]>;
+  sessionCompactions: Record<string, (ContextCompactionMark & { summary?: string })[]>;
   providers: ProviderPublic[];
+  recentModels: RecentModel[];
+  rememberModel: (model: { providerId?: string; modelId?: string }) => void;
   /** Discovered model lists per provider id (composer model menu). */
   providerModels: Record<string, ModelInfo[]>;
   workspace?: ProjectWorkspace | null;
@@ -167,10 +177,13 @@ export type AppState = {
   pendingPlans: Record<string, PlanProposal>;
   /** Latest immutable Plan checkpoint/execution snapshot per session. */
   planCheckpoints: Record<string, PlanProposal>;
+  /** Host-authoritative Todo snapshots keyed by session. */
+  sessionTodos: Record<string, SessionTodoSnapshot>;
+  applyTodosChanged: (snapshot: SessionTodoSnapshot) => void;
   toasts: ToastItem[];
   notifications: AppNotification[];
   unreadNotificationCount: number;
-  page: "chat" | "pulls" | "scheduled" | "plugins" | "settings";
+  page: "chat" | "scheduled" | "plugins" | "settings";
   /** Tab ids come from the shared settings index. */
   settingsTab: SettingsTabId;
   /** Pending row anchor (i18n key) to flash after landing on a settings tab. */
@@ -208,6 +221,7 @@ export type AppState = {
     content: string,
     draft?: ComposerDraftSnapshot,
     targetSessionId?: string,
+    onAccepted?: (sessionId: string) => void,
   ) => Promise<boolean>;
   steerPrompt: (content: string, draft?: ComposerDraftSnapshot) => Promise<boolean>;
   enqueuePrompt: (
@@ -228,6 +242,8 @@ export type AppState = {
   applyQueueChanged: (event: AgentQueueChangedEvent) => void;
   compactContext: () => Promise<void>;
   retryAssistantMessage: (messageId: string) => Promise<void>;
+  /** Read canonical text before opening a user-message editor. */
+  prepareUserMessageEdit: (messageId: string, signal?: AbortSignal) => Promise<UiMessage | null>;
   /** Replace a user prompt and regenerate from it. */
   editUserMessage: (
     messageId: string,
@@ -236,6 +252,7 @@ export type AppState = {
   ) => Promise<boolean>;
   retryLastPrompt: () => Promise<void>;
   clearError: () => void;
+  dismissAssistantErrorMessage: (messageId: string) => void;
   activateMessageRevision: (rootUserId: string, revisionIndex: number) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   rollbackWorkspaceChange: (
@@ -312,7 +329,8 @@ export type AppState = {
   /** Reload contributed work panel views. */
   refreshPluginViews: () => Promise<void>;
   refreshNotifications: () => Promise<void>;
-  receiveNotification: (notification: AppNotification) => void;
+  /** Returns true only when this event was accepted as a new durable row. */
+  receiveNotification: (notification: AppNotification) => boolean;
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   clearNotifications: () => Promise<void>;
@@ -320,6 +338,8 @@ export type AppState = {
   /** Drop a session's sidebar outcome badge and read its task notifications. */
   acknowledgeSessionOutcome: (sessionId: string) => Promise<void>;
   restorePendingPlan: (sessionId: string) => Promise<PendingPlanRefreshResult>;
+  /** Re-read a session's open ask / permission cards from Main (reload recovery). */
+  restorePendingInteractive: (sessionId: string) => Promise<void>;
   refreshPlanCheckpoints: () => Promise<void>;
   handleAgentEvent: (envelope: AgentEventEnvelope) => void;
   handlePlansChanged: (event: PlanningStateEvent) => void;
@@ -344,8 +364,6 @@ export type AppState = {
   dismissToast: (id: number) => void;
   composerPrefill: ComposerPrefill | null;
   clearComposerPrefill: () => void;
-  /** Renderer-only subagent details selected from the transcript. */
-  subagentPanel: SubagentPanelSelection | null;
   workPanelOpen: boolean;
   workPanelTabs: WorkPanelTab[];
   activeWorkPanelTabId: string | null;
@@ -353,10 +371,15 @@ export type AppState = {
   workPanelContexts: Record<string, WorkPanelContext>;
   workPanelWidth: number;
   /** Chat-initiated "preview this file" request consumed by the files viewer. */
-  workPanelFileRequest: { path: string; seq: number; mimeType?: string } | null;
-  /** Toggle the selected subagent detail. */
-  toggleSubagentPanel: (delegationId: string) => void;
-  closeSubagentPanel: () => void;
+  workPanelFileRequest: {
+    path: string;
+    seq: number;
+    mimeType?: string;
+    line?: number;
+    column?: number;
+  } | null;
+  /** Open (or activate) the transcript tab of one delegated subagent. */
+  openSubagentTab: (delegationId: string, agentName?: string) => void;
   /** Abort one session's running turn, visible or not. */
   abortSession: (sessionId: string) => Promise<void>;
   openWorkPanel: () => void;
@@ -368,13 +391,23 @@ export type AppState = {
   replaceWorkPanelTab: (sourceTabId: string, tab: WorkPanelTab) => void;
   openWorkPanelTabForSession: (sessionId: string, tab: WorkPanelTab) => void;
   activateWorkPanelTab: (tabId: string) => void;
+  reorderWorkPanelTabs: (
+    sourceTabId: string,
+    targetTabId: string,
+    insertAfter: boolean,
+  ) => void;
   closeWorkPanelTab: (tabId: string) => void;
   collapseWorkPanel: () => void;
   /** Hide the visible panel while retaining its session-owned context. */
   resetWorkPanelContext: () => void;
   setWorkPanelWidth: (width: number) => void;
-  openFileInWorkPanel: (path: string, mimeType?: string) => void;
+  openFileInWorkPanel: (
+    path: string,
+    mimeType?: string,
+    position?: { line?: number; column?: number },
+  ) => void;
   openUrlInWorkPanel: (url: string) => void;
+  updateBrowserWorkPanelTab: (state: BrowserState) => void;
 };
 
 export type AppStateData = {

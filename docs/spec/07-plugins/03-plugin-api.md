@@ -413,6 +413,71 @@ panel-bridge channel so a picker page can populate itself. When the host
 transport is unavailable, the call returns an empty list instead of warning
 (D080).
 
+### provider OAuth (requires `provider.oauth`)
+
+An OAuth provider contribution needs both `provider.register` and
+`provider.oauth`, a `baseUrl`, and an `onProviderOAuth` export from the plugin's
+main module. The host invokes the hook only for a declared contribution:
+
+```ts
+type PluginProviderOAuthRequest = {
+  operation: "login" | "refresh"
+  providerId: string       // plugin-local contribution id
+  loginId?: string         // login only; pass to prompt/notify
+  credential?: PluginProviderOAuthCredential // refresh only; this provider's credential
+}
+
+type PluginProviderOAuthCredential = {
+  accessToken: string
+  refreshToken?: string
+  expiresAt?: number       // Unix epoch milliseconds
+  accountLabel?: string
+  headers?: Record<string, string>
+}
+
+type PluginProviderOAuthContext = { signal: AbortSignal }
+
+onProviderOAuth(request, { signal }): Promise<PluginProviderOAuthCredential>
+```
+
+During login, return the credential after the user authorizes it. During
+refresh, the host passes the current credential to the same callback; return the
+updated credential. The host encrypts it under the provider row's OAuth secret
+reference and serializes refreshes. A callback can access only its own
+contribution's credential. The host sends the resolved access token to the
+Agent Runtime per request; refresh tokens never reach the renderer or Agent
+Runtime. One account is stored for each provider contribution; sign out clears
+that credential while the manifest-owned provider row remains.
+
+The plugin can use host-owned login UI without opening its own window:
+
+```ts
+if (!request.loginId) throw new Error("loginId is required for sign-in")
+const loginId = request.loginId
+
+await pi.providers.oauth.notify(loginId, {
+  kind: "deviceCode",
+  userCode,
+  verificationUri,
+  intervalSeconds,
+  expiresInSeconds,
+})
+
+const code = await pi.providers.oauth.prompt(loginId, {
+  type: "secret",
+  message: "Enter the verification code",
+})
+```
+
+`prompt` supports `text`, `secret`, `select`, and `manual_code`. `notify`
+supports non-secret `info`, `authUrl`, `deviceCode`, and `progress` events; the
+host opens valid HTTP(S) authorization URLs and reports whether the browser
+opened. The callback context signal is aborted when the user cancels, the plugin
+unloads, or the host call times out. OAuth token requests still require
+`net.fetch` and the manifest's `net.domains` when they use the host network API.
+This permission does not grant a general host secret API. Plugin entry code is
+not an OS sandbox and can use raw Node APIs, so grant it only to code you trust.
+
 ### session (requires `session.read`)
 ```ts
 pi.session.getLlmContext(): Promise<PluginLlmContext>
@@ -720,7 +785,16 @@ pi.browser.console(input?: { limit?: number }): Promise<{ messages: unknown[] }>
 pi.browser.cdp(input: { method: string; params?: unknown }): Promise<unknown>
 ```
 
-The guest page is a host-owned `WebContentsView` (`persist:work-browser`).
+`navigate` returns when the current main-frame navigation commits, including
+redirects; it does not wait for slow images or subframes. `browser:state` reports
+loading immediately and optionally includes `loadError` for failed navigation.
+Optional `sessionId` and `tabId` identify the host-owned work-panel destination;
+plugins do not select these identities through navigation arguments.
+
+The current guest page is a host-owned `WebContentsView` (`persist:work-browser`).
+Each resource tab retains its own page. A navigation for a background session is
+queued for that session's last selected tab, or its first tab when none exists.
+It does not navigate or return another session's visible page.
 `setBounds` is content-relative to the calling plugin view and is clamped so
 the guest cannot cover chat/composer. `cdp` is deny-by-default; cookie,
 storage, target, and network-interception methods fail with
@@ -1213,6 +1287,7 @@ Any of the following calls must be logged for audit:
 - Every Git call, including permission and consent denials: plugin id,
   operation, result/error code, path count, and branch — never paths, diff
   content, commit messages, credentials, or raw remote output
+- provider.oauth (plugin id, declared provider id, operation, result/error code — never credential contents)
 
 Log fields:
 - pluginId
@@ -1242,6 +1317,7 @@ The desktop plugin runtime now implements the MVP host API surface used by local
 - `speech.registerAdapter` / `unregisterAdapter` (`speech.adapter.register`)
 - `rpc.register` / `unregister` (`plugin.rpc`; renderer management calls, ADR 0313)
 - `models.list`, `session.getLlmContext`
+- `onProviderOAuth` and `pi.providers.oauth.prompt` / `notify` (`provider.oauth`)
 - `clipboard.*`, `shell.openExternal`, `net.fetch`
 - `browser.*` (guest CDP; `browser.cdp`)
 - `git.*` (structured, allowlisted Git operations in the active workspace)

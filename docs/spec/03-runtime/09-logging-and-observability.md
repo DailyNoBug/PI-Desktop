@@ -52,7 +52,12 @@ The application categories are:
 - `tool` — tool execution outcomes and interruptions
 - `permission` — permission requests and decisions
 - `plugin` — plugin loading, services, and plugin tool execution
-- `provider` — provider/model discovery, retries, and cache failures
+- `provider` — provider/model discovery, retries, and cache failures, plus
+  live voice call failures: one `live voice call failed` `warn` per root cause
+  carrying `callId`, `adapterId`, `phase`, `stage`, `code`, `retriable` and the
+  Logger-redacted raw `reason`, and one `live voice microphone release
+  unconfirmed` `error` when a release could not be confirmed and the lease is
+  quarantined. Call views carry the `code` only.
 - `persistence` — transcript and outbox persistence failures
 - `updater` — updater diagnostics and errors
 - `diagnostics` — blocked navigation, menu, template, and outbound-fetch
@@ -83,6 +88,11 @@ The application categories are:
   one `crashDumpReportFailed` warn and never blocks the first window (D602).
 - `remote` — SSH connection stages, pairing, bootstrap, remote provider sync,
   and remote project lifecycle records; secrets and credentials are never included
+  Each renderer `render-process-gone` event records one `renderer.process.gone`
+  entry with the Electron exit `reason` and `exitCode`, plus whether the current
+  main window was reloaded. Clean exits are informational; unexpected exits are
+  warnings.
+
 - `runtime` — host/sidecar lifecycle, uncategorized child output, and
   main-process `uncaughtException` / `unhandledRejection` records
 
@@ -133,7 +143,16 @@ record.
 - host/agent spawn, handshake, and unexpected exit;
 - session create/delete;
 - prompt accepted/aborted;
-- tool completion/failure/interruption and permission request/decision/timeout;
+- failed context compaction: one `session.compaction.failed` record and one
+  `session.compaction.request_shape` record per summary request. The failure
+  record carries only provider/model identifiers, closed-vocabulary failure
+  reason, bounded token budgets, status/error codes, and a request-shape state
+  (`observed`, `not_sent`, or `unobserved`). The shape record carries the wire
+  API, bounded top-level field names, role counts, tool count, and numeric
+  output limit (or `omitted`). It never carries prompt text, tool schemas,
+  endpoint URLs, credentials, or provider error prose. Retries and chunked
+  summaries use a fresh request id at every request boundary.
+- tool completion/failure/interruption and permission request/decision/cancellation;
 - Plan artifact creation, approval, expiry, rejection, execution transition,
   and startup interruption;
 - shell identity, timeout, abort, and process-tree shutdown;

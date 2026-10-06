@@ -81,7 +81,9 @@ Outer frame that positions Topbar, Sidebar, MainChat, and WorkPanel. Owns resize
 - Work panel resize: its inner left-edge handle changes the committed panel
   width in the renderer, so dragging left gives the panel more internal space
   and dragging right returns space to MainChat (§5.4)
-- Window resize: native edges and corners resize the fixed application window;
+- Window resize: native edges and corners on all platforms resize the fixed
+  application window; Windows keeps Electron's frameless hit test without its
+  painted thick-frame rim;
   they never resize or reserve the work panel. Responsive layout follows
   [07-ui-design-system.md](07-ui-design-system.md) §10.1
 
@@ -130,7 +132,7 @@ Outer frame that positions Topbar, Sidebar, MainChat, and WorkPanel. Owns resize
   track; the destination pane is revealed only once it has committed. A warm
   destination is revealed with no busy affordance at all. Nothing is dimmed and no
   skeleton-to-transcript animation is inserted (ADR 0137).
-- Settings, Plugins, Pull requests, and Scheduled are route-level lazy modules.
+- Settings, Plugins, and Scheduled are route-level lazy modules.
   Chat and shell chrome stay in the initial renderer bundle; first entry to a
   secondary destination shows a compact localized status indicator until its
   local chunk resolves.
@@ -242,8 +244,13 @@ expanded it owns that control, so the top bar does not duplicate it. The
 does not duplicate it. Keyboard shortcuts and the application menu remain
 available.)
 
-The conversation top bar renders for the chat route only; Pull requests, Scheduled,
-Plugins, and Settings keep the frameless drag band. It owns the task title and
+The conversation-topbar New task and Search tooltips append the effective,
+platform-formatted shortcut. A custom binding replaces the default; an
+explicitly unbound shortcut is omitted. The accessible name remains the
+localized action label.
+
+The conversation top bar renders for the chat route only; Scheduled, Plugins,
+and Settings keep the frameless drag band. It owns the task title and
 window actions only. Project scope remains in the title tooltip instead of adding
 another visible label. The Composer owns the Agent/Plan/Goal control and the
 combined model × reasoning selection (§11).
@@ -302,8 +309,8 @@ combined model × reasoning selection (§11).
   lane reserve is derived from that same control size rather than from a
   literal, and the toggle's open state is its glyph swap plus the engaged ink —
   no control in this family paints a filled or raised "on" pill.
-  With the sidebar collapsed, Plugins, Pull requests, and Scheduled render their
-  sidebar/New Task actions inside `.main-titlebar`, not the preview-only
+  With the sidebar collapsed, Plugins and Scheduled render their sidebar/New Task
+  actions inside `.main-titlebar`, not the preview-only
   `.window-chrome-row`. Both containers must share the same geometry, rest,
   hover, and disabled rules; route actions must not duplicate those declarations.
 - Band reservation is platform-independent (D269). The band is opaque and
@@ -311,11 +318,14 @@ combined model × reasoning selection (§11).
   every platform, macOS included. Every route surface that starts its own
   content at the top edge reserves the band: the transcript
   (`.thread-content`) and the destination-page frame (`.page-frame`, shared by
-  Plugins, Scheduled, and Pull requests) both pad by `--ds-toolbar-height`.
+  Plugins and Scheduled) both pad by `--ds-toolbar-height`.
+  Destination pages scroll in a route-owned content container separate from the
+  chat transcript scroller; Composer-specific occlusion and follow behavior must
+  not fade or hide destination rows at the bottom of the page.
   Without that reservation a page header renders behind the band and its title
-  row is clipped. The plugin detail sheet reserves it too (D296): the route
-  surface keeps a transform after its entry animation, so the sheet's fixed
-  layer stacks inside the route rather than above the band.
+  row is clipped. The plugin detail sheet reserves it too (D296): the sheet is
+  mounted on the viewport overlay host, so its fixed layer is independent of
+  the route scroller and the titlebar band.
 
 ### 2.4 States
 
@@ -487,6 +497,11 @@ visually distinct from list content.
   unmounts normally, releasing listeners, and an operation already in flight
   still completes and reports through the normal toast channel; this is not a
   hidden live workbench or durable preference across application restart.
+- Plugin detail, settings, permission-review, template, and install-progress
+  surfaces are viewport-wide overlays. Their backdrops and surfaces mount on
+  `#pi-desktop-overlays`, outside the route scroll container and sidebar
+  stacking contexts, so an expanded sidebar cannot cover the surface or its
+  close/cancel controls.
 - The footer action group stays on the left and the build/version chip stays
   right-aligned; clicking the chip checks for updates or opens the available
   release in Settings
@@ -512,7 +527,12 @@ visually distinct from list content.
   one logical project group: the primary folder is activated and names the
   group, while every other selected folder is retained as a group root and is
   shown in Project archive details, not as an open project tab. Group chats,
-  instructions, and memory use the same group identity. A source selector
+  instructions, and memory use the same group identity. If a local selection
+  contains exactly one root already owned by a durable group, Create reopens
+  that group at its primary root instead of creating a duplicate group; this
+  applies when the group was closed from the sidebar. A multi-folder selection
+  that overlaps an existing group remains subject to host duplicate-root
+  validation. A source selector
   offers This computer and Git repository: the git source swaps the folder
   list for a repository URL field plus a clone destination row and creates
   the project by cloning into the chosen folder first. The dialog follows
@@ -558,9 +578,10 @@ visually distinct from list content.
   in its overflow menu. Rename edits the local display name only; open folder
   reveals the project directory in the system file manager for the selected
   project row.
-- Conversation overflow: pin/unpin, archive/restore, Create branch, delete.
-  Create branch is disabled while that conversation is running; success
-  activates the independent child session and focuses the composer. When
+- Conversation overflow: pin/unpin, archive/restore, Create branch, Copy
+  conversation link, delete. Create branch is disabled while that conversation
+  is running; success activates the independent child session and focuses the
+  composer. Copy conversation link is offered to every reader (§20B). When
   developer mode is on, the menu also offers Copy conversation ID (clipboard)
   and Open session path (the session scratch directory in the system file
   manager).
@@ -591,6 +612,9 @@ visually distinct from list content.
   externally changed Git branch is current. This refresh does not activate a
   project or change the selected conversation; if the read is unavailable, the
   last cached branch remains usable.
+- Collaboration creator and created-session links in the hover card show a
+  localized running indicator only while the referenced session has an active
+  runtime; non-running related sessions remain title-only.
 - Project groups use compact vertical spacing so adjacent directories and
   conversation rows read as one dense navigation list rather than detached
   cards. Directory `+` and overflow actions remain hidden until hover or
@@ -705,7 +729,7 @@ controls.
 | Project reorder | press-and-move on the title (8px), or ArrowUp/ArrowDown on that title, writes contiguous normalized-path order to sidebar preferences; accent insertion line; no visible grip |
 | Project archive | omitted from default view; restorable from archived view |
 | Project close | removes retained tab only; durable project/sessions remain |
-| Project delete | row-menu danger action behind a second confirmation that names the project and the number of its sessions; refused with a message while any of those sessions is running; removes the durable project row, those sessions, their transcripts, and its project memory; never deletes the folder on disk; a path owned by a multi-folder project group is refused with a message, and a path the host no longer knows is still removed from the list |
+| Project delete | row-menu danger action behind a second confirmation that names the project and the number of its sessions; refused with a message while any of those sessions is running and leaves group membership unchanged; removes the durable project row, those sessions, their transcripts, and its project memory; never deletes the folder on disk; deleting a root of a multi-folder project group detaches it as part of deletion, promotes the first remaining root when the primary is deleted, and removes the group record when its last root is deleted. A path the host no longer knows is still removed from the list. Detaching a root with chats through Edit project preserves them under a standalone project |
 | Project memory | row-menu editor reads and saves a compact list of titled or untitled memory cards for the exact project path; cards can be added, edited, and removed, the context is available in later chats, and it is never a higher-priority instruction |
 | Session list | exact-path matches only; no basename grouping |
 | Active group | exactly one group reflects the selected host workspace |
@@ -758,10 +782,13 @@ reading surface of the workstation.
 ### 4.3 Layout
 
 - Background: bg-primary
-- Max content width: 760px default, user-resizable (D439); assistant rows follow the band. User plates stay `min(82%, 600px)`
-  subagent card, or a single tool row — spans that band: its header is a
-  full-width row with an ellipsizing label and a trailing caret, never a
-  content-sized chip, so it follows the dragged width instead of its own text.
+- Max content width: 760px default, user-resizable (D439); assistant rows follow the band. User plates stay `min(82%, 600px)`.
+- Each process, activity group, delegation card, and single tool row spans the
+  conversation band. Its activity header is a full-width row with an
+  ellipsizing label and trailing caret, never a content-sized chip, so it
+  follows the dragged width instead of its own text. Content inside a
+  delegation node and its dock process is width-aware and wraps long task,
+  path, command, and answer text.
 - The transcript keeps one stable scrollbar gutter on the trailing edge. It
   never reserves a matching left gutter, so the minimap and first message do
   not leave a decorative blank strip beside the session.
@@ -829,13 +856,15 @@ only when the current mode has two or more visible items. A singleton uses its i
 disclosure directly, compact-hidden thinking never creates an empty wrapper, and
 the existing Task topology remains the container for delegated work.
 
-Detailed starts active and completed whole-process disclosures open. The ordinary
-group owning the active execution segment starts open, then closes on completion
-only if untouched; other completed groups start closed. Compact starts the process
-and ordinary groups closed. Its untouched active process remains open when any
-failed or denied tool has been recorded, through later successful recovery, and
-closes on completion if still untouched. Group headers summarize count, running
-state and issue count without treating a failed child as a failed turn.
+Detailed opens whole-process disclosures while a turn is active. When a turn
+settles, an untouched process defaults closed; an explicit user choice remains
+authoritative. The ordinary group owning the active execution segment starts
+open, then closes on completion only if untouched; other completed groups start
+closed. Compact starts the process and ordinary groups closed. Its untouched
+active process remains open when any failed or denied tool has been recorded,
+through later successful recovery, and closes on completion if still untouched.
+Group headers summarize count, running state and issue count without treating a
+failed child as a failed turn.
 
 In Detailed, only the literal final item of the last activity group receives the
 leaf auto-open default when it is an eligible tool-call or hosted-search row.
@@ -862,7 +891,7 @@ pending action cards remain reachable outside a hidden process. See
 
 | State | Behavior |
 |---|---|
-| Empty | Restrained hero + optional onboarding checklist in a scrollable content region, with a bottom-reserved home composer and no starter-card or contextual quick-action layer (D111/D204/D206). A project-bound empty session underlines the project name; the control opens a searchable switcher of the sidebar's open projects, with clone-git-project and open-project actions. |
+| Empty | Restrained hero + optional onboarding checklist in a scrollable content region, with a bottom-reserved home composer and no starter-card or contextual quick-action layer (D111/D204/D206). An open project underlines the project name, including before its first session exists; the control opens a searchable switcher of the sidebar's open projects, with clone-git-project and open-project actions. |
 | Streaming | Auto-scroll follows while pinned; new tokens append |
 | Active progress | Immediately after send, before the first assistant or tool event, a compact localized `Working…` status with elapsed time appears inline. Its model and subagent elapsed labels use the carried-unit format in §9.1. When the runtime names a quiet interval, that same row identifies starting, waiting for the model, preparing the next request, compacting context, recovering an empty response, retrying, or waiting for delegated work (with each running subagent's latest coarse action). It remains visible through thinking, tool execution, completed-tool gaps, and partial answers until the turn ends. Runtime phases take precedence over the Planning/Goal or Working fallback. Pending permissions, questions, and plan/goal approvals suppress the row; history reading never shows live status; no large generic progress card is rendered. The row lives in the reserved tail lane, so it appears and clears mid-turn without changing the transcript's content height. A retrying row remains compact at rest; hovering or focusing it reveals an error-styled tooltip with the localized error summary, stable code/HTTP status, and bounded provider message. The tooltip mixes the error tint over `--ds-bg-elevated-opaque` so transcript text does not show through. |
 | Turn outcome | After a failed turn, a session-scoped recovery card summarizes the interruption and tool evidence. Completed turns use the existing transcript and message-scoped InlineReviewCard without an extra success card; failed turns can continue through one localized prompt without losing the transcript. |
@@ -1039,14 +1068,41 @@ entirely inside the plugin's isolated page:
   folder the view is browsing — never the whole group — refuses credential
   paths, and records writes to its own audit log (ADR 0241, ADR 0263).
 
-- During a Browser session switch, Main hides the shared guest immediately
-  until the destination's current navigation completes. Root lookup or load
+- During a Browser session switch, Main hides the previous page immediately.
+  A retained destination page is shown without reloading; a new destination
+  stays hidden until its current main-frame navigation commits. Root lookup or load
   completion from a superseded request cannot navigate, reveal, or publish the
   old session as current. A session without a remembered preview stays empty;
   closing the panel or disposing the guest wins over pending work. Normal
   navigation within the same session retains that session's visible content.
-  A failed switch or one exceeding the existing 15-second load wait remains
-  hidden until retried; a late network completion does not automatically reveal it.
+  The address bar immediately shows loading feedback. A current main-frame commit
+  reveals the page without waiting for images or subframes; those continue to
+  drive the loading/stop control. A failed switch or one exceeding the 15-second
+  main-frame wait shows a retryable error, with the old guest hidden. Superseded
+  and cancelled requests cannot publish over the new navigation. A local file
+  address or absolute path that does not resolve to an existing file inside
+  the session workspace is rejected before loading and shows a specific
+  workspace-boundary message in the browser chrome, including on a blank tab.
+  Existing files inside the workspace remain previewable by absolute path.
+
+- Browser address input accepts HTTP(S) URLs and scheme-less web hosts. A
+  `localhost` or dotted hostname followed by a numeric port (for example,
+  `localhost:3000/index.html` or `example.com:8080`) is treated as an HTTP
+  address rather than a custom URL scheme. Unsupported schemes remain blocked;
+  workspace file previews continue to use the in-root file path gate.
+
+- Opening an HTTP(S) link in the work panel creates an additional Browser
+  resource tab instead of replacing the previous URL. Each tab owns a host-retained WebContents, address, title and navigation
+  history. Switching hides/shows pages without reloading, preserving live form,
+  scroll and JavaScript state. Hidden pages use background throttling. Closing
+  tabs releases their page/CDP resources; no automatic suspension or restart DOM
+  recovery is promised. Address-bar and
+  ordinary in-page navigation stay in the current tab. Website new-window links
+  follow Link open destination: another work-panel tab, or the system browser.
+
+- BrowserPreview creates its resource tab before navigating and never rewrites
+  the prior tab. A background navigation is retained for its session's selected
+  tab (or consumed once by its first tab). A new blank tab reports empty state.
 
 - Main-frame same-document navigation (fragment links and History API routes) updates
   the browser address, history controls, and loading state without requiring a
@@ -1104,12 +1160,12 @@ responses are discarded by request revision.
 | Preview (maximize) | MainChat is unmounted and the panel fills the client area beside the sidebar. The mode is transient and restores the prior panel width and sidebar state when left. |
 | Multiple artifacts | The header keeps a horizontally scrollable tab strip. The fixed `+` action creates a new launcher tab; its buttons open Review and all in-scope plugin views without duplicating open resource tabs. |
 | Session switch | The destination session's retained open state, tabs, active tab, and Browser resource replace the previous session's panel context atomically; neither context is deleted |
-| Resizing | The inner left divider follows anchored pointer delta or keyboard input for the panel target; pointer changes are frame-coalesced and committed in the renderer. Escape, pointer cancellation, or lost capture restores the prior panel width. Native window edges resize only the fixed application window. |
+| Resizing | The inner left divider follows anchored pointer delta or keyboard input for the panel target; pointer changes are frame-coalesced and committed in the renderer. Escape, pointer cancellation, or lost capture restores the prior panel width. Native window edges resize only the fixed application window on every platform. |
 | No workspace | Each tab renders its own "open a project" empty state |
 | Open with no resource | `Cmd/Ctrl + J` reveals the panel without creating a tab, so the body renders the New launcher. Clicking `+` creates an explicit, closable New tab with the same launcher rows. Activating a row from that tab replaces it with or selects the singleton view. Closing the final tab leaves the panel open in the no-resource state. |
 | Constrained work area | The panel is capped by the shared three-column budget inside the existing client area; MainChat never drops below its 450px floor and the expanded sidebar yields at the threshold |
 | New launcher active | The body hosts concise Review and plugin-view buttons. Each row replaces the launcher tab with its destination or activates the existing singleton; the page is independently closeable. |
-| Plugin view active | The body hosts the plugin's own isolated page as a native `WebContentsView`, positioned from the measured surface rect. It remains visible at its full rect while the divider is being resized or a New launcher tab is created; creating a page never pushes the plugin body down or changes its bounds. It is hidden whenever the tab is inactive, the panel is animating, or a panel-wide blocking overlay is open — the same rule the Browser preview follows, since both composite above renderer content. A view whose plugin is disabled, uninstalled, reloaded, or crashed is destroyed; the tab stays and re-opens the page on the next lifecycle event (ADR 0104) |
+| Plugin view active | The body hosts the plugin's own isolated page as a native `WebContentsView`, positioned from the measured surface rect. It remains visible at its full rect while the divider is being resized or a New launcher tab is created; creating a page never pushes the plugin body down or changes its bounds. Embedded plugin documents start with zero root/body margin and border and a transparent background, so the host panel and plugin theme own the visible surface edge. It is hidden whenever the tab is inactive, the panel is animating, or a panel-wide blocking overlay is open — the same rule the Browser preview follows, since both composite above renderer content. A view whose plugin is disabled, uninstalled, reloaded, or crashed is destroyed; the tab stays and re-opens the page on the next lifecycle event (ADR 0104) |
 | Plugin out of scope | A view contributed by a plugin that is not active in the current project disappears from the New launcher when the project changes. Unlike contributed themes, which are one global setting and stay unfiltered, a view is scoped work |
 
 ### 5.4 Interactions
@@ -1152,7 +1208,11 @@ responses are discarded by request revision.
   Review, file, or plugin view. Clicking a tab activates it; the active tab is
   scrolled into view. Its close button and middle-click close it, selecting the
   right neighbor and then the left. ArrowLeft/ArrowRight/Home/End move between
-  tabs and Delete/Backspace closes the focused tab. The `+` trigger remains
+  tabs and Delete/Backspace closes the focused tab. Pressing and moving a tab
+  by 8px starts reordering; dropping on either half of another tab inserts the
+  source before or after it. Holding the pointer near either edge auto-scrolls
+  the strip toward off-screen tabs. `Alt+ArrowLeft`/`Alt+ArrowRight` reorders
+  the focused tab without changing its active state. The `+` trigger remains
   fixed beside the strip and creates a new launcher tab.
 - New launcher: each `+` click creates a unique, active New tab. Its body uses
   the Review-plus-plugin tool list as buttons. Selecting a row replaces the
@@ -1191,6 +1251,13 @@ responses are discarded by request revision.
   the divider restores the default 360px width, clamped by the same live
   minimum and three-column budget, so a reset never breaches the MainChat
   floor.
+- Browser capture and resize: screenshots and raw `Page.captureScreenshot`
+  calls serialize per retained browser page. While a capture is in flight,
+  the page retains the latest requested bounds without changing its native
+  viewport. Capture completion or failure applies those bounds if the page
+  is visible; a hidden page receives them when shown again. Queued captures
+  stay on their original page and fail if that guest was closed. Other pages
+  remain independent, and resizing never triggers an extra screenshot.
 - Persistence: all session contexts are renderer runtime state only. On app
   startup, open state, tabs, active-tab selection, file requests, and Browser
   resources reset; only the committed preferred `{width}` remains in
@@ -1242,7 +1309,11 @@ It does not render separate Details or Output tabs.
 - The task description is the Task call's `task` argument, rendered as one
   selectable inset grouped card. The delegate's thinking, tool rows,
   and answer fragments reuse the same components and styling as the main
-  conversation. Reports and counters remain omitted from this compact surface.
+  conversation. Task/node titles, descriptions, and step summaries use the
+  available width and wrap or clamp to multiple lines; long paths, commands,
+  and tool summaries in the live process wrap inside the dock instead of
+  becoming one-line ellipses. Reports and counters remain omitted from this
+  compact surface.
 - The dock has one scroll owner, the panel body. The scroll owner is
   keyboard-focusable and exposed as a polite `role="log"` so streamed rows
   remain discoverable without forcing focus changes. The live process is
@@ -1299,6 +1370,12 @@ List user sessions inside the sidebar: global pinned shortcuts, followed by
 unpinned history for retained project tabs and path-less sessions.
 Pin/archive/collapse state is a presentation over durable host
 sessions, not a replacement persistence model.
+
+A scheduled-task run's transcript is never part of this list: the run owns its
+session (`task_runs.session_id`), the host reports that ownership as
+`scheduledRun` on every session summary, and the Scheduled route is its entry
+point. Global session search hides the same rows. Deleting the task releases the
+transcript back into the ordinary lists (issue #1291).
 
 ### 6.2 Anatomy
 
@@ -1401,6 +1478,10 @@ near-zero duration. A folded group keeps its rows mounted, `aria-hidden`, and
   session path opens `<data_dir>/scratch/<sessionId>/` in the system file
   manager, creating the directory if it does not exist yet. Both actions
   appear only while developer mode is on.
+- Copy conversation link writes the `pi-desktop://session/<id>` reference to
+  the clipboard without developer mode. Pasting it into another conversation's
+  Composer draft sends a bounded excerpt of that conversation with the turn,
+  and the user message then shows it as a chip (§20B).
 - Selecting a conversation with a different project first activates that
   project's workspace. A running turn in the previously selected session is
   not aborted.
@@ -1509,6 +1590,10 @@ storage but compose into one assistant turn until the next user message.
   content's left rule is itself a pointer and keyboard-focusable collapse
   control.
 - Hover code block: copy button appears
+- Click a transcript file reference with `:line[:column]`: resolve the file
+  first, then open it in the host `file:` tab and scroll the requested line into
+  view. Plain project-file references still prefer the bundled file view, whose
+  open contract does not carry a line position.
 - Hover or focus a minimap marker: show the localized sender and a bounded
   plaintext preview; multiple assistant fragments produced within one user
   turn are combined into one AI-response marker and preview; nearby markers
@@ -1629,10 +1714,22 @@ storage but compose into one assistant turn until the next user message.
   to the first contentful fragment. Tool-only rows do not create markers or
   split an AI response, and a one-page transcript never shows the rail.
 - Marker previews are capped at 280 source characters and are display-only
-- Derived visible rows, minimap rows, and activity grouping are memoized by the
-  `messages` snapshot. Completed message rows, composed assistant turns, and
-  activity groups keep stable render boundaries while only the current stream
-  fragment changes.
+- Derived visible rows, minimap rows, and activity grouping share the immutable
+  `messages` projection with the Composer context inspector. After warm-up, an
+  ordinary same-shape delta updates indexed changed rows without rereading
+  unchanged message bodies or rebuilding completed groups. This applies to the
+  normal 100-row page and deliberately loaded full histories, and to foreground
+  and background session caches. Shallow array copies
+  remain permitted; cold loads and structural changes may rebuild the projection.
+  Structural appends reuse cached content facts for unchanged immutable messages,
+  including delegate answers, instead of rereading and trimming completed text.
+- Completed rows and unchanged parts within a large active turn/activity group
+  retain their render boundaries. Deferred presentation consumes one immutable
+  projection snapshot. Older-row and child updates, terminal re-keying, Copy,
+  disclosure state, minimap previews, session switching, and reader-owned scroll
+  positions must remain fresh; performance reuse must not hide these changes.
+  Event-to-DOM latency, long tasks, and heap samples are diagnostics, not a
+  hardware-independent timing guarantee.
 
 ---
 
@@ -1670,8 +1767,9 @@ Single message render — either user (plaintext) or assistant (markdown streami
 ### 8.3 Layout
 
 - Max content band: 760px default, user-resizable via dual edge handles
-  (D439 / ADR 0277). Assistant, tool, and decision rows follow the band.
-  User plates stay `min(82%, 600px)`.
+  (D439 / ADR 0277). Assistant, tool, decision, and structured assistant-error
+  rows follow the band; error cards fill their message column without a second
+  fixed width cap. User plates stay `min(82%, 600px)`.
 - The live band is `min(available pane, preferred)`. Collapsing the sidebar
   no longer tightens a 640px ceiling; the outer pane stays fluid and the
   width transition follows the sidebar dock.
@@ -1693,9 +1791,17 @@ Single message render — either user (plaintext) or assistant (markdown streami
   collapse. Serialized `@path` file references render as compact leaf-name
   chips matching the composer node (icon + ellipsized name; canonical path in
   the tooltip and accessible name). Image attachments that are not already
-  inlined as `@path` chips render as bounded thumbnails (data URL from
-  `fs/readImageDataUrl`); unresolved loads keep the chip. Bare path tokens in
-  message text recognize Unicode letters and digits. In user-message prose,
+  inlined as `@path` chips render as the same compact image chip inside the
+  body's own text flow, continuing the message text instead of heading it on a
+  line of its own. Hovering or focusing the chip reveals the bounded data URL
+  (`fs/readImageDataUrl`) in a read-only preview card above it (below it when
+  the chip sits at the top), and an unresolved load leaves the chip alone. A
+  referenced
+  conversation (`kind: "session"`) renders as a chat-icon chip labeled with the
+  shared reference label and the referenced title; the tooltip and accessible
+  name come from the catalog, and activating it opens that conversation
+  (§20B). Bare path tokens in message text recognize Unicode letters and
+  digits. In user-message prose,
   these are candidates only: show a chip after the existing `fs/resolveRef`
   lookup confirms a real file. Pending, missing, or failed lookups preserve
   the exact original text, including `使用llama.cpp`. Explicit `@path` refs
@@ -1705,10 +1811,11 @@ Single message render — either user (plaintext) or assistant (markdown streami
   Confirmation is scoped to the message text, workspace path, and session; changing
   any of these discards old results and cancels queued work. Newly created
   files are reconsidered when the message remounts or its scope changes, not
-  by polling. Non-ASCII filenames remain supported. Absolute and `~/` tokens are matched whole,
-  and one outside the workspace (or any home path) stays plain text rather
-  than rendering a chip that could never open — containment is unchanged
-  (D322). Clicking a chip
+  by polling. Non-ASCII filenames, spaces, and Windows drive/backslash paths
+  remain whole candidates. User-message paths outside the allowed roots stay
+  plain after verification, while assistant references and tool paths remain
+  clickable so the opener can explain the access limit. Home paths stay plain.
+  Clicking a chip
    completes the reference through `pi-desktop/fs/resolveRef` — the whole open
    project is searched, its group's folders primary first (ADR 0263) — and opens
    where it resolved: a project file in the bundled `pi.file-manager` work-panel
@@ -1717,8 +1824,9 @@ Single message render — either user (plaintext) or assistant (markdown streami
    primary folder in the side browser. A primary-folder file is addressed to the
    view as a project-relative path and a sibling-folder file as an absolute one,
    which is also how scratch and attachment files are addressed. A resolved
-   image thumbnail resolves and opens the same way. A chip whose reference
-   matches nothing opens nothing and reports itself; the OS default application
+   image chip resolves and opens the same way. A chip whose reference
+   matches nothing opens nothing and reports itself; an absolute path outside
+   every allowed root reports the access limit separately. The OS default application
    is no longer what this click does.
   HTTP(S) URLs remain inline text links. Bare URLs preserve balanced parentheses
   in paths, queries, and fragments; an unmatched closing parenthesis wrapping
@@ -1732,7 +1840,10 @@ Single message render — either user (plaintext) or assistant (markdown streami
   link address. Modifier clicks (Ctrl/Cmd/Shift/Alt) continue to open
   externally. Long URL links wrap
   within the plate and keep logical-start alignment instead of inheriting the
-  browser's centered button text.
+  browser's centered button text. They stay part of the selectable message
+  text: a drag across the plate selects the URL with its surrounding prose,
+  and copying that selection keeps the URL, even though the link is a button
+  and chrome buttons are otherwise unselectable.
 - Assistant: transparent surface, left-aligned, markdown rendered at full
   content width. Workspace file paths in that markdown are previewable:
   inline code, markdown links, and bare path tokens (with a known
@@ -1788,6 +1899,11 @@ Single message render — either user (plaintext) or assistant (markdown streami
   Fork creates and activates an independent session whose snapshot ends at the
   selected assistant response, requires an idle source, and leaves that
   source's transcript, live runtime, and provider cache state untouched (D134).
+  Opening a user-message editor must hydrate canonical history before seeding the
+  draft when the loaded transcript is partial or display-limited. Never seed an
+  editable draft from clipped display text. Failed reads keep the editor closed
+  and show an error; stale reads after navigation or a new turn cannot open it.
+  Slash invocations still seed their original typed command.
   Edit belongs to the user turn: it swaps the prompt bubble for a focused
   composer-radius editor filled with `--ds-tile-deep` (the same 8% mix as a
   user bubble) so it stays distinct from the pane without an outer shadow.
@@ -1874,7 +1990,7 @@ Single message render — either user (plaintext) or assistant (markdown streami
 | Streaming | transparent like a completed turn — no left rail, no reserved inset, no whole-turn `--ds-tile` (D323); content grows. The tile belongs only to a subagent/delegation card (D319) |
 | Thinking streaming | disclosure open; answer bubble omitted until answer text exists |
 | Complete | transparent full-width markdown; no streaming chrome |
-| Error | compact assistant error card in transcript; localized summary and stable code share one header with the details disclosure; details still opens to redacted provider response, provider/model IDs, and copy action; the card offers a localized Continue action that resends the continuation prompt; configuration failures show Open settings. The session-scoped failed-turn recovery card is a fallback for terminal failures without a structured assistant error, so both cards never render for one turn |
+| Error | Compact assistant error card in transcript; localized summary and stable code share one header with the details disclosure; details still opens to redacted provider response, provider/model IDs, and copy action; the card offers localized Continue and accessible Dismiss actions. Dismiss affects renderer-only visibility keyed by message id and preserves the original UiMessage/host transcript. Configuration failures show Open settings. The session-scoped failed-turn recovery card is a fallback for terminal failures without a structured assistant error, so both cards never render for one turn |
 
 ### 8.4a Context compaction row
 
@@ -1942,6 +2058,19 @@ Renderer: `apps/desktop/src/components/Markdown.tsx` + `apps/desktop/src/lib/shi
   across the whole message, and footnotes also number, reuse and back-link
   across it, so the message renders as one parse context and gives up per-block
   memoization for as long as it streams.
+- **Bounded large content**: transcript linkification uses one shared per-tree
+  budget of 128 Ki UTF-16 code units, at most 512 file candidates and 256
+  generated links; one file candidate is at most 512 code units, while URLs
+  have their separate 16 Ki candidate limit. Exceeded ranges remain verbatim
+  text, and each new conversion starts with a fresh budget. Markdown skips
+  synchronous full-source formatting above 128 Ki code units. During streaming,
+  an oversized unparsed tail stays verbatim while any trusted stable prefix
+  remains formatted; a message above the full-source bound stays verbatim after
+  streaming ends. The visible localized notice explains the display downgrade.
+  Searchable/copyable source and source offsets continue to use the complete
+  message. Smooth text release stops above 32 Ki code units. Shiki returns to
+  plain text before splitting when code exceeds 100,000 code units, 800 lines,
+  or a 2,000-code-unit line; tool output uses the same guard.
 - **Plugins**: `remark-gfm` (tables, task lists, strikethrough, autolinks),
   `remark-math` + `rehype-katex` (inline `$…$` or `\(…\)`, display `$$…$$`
   or `\[…\]`). Raw HTML is
@@ -2093,6 +2222,24 @@ Renderer: `apps/desktop/src/components/Markdown.tsx` + `apps/desktop/src/lib/shi
   when the marker set changes and whenever the rail's own box resizes: the rail's
   height derives from `--composer-dock-height`, which the composer republishes as
   its draft grows, so dashes move without a marker change or a window resize.
+
+#### Markdown table actions
+
+Every rendered Markdown table has its own compact toolbar: Copy as Markdown,
+Download as CSV, and Expand table. Copy preserves inline Markdown and column
+alignment and produces a standalone table even inside a quote or list. CSV
+contains the displayed cell text, UTF-8 with BOM, quoted fields, and CRLF rows;
+quotes and cell line breaks are escaped, and formula-leading nonnumeric cells
+are exported as text. Clipboard failures produce an error toast.
+
+The expanded view uses a modal dialog with the existing theme tokens, a scrollable
+table and opaque sticky headers, and copy/download controls. Columns retain
+readable minimum widths; narrow previews scroll horizontally instead of crushing
+short labels. It follows streamed rows,
+contains keyboard focus, closes with Escape or Close, and restores focus to its
+trigger. Native work-panel surfaces remain hidden while the modal is open.
+Tables retain their existing inline layout and link/file actions. No editing,
+sorting, new settings, persistence, or host protocol is introduced.
 
 ---
 
@@ -2292,6 +2439,12 @@ the call's own `agent` argument, and carries the call's short `description`. The
 resolved model id is shown immediately after the delegate name, from the
 structured `Task` result details.
 
+The topology node is width-aware at every panel size. Its title may occupy up
+to two lines, its description is clamped to two readable lines, and its step
+summary can wrap rather than forcing the user to resize the divider. Complete
+descriptions remain available through the node's accessible name/hover title;
+the node and its live process never create horizontal overflow.
+
 The lifecycle rows (`TaskWait`/`TaskList`/`TaskStop`) stay compact tool rows —
 they are not topology nodes and must not inflate the subagent counts — but they
 are presented as subagent rows rather than as generic tool calls (D269). A
@@ -2333,40 +2486,51 @@ never summarizes from its own arguments:
   └────────────────┘    └───────────────────────────────────────────┘
 ```
 
-Clicking a topology node toggles an inset grouped side sheet in the right-side
-work-panel dock rather than expanding the transcript. Clicking the selected node
-again closes the side sheet; selecting another node replaces the current detail
-in place:
+Clicking a topology node opens a dedicated `subagent` tab in the work panel —
+the same tab strip that hosts Review, files, and plugin views — instead of
+expanding the transcript. Re-opening the same delegation activates its tab;
+parallel delegates coexist as independent tabs. The tab renders the delegation
+as a conversation:
 
 ```text
 ┌──────────────────────────────────────────────┐
-│ [bot] code-reviewer         [Completed]  32s │
-│       claude-sonnet-4-5                      │
-│                                              │
-│ TASK                                         │
-│ ┌──────────────────────────────────────────┐ │
-│ │ Review the changes in src/stores for …   │ │
-│ │                               Show more  │ │
-│ └──────────────────────────────────────────┘ │
-│                                              │
-│ ACTIVITY                            3 steps  │
-│ ● Thinking …                                 │
-│ ● Read store.ts                              │
+│ [bot] [code-reviewer] [✕]  [bot] [explorer#2] [✕]   [+] ⤢ │
+├──────────────────────────────────────────────┤
+│                    ┌──────────────────────┐ │
+│                    │ Review the changes   │ │
+│                    │ in src/stores.       │ │
+│                    └──────────────────────┘ │
+│ ● Thinking …                                │
+│ ● Read store.ts                             │
+│ The store diff looks consistent. …          │
+│                    ┌──────────────────────┐ │
+│                    │ Now check the tests. │ │
+│                    └──────────────────────┘ │
+│ ● Edit composer.tsx                         │
+├──────────────────────────────────────────────┤
+│ [ Subagents are driven by the main agent… ] │
 └──────────────────────────────────────────────┘
 ```
 
-- The dock renders a sticky identity header with the delegate name and model
-  on the left and the status capsule plus elapsed time trailing on the same
-  row, followed by the Task call's `task` argument as a selectable inset
-  grouped card and the live process timeline.
-- Reports and counters remain omitted from this surface. The live thinking,
-  tool, and answer process is shown on the dock timeline. The topology card
-  remains a compact summary in the transcript and does not gain height when
-  the dock opens.
-- The selected task is re-found from the session's live/retained messages, so
-  the header status and elapsed time stay current while the delegate runs.
-- A missing or deleted task renders a localized unavailable state. Delegation
-  rows remain excluded from the parent turn stream and minimap.
+- The tab is a message list, not a card: every `Task` call of the resume
+  chain renders its `task` argument as a user row (the main transcript's user
+  bubble), and the delegate's thinking, tool, and answer rows under that call
+  render with the same message-list language, so a follow-up prompt reads as
+  the next user turn.
+- The composer at the foot is a disabled two-row textarea whose placeholder
+  says subagents are driven by the main agent and cannot take input; the tab
+  is display-only and has no send path.
+- Tab labels carry the agent name captured when the tab opened, with a
+  strip-order `#n` suffix when the same name occurs more than once; a
+  localization fallback covers a delegate with no name.
+- Tabs are never opened automatically when a delegate starts. They persist
+  after the delegate settles until the user closes them and are scoped to
+  their session like every other tab.
+- The conversation is re-found from the session's live/retained messages, so
+  streaming rows keep arriving in the open tab while the delegate runs.
+- A delegation whose Task calls are missing renders a localized unavailable
+  state. Delegation rows remain excluded from the parent turn stream and
+  minimap.
 
 - Runs are rebuilt from the message list on every render, so group memoization
   compares them by row identity and length rather than by object identity —
@@ -2526,7 +2690,6 @@ Inline transcript card requesting user approval for a high-risk tool call. See
 | Workspace: /Users/dev/project                |
 | ───────────────────────────                  |
 | [Allow once] [Allow for session] [Deny]      |
-| Timeout: 120s countdown                       |
 +----------------------------------------------+
 ```
 
@@ -2540,27 +2703,27 @@ fields. It is never a JSON dump.
 - Only the active session's pending request is mounted. Background requests
   stay in session-keyed renderer state without inserting content into the
   visible transcript or covering another destination.
-- Different sessions may each hold one pending request. Resolution, timeout,
+- Different sessions may each hold one pending request. Resolution, cancellation,
   abort, tool completion, and session deletion clear only the matching
   request.
-- Countdown uses the request's absolute receipt time and does not restart when
-  the user switches away and back.
+- A pending request remains visible when the user switches away and back; it
+  has no countdown or expiry timestamp.
 
 ### 10.4 States
 
 | State | Appearance | Actions |
 |---|---|---|
-| Pending | warning accent, countdown visible | Allow once / Allow session / Deny buttons active |
+| Pending | warning accent | Allow once / Allow session / Deny buttons active |
 | Resolving | pending appearance retained | All three buttons disabled until the request settles |
 | Allowed once | success border, "Allowed (once)" label | No actions |
 | Allowed session | success border, "Allowed (session)" label | No actions |
 | Denied | error border, "Denied" label | No actions |
-| Timeout denied | warning border, "Denied (timeout)" label | No actions |
 
 ### 10.5 Interactions
 
 - Buttons: primary (Allow once), secondary (Allow session), danger (Deny)
-- Countdown: visible timer decrementing from 120s
+- No countdown is shown; the card remains pending until an explicit decision or
+  cancellation.
 - The first action locks all buttons. Resolution errors use an error toast;
   successful or failed completion returns focus to the current composer.
 - The originating session's composer cannot send during pending permission,
@@ -2570,7 +2733,7 @@ fields. It is never a JSON dump.
 ### 10.6 Accessibility
 
 - `role="region"` with a localized accessible name; the static title supplies
-  the polite live announcement so the per-second timer is not re-announced
+  the polite live announcement without a per-second timer
 - Buttons clearly labeled and reachable in normal transcript tab order; the
   card never traps or forcibly moves focus
 - Countdown announced periodically (every 30s) or on request
@@ -2740,9 +2903,12 @@ reasoning-level control.
   `.composer-toolbar` spacing, minimum heights, theme surfaces, and controls.
   Only the parent placement and the localized placeholder copy differ between
   the empty home and a recorded conversation. In a recorded conversation,
-  `.composer-dock-docked` paints the primary workspace background across its
-  full width. This occlusion band prevents transcript rows from remaining
-  visible beneath the floating shell or through its rounded outer corners.
+  `.composer-dock-docked` paints no backing of its own: `.thread-scroll` masks
+  its own content out across the trailing reserve the transcript holds below
+  the Composer's measured height, so rows fade at the Composer boundary instead
+  of remaining visible beneath the floating shell or through its rounded outer
+  corners, and the conversation pane's own surface stays visible behind the
+  dock (issue #728, D624).
 - Empty draft height: `.composer-input` uses `min-height: 3lh`, so an idle
   composer shows three lines of input before it grows with the draft.
 - Scroll stability: The thread scrollport reserves one stable trailing gutter,
@@ -2762,6 +2928,36 @@ reasoning-level control.
   file-reference names), expose independent Remove and Send now actions, and
   increase the dock height measured by `--composer-dock-height`.
 
+### 11.3a Session TodoDock
+
+- The Composer stack places TodoDock above Plan/Goal approval surfaces when the
+  active session has a non-empty host-owned checklist. An empty checklist does
+  not reserve layout space.
+- The collapsed header shows completed/active progress and the current
+  `in_progress` content. A checklist whose items are all cancelled has a clear
+  cancelled label instead of a misleading `0/0 completed` count.
+- The disclosure is keyboard accessible, does not take focus on updates, and
+  resets closed when the active session changes. The expanded dock lists every
+  ordered row and scrolls inside its own box (`max-height: min(280px, 30dvh)`,
+  `overflow-y: auto`, `overscroll-behavior: contain`), so a long checklist stays
+  readable without growing the Composer stack and reaching the list's end never
+  scrolls the transcript behind it; that scrollport is keyboard reachable only
+  while the disclosure is open. The list stays mounted while collapsed so
+  opening and closing can animate with a bounded height/opacity transition;
+  collapsed content is `aria-hidden` and reduced-motion users receive an
+  immediate state change. A collapsed dock reserves only its header row: the
+  list's inset is clipped, never laid out below the header.
+  Completed rows use a success-tinted tile with a check icon, in-progress rows
+  use the accent tint, and cancelled rows are muted. Each status symbol has a
+  localized accessible name, and each row renders plain text.
+- Renderer snapshots are keyed by session id. A `todos.changed` event with an
+  older or equal revision is ignored. Session activation and host recovery
+  re-read the authoritative snapshot, including already cached checklists; a
+  failed initial read cannot permanently hide the dock after host recovery.
+  Recovery is skipped for `remote:` and `native-pi:` sessions, which do not own
+  a local Desktop checklist. Remote Todo parity requires an additive RACP
+  contract.
+
 ### 11.4 States
 
 | State | Appearance | Actions |
@@ -2769,7 +2965,7 @@ reasoning-level control.
 | Idle (no model) | textarea active, send button disabled + tooltip "Configure a model first" | Agent link remains available in model menu |
 | Idle (ready) | textarea active; Send requires draft content | Send active when content exists |
 | Home/new-session initialization | textarea and mode/model × reasoning/permission triggers remain available while the durable empty session is loading; the session row is already present and the first configuration selection applies to that session | Configure the session, then send |
-| New session (reasoning model) | Combined model × reasoning chip shows the model and its binding default thinking level | User may select any level enabled in the model binding, including Off when enabled |
+| New session (reasoning model) | Combined model × reasoning chip shows the model and its binding default thinking level; an unmatched model starts at Off while keeping the manual ladder available | User may select any level enabled in the model binding, or any canonical level for an unmatched model |
 | New session / switch while another session is running | textarea active, send button enabled for the destination session's own run state | Send active, Stop hidden unless the destination session itself is running with an empty draft |
 | Running | textarea and mode/model × reasoning/permission controls remain editable for the next turn; the single submit slot shows Stop only with an empty draft | Send queues text or attachments; Stop when both are empty |
 | Context checkpoint | Same as Running until durable checkpoint completion; intermediate `turn_end` does not reactivate controls. A retained-tail fallback remains Running and shows a warning toast | Same single-slot Stop/Send behavior as Running |
@@ -2805,9 +3001,10 @@ reasoning-level control.
   their source paths until the echo brings the session-scoped refs; a slash
   prompt shows its typed form until the echo brings the expanded body and
   command chip. A send that never reaches the host withdraws the row again.
-  Revalidation and older-page prepends are idempotent by message id, so leaving
-  and re-entering a session cannot display a second copy of an existing user
-  row.
+  Revalidation and older-page prepends are idempotent by message id. If the
+  renderer missed the persistence acknowledgement, re-entry may collapse only
+  an exact, attachment-free optimistic prompt with a nearby durable echo; an
+  older identical prompt cannot hide a newly sent row.
 - Shift+Enter: newline in textarea. Cmd/Ctrl+Enter sends when Enter-to-send is off. IME composition and an open autocomplete menu still take precedence over send.
 - Placeholder guidance: the initially rendered context starts on its welcome copy and remains
   unchanged while the page/session context, draft, focus, and IME state change.
@@ -2826,6 +3023,8 @@ reasoning-level control.
   Host's durable `position`; at the waiting-block boundary it is a no-op and
   never crosses into the promoted block. Edit removes the row and returns its
   captured draft — text plus inline file-reference chips — to the composer;
+  after an app restart, when that in-memory draft is unavailable, restore the
+  Host-stored content and image/file attachments without rewriting the content;
   while the input is non-empty (or holds attachments) the action is refused with
   a toast and nothing changes. Remove drops the row immediately.
 - Send now: promotes the row to the end of the session's priority block, so a
@@ -2838,9 +3037,12 @@ reasoning-level control.
   up/down, Send now, edit, and remove are disabled. All five tooltips explain
   that it is saving; Send now also displays the localized Saving label. Direct edit/remove actions leave the pending row and draft
   unchanged; after admission, ordinary waiting-row actions become available.
-- A promoted row is locked: move up/down, edit, and remove are disabled with
+- A promoted row fixes order: move up/down and edit are disabled with
   their tooltip and `aria-disabled` state intact, and the Send now button reads
-  as already decided (`chat.sendNowPending`). The row carries a distinct
+  as waiting for the current task (`chat.sendNowPending`). Remove remains
+  available until delivery and waits for Host acknowledgement. If delivery
+  already started, show a conflict message directing the user to Stop.
+  The row carries a distinct
   promoted surface so it is not mistaken for another waiting row.
 - Stop: the single submit slot is shown only while a turn is running and the
   draft is empty. It stops the running turn and cancels pending permission.
@@ -2917,14 +3119,16 @@ reasoning-level control.
   model therefore updates the draft Composer's available levels and binding
   default thinking level immediately; the persisted session keeps the same
   exact-model capability after materialization.
-- A new session whose inherited default model supports reasoning starts with
-  Thinking enabled at that model's stored default thinking level, clamped onto
-  the enabled set. When the binding has no default, it falls back to the
-  highest enabled level. Published levels seed a new binding; an explicit
-  binding can opt into a level the catalog omits. Non-reasoning models and
-  missing capability metadata start at `off` until a user enables a non-`off`
-  level; reopening or reusing an existing session preserves its durable
-  selection.
+- A new session whose inherited catalog-matched model supports reasoning starts
+  with Thinking enabled at that model's stored default thinking level, clamped
+  onto the enabled set. When the binding has no default, it falls back to the
+  highest enabled level. An unmatched model starts at `off` unless its binding
+  stores an explicit default, while the Composer keeps the canonical ladder
+  available for manual opt-in. Published levels seed a new binding; an
+  explicit binding can opt into a level the catalog omits. Reopening an
+  existing session preserves its durable selection; explicitly switching to a
+  different model applies that binding's default, while selecting the
+  already-active model preserves a manually chosen level.
 - The model menu lists only enabled, runnable providers with configured model
   bindings. Cached or freshly discovered rows may enrich those configured
   models, but unconfigured discovery results never appear in the conversation
@@ -3056,7 +3260,86 @@ reasoning-level control.
   unknown/custom models without an explicit override, disabled image input, and
   oversized images use the existing canonical `@<path>` file-tool fallback.
   There are no visual previews in MVP.
-- No voice input
+- No voice-to-draft input. The opt-in Live Voice path below is separate from
+  the Composer draft and does not restore the hidden Dictation entry.
+
+### 11.7.1 Live Voice preparation, compact call bar, and details
+
+Subject to the existing developer-mode and development-build gate, Live Voice
+has four presentation states:
+
+| State | Surface and allowed interaction |
+|---|---|
+| Disabled | No Live Voice or Live Work Composer icons. Enable only in Settings → Voice. |
+| Enabled, idle | One Live Voice icon opens preparation, not a call. Show the exact selected provider and its readiness cause, one default-off bounded-context consent checkbox, and an explicit Start action. The panel carries no explanatory prose: only a blocking cause is stated, because a paragraph of text pushes Start out of reach. |
+| Call in progress | One docked desktop widget window: Connecting with Cancel; connected with mute/unmute, End, and Details; Ending until Main and renderer cleanup both settle. |
+| Details open | Deliberately opened transcript/provider/work inspection surface; dismissing it does not end the call. |
+
+- The preparation popup uses shared controls and a localized accessible title.
+  Opening or dismissing it must not prepare a call, request microphone access,
+  initialize media, or contact a voice provider. Start is unavailable when the
+  exact selected binding is not ready, even if another binding is ready; show
+  the actual readiness cause and a Settings action instead of silently falling
+  back to another account. Beyond that it carries no explanatory prose.
+- Start defaults to muted and uses the current Composer session as the work
+  target after Main validates it against the fresh multi-backend catalog. No
+  per-call work-access checkbox or mandatory preselection is required. If there
+  is no current session, start unbound and let the user list/select a target by
+  voice. Voice target changes apply only to subsequent operations.
+- Bounded session-context sharing remains a separate, unchecked call consent.
+  It reads only the current target's bounded plain-text history and resets when
+  the call ends; it does not grant work permissions or approve actions.
+- The compact bar is its own frameless, transparent, always-on-top desktop
+  window, not AppShell chrome. It joins every Space and floats above other
+  applications, so a call stays visible and controllable while the user works
+  elsewhere; in-app navigation cannot hide it, because it is not inside the app
+  window at all. The window is dragged through the bar itself and sized to what
+  the bar draws, and its placement is remembered and clamped to the work area,
+  so a position saved on a wider display can never strand the controls. The
+  status row and its controls stay on one row — a folded status line would read
+  as two rows of chrome — so the bar reports the width it needs and the window
+  grows to it.
+- The widget is a view of the call, never its owner. Every press is forwarded to
+  the main window, which owns the microphone, the media and the call-scoped
+  work, and the resulting state returns through the same authoritative view the
+  owner receives. A failure only the owner frame can observe — a refused mute, a
+  playback retry that failed — is reported so the bar names it in place next to
+  its verbatim `LIVE_*` code; the bar is the only call chrome the user sees. The
+  same report carries whether the bound work session waits on a decision the user
+  has to make in that session's own card, which the widget window cannot see.
+- The main window draws no call bar. It keeps the details surface, which the
+  widget's Details action opens after bringing that window forward, and it stays
+  the frame that runs the actions. Feature disable hides the idle icon; the
+  widget disappears once the call and its renderer cleanup settle. Late Main
+  terminal events and renderer media release cannot briefly expose a second
+  Start. Unconfirmed media release remains visible, cannot be dismissed into a
+  reusable call slot, and suppresses another Start until restart.
+- Details never opens automatically during startup or connection. It owns the
+  bounded transient transcript (including an empty state), provider identity,
+  current work target, per-operation targets, work actions and results. Target
+  changes do not retarget existing operations. Close, outside press and Escape
+  dismiss the surface only and restore focus to an available trigger. The bar
+  remains usable, and dismissing Details never submits or stops work.
+- When the bound work session is waiting on the user, the bar keeps a
+  persistent waiting line and Details shows the pending request (the asktool
+  question as bounded plain text, the tool awaiting permission, or the plan
+  awaiting approval) with an action that opens the exact bound session and
+  closes Details. Another session's request is never attributed to the bound
+  session, and with no backend waiting evidence nothing is shown. These
+  surfaces carry no decision: nothing in the bar or Details can answer or
+  approve a permission, Plan, or AskTool request. The voice path may resolve
+  the bound session's single open AskTool question by selecting among that
+  question's own option labels; a permission or Plan/Goal approval is still
+  only ever made here, in the desktop UI.
+- The configurable toggle shortcut retains deliberate direct start from idle
+  and end during a call. Direct start also defaults to the current Composer
+  session and leaves bounded-context consent off. The startup-cancel shortcut
+  only acts when no popup has consumed the key; Escape never ends a connected
+  call.
+
+See [Live Voice](../03-runtime/live-voice.md) and
+[Live Work](../03-runtime/live-work-session.md) for the unchanged ownership,
+permission, and call-scoped work contracts.
 
 ### 11.8 Slash commands, @ file references, and clipboard files (D123–D125, D197, D209, D262, D362, D397, ADR 0024, ADR 0059, ADR 0070, ADR 0131, ADR 0221, ADR 0222)
 
@@ -3085,9 +3368,39 @@ Anatomy:
   whitespace yet): the placeholder teaches `Type / for commands · @ for files`
   (localized in zh-CN), and groups appear in order — prompt templates (name +
   `argument-hint` ghost text + description, project source before
-  user-global), app commands (builtin slash aliases), plugin commands.
+  user-global), app commands (builtin slash aliases), plugin commands,
+  extension commands, connected MCP servers, then Skills.
   The core aliases remain `/new`, `/compact`, `/agent-mode`, `/plan-mode`, and
   `/goal-mode`; matched characters highlight in accent.
+- Catalog discovery refreshes MCP records and initializes enabled in-scope
+  servers through the existing runtime connection path, including on cold start.
+  Failed handshakes retain the runtime's explicit retry policy.
+- The MCP group exposes enabled user-configured servers that are ready, have
+  tools, and are active in the current project. Rows contain a stable
+  `/mcp:<URI-encoded-server-id>` and the display label. Individual tools also
+  appear as `/mcp:<URI-encoded-server-id>:<URI-encoded-tool-name>`, searchable
+  and selectable with the same keyboard and pointer interactions. Tool selections
+  activate only that exact tool; server selections retain whole-server behavior.
+  No connection addresses, credentials, or tool schemas enter the command
+  catalog. Selecting a row only
+  inserts text. At send (including steering), main revalidates availability
+  against the session project and passes exact server IDs to the runtime.
+  The runtime activates that server's currently available tools before the
+  provider request, reusing deferred activation without ToolSearch's result
+  limit. A short instruction identifies the selected server. Other active
+  tools and all permission checks remain in place. The original draft remains
+  the transcript's `command`. Activation does not force tool execution or
+  guarantee model compliance. An unavailable selection fails with localized
+  feedback before opening a turn or replacing history. Native Pi sessions do
+  not support Desktop-managed MCP selections. Existing command aliases win
+  collisions. See `docs/adr/composer-mcp-invocations.md`.
+- Active Skill commands use `/skill:<id>` for builtin, plugin, and user Skills.
+  Completion inserts this explicit prefix; sending resolves it to the unchanged
+  Skill ID. Unprefixed names are not Skill aliases; existing app commands and
+  prompt templates keep their names. Saved Skill mentions remain unchanged.
+- A whitespace-delimited `/` later in the draft offers active Skills only.
+  Completion replaces only the token under the cursor, so several Skills and
+  ordinary text can coexist in one prompt.
 - Command descriptions use the space left after the slash name and optional
   title/argument hints. A long description truncates before it can squeeze a
   short command name to an ellipsis, including in narrow composers. Names and
@@ -3115,6 +3428,12 @@ Anatomy:
   main selects image blocks or path fallbacks from the exact model capability.
   Reference-only drafts are sendable. Builtin/plugin dispatch still bypasses
   the model-ready gate when no prompt text or file reference is sent.
+- A `pi-desktop://session/<id>` link in the draft is the reference itself: no
+  new trigger symbol joins `@` files and `/` commands, and the link stays
+  visible plaintext while the draft is unsent. Immediately before dispatch,
+  main resolves each link to another conversation in the same project into a
+  bounded excerpt attachment (§20B). An unknown id, a self-reference, and a
+  conversation in another project stay plaintext.
 - The Agent/Plan/Goal mode aliases can prefix a prompt in the same draft:
   `/agent-mode <prompt>`, `/plan-mode <prompt>`, and `/goal-mode <prompt>` apply
   the mode first, then send `<prompt>` plus any serialized references through
@@ -3137,7 +3456,10 @@ Anatomy:
   transient state, and submits it separately from visible text. Main stores
   image bytes under `attachments/<sha256>` and sends visual input only when the
   selected model's effective binding capability accepts images and the 10 MB
-  inline bound is met; otherwise it appends a safe `@path` fallback. Removing
+  inline bound is met; otherwise it appends a safe `@path` fallback. SVG inputs
+  (`image/svg+xml` or `.svg` extension) are always classified as files, never
+  as model images, regardless of vision capability (see
+  `03-runtime/svg-attachment-input.md`). Removing
   a chip does not delete
   scratch bytes. A text-only paste longer than `largePasteThreshold` follows
   the same bounded session bridge with generated `text/plain` UTF-8 bytes,
@@ -3164,17 +3486,21 @@ Anatomy:
   Text/plain and `.txt` chips are also keyboard-focusable buttons: clicking or
   pressing Enter/Space expands their bounded contents into editable draft text;
   binary, image, oversized, or failed reads keep the chip. Ordinary files stay
-  compact chips. Unsent images render in a left-aligned attachment row above and
-  outside the input shell, never within editable text. Their existing detached
-  reference metadata survives text selection, editing, undo, and session
-  switching; restored inline-image tokens are removed from text while keeping
-  the attachment. Image-only drafts enable Send; a rejected send restores both
-  text and attachments even when rejection precedes the next render. The
-  attachment row is height-limited and scrolls vertically so every image remains
-  reachable in a narrow chat pane. Thumbnails have an independent
-  remove button shown on hover/focus (always visible for touch input). No
-  separate explanatory vision-status row is rendered.
-  Clicking an image or pressing Enter/Space opens a modal image preview, without
+  compact chips. Unsent images render as the same compact inline chip inside the
+  editable draft, at the insertion point, with the image glyph and leaf name.
+  Hovering one reveals a read-only preview card of its bounded data URL above
+  the chip, or below it when the chip sits on the first line; moving the pointer
+  away, typing, scrolling, resizing, or opening the modal dismisses the card,
+  and the card never takes pointer events from the draft. A restored image
+  reference without an inline token gains one, so a cache written before inline
+  image chips, a restored queue entry, or a prefill still shows every image.
+  Reference metadata survives text selection, editing, undo, and session
+  switching; the chip's own remove button drops the attachment. Image-only
+  drafts enable Send; a rejected send restores both text and attachments even
+  when rejection precedes the next render. No separate explanatory
+  vision-status row is rendered.
+  Clicking an image chip or pressing Enter/Space on it opens a modal image
+  preview, without
   sending the draft or changing the work-panel tabs. Inside the dark viewport,
   the image is horizontally and vertically centered, keeps its aspect ratio,
   and initially fits available space without upscaling small images. The
@@ -3187,7 +3513,7 @@ Anatomy:
   the close button, or a blank-area click dismisses it and restores the prior
   input focus/caret. Focus remains inside the modal, and native plugin surfaces
   are hidden while it is open. The remove button never opens or submits.
-  Thumbnails and previews use the bounded, contained `fs/readImageDataUrl`
+  Preview cards and the modal use the bounded, contained `fs/readImageDataUrl`
   bridge, including allowed scratch files when no project is open. Missing,
   unsupported, oversized, or undecodable images show a retry state and retain
   the draft. Session/project changes or removal of the selected attachment
@@ -3201,13 +3527,22 @@ Anatomy:
   in the bundled `pi.file-manager` view (the host `file:` tab when that view is
   unavailable), a session-scratch or attachment file in the host `file:` tab,
   and a `.html`/`.htm` page of the primary folder in the side browser. A
+  positioned `path:line` reference uses the host read-only `file:` tab and
+  scrolls the requested line into view. A
   primary-folder file is addressed to the view as a project-relative path and a
   sibling-folder file as an absolute one, which is also how scratch and
   attachment files are addressed. A reference that matches no file opens nothing
-  and reports itself; the OS default application is no longer what this click
-  does. HTTP(S)
+  and reports itself, as does right-clicking it: the file-reference menu offers
+  that file's own folder in the system file manager and copies its full path or
+  its project-relative path. The same items are offered on a sent `@path` chip,
+  an inline code span, a markdown link, a local image, a tool row's file path,
+  and a path in a tool result's file or match list, through the same completion
+  and the same address; a file outside the project has no relative path to copy
+  and says so instead.
+  The OS default application is no longer what this click does. HTTP(S)
   URLs stay text links. Plain clicks follow the Link open destination setting,
-  and right-clicking exposes the same external, work-panel, and copy actions.
+  and right-clicking a URL exposes the same external, work-panel, and copy
+  actions.
 - States: keyboard-active row uses the shared `kb-active` treatment; empty
   query lists everything (slash) / recently indexed order (file); zero
   matches renders the localized empty row and the menu counts as closed for
@@ -3349,8 +3684,10 @@ Guidance surfaces when key data is absent. Must always provide an **action link*
 - Chat home empty: single scrollable stack (hero → optional checklist) centered
   in MainChat, with a bottom-reserved composer sibling; task entry starts
   directly in that composer without a starter-card or quick-action layer. The
-  underlined project name in a project-bound hero is a switcher, not a folder
+  underlined project name in a project hero is a switcher, not a folder
   picker; extra actions clone a git repository or open another local folder.
+  Opening a project with no session yet shows that same project hero, so the
+  empty home never hides which project a task would join.
 - Other empty surfaces: text-xl heading + text-sm description + primary action
 - Icon (48px Lucide / brand mark) above heading where applicable
 - Background: bg-primary (transparent, not a card)
@@ -3491,126 +3828,95 @@ dismissToast(id: number); // ToastHost internal / tests
 
 ---
 
-## 18. Import destination
+## 18. Inline import workbenches
 
 ### 18.1 Purpose
 
-Scan supported local agent stores for the four things this machine can hand
-over — sessions, provider/model configuration, skills, and MCP servers — then
-review the candidates, select them, and start an explicit import.
+Model configuration, external skills, and MCP imports live in the Settings
+pages that own the records they create. Settings does not provide a session
+import destination; plugin session imports remain available through the plugin
+API and keep their existing ownership and project-binding rules.
 
-### 18.2 Anatomy
+### 18.2 Shared anatomy
 
-One workbench per kind behind a segmented kind switcher; every kind owns its
-own scan, selection, and import action.
+Each owning page has an import toggle. The toggle reveals an inline workbench
+that remains mounted while closed, preserving a scan result and selection until
+the scope changes or the user scans again.
 
 ```text
-[ Sessions | Models | Skills | MCP ]                   ← kind switcher
-[ ] Found 12 · 6 selected   Group by: Source ▾   [Scan] [Import selected (6)]
-───────────────────────────────────────────────────────────────────────────
-CLAUDE CODE              ~/code/pi                                  4
-[ ] Refactor the importer   12 messages · Jan 5, 2026   [Claude Code]
+Models:    Providers                         [Import from other tools] [Add provider]
+Skills:    [All | Global | Project] [Search] [Scan other tools] [New] [Market]
+MCP:       [All | Global | Project] [Search] [Scan other tools] [Add] [Market]
+
+[ ] Found 3 · 1 selected                         [Scan] [Import selected (1)]
+CLAUDE CODE                                                            1
+[ ] example-server     node                                  [stdio]
 ```
 
-- The switcher reuses the labels the sidebar and the settings rail already ship
-  (`nav.sessions`, `settings.nav.models`, `settings.nav.skills`,
-  `settings.nav.mcp`), so the page adds no catalog entries of its own.
-- Each kind carries its own toolbar: the select-all checkbox with both the
-  "found" sentence and the selected count, the kind's own option (session
-  grouping, skills import mode), re-scan, and Import selected.
-- Before a kind's first scan its panel shows a quiet next-action state: what the
-  scan reads plus the Scan action. Switching tabs never starts a scan
-  (D007 / D342).
-- Group headers are quiet label lines — source or project name, the resolved
-  path in mono, and a count pill — not tinted bands; the candidates below them
-  are individual tiles.
-- The grouping control supports **Project path** and **Source**. Source is the
-  default. In project-path mode, exact paths remain visible in group headers,
-  and sessions without a project path appear in a final **No project** group.
-- Import source names, grouping and mode controls, counts, results, and
-  accessible names come from the shared i18n catalog. Candidate dates use the
-  active app locale.
+- Scanning is explicit; opening the panel never starts a scan.
+- A successful scan replaces its candidates, clears the selection, and shows
+  source groups expanded. Group headers disclose their rows and expose localized
+  counts.
+- Candidate rows are selectable tiles with source, identity, concise metadata,
+  and any kind-specific badge. Secrets are never displayed.
+- The toolbar and group checkboxes expose checked, unchecked, and indeterminate
+  states. Import remains disabled until at least one candidate is selected.
+- A scope change resets the Skills or MCP panel so candidates from one target
+  cannot be imported into another by mistake.
 
-### 18.3 States and interactions
+### 18.3 Capability scope
 
-- A successful scan replaces the prior candidate set, clears selection, and
-  shows every group expanded: the found candidates are the answer to the scan,
-  so they are not hidden behind a second click.
-- Codex session discovery walks `~/.codex/sessions/YYYY/MM/DD` newest-path-first
-  and stops after 250 `.jsonl` files. That order is folder-date lexicographic,
-  not `updatedAt`. When the cap hits, `session/importScan` returns
-  `truncated.codex = 250` and the sessions toolbar shows the localized cap note;
-  older Codex files are absent from the candidate list.
+- The destination is the current Global / Project filter. The All filter
+  targets Global, matching the existing create action.
+- Project scope requires a selected project. The import toggle is disabled when
+  Project is selected without a project path.
+- Project scans receive the selected path, and imports carry both the level and
+  path through IPC to host-core. The same scope is used when preserving a
+  source MCP server's disabled state.
+- Skills keep their existing copy / link mode. A successful import refreshes
+  the capability list and scan results.
 
-- Every kind scans on its own: a session scan never starts a model-config,
-  skills, or MCP scan, and switching tabs preserves the result and the
-  selection of the kind left behind (inactive panels stay mounted and hidden).
-- A successful import creates or reuses one durable Projects-index entry for
-  each distinct non-empty project path and refreshes sessions/projects.
-- When a successful core or plugin import adds a project-bound session under an
-  archived project, the renderer restores that project's presentation state
-  after the refresh so the project and imported session are visible in the
-  default sidebar. This applies only to newly added bound sessions; ordinary
-  refreshes, pathless sessions, and skipped imports preserve archive state.
-- Path-less imports create no project entry and remain under Temporary
-  sessions. Import never creates a physical filesystem directory.
-- Re-importing an existing source session skips it without duplicating its
-  project entry.
-- Changing the grouping mode preserves candidate selection and shows every
-  newly formed group expanded.
-- Expanding or collapsing one group does not affect the others.
-- Group and global checkboxes support checked, unchecked, and indeterminate
-  selection states; the global checkbox reports a partial selection as
-  indeterminate.
-- Candidates inside each group and groups themselves are ordered newest first;
-  the path-less group remains last in project-path mode.
+### 18.4 Accessibility and responsive behavior
 
-### 18.4 Accessibility
-
-- The kind switcher is a `tablist` of `tab` controls, each carrying
-  `aria-selected` and `aria-controls` that names its panel. Every panel is a
-  `tabpanel` labelled by its tab, and an inactive panel is `hidden` rather than
-  visually covered.
-- Each disclosure button exposes `aria-expanded` and references its body with
+- The import toggle is a button with `aria-expanded` and `aria-controls`; its
+  controlled panel is hidden when closed.
+- Disclosure buttons expose `aria-expanded` and reference their group body with
   `aria-controls`.
-- Global and group checkboxes have localized accessible names and carry the
-  indeterminate state.
-- The grouping and import-mode selectors are the shared in-app menu selects
-  with visible labels and keyboard operation, never a platform-drawn
-  `<select>`.
-- Group count pills carry the localized count sentence as their title.
-- Projects-row disclosure and action-menu buttons expose localized,
-  project-specific accessible names.
+- Global, group, and row checkboxes use the shared checkbox control and carry
+  localized accessible names.
+- Group labels and counts wrap within the available Settings content width;
+  the toolbar actions wrap on narrow windows without horizontal page scrolling.
 
 ### 18.5 ModelConfigImportPanel
 
-Scan the same local agent stores for provider and model settings, review
-candidates grouped by source, select them, and start an explicit import.
+Models exposes model configuration scanning from the Providers section. Scan
+candidates from Claude Code, Codex, OpenCode, Pi, and CC Switch. Rows show the
+provider name, model count, host, source, and an API key / No API key badge; no
+raw secret reaches the renderer. Stored API keys are saved through the host
+secret store. OAuth and subscription logins are not copied. Re-importing an
+equivalent provider (normalized URL, API style, and credential) is skipped;
+different credentials at one endpoint remain separate providers. If no default
+model exists after import, the first created provider becomes the default.
 
-```text
-[ ] Found 3 · 1 selected                        [Scan] [Import selected (1)]
-───────────────────────────────────────────────────────────────────────────
-CLAUDE CODE                                                                1
-[ ] acme-gateway   4 models · api.acme.dev    [API key]
-```
+### 18.6 External skill import
 
-- The kind is independent of session import: its own scan, selection, and
-  Import selected action. A session scan never starts a model-config scan, and
-  the two are shown one at a time behind the switcher.
-- Source grouping is the only grouping. A successful scan replaces the prior
-  candidate set, clears selection, and shows every group expanded.
-- Each row shows the provider name, model count, host, an API key / No API
-  key badge, and the source. The raw secret never reaches the renderer.
-- Import creates one `providers.create` row per selected candidate. An
-  existing provider with the same normalized base URL, API style, and
-  credential is skipped; different credentials at one endpoint create
-  independent rows. OAuth-only source accounts are omitted from the scan.
-  CC Switch is a fifth source (`~/.cc-switch/cc-switch.db`); a live tool
-  file that matches a CC Switch endpoint and credential is not listed twice;
-  a different credential remains visible.
-- If `settings.defaultProviderId` is empty after a successful create, the
-  first new provider becomes the global default.
----
+Skills exposes its external scan from the page toolbar, alongside New and
+Market. The scanner covers supported Claude and Pi skill stores. Candidate
+rows show the name, description or source path, and file / folder shape. The
+copy / link option stays in the workbench. Imported skills follow the selected
+Global / Project scope and project path, then the list and scan results refresh.
+The native file and folder import actions in the level groups remain available.
+
+### 18.7 External MCP import
+
+MCP exposes its external scan from the page toolbar, alongside Add and Market.
+The scanner covers supported Claude Desktop, Claude Code, Cursor, Codex,
+OpenCode, and ChatGPT Desktop stores. Candidate rows show a label, safe
+metadata, source, and transport. URL metadata is reduced to its host so
+userinfo, paths, and query credentials never render; environment and header
+values are not shown. Imported servers follow the selected Global / Project
+scope and project path. A disabled source server remains disabled after the
+host write succeeds.
 
 ## 19. ProviderStudio (Settings → Agent)
 
@@ -3630,31 +3936,21 @@ saves the previewed order; Escape, pointer cancellation, focus loss, unmount or
 catalog changes cancel the drag. Buttons and form controls retain their actions.
 There is no separate drag handle. A focused card accepts Up/Down to move one visible row. Saving blocks further
 moves; a failed save shows an error and restores the accepted order. Late catalog
-responses cannot restore an earlier order. The default-model picker and Composer
-model groups follow the persisted order. Sorting changes neither the selected
+responses cannot restore an earlier order. Composer All models groups follow the persisted order. Sorting changes neither the selected
 default nor provider configuration. OAuth accounts remain in their separate section.
 
-1. **Defaults card** — a compact settings row reusing the shared
-   14px/16px row geometry; the Default model label sits above the provider name
-   and exact model ID, while a quiet Change action opens the picker without
-   duplicating the current value. The floating listbox is anchored to that
-   action rather than expanding the card in place: the surface portals to
-   `document.body` as a fixed layer so the panel's overflow cannot clip it,
-   groups model-level options by provider, marks the exact current entry, bounds
-   its own height so many configured models scroll instead of stretching the
-   card, flips above the trigger when there is no room below, and closes on
-   Escape, an outside press, or the trigger scrolling out of view.
-   A provider is named here the way the Composer model menu names it: an OAuth
-   row uses its non-secret account label when present, so two accounts of one
-   vendor do not collapse into identical group headings, summary lines, or
-   option names; the search matches the account label and the vendor name.
-   Global operating mode, command shell, and Enter-to-send live in the Settings
-   AI destination
-2. **Vendor accounts** — section title + primary Add account action and one
-   single-level list panel using the same row surface as AI services; one row
-   per OAuth account, including duplicate vendors, with account label, Edit,
-   Test connection, and Remove actions; the default model is edited in the
-   account dialog and selected from Defaults
+1. **Model selection** — chat models are selected in the Composer. Its first
+   menu has persistent search, up to three recent available provider/model pairs,
+   and an inline Other models disclosure. Without history, it shows all models.
+   New chats inherit the last actually used available model. Only accepted
+   message submission updates that preference; selection and reasoning changes
+   alone do not count as usage.
+   Existing chats keep their own binding. The fixed chat-default
+   picker and service Make default action are absent. The independent image
+   model row remains when image-generation candidates are configured.
+2. **Vendor accounts** — account labels, configured models, Test connection,
+   and Remove actions remain available through the shared service list and
+   account editor. The first binding remains the provider compatibility default.
 3. **Providers head** — section title + primary Add provider action; its
    button treatment matches Add account
 4. **Dialogs** — both the vendor-account edit dialog and the provider dialog
@@ -3701,6 +3997,13 @@ default nor provider configuration. OAuth accounts remain in their separate sect
   and resize; model selection immediately adds or removes its configuration
   row. Configuration rows stay compact until expanded; expanding one row does
   not expand or collapse any other row.
+- Model rows show the published context and output limits. A generic runtime
+  fallback is not shown as a published limit; Settings displays an em dash
+  until models.dev publishes a value or the user pins one in Advanced.
+- The two model panes remain side by side when the viewport is wide enough,
+  including short wide windows; their lists scroll inside the panes. They stack
+  only when the viewport is too narrow for readable columns, and their lists
+  remain reachable in that layout.
 - The left-pane list header carries a checkbox that selects or clears every
   currently visible row. A search filter narrows which rows "all" means;
   already-chosen bindings keep their advanced overrides. The checkbox is
@@ -3826,10 +4129,21 @@ Sidebar footer                                        Popover (360px max)
 - `All` shows the newest retained rows; `Unread` filters to `readAt == null`.
 - Selecting a row first calls `notification.markRead`, closes the popover, then
   activates the row's durable session (including its project when applicable)
-  and scrolls the transcript to its latest content.
-- Mark all read is idempotent and preserves rows. Clear deletes every inbox
-  row but never deletes a session, transcript, or turn.
-- `notification.changed` updates the visible list and badge. Opening the
+  and scrolls the transcript to its latest content. The successful read also
+  dismisses the matching task-native banner before a late activation can
+  surface it again.
+- Restoring/focusing the app from its taskbar or Dock while an unread terminal
+  outcome's session is already visible in the chat marks that session's
+  matching durable notifications read; it does not mark outcomes belonging to
+  other sessions.
+- Mark all read is idempotent and preserves rows; it dismisses every outstanding
+  task-native banner. Clear deletes every inbox row, dismisses all task-native
+  banners, and leaves sessions, transcripts, and turns intact. These actions
+  remain available for successful completions hidden from the failure-only
+  bell list, so the taskbar unread badge can be cleared from the popover.
+- `notification.changed` updates the visible list and badge only for a new
+  durable id. A duplicate id, or a delayed event for an acknowledged/cleared
+  row, is ignored. Opening the
   popover also refreshes the bounded list from host-core. A
   `notification.activated` event from Electron follows the same session
   activation path as a row click.
@@ -3872,6 +4186,162 @@ Sidebar footer                                        Popover (360px max)
 
 ---
 
+## 20A. ScheduledWorkspace
+
+### 20A.1 Purpose
+
+Read and operate scheduled tasks: what each task did last, what it will do next,
+and the transcript of any run — without leaving the route. See
+[desktop automations](../../adr/scheduled-desktop-automations.md) and issue #1291.
+
+### 20A.2 Anatomy
+
+A task column beside the selected task's page:
+
+```text
+TASKS (2)                     │ Nightly dependency check   [Enabled] [Run now][Edit][Pause][Delete]
+● Nightly dependency check    │ LAST RUN   Failed · 2 hours ago · 1m 12s
+  Daily · 09:05               │ NEXT RUN   in 21 hours · Jan 3, 2026, 9:05 AM
+  Failed · 2 hours ago · 1m12s│ CADENCE    Daily · 09:05
+○ PR sweep           [Disabled]│ PROJECT   ~/project  PERMISSION Auto  MODEL custom / fixture
+  Manual                      │ INSTRUCTION  Summarize the dependency state…   [Show full instruction]
+  Not run yet                 │ RUN HISTORY (2)
+                              │  Failed    Jan 2, 2026, 12:00 AM · 1m 12s · PROVIDER_ERROR
+                              │  Completed Jan 1, 2026, 12:00 AM · 42s
+                              │ RUN CONTENT
+                              │  Completed · Jan 1, 2026 · 42s        [Open conversation]
+                              │  USER       Summarize the dependency state…
+                              │  ASSISTANT  Scheduled review complete.
+```
+
+### 20A.3 States
+
+| State | Appearance |
+|---|---|
+| Selected task | Accent-tinted raised tile with the shared raised shadow and a 2px accent bar on the leading edge, and one `aria-current="true"`. The tint matters in both themes: a plain raised fill is white on white in the light theme |
+| Selected run | The same accent tint with the leading bar, one step lighter because the row sits inside a card |
+| Running task | Warning-coloured dot in the row plus a `Running / awaiting input` badge |
+| Paused task | `Disabled` chip; the row still reports its last outcome |
+| Never run | `Not run yet` in the row's outcome line |
+| Completed run | Success glyph, status, moment and duration |
+| Failed run | Error glyph and the stable error code beside the moment |
+| Running run | No duration yet; the status reads as running |
+| Empty history | The history card states the task has no runs |
+| No transcript | The run content card states the run stored no transcript |
+| Read failure | The card reports the failure instead of showing an empty pane |
+
+### 20A.4 Interaction
+
+- Selecting a task moves the page; the previously selected run is released, and
+  the first task is selected when none is.
+- Selecting a run reads it in place through a bounded session read (60 newest
+  messages, 20 000 characters per field) and moves the content card to it.
+- The instruction is disclosed on demand and starts collapsed.
+- Run now dispatches in the background, selects the run it admitted, and keeps
+  the reader on the route.
+- The conversation mode decides who owns a run's transcript: `perRun` opens a
+  conversation for each run, and `reuse` continues the task's previous one while
+  it still exists and still belongs to the same project.
+- The task form owns the page while it is open: the task column and the task
+  page are not rendered, so the draft never competes with the page it came from.
+- An interval task states a count with a minute or hour unit (5 minutes to 24
+  hours, stored as minutes, refused outside that range). The value rides along
+  with every armed cadence, so switching between a calendar and an interval
+  loses neither, and the row reports the span instead of a clock.
+- Ownership is derived, so the two windows are visible: the host keeps the newest
+  100 runs per task and the page reads at most 200, and a run older than either
+  leaves both the task's history and its transcript's `scheduledRun` marker. See
+  [data storage](../03-runtime/04-data-storage.md) §4.11.
+- Open conversation is the only action that leaves for the chat route. A
+  scheduled run's conversation then shows a back row in the chat top bar,
+  labelled with the route and, when the row's own origin is known, the task it
+  belongs to; returning restores that task and that run, and steps back through
+  the navigation history when this route is directly behind the conversation.
+- Above 900px the task column sticks below the titlebar band; below it the
+  column stacks above the page.
+- Motion: colour and chevron transitions only, disabled under
+  `prefers-reduced-motion`, including the running dot's pulse.
+
+
+## 20B. Conversation references
+
+### 20B.1 Purpose
+
+Carry another conversation into a turn without retyping it. The
+`pi-desktop://session/<id>` link is the whole interaction: a reader copies it
+from the conversation overflow menu and pastes it into a Composer draft (issue
+#1324, option B). Copy conversation ID stays the developer-mode identifier.
+
+### 20B.2 Anatomy
+
+```text
+Conversation overflow                    Composer draft (unsent)
+┌─────────────────────────────┐          ┌──────────────────────────────────┐
+│ Pin conversation            │          │ continue from                    │
+│ Create branch               │          │ [💬 Conversation · ab12cd34]     │
+│ Copy conversation link      │          └──────────────────────────────────┘
+│ Delete conversation         │
+└─────────────────────────────┘          Sent user message
+                                         ┌──────────────────────────────────┐
+                                         │ continue from                    │
+                                         │ [💬 Conversation · Nightly check]│
+                                         └──────────────────────────────────┘
+```
+
+### 20B.3 States
+
+| State | Appearance |
+|---|---|
+| Reference attached | The body link renders as a chat-icon chip named with the catalog's reference label and the referenced conversation's current title; the message shows no second block for it |
+| Reference skipped | Nothing is attached; the body link still renders as that chip |
+| Another project | Skipped the same way: that transcript is not this turn's context |
+| Self-reference | Dropped before any read, so the conversation itself is never a reference |
+| Empty referenced conversation | The resolver attaches nothing and the message keeps the link |
+| Chip activated | The referenced conversation becomes the active session |
+
+### 20B.4 Interaction
+
+- Copy conversation link writes `pi-desktop://session/<sessionId>` from the
+  conversation overflow menu. The durable id is the reference; Copy
+  conversation ID still exposes the bare id in developer mode.
+- Sending a turn whose draft holds the link attaches a bounded excerpt of the
+  referenced conversation: the 40 newest messages, 8 KB per field, 16 KB for
+  the whole excerpt, newest last, and the count of earlier messages the bound
+  cut. At most four links per message are resolved.
+- The excerpt is stored on the message's attachment and quoted to the model as
+  one `<session_reference name="…" session="…">` block, so later turns read the
+  same reference and re-sending a message that still contains the link
+  re-resolves it from that conversation's current content.
+- Activating the chip opens the referenced conversation; the reference is a
+  link, not a copy of that transcript.
+- The chip names the conversation from its current title, so a rename — manual
+  or the first-turn summary — follows through to every message that references
+  it. The name recorded when the reference was made stays the fallback for a
+  conversation this viewer no longer lists, and is the name the quoted block
+  keeps for the model.
+- The draft shows a pasted link as that chip, and the submitted text still
+  carries the link: prose is never rewritten on the wire, and the attached
+  excerpt is additive.
+- Boundary: only conversations of the same project are read, the current
+  conversation is dropped before any read, and a link to another project, an
+  unknown id, or a `remote:` identifier stays plaintext rather than becoming a
+  reference. A paste cannot make the app read a transcript its reader could not
+  open.
+- A chip inside a message borrows that message's own face, size and leading, and
+  its tile is sized and aligned by that leading so it covers exactly one line of
+  message text: the label sits on the line's baseline instead of poking out of
+  the composer's compact box. The 11.5px/20px metric is draft-only.
+- A conversation reference is an inline run rather than an atomic chip: it breaks
+  with the line it sits on, so a reference too wide for the line continues on the
+  next line and leaves the line it started on filled. Chromium never fragments a
+  `<button>`, so this chip carries the button role and its Enter and Space
+  behaviour on an activatable span.
+- The chip carries the button role with a catalog-built accessible name and a
+  tooltip naming the conversation it opens; it is keyboard-activatable and leaves
+  the surrounding selectable message text intact.
+- `pi-desktop://` is not yet an operating-system protocol handler; opening a
+  link from outside the app is a separate change (issue #1324, option A). This
+  section covers the in-app reference.
 ## 21. Acceptance criteria (all components)
 
 1. All components use semantic color tokens from [07-ui-design-system.md](07-ui-design-system.md) — no raw hex
@@ -3880,7 +4350,7 @@ Sidebar footer                                        Popover (360px max)
    compact composer with 1–7-line draft growth) match spec
 4. Chat content band defaults to 760px and is user-resizable; user plates stay compact
 5. ToolCallCard shows status, args preview, result preview, duration per [01-ui-ia.md](01-ui-ia.md) §5
-6. PermissionCard shows tool name, risk, args, countdown, and three action buttons per [03-permission-ux.md](03-permission-ux.md)
+6. PermissionCard shows tool name, risk, args, and three action buttons per [03-permission-ux.md](03-permission-ux.md)
 7. Composer: Enter sends when Enter-to-send is on; when it is off, Cmd/Ctrl+Enter
    sends and Enter inserts a newline; Shift+Enter always inserts a newline;
    draft grows from one through seven visible lines then scrolls, and the single

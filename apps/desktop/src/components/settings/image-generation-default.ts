@@ -11,18 +11,20 @@
  * "Can run it" is one rule everywhere: this file, the picker row
  * (`ImageGenerationModelRow.tsx`) and the runtime
  * (`electron/main/services/image-generation-service.ts`) all require an
- * enabled, non-OAuth provider with a base URL, a usable credential and a
- * configured model exactly matching the binding. A binding that only looks
- * present — disabled provider, missing key, OAuth-only row, or a model id the
- * provider does not configure — fails at send time, so it must never be kept as
- * the default either.
+ * enabled provider with a base URL, a usable credential and a model that
+ * provider serves — either one it configures, or the image model a signed-in
+ * vendor account answers with (see `imageModelOfferedByProvider`). A binding
+ * that only looks present — disabled provider, missing credential, or a model
+ * id the provider does not serve — fails at send time, so it must never be
+ * kept as the default either.
  */
 import {
   MAX_IMAGE_GENERATION_MODELS,
   imageGenerationBindings,
-  modelIdsMatch,
+  imageModelOfferedByProvider,
   type ImageGenerationBinding,
   type ProviderPublic,
+  modelWireIdsEqual as sameComposerModelId,
 } from "@pi-desktop/shared";
 
 /**
@@ -38,10 +40,11 @@ export function imageGenerationBindingAvailable(
 ): boolean {
   if (!provider || !provider.enabled) return false;
   return (
-    provider.authKind !== "oauth" &&
     !!provider.baseUrl &&
-    (provider.hasSecret || provider.authKind === "none") &&
-    provider.models.some((model) => model.id === modelId)
+    (provider.hasSecret || provider.hasOauth === true || provider.authKind === "none") &&
+    // Mirror image-generation-service's availability guard exactly: the same
+    // model offer, so a choice the row shows can never fail at send time.
+    imageModelOfferedByProvider(provider, modelId)
   );
 }
 
@@ -78,7 +81,7 @@ function cappedImageGenerationCandidates(
   const activeIndex = active
     ? candidates.findIndex((candidate) =>
         candidate.providerId === active.providerId &&
-        modelIdsMatch(candidate.modelId, active.modelId),
+        sameComposerModelId(candidate.modelId, active.modelId),
       )
     : -1;
   if (activeIndex < MAX_IMAGE_GENERATION_MODELS - 1) {
@@ -120,7 +123,7 @@ export function planImageGenerationDefaults(
   }));
   const previous = current.imageGeneration ?? null;
   const active = previous?.providerId === savedProviderId &&
-    !selected.some((binding) => modelIdsMatch(binding.modelId, previous.modelId))
+    !selected.some((binding) => sameComposerModelId(binding.modelId, previous.modelId))
     ? null
     : previous;
   const imageGenerationModels = cappedImageGenerationCandidates(

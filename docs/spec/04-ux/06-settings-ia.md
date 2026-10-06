@@ -59,6 +59,10 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   12. **Cloud sync / 云同步** — Lucide `CloudDownload` (encrypted portable configuration backup and bidirectional sync)
   13. **Remote Hosts / 远程主机** — Lucide `Globe` (SSH bootstrap and pairing inventory; developer mode only)
   14. **Info / 信息** — Lucide `Info` (versions, logs, updates, developer)
+
+  The upstream **Voice / 语音** destination (live-voice bindings, Lucide `Mic`)
+  also exists and appears between AI and Shortcuts only in development builds
+  with developer mode on; it is separate from the fork's AI-tab dictation card.
   Icons are decorative (`aria-hidden` via the SVG default) and stay monochrome
   with the rail label; do not reuse refresh/rotate glyphs here.
 - The directory remains a flat searchable list in the same exact order. For
@@ -69,7 +73,23 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   Hosts, Info). Headings are muted, non-interactive labels and use whitespace
   for separation; no divider lines are rendered. These are visual landmarks
   only, not a second navigation level.
+  (Projects), and `System` / `系统` (Cloud sync, Remote Hosts, Info;
+  Remote Hosts is developer-only). Headings are
+  muted, non-interactive labels and use whitespace for separation; no divider
+  lines are rendered. These are visual landmarks only, not a second navigation
+  level.
   When search filters the directory, empty clusters and their headings disappear.
+- **Voice** is a regular Preferences destination between AI and Shortcuts,
+  present in every build with no Experimental badge and no developer-mode
+  requirement. Its rail row, page, search hits, and idle Composer entry are
+  available to all users.
+  It is the only place to enable Live Voice. See the Voice section below.
+- **Cloud sync / 云同步** is a regular `System` / `系统` destination
+  available to every user in every build: its rail row, page, and
+  settings-search hits never depend on developer mode and never fall back to
+  General. It ships as a stable destination, so neither the rail row nor the
+  page title carries an Experimental badge, and nothing about the sync
+  behavior itself changes.
 - **Remote Hosts / 远程主机** is a developer-only, Experimental destination: its
   rail row, its page, and its settings-search hits exist only while
   `AppSettings.developerMode` is `true`. With developer mode off the row is
@@ -89,6 +109,25 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
 ## 2. Section contents
 
 ### General
+
+- **Storage** shows the effective application data path and the reclaimable cache
+  size. It is included in settings search. Choose directory uses the native picker;
+  confirmation displays both application and browser source paths, the target,
+  migration scope and the restart/backup policy. Cancelling has no side effects.
+  Accepting locks repeat actions until the app exits through ordered shutdown.
+- A separate sandboxed cold-maintenance window shows localized scanning, copying,
+  verifying and internal-path relocation stages, file counts, copied/verified bytes
+  and determinate progress where known. It does not load plugins or agent services.
+  Failure explains that the original profile remains active, then returns to it;
+  settings exposes the error and permits retry. A disconnected selected volume
+  blocks startup with a recovery explanation instead of silently using empty data.
+- **Clear cache** shows a size and requires an inline confirmation describing the
+  retained durable data before clearing and restarting. **Delete old backups** is
+  separate, lists original paths and warns users to check their plugins and old
+  attachments first. Arbitrary plugin-owned absolute references cannot be rewritten
+  by the host. Environment-controlled profiles display why maintenance is disabled.
+  Confirmation gets keyboard focus, asynchronous errors remain visible, and all
+  visible copy is localized. These operations affect only this local installation.
 - **Appearance** card:
   - **Theme**: a searchable picker row (same anchored-menu pattern as
     Language). The closed trigger sizes to the current label, capped by the
@@ -129,6 +168,14 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   - native select triggers and their opened option lists use the active theme's
     readable foreground/background pairing on macOS, Windows, and Linux; the
     shared native-select contract applies to every app surface
+- **Power** card: two independent opt-in switches. Keep computer awake uses
+  `prevent-app-suspension` to block idle system sleep for the lifetime of the
+  running desktop app, including between scheduled runs; the display may turn
+  off. Prevent screen sleep uses `prevent-display-sleep` to keep the display on.
+  Both are off when absent, persist separately as
+  `AppSettings.keepAwakeWhileRunning` and `AppSettings.preventScreenSleep`,
+  take effect immediately, restore on startup, and release their own blocker
+  when disabled or during shutdown. Manual sleep and lid close follow the OS.
 - **Network** card:
   - **Proxy**: a segmented control — System, Direct, Custom. System is the
     default and lets Chromium follow the OS proxy; Direct disables the proxy;
@@ -188,6 +235,13 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   Users can sync now, unlock, pause this device, approve/reject staged items,
   and disconnect. The page does not imply convergence from an old successful
   run while a pending state remains.
+- **Fast revisit and drafts**: render the last redacted state and history from
+  a short-lived local cache while the host refresh runs in the background. Keep
+  endpoint, username, remote directory, device label, compatibility mode, and
+  category choices in renderer-local storage so an unfinished form survives
+  navigation or reload. WebDAV app passwords remain in Host-owned secret
+  storage and are reused only for the same endpoint and account; vault
+  passwords are never written to renderer storage.
 
 ### 全局 AI (`ai` tab)
 - **Permissions** card: the global permission-mode control
@@ -264,7 +318,7 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
 Speech has **no cloud-binding Settings surface** (ADR 0291): this fork has no
 `AppSettings.speech` field and no `speech/*` IPC. Transcription settings are
 the local-voice **Voice** card's `AppSettings.voice` rows on the Models
-destination (ADR 0313), and search indexes no other speech keys.
+destination (ADR 0329), and search indexes no other speech keys.
 
 Token usage is **not a Settings destination** (D335 / D622 / ADR 0306). The
 expanded sidebar footer Activity icon, directly right of Settings, opens a
@@ -273,6 +327,37 @@ completed-turn summary from host-owned history
 (`session.endTurn.usage`, `stats.getTokenUsageHistory`). The full dashboard
 remains marketplace plugin `pi.token-insights`, opened from the command palette
 (`usage`, `tokens`, `用量`). Settings search does not index a usage tab.
+
+### Voice
+
+- This destination owns Live Voice enablement and provider bindings, and is
+  reachable in every build without developer mode. Its enable card keeps the
+  explanation behind the heading's help mark and the Model configuration link
+  on the card's heading line, so no control floats between the rows. Disabled
+  Live Voice has no Composer voice or work icon; enabling it reveals one
+  preparation entry, never auto-starts a call, and never grants work access.
+- Bind an existing compatible provider account, choose the exact next-call
+  binding, and configure its model, voice, and explicit Realtime profile where
+  applicable. An account card with nothing bound shows only its picker: the
+  next-call, model, voice, and profile rows appear with the binding instead of
+  rendering as empty disabled controls. Readiness describes that selected
+  binding, not whether any other configured provider is ready. Credentials
+  remain in the existing Host/Main systems and are not shown or copied into the
+  renderer.
+- Provider-binding edits remain locked while that binding is active. Turning
+  Live Voice off ends the call, but the global compact call bar remains visible
+  through Main termination and renderer media cleanup, including while Settings
+  replaces the chat shell. An unconfirmed release keeps its error visible and
+  suppresses another Start until the app is restarted.
+- Work authorization belongs to an explicit opt-in and target in next-call
+  preparation, not to the Settings enable switch. Context sharing is a separate
+  unchecked, transient next-call choice. Settings copy distinguishes the
+  default voice-only call from explicitly authorized work requests.
+- Legacy Dictation and Host Speech settings remain hidden and their stored
+  values retain their meaning. No new persisted preference, IPC, provider
+  fallback, or permission rule is introduced. See
+  [Live Voice](../03-runtime/live-voice.md) and
+  [Live Work](../03-runtime/live-work-session.md).
 
 ### Shortcuts (`shortcuts` tab)
 - **Keyboard shortcuts** card:
@@ -306,7 +391,7 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
   - the `voiceDictation` action (default `Mod + Shift + V`, agent group)
     toggles composer dictation and follows the same override, conflict, and
     restore rules as the rest of the shared shortcut map (D628 / ADR 0312; the
-    dictation backend is now the local voice plugin, ADR 0313)
+    dictation backend is now the local voice plugin, ADR 0329)
 
 ### Model configuration (`agent` tab)
 - **Defaults** card: a compact settings row shows the provider name and exact
@@ -347,7 +432,7 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     row and keeps the global default model in sync when that account is selected
   - Test connection resolves the account's OAuth authorization and reports a
     transient success or failure without probing the provider with an API key
-- **Voice** card (D629 / ADR 0313): local dictation state of the bundled
+- **Voice** card (D657 / ADR 0329): local dictation state of the bundled
   `pi.local-voice` plugin. The card shows the plugin state (disabled or
   engine missing render as notes) and one row per catalog model — Whisper
   tiny / base / small — with Download (live percentage progress polled while
@@ -358,6 +443,10 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
   composer's mic affordance renders only when the plugin is enabled and a
   model is ready; no endpoint, model id, or API key exists on this card.
 
+  - At viewport widths up to 940px, both provider and vendor-account model
+    panes stack without shrinking to the remaining dialog height. Each model
+    list scrolls within its bounded tray; the dialog body scrolls to reach
+    either tray. Short, wide windows retain the side-by-side layout.
 - **Providers** studio:
   - OpenAI-compatible and custom-service add-provider dialog (opened from Add
     provider / empty-state CTA)
@@ -432,8 +521,11 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     `/messages`, `/chat/completions`, or `/responses` when the field loses
     focus. The placeholder is enough — no helper paragraph under the URL.
     Invalid URLs show an inline error and block discovery and save. A failed
-    model-list probe shows a compact classified error in the empty pane, or a
-    one-line banner above a cached list; raw HTTP/JSON dumps are not shown.
+    model-list probe reports one classified sentence through the app toast and
+    leaves a one-line “no list” label in the empty pane, or the rows in place
+    above it; raw HTTP/JSON dumps are shown in neither. A settled probe —
+    connected, catalog, or refused — is announced once instead of holding a
+    status row under the key.
     Named display names and optional custom headers stay behind Advanced settings.
     The dialog header's upper-right actions include an explicit Advanced settings
     button that opens a separate compact modal, keeping the main form focused on
@@ -461,6 +553,11 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
   - vendor-account rows are not rendered in the AI services list; a connected
     vendor account can still be selected in Defaults and is managed only in the
     Vendor accounts card
+  - the Providers section header has an **Import from other tools** action.
+    Its inline panel scans only after the user starts a scan, groups local
+    provider drafts by source, and never renders raw credentials. Stored API
+    keys are written to the host secret store; subscription/OAuth logins are
+    not imported. Re-importing an equivalent provider is skipped.
 
 The permission-mode selector remains available in the composer while the
 session is in Agent, Plan, or Goal. In Plan and Goal it controls Bash
@@ -530,6 +627,9 @@ system while preserving their different data ownership:
   Move to Global. With no project selected the Move into <project> item is not
   offered and the project group asks for a project selection instead, so a
   capability is never sent to an unnamed project.
+- The MCP editor's optional connection timeout accepts 1–600 seconds. A blank
+  value clears the server override and restores the default; saving a changed
+  timeout refreshes that server's live connection.
 - Skeleton rows appear on first paint only. A later refresh keeps the rows it
   already has and dims the list instead, announcing the refresh to assistive
   technology, so toggling a switch never replaces the list with skeletons.
@@ -545,7 +645,7 @@ system while preserving their different data ownership:
   the width with evenly divided segments, search sits below it, and the
   actions wrap left-aligned. Group headers drop the resolved path so row copy
   keeps the width.
-- Skills exposes a Market action beside New / Import. Market is a second view
+- Skills exposes a Market action beside New and Scan other tools. Market is a second view
   of the same page, not a new Settings destination: browse catalog sources,
   preview the assembled markdown (including inlined sibling `.md` files), and
   install through `skills.create` into `~/.agents/skills`. Built-in picks are
@@ -558,6 +658,14 @@ system while preserving their different data ownership:
   guard says so instead of calling every source unreachable, because a proxied
   user sees that refusal while the same URL opens in their browser (ADR 0177).
   Back reloads the skill list.
+- Skills also exposes **Scan other tools** in its toolbar. The explicit scan
+  opens inline on the Skills page, and imported entries follow the current
+  Global / Project filter and selected project. The native file and folder
+  import actions remain available in their level groups.
+- MCP exposes **Scan other tools** beside Add and Market. The explicit scan
+  opens inline on the MCP page. Imported servers follow the current Global /
+  Project filter and selected project; secrets and header values are never
+  shown in candidate rows.
 - The Subagents create/edit sheet pins a model with a searchable, provider-
   grouped anchored menu — the same option-menu control the service picker uses
   — over the configured, runnable models the Composer offers, plus an
@@ -667,6 +775,17 @@ system while preserving their different data ownership:
 - Skills and MCP servers reuse the agent capability scanners and their source
   labels. The skills kind carries the import mode (copy or symlink); the MCP
   kind writes into the same MCP list the MCP destination manages.
+### Inline import workbenches (upstream)
+### Inline import workbenches
+- Model configuration, external skills, and external MCP scans live inside
+  Models, Skills, and MCP respectively. Each page keeps an explicit scan and
+  selection panel; opening or closing the panel never starts a scan.
+- Skills and MCP imports use the destination selected by the page's current
+  Global / Project filter. Project scans and writes carry the selected project
+  path, and the scan panel resets when that scope changes.
+- Settings has no session-import panel. Session ingestion is available to
+  plugins through the existing host-owned plugin session API; project binding
+  and refresh behavior remain documented with the plugin session contracts.
 
 ### Project archive
 - Reuses the durable Projects index as a settings-scale management surface
@@ -688,7 +807,7 @@ system while preserving their different data ownership:
   in the iOS sense: the selected row is the header of its own card, so the
   detail opens under the row and repeats nothing the row already states. One
   toolbar leads the page and nothing is expanded in it: like the capability and
-  Import destinations, the destination carries no description line, so no
+  inline import workbenches, the destination carries no description line, so no
   sentence sits between the page title and the controls. It reuses the same
   composition, control height, and row rhythm as the agent capability pages
   (D257) and adds no page-specific chrome.
@@ -766,6 +885,10 @@ system while preserving their different data ownership:
   list under the status text (same notes as the ambient banner; D164). The
   full-history modal remains available when the app is up to date or update
   checks are disabled in development
+- Dismissing an update applies to that version across restarts. In-app
+  dismissal cancels an active download and prevents install-on-quit; discovery
+  continues, and a newer version clears the dismissal and resumes automatic
+  delivery.
 
 ## 3. Navigation rules
 
@@ -783,7 +906,7 @@ system while preserving their different data ownership:
 - Developer-only destinations join and leave the rail, the page, and settings
   search as one unit: while developer mode is off the rail omits the row,
   settings search returns no hit for it, and an open Remote Hosts page returns
-  to General
+  to General. Cloud sync is a regular destination and always stays reachable
 
 ## 4. Acceptance
 
@@ -793,8 +916,7 @@ system while preserving their different data ownership:
    Shortcuts / 快捷键, Instructions / 指令, Models / 模型, Skills / 技能, MCP,
    Subagents / 子智能体, Connections / 连接, Import / 导入, Projects / 项目,
    Cloud sync / 云同步, Remote Hosts / 远程主机, and Info / 信息 in that order,
-   with Remote Hosts /
-   远程主机 present only while developer mode is on. The rows are grouped under Preferences / 偏好,
+   with Voice / 语音 (upstream live voice) appearing between AI and Shortcuts only in development builds with developer mode on, Cloud sync / 云同步 available to every user, and Remote Hosts / 远程主机 present only while developer mode is on. The rows are grouped under Preferences / 偏好,
    Agent / 智能体, Workspace / 工作区, and System / 系统. There is no
    Usage / 用量 destination.
 3. Appearance is part of General and has no standalone rail destination
@@ -836,9 +958,10 @@ system while preserving their different data ownership:
     clearing the search restores the complete index
 14. Info renders disabled, checking, up-to-date, available, downloading,
     downloaded, and error update states without adding another destination
-15. Native select option lists remain readable in both light and dark themes,
-    including when Chromium delegates the opened list surface to Windows; the
-    same global rule covers non-Settings native selects
+15. Settings dropdowns use `SettingsMenuSelect` (anchored menu), never native
+    `<select>`. Native select option lists outside Settings remain readable in
+    both light and dark themes, including when Chromium delegates the opened
+    list surface to Windows
 16. Shortcut recording rejects modifier-free non-function keys, reserved
     editor/OS chords, and conflicts; successful overrides immediately drive
     app behavior and macOS menu accelerators and survive restart
@@ -874,6 +997,17 @@ system while preserving their different data ownership:
 27. The Skills page Market view browses public-HTTPS catalogs, previews
     the assembled document, and installs only through `skills.create`; oversized
     expanded documents are refused and source badges follow `sourceId`
+28. All Settings UI must use shared primitives from `components/ui.tsx` and
+    `components/settings/`:
+    - Boolean toggles → `SettingsToggle` (not inline `<button role="switch">`)
+    - Multi-option selectors → `SegmentedControl` (not inline
+      `<div className="settings-segment">` with manual button loops)
+    - Dropdowns → `SettingsMenuSelect` (not native `Select` / `<select>`)
+    - Checkboxes → `Checkbox` (not inline `<label><input type="checkbox">`)
+    - Buttons → `Button` (not raw `<button>` with manual class names)
+    - Status indicators → `Badge` (not inline `<span>` with manual classes)
+    - Layout → `SettingsCard` + `SettingsRow` from `features/settings/primitives`
+    Inline reimplementation of any shared primitive is a spec violation.
 
 ## 5. General chrome metrics
 

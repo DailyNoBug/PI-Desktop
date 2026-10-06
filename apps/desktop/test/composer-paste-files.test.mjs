@@ -8,7 +8,7 @@ import { readMainSource } from "./helpers/main-source.mjs";
 
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
-const [composer, api, main, pasteIpc, attachments, saver, protocol, sidecar, picker] = await Promise.all([
+const [composer, api, main, pasteIpc, attachments, saver, protocol, history, picker] = await Promise.all([
   readComposerSource(),
   read("../src/lib/api.ts"),
   readMainSource(),
@@ -16,7 +16,7 @@ const [composer, api, main, pasteIpc, attachments, saver, protocol, sidecar, pic
   read("../electron/main/prompt-attachments.ts"),
   read("../electron/main/composer-paste.ts"),
   read("../../../packages/shared/src/protocol.ts"),
-  read("../../../packages/agent-runtime/src/sidecar.ts"),
+  read("../../../packages/agent-runtime/src/attachment-history.ts"),
   read("../electron/main/composer-picker.ts"),
 ]);
 
@@ -41,10 +41,10 @@ test("composer converts oversized text paste and materializes clipboard files", 
     composer,
     /createFileReference\(file\.path, file\.name, sessionId, \{[\s\S]*kind: file\.kind/,
   );
-  assert.match(composer, /serializeComposerFileReferences\(text, activeFileReferences\)/);
+  assert.match(composer, /serializeComposerFileReferences\(outgoing\.text, outgoing\.references\)/);
   assert.match(
     composer,
-    /const serializedContent = serializeComposerFileReferences\(text, activeFileReferences\)/,
+    /const serializedContent = serializeComposerFileReferences\(outgoing\.text, outgoing\.references\)/,
   );
   // The draft is a contenteditable rich field: sentinels render as atomic
   // chips and every caret write goes through the DOM-range helper.
@@ -271,9 +271,9 @@ test("large image attachments avoid whole-file startup reads", () => {
   assert.match(attachments, /const inline = supportsVision && size <= MAX_INLINE_IMAGE_BYTES/);
   assert.match(attachments, /await copyFile\(source, target, fsConstants\.COPYFILE_EXCL\)/);
   assert.doesNotMatch(attachments, /const bytes = readFileSync\(source\.absolute\)/);
-  assert.match(sidecar, /const size = \(await stat\(canonical\)\)\.size/);
-  assert.match(sidecar, /shouldInline && size <= MAX_INLINE_IMAGE_BYTES/);
-  assert.match(sidecar, /await copyFile\(source, target, fsConstants\.COPYFILE_EXCL\)/);
+  assert.match(history, /const size = \(await stat\(canonical\)\)\.size/);
+  assert.match(history, /const canInline =[\s\S]*size <= MAX_INLINE_IMAGE_BYTES/);
+  assert.match(history, /await copyFile\(source, target, fsConstants\.COPYFILE_EXCL\)/);
 });
 
 test("paste results separate display names from unique storage paths", async () => {
@@ -336,4 +336,21 @@ test("large pasted text is preserved byte-for-byte in session scratch", async ()
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("a pasted session link becomes an inline chip with the link as its text", () => {
+  // The paste path turns each link into a token-backed chip, and the draft
+  // keeps the conversation link as the text the model receives.
+  assert.match(composer, /const sessionIds = parseSessionLinks\(text\);/);
+  assert.match(composer, /pasteSessionLinks\(text\);/);
+  assert.match(composer, /for \(const span of \[\.\.\.sessionLinkSpans\(text\)\]\.reverse\(\)\)/);
+  assert.match(
+    composer,
+    /createFileReference\(span\.id, sessionChipName\(span\.id\), ownerSessionId, \{\s*kind: "session",\s*token,/,
+  );
+  assert.match(composer, /return `\$\{t\("chat\.sessionReference"\)\} · \$\{title \|\| id\.slice\(0, 8\)\}`;/);
+  // The chip opens its conversation, and its token serializes back to the link.
+  assert.match(composer, /if \(reference\.kind === "session"\) return "session";/);
+  assert.match(composer, /chip\.dataset\.action = editableText[\s\S]*?"open-session-reference"/);
+  assert.match(composer, /selectSession\(reference\.path\)/);
 });

@@ -145,11 +145,11 @@ type PluginContributes = {
  agentTools?: PluginAgentToolContrib[];
  skills?: Array<string | PluginSkillContrib>; // relative paths, or metadata overrides
  agentExtensions?: string[]; // ExtensionAPI modules run in the agent sidecar; needs `agent.extension` (spec 16)
- providers?: PluginProviderContrib[]; // Host-owned provider rows; needs `provider.register` (spec 13)
+providers?: PluginProviderContrib[]; // Host-owned provider rows; needs `provider.register`; OAuth also needs `provider.oauth` (spec 13)
  settings?: PluginSettingContrib[];
  themes?: PluginThemeContrib[];
  scenicThemes?: PluginScenicThemesContrib;
- windowAppearance?: PluginWindowAppearanceContrib; // native window background; needs `ui.window.appearance`
+ windowAppearance?: PluginWindowAppearanceContrib; // native window background and Windows corner radius; needs `ui.window.appearance`
  mcpServers?: PluginMcpServerContrib[];
   services?: PluginServiceContrib[];
   bus?: PluginBusContrib;
@@ -215,7 +215,8 @@ type PluginThemeContrib = {
  label: string;
  path: string; // relative `.css` file
  base?: "light" | "dark"; // palette the overrides layer on, default `dark`
- assets?: string[]; // absolute png/jpg/jpeg/webp/avif/svg/woff2, 4 MB summed;
+ assets?: string[]; // package-relative or absolute png/jpg/jpeg/webp/avif/svg/woff2, 4 MB summed;
+                    // relative paths resolve inside plugin root; traversal/node_modules are rejected;
                     // each matching `url()` is rewritten to `plugin-asset://`
 };
 
@@ -235,7 +236,13 @@ type PluginScenicThemesContrib = {
 
 type PluginWindowAppearanceContrib = {
  backgroundColor?: { light?: string; dark?: string }; // #rrggbb | #rrggbbaa
+ cornerRadius?: number; // integer 0..24 DIP, Windows main window only; default 4
 };
+
+`cornerRadius` belongs to the contributing plugin and applies while any of its
+declared themes is selected. It does not change macOS/Linux native corners.
+Removing the theme or its `ui.window.appearance` grant restores the Windows
+main-window default of 4 DIP. Invalid or fractional values reject the manifest.
 
 type PluginSkillContrib = {
  id?: string; // defaults to the file name without its extension
@@ -274,7 +281,8 @@ type PluginProviderContrib = {
  vendorKey?: string; // models.dev vendor key, default `custom`
  baseUrl?: string; // absolute http(s) URL
  apiStyle?: PluginProviderApiStyle; // wire style, default `chat_completions`
- authKind?: "api_key" | "none"; // default `api_key`; `oauth` is refused for now
+ authKind?: "api_key" | "none" | "oauth"; // default `api_key`
+ oauth?: { loginLabel?: string; isSubscription?: boolean }; // only with `authKind: "oauth"`
  models: PluginProviderModelContrib[]; // 1..64 entries
 };
 
@@ -325,7 +333,9 @@ type PluginPermission =
  | "agent.tool.register"
  | "agent.prompt.inject"
  | "provider.register"
+ | "provider.oauth"
  | "net.fetch"
+ | "net.anyHost"
  | "shell.openExternal"
  | "mcp.server.local"
  | "mcp.server.remote"
@@ -412,6 +422,18 @@ covers the domain and its subdomains.
 connect is confined to `manifest.net.domains`, and a host that is not declared
 is refused before the transport is asked to open anything.
 
+### 5.3.1 net.anyHost — the escape hatch
+
+`"net.anyHost"` lifts the allowlist for a plugin whose endpoints the user types
+in (a self-hosted server, a personal domain no manifest written ahead of time
+can name). With the grant, every egress path above admits any host over
+http(s)/ws(s) — except cloud metadata endpoints (`169.254.169.254` and peers),
+which the grant never reaches: their answers are instance credentials. A host
+declared in `net.domains` keeps today's behavior, so existing manifests are
+unaffected; a plugin without the grant sees no change either. The grant is
+an install-time permission like any other: the user sees it in the review
+dialog and nothing prompts at request time.
+
 ## 5.1 Bus topic grammar
 
 Topics are dot-separated segments matching `[a-zA-Z0-9][a-zA-Z0-9_-]*`, at most
@@ -439,7 +461,11 @@ as rows in the native provider list, owned by the plugin ([ADR 0259](../../adr/0
 - `baseUrl` is optional, but must be an absolute `http(s)` URL
 - `apiStyle` is optional and defaults to `chat_completions`; the accepted values
   are the provider-config styles except `auto`
-- `authKind` is optional, either `api_key` (default) or `none`
+- `authKind` is optional: `api_key` (default), `none`, or `oauth`
+- OAuth providers require `baseUrl`, the `provider.oauth` permission, and an
+  `onProviderOAuth` module export. Optional `oauth.loginLabel` is a
+  non-empty string of at most 128 characters; `oauth.isSubscription` is a
+  boolean. The host stores one encrypted credential per provider contribution.
 - `models` requires 1..64 entries with unique ids of 1..256 characters
 
 `thinkingLevels` is optional. The Host trims entries, drops unknown canonical
@@ -455,10 +481,17 @@ fields; disabling the plugin keeps the rows and turns them off, while dropping a
 declaration or uninstalling the plugin deletes the row with its stored
 credentials.
 
-`oauth` is **not supported yet**: the Host has no plugin OAuth login flow, so an
-`oauth` block or `authKind: "oauth"` fails manifest validation. The planned
-`provider.oauth` permission and Host-owned login flow are future work, not
-available behavior.
+OAuth contributions use the host-owned vendor-account UI. `onProviderOAuth`
+handles `login` and `refresh`; `pi.providers.oauth.prompt` and `.notify` provide
+host-rendered interaction. The callback can read only the credential for its
+own provider contribution and only when `provider.oauth` is granted. Its model
+requests receive the access token through the ordinary Host auth resolver; the
+refresh token never enters the renderer or Agent Runtime. Egress still requires
+`net.fetch` and the declared network domains when the callback uses the Host
+network API. Plugin entry code is not an OS sandbox and can use raw Node APIs;
+grant the permission only to code you trust. See
+[03-plugin-api.md](03-plugin-api.md) and
+[13-plugin-permissions-matrix.md](13-plugin-permissions-matrix.md).
 
 ## 6. activationEvents (optional)
 
@@ -496,7 +529,7 @@ MVP may implement only:
    valid patterns (§5.1)
 12. A contribution that needs a permission fails validation when the permission
    is missing: `themes` → `ui.theme`, `views` → `ui.view`, `providers` →
-   `provider.register`, stdio servers → `mcp.server.local`, remote
+   `provider.register`, OAuth providers → `provider.oauth`, stdio servers → `mcp.server.local`, remote
    servers → `mcp.server.remote`, `services` → `background.service`,
    `bus.publish` → `bus.publish`, `bus.subscribe` → `bus.subscribe`.
    `skills` is the exception — it predates the permission gate, so a manifest

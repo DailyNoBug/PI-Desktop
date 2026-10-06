@@ -23,6 +23,9 @@ const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 function runBuilder(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(pnpmCommand, ["exec", "electron-builder", ...args], {
+      // Windows exposes pnpm as a .cmd shim. Launch it through the shell so
+      // Node can start the shim consistently on the hosted Windows runner.
+      shell: process.platform === "win32",
       stdio: "inherit",
     });
 
@@ -59,6 +62,14 @@ if (target === "win") {
     "never",
     ...forwardedArgs,
     "-c.extraMetadata.piDistribution=zip",
+  ]);
+  await runBuilder([
+    "--win",
+    "portable",
+    "--publish",
+    "never",
+    ...forwardedArgs,
+    "-c.extraMetadata.piDistribution=portable",
   ]);
 } else {
   await runBuilder([

@@ -131,6 +131,23 @@ function pluginOwnsTitlebarSpacing(): boolean {
 }
 
 /**
+ * A docked view is composited inside the host work panel rather than rendered
+ * as a standalone window. Remove the document's default canvas edge so the
+ * host panel and plugin theme own the surface without an unconfigurable frame.
+ */
+function resetEmbeddedSurfaceChrome(): void {
+  const root = document.documentElement;
+  const body = document.body;
+  if (!root || !body) return;
+  for (const element of [root, body]) {
+    element.style.setProperty("box-sizing", "border-box");
+    element.style.setProperty("margin", "0");
+    element.style.setProperty("border", "0");
+    element.style.setProperty("background", "transparent");
+  }
+}
+
+/**
  * Keep plugin-owned panel documents aligned with the app renderer's compact
  * scrollbar contract. A docked view is a separate WebContentsView, so it
  * cannot inherit `styles/base.css`; without this host-owned rule Windows falls
@@ -522,6 +539,16 @@ function chromeLabels(input = panelLocale()): ChromeLabels {
       safeArea: "Indication de développement · les 46 px supérieurs servent uniquement au déplacement",
     };
   }
+  if (locale.startsWith("pt")) {
+    return {
+      toolbar: "Controles de janela do painel do plugin",
+      minimize: "Minimizar",
+      maximize: "Maximizar",
+      restore: "Restaurar",
+      close: "Fechar",
+      safeArea: "Dica de desenvolvimento · os 46px superiores são apenas para arrastar",
+    };
+  }
   if (locale.startsWith("zh")) {
     return {
       toolbar: "插件面板窗口控制",
@@ -577,6 +604,7 @@ function installPanelChrome(): void {
   // toolbar offset resolves to the right value in both placements.
   if (isEmbeddedPanel()) {
     document.documentElement.style.setProperty("--pi-plugin-titlebar-height", "0px");
+    resetEmbeddedSurfaceChrome();
     return;
   }
 
