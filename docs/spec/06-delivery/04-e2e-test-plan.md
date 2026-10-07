@@ -9212,7 +9212,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   it checks create/update/discovery payloads and the Codex model binding save.
   This does not verify Host storage, live OAuth or live model/search calls.
 - **Specs linked**: `03-runtime/11-provider-model-system.md`,
-  `03-runtime/12-provider-config-schema.md`, ADR 0095, ADR 0297.
+  `03-runtime/12-provider-config-schema.md`, ADR 0095, ADR 0330.
 - **Acceptance**: B (model configuration), Security.
 - **Status**: The Electron/React scenario passed in English and Simplified
   Chinese: eight scenario groups, four creates and eight provider updates through
@@ -16974,7 +16974,7 @@ the latest destination. These assertions measure work counts, not device FPS.
 
 ## Hosted-search continuation contract (offline sidecar)
 
-**Scope:** ADR 0297; provider-hosted search content, estimation, local tools,
+**Scope:** ADR 0330; provider-hosted search content, estimation, local tools,
 Task delegation, and saved-history recovery. No real model or search service.
 
 **Entry:** `pnpm test:e2e:hosted-search`, which rebuilds the shared
@@ -17062,7 +17062,7 @@ renderer's durable transcript reads. No real model or provider is contacted.
   format, name, key and other model settings; Cancel writes nothing. A selected
   explicit format wins over hostname defaults. Relay advice preserves origin.
 - **Specs:** 03-runtime/12 endpoint guidance; 03-runtime/11 search setup guidance;
-  ADR 0297 official-route amendment.
+  ADR 0330 official-route amendment.
 - **Acceptance:** English/Chinese interaction flows and the previous custom and
   Codex account paths pass. Real adapter contracts verify opt-in request routes,
   credentials and search tools. A DeepSeek conversation continues off/on/off,
@@ -17282,3 +17282,37 @@ host-created files. The full app's file-preview viewer is covered separately.
   image model selection and provider configuration remain available.
 - Coverage: recent-models.test.mjs, recent-model-flow.test.mjs,
   default-model-picker.test.mjs, and scripts/e2e-composer-model-selection.mjs.
+#### E2E-270: CC Connect bridge drives a real session end to end
+
+- **Preconditions**: the JS packages are built and the agent-runtime sidecar
+  bundled, a host-core binary is available (`PI_DESKTOP_HOST_BIN` or
+  `target/debug`), Go is installed, and a cc-connect checkout with the
+  `pidesktop` backend is present (`CC_CONNECT_REPO`). A local
+  OpenAI-compatible stub model is started by the suite itself (`node:http`);
+  no real model provider or messaging platform is used.
+- **Steps**: 1) Run `pnpm test:e2e:cc-connect`. 2) The suite seeds the stub
+  provider into a throwaway data dir over host-core RPC, boots a real
+  `pi-host` on loopback with pairing, pairs an owner device, registers a
+  project, and creates a session in `ask` mode. 3) It subscribes a
+  desktop-side RACP observer to the session, then runs the cc-connect
+  `pidesktop` Go E2E against the bridge: authenticate, enumerate, upload a
+  PNG through `attachment/*`, send a message into the existing session, and
+  collect streamed events until the turn completes. 4) It sends an
+  `APPROVE_TEST` prompt whose stub reply is a `Bash` tool call, waits for
+  `approval.requested`, answers `allow-once`, and waits for the same turn to
+  complete. 5) The harness restarts the host and answers the Go phase-2
+  handshake; the backend resumes by cursor, re-verifies the session, and
+  resolves a bindings-file entry to the same session. 6) The harness asserts
+  the observer saw `item.delta`, `approval.requested`, and `turn.completed`
+  while the external client streamed the same turns.
+- **Expected**: bad tokens are refused at the upgrade; the bridge URL is
+  loopback-only; the streamed reply is non-empty on both sides; the approval
+  decision resumes the same pending request; the attachment lands as a
+  durable row; after the restart the cursor replay reports complete and the
+  bindings resolution returns the same session id; no token appears in any
+  log or serialized state.
+- **Specs linked**: `03-runtime/19-remote-agent-control-protocol.md`,
+  `03-runtime/21-cc-connect-bridge.md`, `07-plugins/13-plugin-permissions-matrix.md`;
+  ADR 0330, D658
+- **Acceptance criterion**: A (agent & runtime), Security
+- **Milestone**: M6+

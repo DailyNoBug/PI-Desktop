@@ -86,7 +86,9 @@
     "test:e2e:remote-host": "node scripts/e2e-remote-host.mjs",
     "test:e2e:shortcut-settings": "node scripts/test-shortcut-settings.mjs",
     "test:e2e:dialog-overflow": "node scripts/test-dialog-overflow.mjs",
-    "test:e2e:live-voice-interaction": "node scripts/test-live-voice-interaction.mjs"
+    "test:e2e:live-voice-interaction": "node scripts/test-live-voice-interaction.mjs",
+    "test:e2e:cc-connect": "node scripts/e2e-cc-connect.mjs",
+    "test:e2e:voice": "node scripts/e2e-voice-dictation.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.13",

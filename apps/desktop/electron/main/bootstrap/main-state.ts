@@ -24,6 +24,7 @@ import type { AgentSidecar } from "../agent-sidecar";
 import type { AgentHostBridge } from "../agent-host-bridge";
 import type { McpControlController, McpControlServer } from "../mcp-control";
 import type { BackendRouter } from "../remote/backend-router";
+import type { CcConnectController } from "../services/cc-connect-controller";
 
 export type MenuRendererReadyGate = {
   window: BrowserWindow;
@@ -71,6 +72,7 @@ export class MainProcessState {
   agentHostBridge: AgentHostBridge | null = null;
   desktopControl: McpControlController | null = null;
   backendRouter: BackendRouter | null = null;
+  ccConnect: CcConnectController | null = null;
 
   quitting = false;
   shutdownComplete = false;
@@ -378,6 +380,12 @@ export class MainProcessState {
       },
       set mcpControl(value) {
         self.mcpControl = value;
+      },
+      get ccConnect() {
+        return self.ccConnect;
+      },
+      set ccConnect(value) {
+        self.ccConnect = value;
       },
     };
 

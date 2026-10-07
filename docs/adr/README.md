@@ -371,6 +371,7 @@ Each ADR includes:
 | 0327 | [Managed SSH password authentication](0327-managed-ssh-password-auth.md) | Accepted (D655) |
 | 0328 | [Voice dictation, phase 1](0328-voice-dictation-phase-1.md) | Accepted for implementation (D656) |
 | 0329 | [Local voice plugin replaces cloud speech](0329-local-voice-plugin.md) | Accepted for implementation (D657) |
+| 0330 | [CC Connect loopback bridge](0330-cc-connect-loopback-bridge.md) | Accepted for implementation (D658) |
 
 > The fork's own decisions originally took the 0230 - 0235 range that merged main
 > had already assigned, so they were renumbered to D430 - D435 and ADR 0266 - 0271

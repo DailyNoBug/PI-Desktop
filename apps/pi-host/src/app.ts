@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
 import { AgentHost, type ApprovalPort } from "@pi-desktop/agent-host";
 import {
@@ -12,8 +13,8 @@ import {
   createHostSessionPort,
   listPendingToolRequests,
 } from "@pi-desktop/host-runtime";
-import { DeviceTokenAuthenticator, RacpServer, bindRacpWebSocket, type RacpHostOperations, type WsBinding } from "@pi-desktop/racp";
-import { APP_VERSION, type AgentEventEnvelope } from "@pi-desktop/shared";
+import { DeviceTokenAuthenticator, RacpServer, bindRacpWebSocket, createAttachmentStaging, type RacpHostOperations, type WsBinding } from "@pi-desktop/racp";
+import { APP_VERSION, RACP_DEFAULT_LIMITS, type AgentEventEnvelope } from "@pi-desktop/shared";
 
 import type { PiHostConfig } from "./config.js";
 import { FileCredentialStore, loadOrCreateHostId } from "./credentials.js";
@@ -240,6 +241,12 @@ export async function startPiHost(config: PiHostConfig, options: { log?: HostLog
         await sidecar.call("agent.disposeSession", { sessionId }).catch(() => undefined);
       },
       revokeDevice: (deviceId) => store.revokeDevice(deviceId, new Date().toISOString()),
+    }),
+    // Staged prompt attachments share the desktop's content-addressed blob
+    // dir, so remote uploads resolve exactly like desktop pastes (spec §6.4).
+    attachments: createAttachmentStaging({
+      root: join(config.dataDir, "attachments"),
+      maxAttachmentBytes: RACP_DEFAULT_LIMITS.maxAttachmentBytes,
     }),
     ...(terminal ? { terminal } : {}),
   };

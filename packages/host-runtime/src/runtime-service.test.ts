@@ -1,3 +1,7 @@
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import type { AgentEventEnvelope, UiMessage } from "@pi-desktop/shared";
 
@@ -376,5 +380,96 @@ describe("RuntimeService prompt lifecycle", () => {
         principal: owner,
       }),
     ).rejects.toMatchObject({ errorCode: "INVALID_ARGUMENT" });
+  });
+});
+
+describe("RuntimeService prompt attachment forwarding", () => {
+  async function withAttachmentDir() {
+    const dir = await mkdtemp(join(tmpdir(), "rt-attachments-"));
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const blobName = "a".repeat(64);
+    await writeFile(join(dir, blobName), bytes);
+    const fileBlob = "b".repeat(64);
+    await writeFile(join(dir, fileBlob), Buffer.from("hello"));
+    return { dir, blobName, fileBlob, bytes, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  }
+
+  function buildWithLaunch(attachmentsDir: string, supportsVision: boolean) {
+    const visionLaunch: LaunchResolver = {
+      async resolve(sessionId, session) {
+        return {
+          providerId: String(session.providerId ?? "p1"),
+          modelId: String(session.modelId ?? "m1"),
+          projectPath: "/work/project",
+          sidecarParams: {
+            sessionId,
+            mode: "agent",
+            attachmentsDir,
+            provider: { id: "p1", name: "P1", modelId: "m1", apiKey: "k", supportsReasoning: false, supportedThinkingLevels: ["off"], supportsVision },
+          },
+        };
+      },
+    };
+    const host = new FakeHost();
+    const sidecar = new FakeSidecar();
+    const service = new RuntimeService({
+      getHost: () => host,
+      getSidecar: () => sidecar,
+      launch: visionLaunch,
+      log: () => undefined,
+      now: () => Date.parse("2026-09-18T00:00:00.000Z"),
+    });
+    service.attachHost(host);
+    service.attachSidecar(sidecar);
+    return { host, sidecar, service };
+  }
+
+  it("inlines vision images, references files, and persists durable attachment rows", async () => {
+    const env = await withAttachmentDir();
+    try {
+      const { host, sidecar, service } = buildWithLaunch(env.dir, true);
+      await service.prompt({
+        sessionId: "s1",
+        content: "look at this",
+        effectivePermissionMode: "ask",
+        principal: owner,
+        attachments: [
+          { path: join(env.dir, env.blobName), name: "shot.png", kind: "image", mimeType: "image/png", size: env.bytes.length },
+          { path: join(env.dir, env.fileBlob), name: "notes.txt", kind: "file", mimeType: "text/plain", size: 5 },
+        ],
+        context: { requestId: "r1" },
+      });
+      const appended = host.messages.get("s1")?.at(-1);
+      expect(appended?.attachments).toHaveLength(2);
+      expect(appended?.attachments?.[0]).toMatchObject({ kind: "image", ref: `attachments/${env.blobName}`, name: "shot.png" });
+      const promptCall = sidecar.calls.find((call) => call.method === "agent.prompt");
+      const inline = promptCall?.params.attachments as Array<{ path: string; data?: string }>;
+      expect(inline).toHaveLength(1);
+      expect(inline[0]?.path).toBe(`attachments/${env.blobName}`);
+      expect(inline[0]?.data).toBe(env.bytes.toString("base64"));
+      expect(String(promptCall?.params.content)).toContain("look at this");
+      expect(String(promptCall?.params.content)).toContain(join(env.dir, env.fileBlob));
+    } finally {
+      await env.cleanup();
+    }
+  });
+
+  it("refuses attachment paths outside the Host attachments dir", async () => {
+    const env = await withAttachmentDir();
+    try {
+      const { service } = buildWithLaunch(env.dir, false);
+      await expect(
+        service.prompt({
+          sessionId: "s1",
+          content: "escape",
+          effectivePermissionMode: "ask",
+          principal: owner,
+          attachments: [{ path: "/etc/passwd", name: "passwd", kind: "file" }],
+          context: { requestId: "r2" },
+        }),
+      ).rejects.toMatchObject({ errorCode: "PATH_OUTSIDE_WORKSPACE" });
+    } finally {
+      await env.cleanup();
+    }
   });
 });

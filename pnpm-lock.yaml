@@ -470,6 +470,9 @@ importers:
       '@pi-desktop/agent-runtime':
         specifier: workspace:*
         version: link:../agent-runtime
+      '@pi-desktop/racp':
+        specifier: workspace:*
+        version: link:../racp
       '@pi-desktop/shared':
         specifier: workspace:*
         version: link:../shared

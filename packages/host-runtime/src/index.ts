@@ -18,3 +18,6 @@ export * from "./live-work/coordinator.js";
 export * from "./live-work/context.js";
 export * from "./live-work/feedback-scheduler.js";
 export * from "./live-work/result-summary.js";
+export * from "./racp-host-operations.js";
+export * from "./racp-credentials.js";
+export * from "./prompt-attachment-forwarding.js";

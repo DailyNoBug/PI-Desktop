@@ -1,4 +1,6 @@
 import type { Principal, SessionSummary } from "@pi-desktop/agent-host";
+
+import type { RacpAttachmentStaging } from "./attachments.js";
 import type {
   FsEntry,
   FsReadResult,
@@ -84,6 +86,8 @@ export type RacpHostOperations = {
   projects: RacpProjectCatalog;
   workspace: RacpWorkspaceAccess;
   terminal?: RacpTerminalAccess;
+  /** Staged prompt attachments (spec §6.4); enables the `attachment/*` operations. */
+  attachments?: RacpAttachmentStaging;
   /** Owner-only: revoke a paired device (spec `session/revoke`). */
   revokeDevice?: (deviceId: string) => Promise<boolean>;
 };

@@ -1463,6 +1463,7 @@ export const PLUGIN_PERMISSIONS = [
   "provider.register",
   "provider.oauth",
   "desktop.control",
+  "ccconnect.control",
   "models.list",
   "project.create",
   "session.read",

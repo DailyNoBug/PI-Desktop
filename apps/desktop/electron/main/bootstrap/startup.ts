@@ -36,6 +36,9 @@ import {
   ensureCrashDumpsDirectory,
   reportPreviousCrashDumps,
 } from "../crash-report";
+import { createCcConnectController } from "../services/cc-connect-controller";
+import type { CcConnectController } from "../services/cc-connect-controller";
+import { FileCredentialStore } from "@pi-desktop/host-runtime";
 
 type IpcInvoker = (
   channel: string,
@@ -66,6 +69,7 @@ export type StartupState = {
   backendRouter: BackendRouter | null;
   desktopControl: McpControlController | null;
   mcpControl: McpControlServer | null;
+  ccConnect: CcConnectController | null;
 };
 
 export type StartupDependencies = {
@@ -295,6 +299,29 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
     });
     state.desktopControl = control;
     plugins.setServices({ desktopControl: control });
+    // CC Connect integration (ADR 0330): loopback RACP bridge over the same
+    // Agent Host plus local cc-connect daemon lifecycle, exposed to the
+    // pi.cc-connect plugin behind the `ccconnect.control` permission. Both
+    // stay off until the user enables them; `autoStart` restores the bridge
+    // only when a previous session persisted that choice.
+    const credentialStore = new FileCredentialStore(dataDir);
+    const ccConnect = createCcConnectController({
+      dataDir,
+      version: APP_VERSION,
+      agentHost: state.agentHostBridge!.agentHost,
+      getHost,
+      invoke: invokeIpc,
+      channels: IPC.invoke,
+      isSessionBusy,
+      notifySessionsChanged: () => sendToRenderer(IPC.event.sessionsChanged, { reason: "cc-connect" }),
+      credentialStore,
+      log: (level, message, data) => logger.app("runtime", level, message, { data }),
+    });
+    state.ccConnect = ccConnect;
+    plugins.setServices({ ccConnect });
+    void ccConnect.autoStart().catch((error) => {
+      logger.app("runtime", "warn", "cc-connect autostart failed", { data: String(error) });
+    });
     // Load the bundled model snapshot at startup without blocking the first
     // window. Startup neither fetches nor rewrites the catalog; the snapshot
     // is refreshed on demand from Settings (see models-dev-catalog / the

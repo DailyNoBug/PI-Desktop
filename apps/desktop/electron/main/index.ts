@@ -1242,6 +1242,7 @@ registerShutdownHandlers({
   getHost,
   getSidecar,
   getMcpControl: () => mainState.mcpControl,
+  getCcConnect: () => startupState.ccConnect,
   activeTurns,
   persistenceOutbox,
   inflightCheckpointer,

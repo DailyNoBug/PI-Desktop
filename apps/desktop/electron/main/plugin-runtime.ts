@@ -113,6 +113,7 @@ import type {
   PluginViewModalRequest,
 } from "../shared/plugin-view-modal";
 import type { McpControlController, McpControlInvokeInput } from "./mcp-control";
+import type { CcConnectController } from "./services/cc-connect-controller";
 import {
   PluginSocketError,
   type PluginSocketEvent,
@@ -382,6 +383,8 @@ export type PluginHostServices = {
   }) => Promise<{ status: number; headers: Record<string, string>; bodyText: string }>;
   /** The reviewed desktop operation controller shared with MCP. */
   desktopControl?: McpControlController;
+  /** CC Connect integration: bridge + daemon lifecycle (ADR 0330). */
+  ccConnect?: CcConnectController;
   /**
    * Host-owned geometry for an active docked view's temporary window modal.
    * The page never supplies coordinates or window bounds.
@@ -5588,6 +5591,59 @@ export class PluginRuntime {
             });
             throw error;
           }
+        },
+      },
+      ccConnect: {
+        status: async () => {
+          this.assertPermission(loaded, "ccconnect.control");
+          if (!this.services.ccConnect) {
+            throw apiError("UNSUPPORTED", "host api not available: ccConnect.status");
+          }
+          return this.services.ccConnect.status();
+        },
+        setBridgeEnabled: async (enabled: unknown) => {
+          this.assertPermission(loaded, "ccconnect.control");
+          if (!this.services.ccConnect) {
+            throw apiError("UNSUPPORTED", "host api not available: ccConnect.setBridgeEnabled");
+          }
+          return this.services.ccConnect.setBridgeEnabled(enabled === true);
+        },
+        detectBinary: async () => {
+          this.assertPermission(loaded, "ccconnect.control");
+          if (!this.services.ccConnect) {
+            throw apiError("UNSUPPORTED", "host api not available: ccConnect.detectBinary");
+          }
+          return this.services.ccConnect.detectBinary();
+        },
+        startProcess: async (input: unknown) => {
+          this.assertPermission(loaded, "ccconnect.control");
+          if (!this.services.ccConnect) {
+            throw apiError("UNSUPPORTED", "host api not available: ccConnect.startProcess");
+          }
+          const args = (input ?? {}) as { command?: string; args?: string[] };
+          return this.services.ccConnect.startProcess(args);
+        },
+        stopProcess: async () => {
+          this.assertPermission(loaded, "ccconnect.control");
+          if (!this.services.ccConnect) {
+            throw apiError("UNSUPPORTED", "host api not available: ccConnect.stopProcess");
+          }
+          return this.services.ccConnect.stopProcess();
+        },
+        restartProcess: async () => {
+          this.assertPermission(loaded, "ccconnect.control");
+          if (!this.services.ccConnect) {
+            throw apiError("UNSUPPORTED", "host api not available: ccConnect.restartProcess");
+          }
+          return this.services.ccConnect.restartProcess();
+        },
+        logs: async (input: unknown) => {
+          this.assertPermission(loaded, "ccconnect.control");
+          if (!this.services.ccConnect) {
+            throw apiError("UNSUPPORTED", "host api not available: ccConnect.logs");
+          }
+          const args = (input ?? {}) as { limit?: number };
+          return this.services.ccConnect.logs(args);
         },
       },
       fs: {
