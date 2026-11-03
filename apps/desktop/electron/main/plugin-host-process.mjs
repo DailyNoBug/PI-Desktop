@@ -265,10 +265,21 @@ function buildApi() {
       openPanel: (options) => call("ui.openPanel", [options]),
       closePanel: () => call("ui.closePanel"),
       showToast: (message, level) => call("ui.showToast", [message, level]),
+      // The work panel is the shell's own surface: the plugin names one of its
+      // declared views and the subject, and the main process refuses a session
+      // that stopped being the one the user is looking at.
+      revealView: (input) => call("ui.revealView", [input ?? {}]),
       notify: (input) => call("ui.notify", [input]),
       getNotificationPermission: () => call("ui.getNotificationPermission"),
       requestNotificationPermission: () => call("ui.requestNotificationPermission"),
       showNativeNotification: (input) => call("ui.showNativeNotification", [input]),
+    },
+    // One line into the session's composer placeholder (ADR 0333). The shell
+    // answers whether it went on screen, so a plugin never has to guess before
+    // spending another completion.
+    composer: {
+      suggest: (input) => call("composer.suggest", [input ?? {}]),
+      clearSuggestion: (input) => call("composer.clearSuggestion", [input ?? {}]),
     },
     project: {
       create: (input) => call("project.create", [input ?? {}]),
@@ -295,6 +306,9 @@ function buildApi() {
       push: (input) => call("git.push", [input ?? {}]),
       pull: () => call("git.pull"),
     },
+    projects: {
+      list: () => call("projects.list"),
+    },
     desktop: {
       listOperations: () => call("desktop.listOperations"),
       invoke: (input) => call("desktop.invoke", [input ?? {}]),
@@ -307,12 +321,13 @@ function buildApi() {
           ...result,
           bytes: normalizeBytes(result?.bytes),
         })),
-      readPreview: (path) => call("fs.readPreview", [path]),
+      readPreview: (path, options) => call("fs.readPreview", options === undefined ? [path] : [path, options]),
       openDefault: (path) => call("fs.openDefault", [path]),
+      openInBrowser: (path) => call("fs.openInBrowser", [path]),
       reveal: (path) => call("fs.reveal", [path]),
       writeText: (path, content) => call("fs.writeText", [path, content]),
       glob: (pattern) => call("fs.glob", [pattern]),
-      list: (path) => call("fs.list", [path]),
+      list: (path, options) => call("fs.list", options === undefined ? [path] : [path, options]),
       remove: (path) => call("fs.remove", [path]),
       requestDirectory: () => call("fs.requestDirectory"),
     },
@@ -349,7 +364,12 @@ function buildApi() {
       list: () => call("models.list"),
     },
     session: {
+      // The selected session, as the shell shows it. A snapshot is a value: a
+      // plugin compares `sessionId` rather than assuming the session still holds.
+      getActive: () => call("session.getActive"),
       getLlmContext: () => call("session.getLlmContext"),
+      getAutoTitleContext: (input) => call("session.getAutoTitleContext", [input ?? {}]),
+      setAutoTitle: (input) => call("session.setAutoTitle", [input ?? {}]),
       list: (input) => call("session.list", [input ?? {}]),
       get: (input) => call("session.get", [input ?? {}]),
       listMessages: (input) => call("session.listMessages", [input ?? {}]),
@@ -419,6 +439,7 @@ function buildApi() {
       openExternal: (url) => call("shell.openExternal", [url]),
     },
     browser: {
+      reveal: () => call("browser.reveal"),
       navigate: (input) => call("browser.navigate", [input ?? {}]),
       action: (input) => call("browser.action", [input]),
       setBounds: (hole) => call("browser.setBounds", [hole]),
@@ -434,6 +455,7 @@ function buildApi() {
       cdp: (input) => call("browser.cdp", [input]),
     },
     net: {
+      getCapabilities: () => call("net.getCapabilities"),
       fetch: (input) => call("net.fetch", [input]),
       // Real-time connections (`net.websocket`). Frames arrive back as
       // `net:websocket:message` host events, so a plugin subscribes with
@@ -682,6 +704,25 @@ async function handleParentCall(method, payload, invocationId, callId) {
         throw error;
       }
       return JSON.parse(text);
+    }
+    case "composer.transform": {
+      const handler = pluginModule?.onComposerTransform;
+      if (typeof handler !== "function") {
+        const error = new Error("plugin does not implement onComposerTransform");
+        error.code = "PLUGIN_TRANSFORM_NO_HANDLER";
+        throw error;
+      }
+      const answer = await handler({
+        id: String(payload?.id ?? ""),
+        text: String(payload?.text ?? ""),
+        ...(typeof payload?.modelKey === "string" ? { modelKey: payload.modelKey } : {}),
+      });
+      if (typeof answer !== "string") {
+        const error = new Error("onComposerTransform must return a text string");
+        error.code = "PLUGIN_INVALID_RESULT";
+        throw error;
+      }
+      return answer;
     }
     case "lifecycle.unload": {
       for (const id of invocations.keys()) cancelInvocation(id, "Plugin unloaded");

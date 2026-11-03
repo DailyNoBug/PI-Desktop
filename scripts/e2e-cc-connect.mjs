@@ -17,7 +17,7 @@
  * with the pidesktop backend (CC_CONNECT_REPO, default ~/myrepo/cc-connect).
  *
  * The real messaging platforms are intentionally not part of this harness;
- * the Go backend stands in for the platform edge (see ADR 0330 §Limitations).
+ * the Go backend stands in for the platform edge (see ADR 0347 §Limitations).
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";

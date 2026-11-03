@@ -5,8 +5,9 @@
  * means zero import overhead at startup.
  */
 
-import { app, BrowserWindow } from "electron";
+import { BrowserWindow } from "electron";
 import { randomUUID } from "node:crypto";
+import { onConfirmedQuit } from "./bootstrap/confirmed-quit";
 import { PvRecorderBackend, checkMicrophonePermission, requestMicrophonePermission } from "./audio-backend";
 import type {
   AudioCaptureFactory,
@@ -22,6 +23,17 @@ type VoiceControllerT = import("@pi-desktop/voice-runtime").VoiceController;
 type TranscriptionEngineT = import("@pi-desktop/voice-runtime").TranscriptionEngine;
 type ModelManagerT = import("@pi-desktop/voice-runtime").ModelManager;
 
+// The recommended whisper-large-v3-turbo weights alone hold ~1.5 GiB of
+// main-process memory once loaded, and transcription buffers sit on top of
+// that. Unloading after a quiet spell keeps an idle app from pinning that
+// memory forever (issue #1528); the model reloads from disk in a few seconds
+// on the next recording.
+const MODEL_IDLE_UNLOAD_MS = 10 * 60 * 1000;
+
+// Phases in which no recording or transcription can be in flight, so the
+// loaded model is safe to drop.
+const TERMINAL_VOICE_PHASES = new Set(["idle", "done", "error"]);
+
 export class VoiceService {
   private controller: VoiceControllerT | null = null;
   private engine: TranscriptionEngineT | null = null;
@@ -30,6 +42,7 @@ export class VoiceService {
   private settings: VoiceSettings;
   private disposed = false;
   private releaseMicrophoneLease: (() => void) | null = null;
+  private modelIdleUnloadTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly modelCacheDir: string,
@@ -79,10 +92,41 @@ export class VoiceService {
     // Forward state changes to renderer
     this.controller.on("stateChange", (state: VoiceState) => {
       this.sendToRenderer("voice:stateChanged", state);
-      if (state.phase === "done" || state.phase === "error" || state.phase === "idle") {
+      if (TERMINAL_VOICE_PHASES.has(state.phase)) {
         this.releaseCurrentMicrophoneLease();
+        this.scheduleModelIdleUnload();
       }
     });
+  }
+
+  /**
+   * Drop the loaded model after MODEL_IDLE_UNLOAD_MS without a recording.
+   * The timer is cancelled whenever a new recording starts and re-checked
+   * against the live phase before unloading, so an in-flight recording is
+   * never interrupted.
+   */
+  private scheduleModelIdleUnload(): void {
+    if (this.disposed || !this.controller) return;
+    this.cancelModelIdleUnload();
+    this.modelIdleUnloadTimer = setTimeout(() => {
+      this.modelIdleUnloadTimer = null;
+      if (this.disposed) return;
+      const phase = this.controller?.state.phase;
+      if (!phase || !TERMINAL_VOICE_PHASES.has(phase)) return;
+      try {
+        this.modelManager?.unload();
+      } catch {
+        // Best-effort trim; the model reloads on next use either way.
+      }
+    }, MODEL_IDLE_UNLOAD_MS);
+    this.modelIdleUnloadTimer.unref?.();
+  }
+
+  private cancelModelIdleUnload(): void {
+    if (this.modelIdleUnloadTimer) {
+      clearTimeout(this.modelIdleUnloadTimer);
+      this.modelIdleUnloadTimer = null;
+    }
   }
 
   // ---- Recording lifecycle ----
@@ -90,17 +134,22 @@ export class VoiceService {
   async start(overrides?: Partial<VoiceSettings>): Promise<void> {
     if (this.disposed) throw new Error("VoiceService is disposed");
 
-    if (overrides) {
-      this.updateSettings(overrides);
-    }
+    this.cancelModelIdleUnload();
 
-    await this.ensureRuntime();
-    this.releaseCurrentMicrophoneLease();
-    this.releaseMicrophoneLease = this.acquireMicrophoneLease(randomUUID());
     try {
+      if (overrides) {
+        this.updateSettings(overrides);
+      }
+
+      await this.ensureRuntime();
+      this.releaseCurrentMicrophoneLease();
+      this.releaseMicrophoneLease = this.acquireMicrophoneLease(randomUUID());
       await this.controller!.start();
     } catch (error) {
       this.releaseCurrentMicrophoneLease();
+      // A rejected start may leave the controller in a terminal phase without
+      // emitting stateChange; do not strand the pending idle unload.
+      this.scheduleModelIdleUnload();
       throw error;
     }
   }
@@ -117,6 +166,9 @@ export class VoiceService {
   cancel(): void {
     this.controller?.cancel();
     this.releaseCurrentMicrophoneLease();
+    // Cancelling from an idle phase emits no stateChange, so schedule here
+    // too; scheduling twice is harmless.
+    this.scheduleModelIdleUnload();
   }
 
   getState(): VoiceState {
@@ -169,6 +221,7 @@ export class VoiceService {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.cancelModelIdleUnload();
     this.controller?.dispose();
     this.releaseCurrentMicrophoneLease();
     this.engine?.shutdown();
@@ -202,6 +255,8 @@ export function createVoiceService(
   acquireMicrophoneLease?: (token: string) => () => void,
 ): VoiceService {
   const service = new VoiceService(modelCacheDir, getWindow, acquireMicrophoneLease);
-  app.once("before-quit", () => service.dispose());
+  // A cancelled quit keeps the app running, so disposal waits for a committed
+  // quit instead of the cancellable `before-quit`.
+  onConfirmedQuit(() => service.dispose());
   return service;
 }

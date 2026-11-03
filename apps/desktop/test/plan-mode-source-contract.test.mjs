@@ -136,7 +136,7 @@ test("the component spec assigns mode ownership to Composer", () => {
     componentSpec.indexOf("## 11. Composer"),
     componentSpec.indexOf("## 12.", componentSpec.indexOf("## 11. Composer")),
   );
-  assert.match(topbarSpec, /Project\s+scope/);
+  assert.match(topbarSpec, /project breadcrumb/i);
   assert.doesNotMatch(topbarSpec, /model picker/);
   assert.doesNotMatch(topbarSpec, /Agent \| Plan|mode toggle|mode indicator/);
   assert.match(composerSpec, /combined model ×\s+reasoning-level control/);
@@ -244,7 +244,10 @@ test("pending approval keeps the draft while gating every composer control", () 
   assert.match(composerSource, /aria-readonly=\{inputBlocked\}/);
   assert.match(composerSource, /enabled: !inputBlocked/);
   assert.match(composerSource, /disabled=\{controlsBlocked\}/);
-  assert.match(composerSource, /const controlsBlocked = approvalPending \|\| nativeSession;/);
+  assert.match(
+    composerSource,
+    /const controlsBlocked = approvalPending \|\| nativeSession \|\| !sessionAllows\(capabilitySession, "canConfigureModel"\);/,
+  );
   assert.match(composerSource, /const sendBlocked = approvalPending \|\| pasting \|\| nativeInputBlocked;/);
   assert.match(storeSource, /if \(get\(\)\.pendingPlans\[sessionId\]\?\.status === "pending"\) return/);
 });

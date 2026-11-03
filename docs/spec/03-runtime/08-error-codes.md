@@ -73,8 +73,8 @@ registered; reserved codes in §3.8 remain intentionally absent from
 | `LIMIT_EXCEEDED` | no | a payload exceeded a fixed host bound (item count, byte size, or a 64 MiB NDJSON request line) and was refused |
 | `CONFIG_SYNC_INVALID` | no | invalid sync configuration, password, path, request, or approval input |
 | `CONFIG_SYNC_LOCKED` | no | the local encrypted sync vault is not unlocked |
-| `CONFIG_SYNC_UNSUPPORTED` | no | the vault format or WebDAV server capability is unsupported |
-| `CONFIG_SYNC_REMOTE` | maybe | remote WebDAV object, authentication, quota, or availability failure |
+| `CONFIG_SYNC_UNSUPPORTED` | no | the vault format or S3 conditional-write capability is unsupported |
+| `CONFIG_SYNC_REMOTE` | maybe | S3 object, authentication, quota, or availability failure |
 | `CONFIG_SYNC_CONFLICT` | maybe | remote head, vault identity, or approval digest conflict |
 | `CONFIG_SYNC_CRYPTO` | no | authenticated encryption, object identity, or ciphertext validation failed |
 | `CONFIG_SYNC_MAPPING_REQUIRED` | no | imported project-scoped configuration needs an explicit local folder/group mapping |
@@ -99,9 +99,9 @@ does not turn temporary thread pressure into a host process exit.
 | `AGENT_SIDECAR_CRASHED` | no | the Node agent sidecar process died mid-turn; the owning turn settles as aborted with this code instead of an unrelated plan-approval code (issue #1077) |
 | `AGENT_SIDECAR_OOM` | no | the sidecar died after its JavaScript heap hit the configured cap, diagnosed from the V8 fatal-error banner in its stderr tail; the same turn fails the same way until the input shrinks (issue #1077) |
 | `MODEL_NOT_CONFIGURED` | no | no usable model selected, or provider rejects the selected model as unknown |
-| `PROVIDER_ERROR` | yes | upstream provider failure; a retryable one (5xx gateway) gets up to ten same-turn retries, while a malformed 400/422 request or a request option the adapter itself refuses (a custom `fetch` for the Google adapters, issue #1072) is terminal |
+| `PROVIDER_ERROR` | yes | upstream provider failure; retryable 5xx gateway errors get up to ten same-turn retries, while malformed 400/422 requests, adapter-refused options, HTTP 402, and explicit billing, credit, spend, usage, or disk exhaustion (including `insufficient_quota` and insufficient-credits wording) are terminal |
 | `PROVIDER_UNAUTHORIZED` | no | bad/missing provider credentials |
-| `PROVIDER_RATE_LIMITED` | yes | provider rate limited; runtime silently retries up to ten times across setup/stream before the terminal event |
+| `PROVIDER_RATE_LIMITED` | yes | temporary provider throughput limit; runtime retries up to ten times across setup/stream. Explicit billing/account exhaustion remains terminal `PROVIDER_ERROR`, including when returned with HTTP 429 |
 | `CONTEXT_TOO_LARGE` | no | prompt/context still exceeds the safe model budget after recovery, the second provider overflow occurred, or automatic recovery is disabled |
 | `CONTEXT_COMPACTION_FAILED` | no | automatic retained-tail recovery could not prepare, persist, or fit a checkpoint, or manual checkpoint summary generation / durable append failed; the guarded next provider request does not start |
 | `STREAM_FAILED` | yes | provider stream was terminated, closed prematurely, or otherwise ended before a complete response; up to ten same-turn retries may precede the terminal event |
@@ -119,6 +119,7 @@ does not turn temporary thread pressure into a host process exit.
 |---|---|---|
 | `WORKSPACE_REQUIRED` | no | no workspace bound |
 | `PATH_OUTSIDE_WORKSPACE` | no | path escapes sandbox before an explicit outside-path permission decision, or a prompt attachment is outside its session scratch/project/attachment roots |
+| `VISUALIZATION_HTML_ONLY` | no | a Write/Edit into the session visualization directory is not a direct-child `.html` fragment |
 | `WORKSPACE_PATH_DENIED` | no | an explicit `Read`/`Write`/`Edit` path hit the always-on security denylist (private keys, `.env` files, credential bundles, `.git/objects`); an outside-path grant does not lift it (spec 15 §3) |
 | `READ_PATH_IS_DIRECTORY` | no | `Read` was given a directory; the result carries a `Glob` suggestion |
 | `TOOL_BINARY_CONTENT` | no | `Read` refused to dump a binary file into the model context |
@@ -128,7 +129,7 @@ does not turn temporary thread pressure into a host process exit.
 | `TOOL_FAILED` | maybe | tool executed but failed |
 | `FILE_NOT_FOUND` | no | Read/Write/Edit target path does not exist (distinct from `TOOL_DENIED`) |
 | `TOOL_ABORTED` | no | the tool was cancelled by a user stop or a turn abort before it finished |
-| `VOICE_NOT_CONFIGURED` | no | dictation requested while the local-voice plugin is disabled, has no installed model, or its speech adapter is not live (ADR 0329) |
+| `VOICE_NOT_CONFIGURED` | no | dictation requested while the local-voice plugin is disabled, has no installed model, or its speech adapter is not live (ADR 0346) |
 | `SPEECH_NOT_CONFIGURED` | no | host speech ASR or TTS is not bound in settings |
 | `SPEECH_INPUT_TOO_LARGE` | no | speech input exceeds 25 MB |
 | `VOICE_PAYLOAD_TOO_LARGE` | no | dictation audio exceeded the 20 MiB payload cap |
@@ -211,7 +212,7 @@ loses that. See
 | `EDIT_REGISTER_EMPTY` | no | paste from an unset register |
 | `EDIT_REGISTER_AMBIGUOUS` | no | anonymous paste with more than one pending anonymous capture |
 | `EDIT_REPAIR_AMBIGUOUS` | no | boundary-repair candidates tied at minimum cost |
-| `EDIT_NO_CHANGE` | no | the apply produced text identical to the input |
+| `EDIT_NO_CHANGE` | no | the apply produced text identical to the input, or `MV` resolved to the source path; the entire call leaves the source bytes untouched |
 | `EDIT_AMPLIFICATION_LIMIT` | no | lowering exceeded the expansion cap |
 
 `EDIT_LINES_UNSEEN` is retriable **without** a further `Read` when its message
@@ -398,13 +399,46 @@ Node sidecar maps provider SDK errors into:
 
 - `PROVIDER_UNAUTHORIZED`
 - `PROVIDER_RATE_LIMITED`
+- `CONTEXT_TOO_LARGE`
 - `MODEL_NOT_CONFIGURED` (provider rejects the selected model with 404)
 - `PROVIDER_ERROR`
 - `NETWORK_ERROR`
 - `STREAM_FAILED`
 
+A provider message is `CONTEXT_TOO_LARGE` when pi-ai's `isContextOverflow`
+recognizes it from the message text — the same check that starts provider
+overflow recovery — or when it carries the context-length wording the
+classifier already matched (HTTP 413 always). The terminal code therefore
+agrees with the recovery decision for every overflow wording pi-ai knows, for
+example DashScope/Qwen `Range of input length should be`, z.ai `Prompt
+exceeds max length`, xAI `maximum prompt length is`, Groq, llama.cpp, and
+Bedrock `Input is too long for requested model`. `CONTEXT_TOO_LARGE` is never
+replayed by either retry budget, and a delegate reports it as
+`SUBAGENT_CONTEXT_OVERFLOW`. Explicit billing/account exhaustion codes and
+messages (including `insufficient_quota`, `credit_balance_exhausted`,
+organization/project spend-limit codes, `insufficient credits`, and
+`requires more credits`) map to terminal `PROVIDER_ERROR` even when the HTTP
+status is 429, and HTTP 402 is terminal `PROVIDER_ERROR` even when the body
+omits those phrases. Throughput rate-limit wording, including
+Bedrock's `Throttling error: Too many tokens, please wait before trying again.`,
+stays `PROVIDER_RATE_LIMITED`. An unprefixed JSON error body that carries an
+HTTP status in `error.code` (Gemini's `@google/genai` `ApiError.message`) is
+classified from that 400-599 code the same way as a `<status>:` message:
+400/422 stay terminal unless they report a context overflow, 404 is
+`MODEL_NOT_CONFIGURED`, 429 stays retryable, and 5xx stay retryable unless
+the body reports a context overflow that is not a rate limit, which is
+terminal `CONTEXT_TOO_LARGE`. A 400 or 422 that explicitly rejects the API
+key (`invalid api key`, `api key not valid`, or `API_KEY_INVALID`, including
+Gemini's `API key not valid` body) is terminal `PROVIDER_UNAUTHORIZED`;
+`permission denied` and a bare `unauthorized` on those statuses stay
+`PROVIDER_ERROR`.
+
 An exact `terminated` provider message and equivalent premature stream-close
-messages map to `STREAM_FAILED`. A request-setup or post-response
+messages map to `STREAM_FAILED`. A message is `TURN_ABORTED` only for a
+structured abort or the fixed phrases `Request aborted`, `The operation was
+aborted`, and `Turn aborted`; connection-abort wording such as `software
+caused connection abort` stays retriable `NETWORK_ERROR`, and `stream aborted`
+stays retriable `STREAM_FAILED`. A request-setup or post-response
 `PROVIDER_RATE_LIMITED` uses the shared runtime budget: ten retries after the
 initial attempt, with setup and stream failures counting together. Non-429
 transient failures — `STREAM_FAILED`, `NETWORK_ERROR`, `TIMEOUT`, and retryable

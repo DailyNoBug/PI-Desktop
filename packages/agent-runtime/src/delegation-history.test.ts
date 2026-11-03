@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { estimateTokens } from "./pi-runtime-estimates.js";
 import type { Message } from "@earendil-works/pi-ai";
 import { MAX_RESUMABLE_READ_LINES, type UiMessage } from "@pi-desktop/shared";
+import { timestampMs } from "./agent-messages.js";
+import { toolResultFromUi } from "./runtime.js";
 import {
   contextBudgetLimitsFor,
   type ContextBudgetLimits,
@@ -435,7 +437,7 @@ describe("seedDelegateMessages budget truncation (ADR 0299 §7)", () => {
       bigRead("t2", BIG),
       delegateAssistant("a3", "summary", "call-1"),
     ];
-    const messages = seed(rows, 1050);
+    const messages = seed(rows, 1200);
 
     expect(messages[0]).toMatchObject({
       role: "user",
@@ -482,7 +484,7 @@ describe("seedDelegateMessages budget truncation (ADR 0299 §7)", () => {
       ),
     ).toBe(true);
     expectWellFormedPairs(messages);
-    expect(seededTokens(messages)).toBeLessThan(1050);
+    expect(seededTokens(messages)).toBeLessThan(1200);
   });
 
   it("drops parallel calls on one carrier as one unit", () => {
@@ -539,7 +541,7 @@ describe("seedDelegateMessages budget truncation (ADR 0299 §7)", () => {
       bigRead("t1", MEDIUM),
       delegateAssistant("a3", "done", "call-1"),
     ];
-    const messages = seed(rows, 520);
+    const messages = seed(rows, 600);
 
     // The older plain text survives while the newer tool pair goes first.
     expect(
@@ -553,7 +555,7 @@ describe("seedDelegateMessages budget truncation (ADR 0299 §7)", () => {
     ).toBe(true);
     expect(messages.some((message) => message.role === "toolResult")).toBe(false);
     expectWellFormedPairs(messages);
-    expect(seededTokens(messages)).toBeLessThan(520);
+    expect(seededTokens(messages)).toBeLessThan(600);
   });
 
   it("drops whole older messages once no tool pairs remain", () => {
@@ -562,7 +564,7 @@ describe("seedDelegateMessages budget truncation (ADR 0299 §7)", () => {
       delegateAssistant("a2", `mid:${"b".repeat(2000)}`, "call-1"),
       delegateAssistant("a3", `new:${"c".repeat(2000)}`, "call-1"),
     ];
-    const messages = seed(rows, 1010);
+    const messages = seed(rows, 1200);
 
     expect(messages).toHaveLength(3);
     expect(messages[0]).toMatchObject({ role: "user" });
@@ -578,7 +580,7 @@ describe("seedDelegateMessages budget truncation (ADR 0299 §7)", () => {
       `mid:${"b".repeat(2000)}`,
       `new:${"c".repeat(2000)}`,
     ]);
-    expect(seededTokens(messages)).toBeLessThan(1010);
+    expect(seededTokens(messages)).toBeLessThan(1200);
   });
 
   it("seeds the brief alone when nothing else fits", () => {
@@ -999,6 +1001,149 @@ describe("rebuildChainsFromTranscript settled copies and replay (ADR 0279)", () 
     expect(messages.map((message) => message.role)).toEqual([
       "assistant",
       "toolResult",
+    ]);
+  });
+});
+
+describe("chainRowsToMessages tool result content", () => {
+  // Long enough that stringifying the payload into a text block would dump
+  // image bytes into the resumed delegate prompt (#1073 / #1360).
+  const imageData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ".repeat(20);
+
+  function resumedToolResult(row: UiMessage) {
+    const messages = chainRowsToMessages(
+      [delegateAssistant("a1", "reading", "call-1"), row],
+      provider(),
+      buildProviderModel(provider()),
+    );
+    const restored = messages.find((message) => message.role === "toolResult");
+    expect(restored?.role).toBe("toolResult");
+    if (restored?.role !== "toolResult") {
+      throw new Error("expected a toolResult message");
+    }
+    expect(restored.content).toEqual(
+      toolResultFromUi(row, timestampMs(row.createdAt)).content,
+    );
+    return restored;
+  }
+
+  function expectNoBase64Text(
+    content: ReadonlyArray<{ type: string; text?: string }>,
+    data: string,
+  ): void {
+    for (const block of content) {
+      if (block.type === "text") expect(block.text).not.toContain(data);
+    }
+  }
+
+  it("restores a host Read image as an image block instead of base64 JSON text", () => {
+    // Host tool_read shape from #1073: top-level images, not content blocks.
+    const row = delegateTool(
+      "t1",
+      "Read",
+      { path: "shot.png" },
+      {
+        path: "shot.png",
+        text: "Image file shot.png (17 bytes, image/png); the image is attached to this result.",
+        images: [{ data: imageData, mimeType: "image/png" }],
+      },
+      "call-1",
+    );
+    const restored = resumedToolResult(row);
+
+    expect(restored.content).toContainEqual({
+      type: "image",
+      data: imageData,
+      mimeType: "image/png",
+    });
+    expectNoBase64Text(restored.content, imageData);
+  });
+
+  it("restores a bare plugin content-block array without flattening it to JSON", () => {
+    const row = delegateTool(
+      "t1",
+      "plugin_shot",
+      {},
+      [
+        { type: "text", text: "ok" },
+        { type: "image", data: imageData, mimeType: "image/png" },
+      ],
+      "call-1",
+    );
+    const restored = resumedToolResult(row);
+
+    expect(restored.content).toEqual([
+      { type: "text", text: "ok" },
+      { type: "image", data: imageData, mimeType: "image/png" },
+    ]);
+    expectNoBase64Text(restored.content, imageData);
+  });
+
+  it("restores an MCP text resource instead of the missing-result placeholder", () => {
+    const row = delegateTool(
+      "t1",
+      "get_file_contents",
+      { path: "a.ts" },
+      {
+        content: [
+          {
+            type: "resource",
+            resource: {
+              uri: "file:///a.ts",
+              mimeType: "text/plain",
+              text: "export const answer = 42;\n",
+            },
+          },
+        ],
+      },
+      "call-1",
+    );
+    const restored = resumedToolResult(row);
+
+    expect(restored.content).toEqual([
+      { type: "text", text: "export const answer = 42;\n" },
+    ]);
+    expect(
+      restored.content.some(
+        (block) => block.type === "text" && block.text === "[no tool result recorded]",
+      ),
+    ).toBe(false);
+  });
+
+  it("restores sibling text, an MCP resource body, and a resource link", () => {
+    const row = delegateTool(
+      "t1",
+      "get_file_contents",
+      { path: "a.ts" },
+      {
+        content: [
+          { type: "text", text: "successfully downloaded text file (SHA: abc123)" },
+          {
+            type: "resource",
+            resource: {
+              uri: "file:///a.ts",
+              mimeType: "text/plain",
+              text: "export const answer = 42;\n",
+            },
+          },
+          {
+            type: "resource_link",
+            uri: "https://raw.githubusercontent.com/acme/app/main/big.json",
+            name: "big.json",
+          },
+        ],
+      },
+      "call-1",
+    );
+    const restored = resumedToolResult(row);
+
+    expect(restored.content).toEqual([
+      { type: "text", text: "successfully downloaded text file (SHA: abc123)" },
+      { type: "text", text: "export const answer = 42;\n" },
+      {
+        type: "text",
+        text: "[resource link] big.json: https://raw.githubusercontent.com/acme/app/main/big.json",
+      },
     ]);
   });
 });

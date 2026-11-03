@@ -101,11 +101,12 @@ import {
   Workflow,
   Wrench,
   X,
+  Zap,
   type LucideIcon,
   type LucideProps,
 } from "lucide-react";
 
-export type IconProps = LucideProps;
+export type IconProps = LucideProps & SVGProps<SVGSVGElement>;
 
 /**
  * Lucide sizes are fixed px attributes. Multiply them by `--font-scale` so
@@ -192,6 +193,7 @@ export const IconDatabase = icon(Database);
 export const IconCheck = icon(Check);
 export const IconBell = icon(Bell);
 export const IconBot = icon(Bot);
+export const IconZap = icon(Zap);
 export const IconCheckCheck = icon(CheckCheck);
 export const IconShield = icon(Shield);
 export const IconChevronDown = icon(ChevronDown);

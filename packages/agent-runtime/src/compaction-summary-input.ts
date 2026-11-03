@@ -3,7 +3,10 @@ import {
 } from "@earendil-works/pi-agent-core";
 import type { RetryPolicy, Usage } from "@earendil-works/pi-ai";
 import { truncateMessageText } from "./agent-messages.js";
-import { estimateTokens } from "./pi-runtime-estimates.js";
+import {
+  ESTIMATED_TEXT_CHARS_PER_TOKEN,
+  estimateTokens,
+} from "./pi-runtime-estimates.js";
 import { convertToLlm, serializeConversation } from "./pi-runtime-messages.js";
 import type { CompactionPreparation } from "./pi-runtime-types.js";
 import { DEFAULT_MAX_TOKENS } from "./provider-binding.js";
@@ -69,7 +72,6 @@ export const COMPACTION_SUMMARY_CHUNK_MARGIN = 0.9;
 export const SUMMARY_CHUNK_TRUNCATION_MARKER =
   "\n\n[message truncated: the summary request budget could not carry it whole]";
 
-
 export type CompactionSummaryInput = Pick<
   CompactionPreparation,
   "messagesToSummarize" | "turnPrefixMessages" | "isSplitTurn" | "previousSummary"
@@ -77,8 +79,8 @@ export type CompactionSummaryInput = Pick<
 
 /**
  * Tokens the summary request(s) will carry for this input, using pi's own
- * serialization and the four-characters-per-token heuristic the rest of the
- * runtime uses. A split turn issues two requests (history, then turn prefix);
+ * serialization and text-token estimate. A split turn issues two requests
+ * (history, then turn prefix);
  * the larger one is the one that has to fit.
  */
 export function estimateSummaryPromptTokens(input: CompactionSummaryInput): number {
@@ -89,7 +91,9 @@ export function estimateSummaryPromptTokens(input: CompactionSummaryInput): numb
     input.isSplitTurn && input.turnPrefixMessages.length > 0
       ? serializeConversation(convertToLlm(input.turnPrefixMessages)).length
       : 0;
-  return Math.ceil(Math.max(historyChars, turnPrefixChars) / 4);
+  return Math.ceil(
+    Math.max(historyChars, turnPrefixChars) / ESTIMATED_TEXT_CHARS_PER_TOKEN,
+  );
 }
 
 /**
@@ -177,6 +181,25 @@ export function compactionSummaryInputLimit(input: {
 }
 
 /**
+ * Room one chunk keeps for the summary its prompt carries. The first chunk
+ * carries `previousSummary`; every later chunk carries a summary no larger
+ * than the model's output budget. The carried text is measured with the same
+ * character estimate as {@link estimateSummaryPromptTokens}. Reserving it at
+ * four characters per token under-counts the guard by 12.5%, and the chunk
+ * margin applies only to what remains, so the first chunk can leave the window
+ * it was planned for.
+ */
+export function compactionSummaryReserveTokens(input: {
+  previousSummary?: string;
+  outputBudget: number;
+}): number {
+  return Math.max(
+    Math.ceil((input.previousSummary?.length ?? 0) / ESTIMATED_TEXT_CHARS_PER_TOKEN),
+    input.outputBudget,
+  );
+}
+
+/**
  * Split a summary input into contiguous chunks that each fit the request
  * budget, so a range too large for one prompt is still summarized instead of
  * skipped (issue #827).
@@ -220,7 +243,11 @@ export function planSummaryChunks(
     }
     current.push(
       cost > budget
-        ? truncateMessageText(message, budget * 4, SUMMARY_CHUNK_TRUNCATION_MARKER)
+        ? truncateMessageText(
+            message,
+            Math.floor(budget * ESTIMATED_TEXT_CHARS_PER_TOKEN),
+            SUMMARY_CHUNK_TRUNCATION_MARKER,
+          )
         : message,
     );
     tokens += Math.min(cost, budget);

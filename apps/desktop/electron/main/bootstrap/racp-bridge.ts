@@ -9,7 +9,7 @@
  * in the normal desktop UI, share its queue, and resolve approvals through
  * the desktop's permission handler.
  *
- * External control is an explicit, scoped capability (ADR 0330):
+ * External control is an explicit, scoped capability (ADR 0347):
  * - the bridge is off until enabled, and loopback-only by construction;
  * - one dedicated device identity with `viewer/controller/approver` roles is
  *   minted for the bridge — never `owner`, so session deletion, device

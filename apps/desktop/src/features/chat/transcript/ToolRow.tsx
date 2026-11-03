@@ -1,9 +1,11 @@
+import { useChatSessionCapability } from "../../../hooks/use-chat-session-capability";
+import { SubagentStopButton } from "./SubagentStopButton";
 import { PlanHistoryCard } from "./PlanHistoryCard";
 import { planSubmission } from "../../../lib/plan-history";
+import { reviewChangeFromMessage } from "../../../lib/workspace-review";
 import { GeneratedImages } from "./GeneratedImages";
 import "../../../styles/generated-images.css";
 import {
-  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -91,8 +93,6 @@ type ToolRowProps = {
   delegate?: SubagentRun;
   /** Card treatment used when several Task calls form a delegation topology. */
   variant?: "default" | "topology";
-  /** Open the latest detailed-mode tool unless the user took over. */
-  autoOpen?: boolean;
   /** The containing turn renders image results outside its process disclosure. */
   imagesInTurn?: boolean;
   /** Claims the containing activity group when this row is manually used. */
@@ -124,7 +124,6 @@ function toolRowPropsEqual(
   if (
     previous.message !== next.message ||
     previous.variant !== next.variant ||
-    previous.autoOpen !== next.autoOpen ||
     previous.imagesInTurn !== next.imagesInTurn ||
     previous.onUserInteraction !== next.onUserInteraction ||
     !subagentRunsEqual(previous.delegate, next.delegate)
@@ -160,7 +159,7 @@ export const ToolRow = memo(function ToolRow(props: ToolRowProps) {
   );
   const proposal = planSubmission(message);
   if (proposal && variant === "default" && message.toolStatus !== "denied") {
-    return <PlanHistoryCard message={message} proposal={proposal} autoOpen={props.autoOpen} onUserInteraction={props.onUserInteraction} />;
+    return <PlanHistoryCard message={message} proposal={proposal} onUserInteraction={props.onUserInteraction} />;
   }
   const hostRow = <HostToolRow {...props} />;
   return cardEntry ? (
@@ -174,7 +173,6 @@ function HostToolRow({
   message,
   delegate,
   variant = "default",
-  autoOpen = false,
   imagesInTurn = false,
   onUserInteraction,
   delegationStatuses,
@@ -182,7 +180,8 @@ function HostToolRow({
 }: ToolRowProps) {
   const { t } = useTranslation();
   const detailsId = useId();
-  const root = useAppStore((s) => s.workspace?.path);
+  const localToolsAllowed = useChatSessionCapability("canUseLocalTools");
+  const root = useAppStore((s) => localToolsAllowed ? s.workspace?.path : undefined);
   const openTarget = useOpenPreviewTarget();
   const { fileMenu, openFileMenu, closeFileMenu } = useChatFileMenu();
   const openSubagentTab = useAppStore((s) => s.openSubagentTab);
@@ -194,12 +193,11 @@ function HostToolRow({
   // (D227). Property reads only, so a streaming row can afford it every tick.
   const run = action === "run" ? runOutcome(message) : null;
   const failed = status === "error" || run === "failed";
-  // Detailed mode opens the last tool of the last activity group. Compact keeps
-  // payloads collapsed so a live burst only updates the header. Failure and
-  // denial stay in the row head without expanding the payload automatically.
+  // A tool call never opens itself: the payload waits for the user, and a
+  // failure or denial stays in the row head either way.
   const revealRequest = useMessageRevealRequest(message.id);
   const disclosure = useAutomaticDisclosure(
-    autoOpen && !failed && status !== "denied",
+    false,
     revealRequest,
     disclosureKey("tool", message.id),
   );
@@ -399,6 +397,7 @@ function HostToolRow({
       aria-label={`${t("chat.toolCall")}: ${rawName}${agentName ? `, ${agentName}` : ""}${modelLabel ? `, ${modelLabel}` : ""}${statusLabel ? `, ${statusLabel}` : ""}`}
     >
       {variant === "topology" ? (
+        <div className="subagent-topology-node-actions">
         <button
           className="subagent-topology-node-header"
           aria-expanded={panelOpen}
@@ -408,7 +407,7 @@ function HostToolRow({
           onClick={() => {
             if (!hasDetails) return;
             onUserInteraction?.();
-            openSubagentTab(panelSelectionId, agentName || undefined);
+            localToolsAllowed && openSubagentTab(panelSelectionId, agentName || undefined);
           }}
         >
           <span className="subagent-topology-avatar" aria-hidden>
@@ -436,7 +435,8 @@ function HostToolRow({
                   title={modelLabel}
                   aria-label={modelLabel}
                 >
-                  {modelLabel}
+                  <span className="subagent-topology-node-model-name">{modelId}</span>
+                  {thinkingLabel ? <span className="subagent-topology-node-thinking"> {thinkingLabel}</span> : null}
                 </span>
               ) : null}
               <span className="subagent-topology-node-status">
@@ -459,6 +459,8 @@ function HostToolRow({
             <span className="tool-spinner" aria-label={t("chat.running")} />
           ) : null}
         </button>
+        {typeof delegationId === "string" && <SubagentStopButton delegationId={delegationId} running={outcome === "running" && !creating} name={agentName} />}
+        </div>
       ) : (
         <div className={`tool-row-head${runHead ? " is-run" : ""}`}>
           <button
@@ -486,6 +488,7 @@ function HostToolRow({
                   )
                 : actionLabel}
             </span>
+            {status === "running" ? <span className="activity-marker" aria-hidden /> : null}
             {lifecycle && roster.length > 0 ? (
               <span className="tool-row-agent is-count">
                 {t("chat.subagentCount", { count: roster.length })}
@@ -498,16 +501,16 @@ function HostToolRow({
             ) : null}
             {summary ? (
               <span
-                className={`tool-row-summary${previewTarget ? " linked" : ""}`}
+                className={`tool-row-summary${previewTarget && localToolsAllowed ? " linked" : ""}`}
                 title={
-                  previewTarget
+                  previewTarget && localToolsAllowed
                     ? previewTarget.kind === "file"
                       ? t("chat.previewFile")
                       : t("chat.previewUrl")
                     : undefined
                 }
                 onClick={
-                  previewTarget
+                  previewTarget && localToolsAllowed
                     ? (e) => {
                         // Open the preview target instead of toggling details.
                         e.stopPropagation();
@@ -516,7 +519,7 @@ function HostToolRow({
                     : undefined
                 }
                 onContextMenu={
-                  previewTarget?.kind === "file"
+                  localToolsAllowed && previewTarget?.kind === "file"
                     ? (event) =>
                         openFileMenu(event, { path: previewTarget.path })
                     : undefined
@@ -585,7 +588,7 @@ function HostToolRow({
             label={t("chat.collapseToolOutput")}
             onCollapse={collapseRow}
           />
-          <ToolDetailBlocks blocks={blocks} plain={runHead} />
+          <ToolDetailBlocks blocks={blocks} plain={runHead} streaming={status === "running"} />
         </div>
       ) : null}
       {!imagesInTurn && <GeneratedImages message={message} />}
@@ -709,15 +712,21 @@ function SubagentRunFollow({
           <div ref={contentRef}>
             {items.map((item) =>
               item.kind === "tool" ? (
-                <Fragment key={item.message.id}>
-                  <ToolRow message={item.message} />
-                  <ReviewChangeCard message={item.message} />
-                </Fragment>
+                reviewChangeFromMessage(item.message) ? (
+                  <ReviewChangeCard
+                    key={item.message.id}
+                    message={item.message}
+                    asToolRow
+                  />
+                ) : (
+                  <ToolRow key={item.message.id} message={item.message} />
+                )
               ) : item.kind === "thinking" ? (
                 <ThinkingRow
                   key={`thinking-${item.message.id}`}
                   message={item.message}
                   streaming={item.message.status === "streaming"}
+                  autoOpen
                 />
               ) : (
                 <div

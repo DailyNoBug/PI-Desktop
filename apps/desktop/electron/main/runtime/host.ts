@@ -9,6 +9,8 @@ import type { RuntimeState } from "./context";
 import type { FinishTurn } from "./plans";
 import type { RemoteManager } from "../remote-manager";
 import { REMOTE_SSH_TOOL_NAME } from "../remote-ssh-tool";
+import { getActiveRemoteHostsBoot } from "../bootstrap/remote-hosts";
+import { createRemoteWorkspaceToolRelay, type RemoteWorkspaceToolRequest } from "../remote/remote-workspace-tools";
 
 export type HostRuntimeDependencies = {
   runtimeState: RuntimeState;
@@ -77,16 +79,36 @@ export function createHostRuntime({
   startHost: () => Promise<void>;
 } {
   const wireHost = (h: HostProcess) => {
+  const remoteTools = createRemoteWorkspaceToolRelay(h, {
+    getBoot: getActiveRemoteHostsBoot,
+    isCurrent: () => runtimeState.host === h,
+    isTurnDispatchable: (sessionId, turnId) => isTurnDispatchable(sessionId, turnId),
+    log: (message, error) => logger.app("diagnostics", "warn", message, { data: String(error) }),
+  });
 
   h.onNotification((method, params) => {
     // Notifications from a previous host generation must never reach the
     // current plugin/renderer bridge after a restart.
     if (runtimeState.host !== h) return;
+    if (method === "tools.remoteExecute") {
+      void remoteTools.execute(params as RemoteWorkspaceToolRequest);
+      return;
+    }
+    if (method === "tools.remoteAbort") {
+      remoteTools.cancel(params as { sessionId: string; toolCallId: string });
+      return;
+    }
     // An install reports itself, so the dialog that shows it can follow the
     // phases, the mirror being tried and the bytes that have arrived. Nothing
     // here decides anything: the request's own answer is still the outcome.
     if (method === "plugin.installProgress") {
       sendToRenderer(IPC.event.pluginInstallProgress, params);
+      return;
+    }
+    if (method === "backgroundTasks.changed") {
+      // Fan-out only: the renderer re-lists on the event and renders the
+      // running-tasks bar above the composer. No main-process decisions.
+      sendToRenderer(IPC.event.backgroundTasksChanged, params);
       return;
     }
     if (method === "permissions.request") {
@@ -346,6 +368,7 @@ export function createHostRuntime({
     }
   });
   h.onExit(({ code, signal, intentional }) => {
+    remoteTools.dispose();
     if (runtimeState.host !== h) return;
     logger.flushChild("host");
     runtimeState.host = null;

@@ -29,7 +29,7 @@ const [
 ]);
 
 test("session rename is available from sidebar and project archive task rows", () => {
-  assert.match(sidebarSource, /data-action="rename-session"/);
+  assert.match(sidebarSource, /id: "rename-session"/);
   assert.match(sidebarSource, /setRenameFor\(session\)/);
   assert.match(projectsDetailSource, /projects-detail-task-rename/);
   assert.match(projectsDetailSource, /onRenameSession\(session\)/);
@@ -67,7 +67,7 @@ test("host title validation is bounded and does not change activity ordering", (
   assert.match(hostSource, /MAX_SESSION_TITLE_CHARS: usize = 80/);
   assert.match(hostSource, /let title = title\.trim\(\)/);
   assert.match(hostSource, /title\.chars\(\)\.count\(\) > MAX_SESSION_TITLE_CHARS/);
-  assert.match(hostSource, /UPDATE sessions SET title = \?1 WHERE id = \?2/);
+  assert.match(hostSource, /UPDATE sessions SET title = \?1, title_source = \?2 WHERE id = \?3/);
   assert.doesNotMatch(hostSource, /UPDATE sessions SET title = \?1, updated_at = \?2 WHERE id = \?3/);
   assert.match(hostSource, /rename_session_normalizes_title_without_touching_activity/);
 });

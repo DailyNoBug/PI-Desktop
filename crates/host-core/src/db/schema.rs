@@ -42,7 +42,9 @@ CREATE TABLE projects (
   name           TEXT NOT NULL,
   pinned         INTEGER NOT NULL DEFAULT 0,
   created_at     INTEGER NOT NULL,
-  last_opened_at INTEGER NOT NULL
+  last_opened_at INTEGER NOT NULL,
+  -- Optional command run in every new isolated worktree (schema v24, ADR 0329).
+  worktree_setup_command TEXT
 );
 
 CREATE TABLE providers (
@@ -78,6 +80,7 @@ CREATE TABLE models (
   context_window    INTEGER,
   max_output_tokens INTEGER,
   deprecated        INTEGER NOT NULL DEFAULT 0,
+  discovery_state   TEXT CHECK (discovery_state IN ('published', 'unlisted')),
   updated_at        INTEGER NOT NULL,
   PRIMARY KEY (provider_id, model_id)
 ) WITHOUT ROWID;
@@ -89,11 +92,14 @@ CREATE TABLE sessions (
   provider_id TEXT,
   model_id    TEXT,
   mode        TEXT NOT NULL DEFAULT 'agent',
+  title_source TEXT NOT NULL DEFAULT 'legacy'
+               CHECK (title_source IN ('legacy', 'default', 'manual', 'generated')),
   thinking_level TEXT NOT NULL DEFAULT 'off'
                 CHECK (thinking_level IN ('off', 'minimal', 'low', 'medium',
                                           'high', 'xhigh', 'max', 'omit')),
   permission_mode TEXT NOT NULL DEFAULT 'inherit'
                 CHECK (permission_mode IN ('inherit', 'ask', 'accept-edits', 'auto')),
+  fast_mode   INTEGER NOT NULL DEFAULT 0 CHECK (fast_mode IN (0, 1)),
   source      TEXT,
   deleted_at  INTEGER,
   pinned      INTEGER NOT NULL DEFAULT 0,
@@ -103,7 +109,7 @@ CREATE TABLE sessions (
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );
-CREATE INDEX idx_sessions_updated ON sessions(updated_at DESC);
+CREATE INDEX idx_sessions_updated_id ON sessions(updated_at DESC, id DESC);
 CREATE INDEX idx_sessions_project ON sessions(project_id) WHERE project_id IS NOT NULL;
 CREATE INDEX idx_sessions_deleted ON sessions(deleted_at) WHERE deleted_at IS NOT NULL;
 

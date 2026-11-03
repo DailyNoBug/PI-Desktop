@@ -16,6 +16,19 @@ import type { LiveVoiceSettings } from "./live-voice.js";
 export type ThemePreference = "system" | "light" | "dark" | `plugin:${string}`;
 
 /**
+ * What a TypeSafe key check answered.
+ *
+ * `ok` means the classifier answered this key at its own address. A refusal
+ * carries the HTTP `status` and `message` when TypeSafe sent one; `message` is
+ * provider text with the key already redacted.
+ */
+export type JevKeyCheckResult = {
+  ok: boolean;
+  status?: number;
+  message?: string;
+};
+
+/**
  * What closing the main window does on Windows/Linux. macOS keeps the native
  * Dock lifecycle and never consults this preference.
  * - `ask`: transient unset state — the first close prompts once; after a
@@ -24,6 +37,27 @@ export type ThemePreference = "system" | "light" | "dark" | `plugin:${string}`;
  * - `quit`: close the window and exit the app (legacy behavior)
  */
 export type CloseBehavior = "ask" | "tray" | "quit";
+
+export type TranscriptDisplayMode = "flat" | "command-first" | "fully-folded";
+
+/**
+ * Preferences for the user-supplied boot animation (D679 / ADR 0338).
+ *
+ * The file itself is never named here — it is discovered in
+ * `<dataDir>/startup/` — so these are only the two choices discovery cannot
+ * make: whether to play what it found, and whether a fast boot may cut the
+ * playback short.
+ */
+export type StartupAnimationSettings = {
+  /** `false` ignores a present file. Absent means play it. */
+  enabled?: boolean;
+  /**
+   * End the animation as soon as the shell has its initial state, instead of
+   * letting the video reach its last frame. Absent and `false` play it out,
+   * which is the shipped behavior.
+   */
+  skipWhenReady?: boolean;
+};
 
 export type AppSettings = {
   imageGeneration?: import("../image-generation.js").ImageGenerationBinding | null;
@@ -45,43 +79,44 @@ export type AppSettings = {
    * Absent and false use the bounded ten-retry policy.
    */
   infiniteProviderRetry?: boolean;
+  /** Allow Agent mode to call TypeSafe Jev for explicit structured classifications. */
+  jevEnabled?: boolean;
   /** Prevent idle system sleep while this desktop app runs; off when absent. */
   keepAwakeWhileRunning?: boolean;
+  /** Enable scheduled task UI, tools and new runs. Absent means enabled. */
+  scheduledTasksEnabled?: boolean;
   /** Configured command shell for the agent Bash protocol tool. */
   defaultCommandShell?: CommandShellId;
-  /**
-   * Whether the stored user template replaces the built-in one (ADR 0121).
-   * Absent means off. Turning it off keeps `promptEnhancementUserTemplate` so
-   * toggling back on restores the user's text instead of discarding it.
-   */
+  /** @deprecated Retained for one-time migration into pi.prompt-enhancement. */
   promptEnhancementCustomTemplate?: boolean;
-  /**
-   * Composer prompt-enhancement user-template override (ADR 0121). Applied only
-   * while `promptEnhancementCustomTemplate` is on. Host-core rejects a non-blank
-   * value without `{{draft}}` and any value beyond
-   * `PROMPT_ENHANCEMENT_TEMPLATE_MAX_LENGTH`.
-   *
-   * The system prompt is intentionally not overridable: it carries the rewrite
-   * contract the feature is specified against.
-   */
+  /** @deprecated Retained for one-time migration into pi.prompt-enhancement. */
   promptEnhancementUserTemplate?: string;
-  /**
-   * Model the one-shot enhancement runs on. Absent means "follow the Composer's
-   * current model". When the pinned pair is unusable, main falls back to the
-   * Composer model and logs a warning (ADR 0121).
-   */
+  /** @deprecated Retained for one-time migration into pi.prompt-enhancement. */
   promptEnhancementProviderId?: string;
+  /** @deprecated Retained for one-time migration into pi.prompt-enhancement. */
   promptEnhancementModelId?: string;
-  /**
-   * Reasoning effort for the one-shot enhancement. Absent means `off`: the
-   * enhancement never inherits the session's level, because a rewrite rarely
-   * benefits from reasoning and reasoning is the slow path. The value is clamped
-   * onto the resolved model's ladder, and switching model re-clamps it, so a
-   * stored level is always one the model can run.
-   */
+  /** @deprecated Retained for one-time migration into pi.prompt-enhancement. */
   promptEnhancementThinkingLevel?: ThinkingLevel;
   defaultPermissionMode?: GlobalPermissionMode;
   theme: ThemePreference;
+  /**
+   * macOS only: keep the native `sidebar` vibrancy material behind a
+   * transparent window surface. This is the shipped look, so absent and `true`
+   * both mean translucent; `false` paints an opaque surface, which keeps the
+   * window out of WindowServer's per-frame recomposition path (#1064) at the
+   * cost of the desktop blur. Other platforms ignore it. Electron fixes
+   * `transparent` when the window is created, so a change applies on the next
+   * launch.
+   */
+  macosWindowTranslucency?: boolean;
+  /**
+   * User-supplied boot animation played from `<dataDir>/startup/` (D679).
+   *
+   * Absent means the feature is on but dormant: with no file in that directory
+   * the boot surface stays the brand splash, which is why no field here has to
+   * be written for an existing installation to behave as it always did.
+   */
+  startupAnimation?: StartupAnimationSettings;
   /** UI language; `auto` (and absent) follows the OS locale. */
   language?: "auto" | "en" | "zh-CN" | "zh-TW" | "tr" | "de" | "es" | "fr" | "ko" | "pt-BR";
   /**
@@ -95,7 +130,36 @@ export type AppSettings = {
    * Absent means 1. Range 0.8–1.5 in 0.025 steps. Window zoom is independent.
    */
   fontScale?: number;
-  /** Transcript presentation only; absent means detailed. Reasoning is retained. */
+  /**
+   * Show model reasoning in the transcript. Off keeps the live thinking
+   * indicator visible and hides completed reasoning rows and excerpts; absent
+   * falls back to the legacy `thinkingDisplayMode`. This is a presentation
+   * preference only: it never changes model thinking levels, stored reasoning,
+   * export, or execution, and it does not control turn-process folding.
+   */
+  showThinking?: boolean;
+  /**
+   * How the assistant turn's process is grouped in the transcript.
+   *
+   * - `flat`: one outer process disclosure, no nested activity groups.
+   * - `command-first`: run rows stay standalone; other activity groups.
+   * - `fully-folded`: the v0.20.0 layout; run rows join activity groups.
+   *
+   * Absent means `fully-folded`, preserving the released transcript layout.
+   * This is presentation only and never changes tool execution or stored data.
+   */
+  transcriptDisplayMode?: TranscriptDisplayMode;
+  /**
+   * @deprecated Replaced by `transcriptDisplayMode`. Retained for persisted
+   * settings and older clients; current rendering no longer reads it.
+   */
+  keepCommandsExpanded?: boolean;
+  /**
+   * @deprecated Retained for persisted-settings compatibility. New writes use
+   * `showThinking`; this field is read only as a fallback when `showThinking`
+   * is absent. An explicit `compact` hides reasoning; `detailed`, an unknown
+   * value, or an absent field shows it.
+   */
   thinkingDisplayMode?: "detailed" | "compact";
   /**
    * @deprecated Unreleased D343 px field. Reads migrate into `fontScale`
@@ -115,13 +179,9 @@ export type AppSettings = {
   keybindings?: KeybindingOverrides;
   /** Unlocks the devtools console (settings button, F12, macOS View menu). */
   developerMode?: boolean;
-  /**
-   * Extension marketplace provider. `mirror` targets the cnb.cool copy for
-   * networks that cannot reach `raw.githubusercontent.com`; both serve the
-   * same catalog and packages.
-   */
+  /** @deprecated Retained for persisted settings compatibility; the marketplace always uses the official source. */
   pluginMarketSource?: PluginMarketSource;
-  /** Catalog URL used when `pluginMarketSource` is `custom`. */
+  /** @deprecated Retained for persisted settings compatibility and ignored by the marketplace. */
   pluginMarketCustomUrl?: string;
   /**
    * Outbound proxy for app-owned HTTP (D340). Absent means System: Chromium
@@ -149,7 +209,7 @@ export type AppSettings = {
    */
   contextUsageDisplay?: ContextUsageDisplay;
   /**
-   * Local plugin dictation preferences (fork, ADR 0329). Transcription runs
+   * Local plugin dictation preferences (fork, ADR 0346). Transcription runs
    * on a local model owned by the local-voice plugin, so no endpoint or key
    * is configured here. Legacy cloud fields (`sttBaseUrl`/`sttModel`) and
    * the pre-2026-10 `voice` member name are ignored. Distinct from the
@@ -171,13 +231,45 @@ export type AppSettings = {
    */
   smoothStreaming?: boolean;
   /**
+   * Render inline interactive visualizations in the transcript (ADR
+   * `gen-ui-inline-visualization`). Absent and false keep the feature off: the
+   * system prompt carries no visualization directory, the
+   * `pi-desktop/visualize` skill is withheld from the catalog and the `/` menu,
+   * and an existing `::visualize` reference line is hidden without loading a
+   * card. `true` opts in for local sessions; remote-host sessions stay without
+   * it because their tools write on the remote machine.
+   */
+  inlineVisualizations?: boolean;
+  /**
    * Prevent the display from sleeping while the app is running. Uses
    * Electron's `powerSaveBlocker` with `prevent-display-sleep` on all
    * platforms. Absent and false mean the system manages sleep normally.
    */
   preventScreenSleep?: boolean;
+  /**
+   * Sidebar project "running" affordances. The master switch gates both
+   * sub-switches; absent means enabled — the renderer normalizes
+   * `!== false` to on, so a fresh install shows the running badge and rail
+   * until the user turns them off (#1749).
+   */
+  sidebarRunningIndicators?: boolean;
+  /** Count badge beside a project name. On unless explicitly disabled. */
+  sidebarRunningBadge?: boolean;
+  /** Activity rail down the project group. On unless explicitly disabled. */
+  sidebarRunningRail?: boolean;
+  /**
+   * Last-reply date shown at the right edge of session rows. Absent means
+   * disabled, so a fresh install shows a clean sidebar until the user opts in.
+   */
+  sidebarSessionTime?: boolean;
   /** Voice input settings (D-voice-runtime). */
   voice?: VoiceInputSettings;
+  /**
+   * Opt-in radial context menu for the empty transcript background. Absent
+   * keeps the vertical menu; see `RadialMenuPreferences` for the direction
+   * defaults.
+   */
+  radialMenu?: RadialMenuPreferences;
   onboardingDismissed: boolean;
 };
 
@@ -198,3 +290,34 @@ export type VoiceInputSettings = {
 export type LinkOpenTarget = "workpanel" | "external";
 
 export type ContextUsageDisplay = "remaining" | "used";
+
+/**
+ * One action the transcript background radial menu can place on a direction.
+ * `none` leaves that direction empty, so a ring can carry fewer than four
+ * actions without inventing a fifth one.
+ */
+export type RadialMenuAction =
+  | "copy-conversation"
+  | "select-conversation"
+  | "copy-last-answer"
+  | "scroll-top"
+  | "scroll-bottom"
+  | "open-browser"
+  | "open-work-panel"
+  | "open-project-folder"
+  | "none";
+
+export type RadialMenuDirection = "up" | "right" | "down" | "left";
+
+/**
+ * Per-direction placement for the transcript background radial menu.
+ * Absent fields fall back to the released defaults; `enabled` is opt-in, so an
+ * absent object keeps the vertical context menu every existing build ships.
+ */
+export type RadialMenuPreferences = {
+  enabled?: boolean;
+  up?: RadialMenuAction;
+  right?: RadialMenuAction;
+  down?: RadialMenuAction;
+  left?: RadialMenuAction;
+};

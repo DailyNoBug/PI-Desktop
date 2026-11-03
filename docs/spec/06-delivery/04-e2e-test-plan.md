@@ -6,13 +6,309 @@
 
 ---
 
+
+### E2E-TRANSCRIPT-lossless-tool-images
+
+- Entry: `PI_DESKTOP_HOST_BIN=<candidate-host> pnpm test:e2e:tool-result-persistence`
+  after building Host, shared, agent-runtime and host-runtime.
+- Environment: Real isolated Host, SQLite and JSONL, production Desktop IPC and
+  outbox; only Electron shell and unused importer/search services are stubs.
+- Build 35 deterministic valid PNGs / 548 rows. Verify the old redundant full
+  request exceeds 64 MiB, each stored image occurs once, and restarting restores
+  every canonical image, detail field and original JSON text spelling.
+- Build a second history whose unique image bytes alone exceed 64 MiB through
+  individually legal appends. Exercise bounded ID operations and retained-image
+  restoration, revision/fork, missing anchors and duplicate operation retries.
+- Unit/process gates also cover old-format files/outbox, corrupted references,
+  failed conversion/drain, late callbacks and real sidecar restore errors.
+- The original Windows incident did not identify the failed RPC method; this
+  deterministic regression does not claim to recover that missing evidence.
+
+
+### Windows background process snapshot clock
+
+- **Preconditions:** Isolated Windows Host and a synthetic background task.
+- **Steps:** Start a child and grandchild after Host startup, exercise stopping
+  through the production process-tree helper, and observe both owned processes.
+- **Expected:** Children created before the snapshot are not rejected as recycled
+  PIDs merely because they started after the Host. Descendants terminate before
+  their parent; unrelated/newer processes remain excluded and failures surface.
+- **Coverage:** `windows_process_tree` unit tests, including a real owned child
+  creation-time check; `e2e-background-tasks-host.mjs` for the Host workflow.
+- **Qualification:** A foreign-API fixture and Windows target compilation are
+  separate from native Windows execution; record which actually ran.
+
 ## 1. Goals
+
+### E2E-SCHEDULED-settings-switch
+
+- **Preconditions:** Candidate Desktop, Host and reused local dependencies;
+  isolated profile/data/project and the local scheduled-model fixture.
+- **Steps:** With a saved task, open Settings → General, observe the default-on
+  Scheduled tasks switch, turn it off, return to the app and search.
+  Reload the renderer, verify the saved off state, re-enable and run the task.
+- **Expected:** The footer and page-search entry disappear while off; the
+  settings row remains searchable. New runs are rejected, task configuration
+  and history survive, reload preserves the choice and re-enabling restores
+  the same task and normal execution. Host tests also cover due admission,
+  stale tools, restart and completion of an already-admitted run while off.
+- **Coverage:** `node scripts/e2e-scheduled.mjs --settings-switch-only`,
+  `apps/desktop/test/scheduled-settings.test.mjs`, Host scheduled settings tests.
+- **Specs:** `04-ux/06-settings-ia.md`, `04-ux/01-ui-ia.md` §3.3.
+- **Acceptance:** No data/schema migration; default-on backwards compatibility.
+- **Milestone:** Maintenance. **Status:** Automated.
+
+### E2E-PROVIDER-retry-backoff-is-not-idle
+
+- **Entry:** Build shared and the production sidecar bundle, then run
+  `node scripts/e2e-provider-retry-idle.mjs` (about one minute).
+- **Sequence:** Use the supported 30-second idle setting. Return one HTTP 429
+  with a 30-second retry delay, then succeed. Separately hold an HTTP request
+  silent until its idle deadline, then let the retry succeed. Stop another
+  turn during its rate-limit backoff.
+- **Expected:** The planned wait consumes exactly one retry; the successful
+  follow-up is sent. A real stalled request closes before its replacement
+  begins, and Stop prevents a later retry request.
+- **Coverage:** Real production sidecar, provider adapter and localhost HTTP
+  server with fixture Host responses. Real-clock process checks are supplemented
+  by real Agent-loop tests under a controlled clock, including all ten allowed
+  rate-limit retries and exhaustion after eleven genuinely stalled attempts.
+- **Specs:** `03-runtime/02-agent-runtime.md` provider retry behavior.
+
+### E2E-TRANSCRIPT-scroll-interruption
+
+- **Preconditions:** Real Chromium with the production transcript scroll hook;
+  a scrollable transcript, manual disclosure reading, and normal motion.
+- **Steps:** Start a smooth navigation toward earlier history. Deliver
+  transcript-owned wheel input before yielding to its first animation frame.
+  Observe subsequent animation frames and run the long-history streaming probe.
+- **Expected:** Input stops the old browser animation at the current offset;
+  later frames cannot move the reader toward its stale destination. Streaming,
+  disclosure anchoring, pinned follow, and long-history work budgets still pass.
+- Repeat owned wheel, scroll-key, scrollbar-surface and touch inputs in the
+  main and delegated scrollers. Observe real browser calls to distinguish
+  application cancellation from Chromium's own pointer behavior. Button Space,
+  button presses, select arrows and nested wheel input must not request an
+  ancestor cancellation. Button Space must allow the original navigation to
+  finish. `e2e-transcript-turn-completion.mjs` also verifies normal completed-turn
+  prompt navigation and a reader's manually retained position.
+  Start smooth navigation immediately before toggling a real disclosure in
+  both main and delegated scrollers; its clicked title must keep its offset.
+- **Coverage:** `node scripts/e2e-transcript-disclosure-anchor.mjs` and
+  `node scripts/e2e-transcript-render.mjs`, plus
+  `node scripts/e2e-transcript-turn-completion.mjs`. CI runs the completion
+  probe in a visible window under Xvfb/Openbox: never-shown Linux windows can
+  throttle animation frames despite `backgroundThrottling: false`.
+- **Specs:** Interaction patterns §2.2. **Milestone:** Maintenance.
+- **Status:** Automated browser regression; the interruption assertion fails
+  without explicit cancellation of the browser-owned smooth navigation.
+
+### E2E-TRANSCRIPT-live-turn-not-tail-stays-running
+
+- **Preconditions:** Real transcript projection with the production
+  `ChatTranscript`; a running session whose turn has streaming rows, and a
+  steering message or system row rendered after that turn.
+- **Steps:** While the turn's tool or reasoning rows stream, append a steering
+  user message so the turn is no longer the tail entry. Observe the process
+  header, the disclosure state, and the turn menu. Then settle the rows;
+  separately stop the session mid-turn with rows left streaming.
+- **Expected:** The non-tail live turn keeps a running process header with its
+  activity marker, its process stays open, and copy/regenerate stay gated on
+  completion; the settled turn then reads completed. In a stopped or idle
+  transcript the same stuck rows read as an unknown outcome instead (#1923),
+  and a reading window over older history never claims live status (#1900).
+- **Coverage:** `node --test apps/desktop/test/turn-process.test.mjs` and
+  `apps/desktop/test/transcript-live-turn.test.mjs` pin the liveness selection,
+  the phase reading, and the wiring contract. Full Electron journey Draft.
+- **Specs:** `04-ux/08-component-spec.md` §turn-process; **Milestone:** Maintenance.
+- **Status:** Unit and source-contract regression; visual Electron scenario Draft.
+
+### E2E-CHECKPOINT-drain-before-host-exit
+
+- **Entry:** `node scripts/e2e-checkpoint-lifecycle.mjs` after building shared
+  and host-runtime dependencies.
+- **Sequence:** Hold a streaming checkpoint RPC, start runtime disposal, release
+  the save and restart the host peer. Then hold an older turn's save, settle its
+  message, start a new reply, and save a second session while the first is held.
+- **Expected:** Host disposal waits for the checkpoint acknowledgement; the
+  restarted peer reads the saved progress. A new save in the same session waits
+  for the older write, so the newest reply remains on disk. The independent
+  session saves while the other is blocked.
+- **Coverage:** Production `HostProcess`, `TurnEventPipeline` and
+  `InflightCheckpointer`, real child processes and temporary disk files; a
+  controlled Node JSON-RPC peer replaces Rust host-core. Unit tests cover late
+  settlement, snapshots arriving during a drain, failure recovery and throttling.
+- **Specs:** `03-runtime/04-data-storage.md` §4.7, ADR 0153.
+
+### E2E model discovery membership
+
+- **Entry:** `node scripts/e2e-model-discovery-state.mjs` after building Host,
+  shared, agent-runtime and host-runtime in the task worktree.
+- **Environment:** Real isolated Host process and SQLite; production provider
+  IPC and Composer selection; simulated HTTP only, no credentials/live app.
+- **Sequence:** Discover two configured models and retain a never-discovered
+  manual id; remove one; refresh offline; restart Host; read cache; republish;
+  change id casing; send partial, malformed, and empty lists; change endpoint.
+- **Expected:** Missing previously published models leave normal/recent choices
+  without deleting bindings or changing defaults. Offline/restart cannot
+  resurrect them. Reappearance restores them. Manual ids and partial refreshes
+  remain safe; old endpoint state does not contaminate the new endpoint.
+- **Component coverage:** `provider-model-list-refresh.test.mjs` also renders
+  the actual settings panes and verifies saved bindings remain editable.
+
+
+### E2E-PI-130-kernel-upgrade
+
+- **Preconditions:** Exact Pi 1.3.0 pins and migrated patches in a dedicated
+  worktree, isolated fixture state, and no real provider credentials.
+- **Steps:** Submit a Desktop turn that receives malformed final tool JSON,
+  then a corrected Write call and a final answer. Repeat with a literal invalid
+  Unicode escape in the tool input. Resume DeepSeek history using the same and
+  a different provider/model identity. Run two turns with extensions that guard
+  `before_agent_start` by `messageType === "user"`. Exercise hosted search,
+  native Pi continuation, and MCP with existing offline suites.
+  Expand a slash template with an empty quoted argument followed by two values;
+  exercise strict-tool downgrade, thinking-off, error images, mixed reasoning/text
+  stream chunks, and native tool restoration under `noTools: "all"`.
+- **Expected:** Malformed calls never reach Host execution; raw input reaches
+  the next model request as a tool error, and only the corrected call executes.
+  Unicode escapes retain all fields. Same-model thinking replays as reasoning;
+  foreign thinking is omitted without altering visible history. Prompt additions
+  remain ordered and do not accumulate. Host permissions, persistence, native
+  tool restrictions, search replay, and cancellation remain unchanged.
+  Empty quoted template arguments retain their positions and activate defaults;
+  strict `require` remains strict, hosted search survives downgrade, and native
+  historical tool activation cannot bypass Desktop's explicit no-tools setting.
+- **Coverage:** `pi-upstream-1.3-contract.test.ts`, `flash-transcript.test.ts`,
+  `hosted-search-consumers.test.ts`, `provider-stream-frame-fields.test.ts`,
+  `extensions/prompt-chain.test.ts`, `native-pi-session.test.ts`,
+  `pi-anthropic-strict-fallback.test.ts`, `pi-1.3-adapter-features.test.ts`,
+  `prompt-templates.test.ts`, and the
+  existing `test:e2e`, `test:e2e:hosted-search`, `test:e2e:provider-api-style`,
+  and `test:e2e:trusted-extensions` commands.
+- **Specs:** [Pi dependency boundary](../02-architecture/06-pi-runtime-dependency-boundary.md),
+  [trusted extensions](../07-plugins/16-trusted-extensions.md).
+- **Acceptance:** Offline runtime/contract and isolated process validation.
+- **Milestone:** Maintenance.
+- **Status:** Candidate validation recorded in `docs/project/pi-130-adoption.md`.
+
+### E2E-PI-140-kernel-upgrade
+
+- **Preconditions:** Exact Pi 1.4.0 release-group pins and migrated package
+  patches in a dedicated worktree, isolated fixture state, and no real provider
+  credentials.
+- **Steps:** Submit a Desktop prompt through the runtime with a local model
+  fixture and capture the provider request identity. Repeat through a delegated
+  subagent. Exercise OpenRouter, NVIDIA, and OpenCode identity-header mapping
+  with pure request fixtures. Run the existing hosted-search, native Pi session,
+  and trusted-extension offline suites against the installed 1.4.0 packages.
+- **Expected:** Parent and delegated requests retain pi-ai's detailed,
+  versioned `User-Agent` while suppressing pi-agent-core's default Pi
+  attribution headers. Existing hosted-search replay and validation, provider
+  request errors, native-session context estimates, tool validation, extension
+  compatibility, retry and cancellation behavior remain intact. No provider
+  credentials or live services are used.
+- **Coverage:** `pi-upstream-1.4-identity.test.ts`,
+  `pi-upstream-1.4-contract.test.ts`, `pi-1.4-adapter-features.test.ts`,
+  `runtime.test.ts`, `subagent.test.ts`, plus the existing
+  `test:e2e:hosted-search` and `test:e2e:trusted-extensions` commands.
+- **Specs:** [Pi dependency boundary](../02-architecture/06-pi-runtime-dependency-boundary.md),
+  [trusted extensions](../07-plugins/16-trusted-extensions.md).
+- **Acceptance:** Offline runtime/contract and isolated process validation.
+- **Milestone:** Maintenance.
+- **Status:** Candidate validation recorded in `docs/project/pi-140-adoption.md`.
+
+### E2E-QUEUE-send-now-wakes-subagents
+
+- **Preconditions:** Dedicated request worktree with built workspace packages,
+  compatible reused Host binary, temporary HOME/data/project, and a local SSE
+  model fixture. Production Composer queue service, Main IPC, AgentHost, Rust
+  Host and agent sidecar are used; no installed app or real account is used.
+  The fixture requires Linux/macOS HOME isolation and refuses Windows before
+  Host startup because known-folder lookup does not honor that isolation.
+- **Steps:** Start two background delegates and let the parent enter TaskWait.
+  Submit ordinary FIFO input and a correction, then choose Send now on the
+  correction. Hold both delegate responses until the parent answers the
+  correction. Release both responses and observe report delivery and FIFO drain.
+- **Expected:** The correction reaches the same durable turn, TaskWait returns
+  interrupted, and neither delegate is aborted. The correction appears once
+  in history and leaves the durable queue only after acceptance. Ordinary
+  input remains queued until parent settlement. Both reports reach the parent
+  and the remaining FIFO input runs once. No graceful stop is requested.
+  In rendered Electron, expand the earlier process after the steering reply:
+  both delegate nodes remain running with Stop controls, then become completed
+  after their reports arrive; the ordinary queued row remains until settlement.
+- **Coverage:** `pnpm test:e2e:send-now-subagents` runs the headless process
+  journey; append `-- --auto` to repeat with the session in auto mode.
+  `queue-pending-actions.test.mjs` covers normal send followed by Send
+  now through the production renderer service. AgentHost tests cover click
+  order, concurrent delivery/cancellation, stale targets, and permission-mode
+  preservation; runtime tests cover input before/during TaskWait and existing
+  stop/dispose behavior. `send-now-subagent-rendering.test.mjs` covers the
+  steering transcript path, parent settlement, ordinary-turn boundaries,
+  compaction, and terminal Task snapshots through the real React rendering.
+  The headless command does not replace the rendered Electron check above.
+
+### E2E-TOOLS-parallel-read-batches: ordered preparation and Host file admission
+
+- Use isolated data/project paths and a local provider; no production profiles.
+- Run scripts/e2e-parallel-read-batches.mjs after building shared, agent-runtime
+  and the candidate Host. Set PI_DESKTOP_HOST_BIN when reusing a build cache.
+  It drives real parent/delegate pi loops through the real Host: independent
+  read dispatch, ordered results, prompt isolation, mixed Read/Write dispatch,
+  a successful real-tag Edit, differently named hard-link Read/Write in both
+  source orders, individual review rollback and simultaneous ask-mode approvals.
+  File symbolic links run where the OS grants creation; otherwise record an
+  explicit skip and retain hard-link coverage. This is dispatch/content evidence,
+  not a production throughput or Electron UI measurement.
+- Run scripts/e2e-task-read-batches.mjs for both Task/read model orders. Task
+  returns its started notice; the later parent read waits for the writable
+  shared-workspace delegate to settle. Task-only fan-out remains available.
+- Rust file_batches/file_resources/tool_budget::file_tests cover actual native
+  identities, cross-root aliases, unknown/missing targets, structural/register
+  fences, independent resources, queue fairness and cancellation. Native RPC
+  tests reverse tools.execute arrival and assert actual read contents in both
+  hard-link orders, permission-mode denial, changed arguments and ticket replay.
+- tools::file_lease_tests gates a real spawn_blocking body, drops the outer
+  future and proves a conflicting write cannot acquire until that body finishes.
+  Closing/abandoning metadata must not release running work. Snapshot/finalize
+  and later rollback participate in the same Host file domain.
+- Runtime/pi integration tests cover parent/delegate registration, preparation
+  order, validation/mode failures, Stop and model result order. Protocol adapter
+  tests cover sealing, cleanup, remote/legacy fallback and equal provider IDs in
+  independent asynchronous executors. host-runtime/file-batch-bridge.test.ts
+  verifies the explicit allowlist through a real stdio child.
+- Unknown capability/remote workspaces must retain whole-batch sequential writes;
+  no local filesystem identity is used for a remote path. Resource and batch
+  waits consume no capacity, and uncertain writes are not replayed.
+- Specs: tools-and-permissions §0, agent-runtime concurrency, Host RPC file batch
+  protocol; ADRs parallel-read-batches and host-file-batch-admission.
 
 ### E2E-STORAGE-custom-location-and-maintenance
 
 - **Preconditions:** Dedicated request worktree, current remote-main base, shared
   compatible host toolchain, built host-core and desktop, isolated temporary data
   and Chromium profiles. No user's running desktop, provider, or network is used.
+- **First-install / new-directory regression:** Run
+  `node scripts/e2e-storage-directory.mjs` with `PI_DESKTOP_HOST_BIN` pointing
+  to the candidate Host. The production storage controls and preload invoke real
+  Main handlers through native mouse clicks, schedule cold maintenance, and reopen
+  the migrated Electron profile and Host. Cover an absent data root with missing
+  parents and an existing conversation with attachments, settings and project
+  memory. The chosen destination initially does not exist. Set
+  `PI_STORAGE_E2E_SOURCE_ROOT` to a temporary folder on a different drive for
+  cross-volume coverage. Verify browser localStorage, conversation/attachment
+  reads, project-memory lookup, original backups and the displayed new path.
+  Only native picker selection and relaunch dispatch are scripted; each startup
+  phase is a separate real Electron process. Keep screenshots and synthetic
+  profiles under `.artifacts/` for inspection rather than deleting them.
+- **Electron filesystem regression:** Run `node scripts/e2e-storage-files.mjs`
+  in real Electron, not `ELECTRON_RUN_AS_NODE`. Seed valid and opaque `.asar`
+  files, live and dangling file/directory links, Unicode paths, and a destination
+  collision. Expect byte-preserving copies, relocated internal links, unchanged
+  external targets, and path-specific errors without mutating originals. The
+  existing-profile Settings journey also includes an archive and a dangling
+  dependency junction, then verifies history and browser state after reopening.
 - **Steps:** Through the production Settings page, choose/cancel a destination,
   confirm/retry migration, and confirm cache/backup cleanup. Seed a real host with
   sessions, queued attachments, project metadata, credentials and a local installed
@@ -28,14 +324,78 @@
   survive migration/restart. Cache cleanup preserves durable state; backup cleanup
   retains active data and the stable bootstrap pointer. Filesystem regression tests
   reject unsafe targets, redirecting links, wrong ownership and active-root overlap.
+- **Missing default root recovery:** Run `node scripts/e2e-storage-bootstrap.mjs`
+  with the managed default data root absent. Stub the native choice and folder
+  dialogs at the Electron API boundary, then exercise both decisions in isolated
+  launches: creating a fresh default profile, and selecting an existing storage
+  root containing `data/pi.sqlite`. Confirm the pointer is normalized only after
+  the selected action succeeds, the selected database remains byte-for-byte
+  intact, and dismissing the choice leaves the pointer unchanged. Also compare
+  Windows path variants with slash and case differences in the offline regression
+  test so they still enter this recovery path.
+- **Windows junction spelling:** The filesystem suite includes a Node-created
+  junction whose target ends with a separator. Copying it in Electron must
+  preserve the target without a false symbolic-link verification failure.
+- **Installation lock and cleanup retry:** `e2e-storage-backup-lock.mjs` holds a
+  real Electron single-instance lock while retrying cleanup with the old data
+  already absent. Verify the lock, bootstrap pointer and current history remain.
+  The Settings directory suite additionally confirms cleanup, cold-restarts and
+  reopens the active Host; backup controls disappear and current attachments and
+  browser state remain readable. These retry fixtures are not full-payload
+  deletion tests and retain their synthetic profiles.
 - **Coverage:** `pnpm test:e2e:storage` runs `e2e-storage-settings.mjs`,
-  `e2e-storage-migration.mjs`, and `e2e-storage-bootstrap.mjs`. The first uses the
+  `e2e-storage-migration.mjs`, `e2e-storage-bootstrap.mjs`,
+  `e2e-storage-directory.mjs`, `e2e-storage-files.mjs`, and
+  `e2e-storage-backup-lock.mjs`. The first uses the
   production renderer/API with only preload mocked; the latter suites run real
   host/Electron processes and production maintenance. The bootstrap harness
   intercepts relaunch to inspect its result, then explicitly starts another isolated
-  child; it does not launch the user's desktop. `storage-maintenance.test.mjs`
-  and Rust `data_relocation` tests cover rollback and path/filesystem boundaries.
+  child; it does not launch the user's desktop. The same bootstrap harness
+  exercises missing-default recovery without showing native dialogs.
+  `storage-maintenance.test.mjs` and Rust `data_relocation` tests cover rollback
+  and path/filesystem boundaries.
 
+
+### E2E-LEGACY-DICTATION-idle-model-release
+
+- **Preconditions:** Exercise the retained local Dictation service through its
+  `VoiceService` interface with a deterministic controller/model-manager stub
+  and a controlled clock. Do not access a physical microphone or download a
+  model.
+- **Steps:** Start and stop a recording, advance time to just before and then
+  to the 10-minute idle boundary, and inspect unload calls. Repeat with a new
+  recording before the boundary, a rejected new start, an error terminal phase,
+  and service disposal.
+- **Expected:** A settled idle model unloads once at the boundary, never early.
+  A new recording cancels the timer and its terminal phase starts a fresh
+  window. A rejected start does not strand the unload. An active phase at the
+  callback or service disposal prevents unloading.
+- **Coverage:** `apps/desktop/test/voice-service-idle-unload.test.mjs` runs the
+  production `VoiceService` lifecycle with only the runtime and clock mocked.
+  The separate Linux RSS measurement verifies that `TranscribeModel.dispose()`
+  returns memory to the OS and that the existing lazy-load path reloads it.
+- **Specs:** [Live Voice](../03-runtime/live-voice.md).
+
+### E2E-LIVE-VOICE-gemini-work-schema
+
+- **Preconditions:** Production Gemini adapter with a deterministic transport
+  fixture and a bound work profile; no credentials or hardware devices.
+- **Steps:** Start the call with a work target, accept a valid setup, unmute and
+  send PCM. Reject another setup with close 1007 and a UTF-8 reason. Repeat
+  with a transport error followed by close; cancel and close the adapter.
+- **Expected:** Gemini sends the supported Schema subset and connects; OpenAI's
+  schema and Host argument validation remain strict. Setup rejection settles
+  immediately as `LIVE_PROTOCOL_ERROR`, transport errors remain network errors,
+  and only one failure is reported. The raw reason reaches only the provider
+  log; even the connect rejection crossing IPC contains only the public code.
+  Cancellation suppresses terminal noise and close removes socket observers.
+- **Specs:** `03-runtime/live-voice.md`, `09-logging-and-observability.md`.
+- **Acceptance:** C, E, Security, Quality.
+- **Milestone:** Maintenance, issue #1812.
+- **Automation:** `live-voice-gemini-adapter.test.mjs`,
+  `live-voice-service-lifecycle.test.mjs`, and voice-runtime `live/protocol.test.ts`.
+- **Status:** Adapter/service contract-covered; full Electron/Gemini account and
+  physical microphone acceptance remain separate and are not certified here.
 
 ### E2E-LIVE-VOICE-public-settings-and-reconnect
 
@@ -320,6 +680,69 @@
   session IPC contract tests, and real-model desktop acceptance. A local model
   fixture or mocked component result is not real-model acceptance evidence.
 
+### E2E-CHAT-transcript-rewrite-late-events
+
+- **Preconditions:** Isolated session with at least one completed turn and a
+  persistence callback from that turn held until transcript replacement or
+  revision activation begins.
+- **Steps:** Start either transcript replacement or revision activation. Deliver
+  the held old-turn event after the persistence outbox has drained but before
+  the Host rewrite completes. Complete the rewrite, then start a new turn and
+  persist one event. Repeat with the Host rewrite returning an error.
+- **Expected:** A successful rewrite does not append the old-turn event to the
+  rewritten transcript, while the new turn persists normally. A failed rewrite
+  replays the buffered event into the unchanged transcript. Both rewrite
+  entrances use the same fence and outbox drain.
+- **Coverage:** `session-turn-ended.test.mjs` exercises the event persistence
+  fence and rollback with deterministic event delivery; session IPC contract
+  tests assert the fence/drain/rewrite ordering. No live provider is required.
+
+### E2E-WORKTREE-isolated-session-lifecycle
+
+- **Preconditions:** Isolated desktop profile and data directory, git 2.29+, a
+  git project on a branch with at least one commit, a configured model, and an
+  optional `.worktreeinclude` listing one ignored file.
+- **Steps:** Create two isolated sessions from the project menu and run a
+  file-editing prompt in each at the same time. Run a Bash command that prints
+  `PI_PORT` / `PI_WORKTREE_ROOT`. Merge the first session into the project;
+  edit the same line in the project and in the second session, then merge the
+  second. Resolve the conflict in the second session and merge again, then
+  use **Sync from project** in the first session. In one
+  isolated session, start two writing subagents in parallel. Finally delete
+  an isolated session with unmerged work, and restart the app once while a
+  session exists. Open the menu of a non-git project.
+- **Expected:** Each session's edits land only in its own worktree; the project
+  checkout and `git status` stay clean until a merge, and the ignored include
+  file is present in each worktree. The two sessions get distinct ports. The
+  first merge fast-forwards the project and a success toast names the branch.
+  The conflicting merge lists the files, leaves the project untouched, and
+  marks the row `Conflict`; after resolution the badge clears and the merge
+  lands. The first session's row shows `↓N`; Sync from project shows the new
+  commits, clears the marker, and brings the resolution
+  into the first session without touching the project. Writing
+  subagents edit in separate worktrees and completed runs merge back into the
+  session. Delete warns about unmerged work and removes the worktree folder
+  and `pi-desktop/<id>` branch without touching files linked from it. After
+  restart the session reopens in its worktree; a manually removed worktree
+  shows `Folder missing` and never falls back to the project. In the non-git
+  project **New isolated session** is disabled with the reason under it.
+- **Windows checks:** a worktree containing a directory junction is deleted
+  without following the junction; a deep path beyond 260 characters is
+  created and removed; deleting while a file in the worktree is locked fails
+  visibly and can be retried.
+- **Specs linked:** `03-runtime/03-tools-and-permissions.md` §4e, §10.2;
+  `03-runtime/06-host-rpc-protocol.md`; `04-ux/01-ui-ia.md` §3.2; ADR 0329.
+- **Coverage:** host-core `session_worktrees` tests (create, merge, conflict,
+  removal, link safety, reconcile, delegates), worktree IPC contract tests,
+  renderer `worktree-ui` tests, and agent-runtime delegate tests. The Windows
+  checks run as host-core tests on a Windows host: junction removal
+  (`remove::tests`), the replaced-root link (`lifecycle::tests`), and the deep
+  path and locked-file delete through the RPC user path
+  (`rpc::worktree_rpc::tests`). `pnpm test:e2e:worktree-live`
+  (`scripts/e2e-worktree-live.mjs`) runs the steps above against a real model
+  at protocol level, without the renderer.
+- **Status:** Partially automated
+
 ### E2E-CONVERSATION-minimap-jump-leaves-follow
 
 - **Preconditions:** One Desktop conversation long enough that the transcript
@@ -345,12 +768,34 @@
 - **Steps:** Mount the production `AskToolCard`, assert the header Tab order
   (decline, skip, next) with no legacy bottom action row, then walk select →
   next → submit, skip → submit, decline-all, and a custom answer, remounting
-  with a fresh request id between flows.
+  with a fresh request id between flows. Finally mount a question whose body
+  holds two markdown blocks and measure their boxes, then answer a question at
+  the 300-character limit.
 - **Expected:** Every flow resolves through the store's `resolveAsk` with the
   exact answers (skips recorded as `null`), and no render errors are reported.
+  The two question blocks stack vertically on a shared left edge that spans
+  the card's text column, so a sentence never wraps inside a flex column. The
+  full 300-character question remains visible and answerable; runtime validation
+  rejects a 301-character question before opening the card.
 - **Status:** Automated in `pnpm test:e2e:asktool-card`, which mounts the
-   production `AskToolCard` in a real Chromium page and clicks through the
-   header actions.
+  production `AskToolCard` in a real Chromium page, clicks through the header
+  actions, and measures the multi-block question layout. Runtime boundary
+  validation is covered by `packages/agent-runtime/src/runtime.test.ts`.
+
+### E2E-ASKTOOL-draft-survives-session-switch
+
+- **Preconditions:** No live provider is required; the fixture stubs
+  `api.resolveAskTool` and seeds one two-question ask through the real store
+  slice.
+- **Steps:** Mount the production `AskToolCard`, select the second option on
+  question one, advance to question two, unmount the card (the session switch
+  the dock performs), and remount it with the same `requestId`. Then click the
+  first step indicator to return to question one.
+- **Expected:** The remounted card opens on question two with the earlier
+  selection still marked, and question one still shows the selected option.
+  Resolving or dismissing the ask clears the stored draft.
+- **Status:** Automated in `pnpm test:e2e:asktool-card` as the
+  `E2E-ASKTOOL-draft-survives-session-switch` flow.
 
 ### E2E-POWER-keep-awake-setting
 
@@ -375,10 +820,13 @@
 
 - **Preconditions:** Image configuration UI fixture; English and Chinese.
 - **Steps:** Mark image models and save the provider; choose a different image
-  default from its summary; then unmark the sole image model and save.
+  default from its summary; pick a candidate the stored list no longer offers;
+  then unmark the sole image model and save.
 - **Expected:** Provider edits confirm the provider update, including after
   clearing the image selection. Explicit default selection keeps its specific
-  image-selection confirmation. Persisted bindings retain their existing behavior.
+  image-selection confirmation. A pick the page can no longer accept reports
+  that the image model could not be saved instead of keeping the previous
+  default silently. Persisted bindings retain their existing behavior.
 - **Specs:** 03-runtime/21-image-generation. **Acceptance:** B.
 - **Milestone:** Maintenance. **Status:** Automated by
 ### E2E-IMAGES-remove-configured-model
@@ -495,6 +943,18 @@
 - **Status:** Automated in `node scripts/e2e-scheduled.mjs`; run against the
   request candidate per AGENTS.md, with tested head and base recorded.
 
+
+#### Scheduled execution-status wording (English / Simplified Chinese)
+
+- Open Scheduled with a normally ended session whose transcript reports that
+  the requested work could not be completed. Verify that the rail, history and
+  selected-run header say **Session ended** / **会话已结束**, not unqualified
+  task completion. The history hint states that session completion does not
+  confirm task success and asks the reader to verify task evidence.
+- Running, interrupted and error labels also identify the session. No task
+  outcome is inferred, persisted or backfilled by this copy-only correction.
+- Copy validation checks both catalog entries and the existing shared label
+  mapping. Existing Scheduled component/user-path coverage is unchanged.
 
 
 ### E2E-PLUGIN-appearance-extension-lifecycle
@@ -880,8 +1340,10 @@ identify the platform validation still needed.
   `codesign --verify --deep --strict --verbose=2`,
   `spctl --assess --type execute --verbose=4`, and `xcrun stapler validate`
   against the app, including `Contents/Resources/bin/pi-desktop-host-core`.
-  4) Confirm the workflow's DMG step reported an Apple notary status of
-  `Accepted` and then run `xcrun stapler validate` against the matching DMG.
+  4) Confirm the app stapler shim retries only `xcrun stapler staple` up to six
+  total attempts after the app submission is accepted, then confirm the
+  workflow's DMG step reported an Apple notary status of `Accepted` and run
+  `xcrun stapler validate` against the matching DMG.
   5) Download the DMG on a clean macOS profile, move the app to
   `/Applications`, and open it without clearing `com.apple.quarantine`.
 - **Expected**: Each macOS app passes signature integrity, Gatekeeper reports
@@ -1016,12 +1478,23 @@ identify the platform validation still needed.
 #### E2E-005: Add a provider and save API key
 
 - **Preconditions**: App running; no provider configured; the models.dev snapshot ships with the build.
-- **Steps**: 1) Open Settings → Model configuration and choose Add provider. 2) Confirm the dialog is ONE form with no stepper or Next/Back buttons. The first control is Service — a searchable menu (Choose a service, Custom endpoint, then a flat vendor list from models.dev including Xiaomi), not a native select, region grouping, or vendor-card grid. Open it, type to filter client-side, then choose **Custom endpoint**. Confirm Name and Base URL appear on one row with no helper paragraph under the URL (placeholder only), API Key and API format appear side by side on the next row (not behind Advanced), and that a focused field plus its 2px accent ring stays fully inside the dialog, including on a window narrower than 1040px. 3) Enter a name and a base URL for a service that publishes a `/models` route, then paste an API key. 4) Confirm the models section fills with the models THAT SERVICE returned, not with every model its vendor publishes; confirm a model the deployment does not host is absent. 5) Type in the filter box and confirm the list narrows client-side with no network request per keystroke. 6) Confirm each row shows the models.dev-derived context/output for models the catalog knows, that its compact text tracks the published value instead of a coarser rounded one (a 1,050,000 window reads `1.05M`, never `1.1M`), and that a model with no catalog match still lists with generic defaults. 7) Select two models with the checkboxes. 8) Expand Advanced on one chosen row, override its limits and toggle thinking chips; confirm each numeric field has a five-chip preset ladder for common values, clicking a chip writes the value, hand editing remains possible, and a non-preset value leaves the ladder unselected. Set max output to 8,192 while its context window still follows the catalog. On a model whose published image input is enabled, toggle image input off and then back on before saving, so the explicit choice equals the current catalog value. Confirm the label and optional hint sit above one compact grouped control and do not force the options onto a second row at normal dialog width; confirm all seven canonical levels are available, that published levels start selected for a known reasoning model, and that a non-reasoning or unknown row shows the same chips unselected with the manual-override hint; enable one level on that row and confirm the other row is unaffected. 9) Open the form-level Advanced and confirm the API format is present but pre-derived. 10) Add a free-form model ID the service did not return; confirm it is added with 128,000 / 8,192 / no-thinking defaults, then enable a thinking level if the endpoint supports it; confirm re-adding the same ID in different letter case is rejected as already added. 11) Save.
-- **Expected**: The service is asked first and models.dev only enriches the answer and seeds known-model defaults. Newly fetched or checked model rows stay collapsed until the user opens Advanced, so every selected model ID remains visible in the right pane after a multi-select. The settings picker always offers the seven canonical thinking levels, and the Composer later renders the explicit levels saved in the same model binding; an empty or `off`-only binding resolves to `off`. Discovery is debounced ~600 ms, does not mark loading until that window elapses, and a slow reply from an earlier keystroke never replaces a newer list; named add-path discovery waits for an API key, while an unsaved custom provider is probed with the typed base URL (and key, if any) before it exists. Preset ladders cover common context/output limits while preserving hand-edited values. The explicitly selected 8,192 output remains pinned independently of the catalog-sourced context window, and the image-input choice remains explicitly enabled after it is toggled back to the published value; neither is reinterpreted as "follow catalog" on save/reopen. Later catalog corrections change only values whose own source is `catalog`. Limit text renders through one shared compact formatter, so neighbouring published windows stay distinguishable (`1M` / `1.05M` / `1.1M`) and a compact limit never reads above its published value. Custom endpoint keeps API format beside the key and omits Base URL helper copy; named endpoints do not show format. Point the same custom form at an unreachable or unauthorized URL and confirm one classified sentence reaches the app toast while the left pane keeps its single “no list” label (not a raw JSON/HTML dump and not a second “no models” empty state); with cached rows from a later edit the same reason is toasted while the rows stay. Point a second provider at a base URL with no `/models` route and confirm the list falls back to the catalog, is labelled as coming from models.dev rather than the service, and still saves. The provider appears as a row with its host, model count and secret badge; the key is stored securely (not in plaintext config); `models` contains both bindings and `models[0]` remains the provider default.
+- **Steps**: 1) Open Settings → Model configuration and choose Add provider. 2) Confirm the searchable service chooser opens. Filter and select a built-in API-key service or **Custom endpoint**; the selection must open its matching form, never the plugin-only “selected service unavailable” state. Confirm the form has no stepper or Next/Back buttons. For **Custom endpoint**, Name and Base URL appear on one row with no helper paragraph under the URL (placeholder only), API Key and API format appear side by side on the next row (not behind Advanced), and a focused field plus its 2px accent ring stays fully inside the dialog, including on a window narrower than 1040px. The custom form has no authentication-mode switch; the API key is optional and its input stays enabled. 3) Enter a name and a base URL for a service that publishes a `/models` route, then paste an API key. Confirm the models section fills with the models THAT SERVICE returned without requiring a key for discovery; confirm a model the deployment does not host is absent. Also exercise the no-auth path with a custom endpoint: leave the key empty, select a discovered model, and save. 4) Type in the filter box and confirm the list narrows client-side with no network request per keystroke. 5) Confirm each row shows the models.dev-derived context/output for models the catalog knows, that its compact text tracks the published value instead of a coarser rounded one (a 1,050,000 window reads `1.05M`, never `1.1M`), and that a model with no catalog match still lists with generic defaults. 6) Select two models with the checkboxes. 7) Expand Advanced on one chosen row, override its limits and toggle thinking chips; confirm each numeric field has a five-chip preset ladder for common values, clicking a chip writes the value, hand editing remains possible, and a non-preset value leaves the ladder unselected. Set max output to 8,192 while its context window still follows the catalog. On a model whose published image input is enabled, toggle image input off and then back on before saving, so the explicit choice equals the current catalog value. Confirm the label and optional hint sit above one compact grouped control and do not force the options onto a second row at normal dialog width; confirm all seven canonical levels are available, that published levels start selected for a known reasoning model, and that a non-reasoning or unknown row shows the same chips unselected with the manual-override hint; enable one level on that row and confirm the other row is unaffected. 8) Open the form-level Advanced and confirm the API format is present but pre-derived. 9) Add a free-form model ID the service did not return; confirm it is added with 128,000 / 8,192 / no-thinking defaults, then enable a thinking level if the endpoint supports it; confirm re-adding the same ID in different letter case is rejected as already added. 10) Save.
+- **Expected**: The service is asked first and models.dev only enriches the answer and seeds known-model defaults. The no-auth custom path saves `authKind: "none"`, omits `secretValue`, and makes the configured provider available anywhere an enabled no-auth provider is selectable; named cloud preset behavior stays unchanged. Newly fetched or checked model rows stay collapsed until the user opens Advanced, so every selected model ID remains visible in the right pane after a multi-select. The settings picker always offers the seven canonical thinking levels, and the Composer later renders the explicit levels saved in the same model binding; an empty or `off`-only binding resolves to `off`. Discovery is debounced ~600 ms, does not mark loading until that window elapses, and a slow reply from an earlier keystroke never replaces a newer list; named add-path discovery waits for an API key, while an unsaved custom provider is probed with the typed base URL (and key, if any) before it exists. Preset ladders cover common context/output limits while preserving hand-edited values. The explicitly selected 8,192 output remains pinned independently of the catalog-sourced context window, and the image-input choice remains explicitly enabled after it is toggled back to the published value; neither is reinterpreted as "follow catalog" on save/reopen. Later catalog corrections change only values whose own source is `catalog`. Limit text renders through one shared compact formatter, so neighbouring published windows stay distinguishable (`1M` / `1.05M` / `1.1M`) and a compact limit never reads above its published value. Custom endpoint keeps API format beside the key and omits Base URL helper copy; named endpoints do not show format. Point the same custom form at an unreachable or unauthorized URL and confirm one classified sentence reaches the app toast while the left pane keeps its single “no list” label (not a raw JSON/HTML dump and not a second “no models” empty state); with cached rows from a later edit the same reason is toasted while the rows stay. Point a second provider at a base URL with no `/models` route and confirm the list falls back to the catalog, is labelled as coming from models.dev rather than the service, and still saves. The provider appears as a row with its host, model count and secret badge; the key is stored securely (not in plaintext config); `models` contains both bindings and `models[0]` remains the provider default.
 - **Specs linked**: `03-runtime/11-provider-model-system.md`, `03-runtime/12-provider-config-schema.md`, `03-runtime/13-model-catalog-and-selection.md`, `03-runtime/14-secrets-storage.md`, `04-ux/06-settings-ia.md`
 - **Acceptance**: B (multi-model provider configuration, save key)
 - **Milestone**: M2
-- **Status**: Manual UI + automated protocol smoke (provider create + secret, no plaintext echo)
+- **Status**: Manual model-picker acceptance; chooser-to-key-form selection is covered by `apps/desktop/test/plugin-provider-catalog-user-path.test.mjs`; automated protocol smoke covers provider creation and secret handling without plaintext echo.
+
+#### E2E-PROVIDER-custom-endpoint-no-api-key: Configure a custom service without credentials
+
+- **Preconditions**: Isolated settings profile and a local OpenAI-compatible fixture that lists a model without credentials; no live or paid provider.
+- **Steps**: 1) Open Settings → Model configuration → Add provider → Custom endpoint. 2) Enter a name and the fixture URL; leave the optional API key empty, without selecting an authentication mode. 3) Confirm model discovery succeeds without a key, select the returned model, and save. 4) Reopen and save without changes, then type a key and save; confirm API-key authentication is restored. 5) Edit an API-key provider and save with a blank input; confirm its key is retained. Reopen and confirm **Clear saved API key** is an icon-only button to the right of the input on the same row, with a localized accessible name and tooltip. Activate it, confirm focus returns to the input, and confirm subsequent discovery does not reuse the stored key. Close without saving and confirm no credential changed. Repeat Clear followed by Save, and Clear followed by a replacement key and Save. 6) Confirm the no-auth provider and model are offered by chat/default-model and subagent selectors. 7) Send a request through the no-auth provider fixture.
+- **Expected**: The custom form has no no-key switch and keeps the key input enabled. An empty or whitespace-only key with no saved credential automatically saves `authKind: "none"` without `secretValue`; a supplied key uses API-key authentication. A blank edit retains an existing key. Clear is staged until Save and a replacement key takes precedence over removal. The enabled no-auth provider with `hasSecret: false` remains selectable for chat, defaults, subagents, and image generation where its model supports that operation. Named cloud presets remain unchanged. Runtime requests contain no API-key or Authorization credentials.
+- **Automation**: `node --test apps/desktop/test/custom-provider-no-api-key-user-path.test.mjs` covers empty/whitespace keys, keyed creation, save/reopen, preservation, staged removal/cancellation, discovery without the old secret, and replacement. `pnpm test:e2e:provider-api-style` renders the production setup form in English and Simplified Chinese with a stubbed model-discovery/API boundary and verifies create/update payloads and chat/default/subagent selector eligibility. `pnpm --filter @pi-desktop/agent-runtime exec vitest run src/provider-binding.test.ts` verifies request headers; `apps/desktop/test/image-generation-default.test.mjs` covers no-auth image-model availability; `cargo test -p host-core --locked switching_provider_to_no_auth_clears_its_api_key` verifies Host persistence and secret removal.
+- **Specs linked**: `03-runtime/11-provider-model-system.md`, `03-runtime/12-provider-config-schema.md`, `03-runtime/13-model-catalog-and-selection.md`, `04-ux/06-settings-ia.md`.
+- **Acceptance**: B (model configuration), F (provider persistence), Security.
+- **Milestone**: M2.
+- **Status**: Automated coverage uses a deterministic stub for model discovery and fetch. The full local-endpoint send flow remains available for manual acceptance; no paid provider or user profile is used.
 
 #### E2E-PROVIDER-defaults-survive-an-added-provider: An added provider leaves the app defaults alone
 
@@ -1040,11 +1513,20 @@ identify the platform validation still needed.
 - **Expected**: `providers.lookupModel` answers a hand-typed id from the local snapshot only — no provider network request and no host call — and a hit seeds the binding the way a picked model is seeded (published context window, max output tokens, thinking levels, `contextWindowSource: "catalog"`) while the stored id stays exactly what the user typed. A miss, a failed call, or an id the current discovery already described leaves the previous behavior intact: one usable row, the generic seed, and no stalled or duplicated list.
   A record published under another spelling of that id — a route prefix, a dated
   stamp, a marker the deployment appends — is a hit too: the row is upgraded in
-  place as soon as the answer arrives, without waiting for a save.
+  place as soon as the answer arrives, without waiting for a save. In a live
+  discovered row, a positive safe integer context/input or output limit reported by
+  the endpoint takes precedence over the catalog for that field; omitted fields
+  independently use catalog metadata. For an unanchored relay, a published
+  owner record outranks reseller matches; dotted/dashed version aliases and one
+  whitelisted deployment label keep the served ID intact, the owner's sibling
+  keys add evidence when the public key states nothing, and a corroborated
+  canonical declaration translates a name the owner publishes under another ID
+  without rewriting the served ID. Conflicting owner records do not supply
+  guessed limits.
 - **Specs linked**: `03-runtime/12-provider-config-schema.md`, `03-runtime/13-model-catalog-and-selection.md`
 - **Acceptance**: B (multi-model provider configuration)
 - **Milestone**: M2
-- **Status**: Documented; covered by `apps/desktop/test/model-custom-lookup.test.mjs` and `apps/desktop/test/provider-lookup-model-handler.test.mjs`
+- **Status**: Documented; covered by `apps/desktop/test/model-custom-lookup.test.mjs`, `apps/desktop/test/provider-lookup-model-handler.test.mjs`, and `apps/desktop/test/provider-endpoint-metadata.test.mjs`
 
 #### E2E-PROVIDER-configured-models-search: The chosen pane's search narrows the configured list
 
@@ -1129,8 +1611,8 @@ identify the platform validation still needed.
   OpenAI-compatible provider is also configured.
 - **Steps**: 1) Start an Agent turn in a session against OpenCode Go. 2)
   Capture the provider request headers. 3) Send a follow-up in the same
-  session. 4) Run prompt enhancement and a plugin `agent.complete` one-shot
-  against the same provider. 5) Run `/compact` in the same session and capture
+  session. 4) Run a plugin `agent.complete` one-shot against the same provider.
+  5) Run `/compact` in the same session and capture
   the summary request. 6) Repeat a turn against the generic
   OpenAI-compatible provider.
 - **Expected**: Every OpenCode Go LLM request includes `x-opencode-session`
@@ -1170,6 +1652,27 @@ identify the platform validation still needed.
 - **Acceptance**: F (runtime provider requests)
 - **Milestone**: M2
 - **Status**: Unit-covered (binding resolution and endpoint assertion)
+
+#### E2E-005K: OpenCode Go Claude models use the published Anthropic route
+
+- **Preconditions**: An OpenCode Go provider uses the built-in preset. The
+  deterministic catalog fixture contains `claude-haiku-5-5` with
+  `api: "anthropic_messages"` and an OpenCode Anthropic root `baseUrl`, plus a
+  DeepSeek Chat Completions control model.
+- **Steps**: 1) Select Claude Haiku and send a text turn through a capture
+  fixture. 2) Capture the request URL and adapter payload. 3) Repeat with the
+  DeepSeek control model. 4) Repeat with the same catalog metadata on a custom
+  OpenAI-compatible provider.
+- **Expected**: OpenCode Claude uses the Anthropic adapter and posts to
+  `/zen/go/v1/messages`; it does not post Chat Completions and does not return
+  `ModelProtocolUnsupported`. DeepSeek keeps `/chat/completions`. The custom
+  provider keeps its saved wire style and base URL despite the foreign catalog
+  API. Unit coverage lives in `packages/agent-runtime/src/provider-binding.test.ts`.
+- **Specs linked**: `03-runtime/11-provider-model-system.md`,
+  `03-runtime/13-model-catalog-and-selection.md`, issue #1728
+- **Acceptance**: F (runtime provider requests)
+- **Milestone**: M2
+- **Status**: Unit-covered; live endpoint scenario Draft
 
 #### E2E-005C: OpenAI-compatible system role fallback
 
@@ -1259,7 +1762,8 @@ identify the platform validation still needed.
   record (blank names omitted, last write wins) with localized success feedback.
   Confirm the header list scrolls inside the modal while the underlying model
   panes keep their working area, close the modal, then save. 2) Start an Agent
-  turn, a follow-up, prompt enhancement, and a plugin one-shot. 3) Refresh
+  turn, a follow-up, a plugin `agent.complete` one-shot, and the standalone
+  plugin's Composer transform when installed. 3) Refresh
   `/models` from the form before saving a second change and confirm the
   unsaved headers are sent. 4) Clear the rows and save; confirm adapter
   defaults return. 5) Edit the OAuth account Advanced headers, save, then
@@ -1451,6 +1955,15 @@ identify the platform validation still needed.
   turns that had no thinking. Non-official DeepSeek-family relays use real
   retained thinking when available, otherwise the documented non-empty
   placeholder from ADR 0256 — never a silent empty string after compaction.
+  Each assistant message carries exactly one reasoning field, named after the
+  newest assistant row's field; real reasoning stored under another field name
+  is moved there rather than replaced by the placeholder, which only fills rows
+  with no reasoning at all (D677). The thinking panel and replayed history
+  never show a leading echo of the placeholder as reasoning.
+  Relay requests omit the generic OpenAI `reasoning_effort` field because
+  relays were reported rejecting it (#1664). Official `api.deepseek.com`
+  requests send `thinking: {type: "enabled"}` together with the selected
+  `reasoning_effort` (#1821).
   The request does not switch `thinkingFormat` to `"deepseek"` solely because
   the model id contains `"deepseek"`. Official `api.deepseek.com` rows keep
   URL-based DeepSeek `thinkingFormat` from pi-ai.
@@ -1459,7 +1972,8 @@ identify the platform validation still needed.
 - **Acceptance**: B (provider Completions compatibility)
 - **Milestone**: M2
 - **Status**: Unit-covered (compat inject + convertMessages empty/non-empty fill +
-  compaction retained-reasoning wire proof); live OpenCode / aggregator
+  mixed-field normalization + echoed-placeholder strip + compaction
+  retained-reasoning wire proof); live OpenCode / aggregator
   verification deferred; rendered UI scenario pending
 
 #### E2E-006: Key survives restart
@@ -1574,16 +2088,25 @@ identify the platform validation still needed.
 - **Preconditions**: Packaged or checkout build with bundled plugins; Agent
   session with a workspace HTML file; Plan session available.
 - **Steps**: 1) Confirm Plugins lists `pi.browser`, enabled, not uninstallable.
-  2) Open the work panel and launch Browser from plugin views. 3) Ask the
-  agent to preview a workspace HTML file (`BrowserPreview`) then snapshot via
-  ToolSearch `cdp` / `Browser`. 4) Switch to Plan and call the plugin Browser
-  tool. 5) Disable `pi.browser`. 6) Call `BrowserPreview` and click an http(s)
-  transcript link. 7) From a third-party or test caller, send
+  2) With the work panel closed, ask the agent to preview a workspace HTML
+  file (`BrowserPreview`) and verify the Browser tab opens in the visible work
+  panel. 3) Use ToolSearch `cdp` / `Browser` to snapshot and interact while the
+  panel remains visible. 4) Collapse the panel and continue Browser snapshot,
+  click/fill, screenshot and navigation. 5) Switch to a second session and call
+  Browser; verify it uses that session's own page. 6) Continue the first session's
+  Browser actions while the second session is visible; reload the shell and
+  return to the first page. 7) In Plan/Goal, exercise the read-only Browser
+  actions and verify mutating actions remain denied. 8) Disable
+  `pi.browser`. 9) Call `BrowserPreview` and click an http(s) transcript link.
+  10) From a third-party or test caller, send
   `Network.getAllCookies` through `pi.browser.cdp`.
 - **Expected**: The launcher has no host Browser row. Preview opens the plugin
-  view and live-reloads the file. Plugin tool `plugin_pi_browser_Browser` can
-  snapshot after ToolSearch. Plan denies the plugin tool
-  (`PLUGIN_DISABLED_IN_PLAN`) while `BrowserPreview` remains callable. Disable
+  view, reveals the work panel, and live-reloads the file. Session-owned Browser
+  operations run in the background without opening the panel, borrowing another
+  page, or changing focus. Shell reload retains the native page and form data;
+  its side-panel tabs can be restored. ToolSearch activates the Browser tool.
+  Plan/Goal allow navigate/snapshot/screenshot/console; click/fill/evaluate/cdp
+  remain denied. Disable
   hides the view and tools; `BrowserPreview` errors; http(s) chips use
   `openExternal`. Cookie CDP is denied. Guest bounds stay inside the plugin
   view.
@@ -1639,23 +2162,57 @@ identify the platform validation still needed.
   regression in `renderer-stream-safety.test.mjs`, and math delimiter rendering
   in `latex-math.test.mjs`; full UI observation remains Draft)
 
-#### E2E-010: Abort generation
+#### E2E-010: Stop turns and in-flight tools safely
 
 - **Preconditions**: A session can produce both a deliberately delayed first
-  token and a streaming response.
+  token and a streaming response. A deterministic Host fixture can hold a
+  read-only `Grep` call and expose a pending `Write` approval.
 - **Steps**: 1) Send ordinary text and click Stop immediately, including while
   the prompt is still being admitted. 2) Confirm the user row is undone and
   the text returns to the composer after that first Stop. 3) Send again, wait
-  for partial output, then stop during the stream. 4) Observe the transcript
-  and composer.
+  for partial output, then stop during the stream. 4) Immediately send a new
+  prompt after Stop returns, without waiting for an idle delay. 5) Start a
+  read-only Grep that does not return, press Stop, then start another prompt.
+  Hold its `tools.abort` acknowledgement as well and repeat for Read and Glob.
+  6) Start a Write that is waiting for permission, press Stop, then try to
+  approve the stale request. 7) Observe the transcript, composer, and workspace.
 - **Expected**: The first Stop is honored even if prompt admission is still in
   progress; the unanswered send is undone and its draft restored. The
   streaming send stops with its partial response preserved and no draft
-  restoration or duplicate user turn. The session remains usable.
-- **Specs linked**: `03-runtime/02-agent-runtime.md`
+  restoration or duplicate user turn. The read-only tool returns
+  `TOOL_ABORTED`, its late result is discarded, and the follow-up starts
+  without `AGENT_BUSY`, even while the cancellation acknowledgement is pending.
+  Late results or cancellation failures cannot change the follow-up turn.
+  Stopping the pending Write cancels its permission;
+  approving the stale request fails and creates no file. A mutating operation
+  that already started is not reported stopped before its Host result arrives.
+  On a headless Host, hold durable-turn creation, user-row append, and sidecar
+  history restoration in turn, then request abort during each hold. Release the
+  hold and confirm abort settles the runtime before acknowledging cancellation;
+  a follow-up input completes under a new durable turn. Repeat with an approved
+  plan still being admitted, and ensure its execution settles as interrupted.
+  An old turn's delayed abort must leave a newer turn alone, and admission in
+  another session must not wait for this session's cancellation.
+- **Specs linked**: `03-runtime/02-agent-runtime.md`,
+  `03-runtime/03-tools-and-permissions.md`, `03-runtime/06-host-rpc-protocol.md`,
+  ADR `tool-abort-abandons-host-call`
 - **Acceptance**: C (abort)
 - **Milestone**: M2
-- **Status**: Draft
+- **Status**: Runtime and Host cancellation contracts automated by
+  `packages/agent-runtime/src/runtime.test.ts` and the pending-Write regression
+  in `crates/host-core/src/rpc/mod.rs`. `read-only-stop.test.ts` covers held
+  acknowledgements and late failures through real Agent loops.
+  After building shared and running `node packages/agent-runtime/scripts/bundle.mjs`,
+  `node scripts/e2e-read-only-stop.mjs` runs the production sidecar bundle and
+  a localhost provider, holding execution and cancellation responses at the Host
+  edge. It verifies follow-up prompts and the Write settlement boundary;
+  `packages/host-runtime/src/runtime-service.test.ts` covers headless admission,
+  approved-plan startup, stale aborts, and independent sessions. After building
+  host-runtime and the sidecar bundle, `node scripts/e2e-headless-startup-abort.mjs`
+  exercises the production RuntimeService, stdio transport, sidecar, and local
+  provider through startup cancellation and a successful follow-up.
+  Rendered Electron interaction remains
+  a manual validation run.
 
 #### E2E-171: Streaming reply survives quit, crash, and stop
 
@@ -1732,6 +2289,36 @@ identify the platform validation still needed.
   `persistence-outbox.test.mjs`); desktop journey outstanding
 
 
+#### E2E-SESSION-outbox-unclassifiable-failure-does-not-stall-the-queue
+
+- **Preconditions**: One queued outbox append fails with an error the outbox
+  cannot classify (`Error: stream did not contain valid UTF-8` from a torn host
+  transcript), while later appends from other sessions queue behind it.
+  Optionally the outbox is already at its 1024-entry cap and the flush log
+  shows repeated `session persistence flush paused` for that key.
+- **Steps**: 1) Produce the unclassifiable append failure. 2) Keep sending
+  messages in two other sessions. 3) Observe `logs/app/persistence.log` for
+  `session persistence flush paused` (bounded attempts), then
+  `session persistence flush quarantined entry`, and for the absence of
+  `session.persistence.outbox.is.full`. 4) Confirm
+  `session-message-outbox.dead-letter.json` holds that key with its payload and
+  error, and that `session-message-outbox.json` drops below the cap. 5) Restart
+  the app and confirm the quarantined append is not replayed. 6) Optional:
+  delete the failing session and confirm its dead letter is dropped.
+- **Expected**: The failing append is paused four times with a growing backoff
+  and quarantined on the fifth consecutive failure, then skipped. Later
+  appends from every session drain, no enqueue is rejected with `outbox is
+  full`, and the queued outbox file empties. The dead letter survives a
+  restart without being replayed.
+- **Specs linked**: `03-runtime/04-data-storage.md`,
+  `03-runtime/06-host-rpc-protocol.md`, ADR 0041, D318, D444, D597, D656
+- **Acceptance**: F (persistence)
+- **Milestone**: M2
+- **Status**: Unit-covered (`persistence-outbox.test.mjs` bounded retry,
+  quarantine, dead-letter persistence and cap tests); desktop journey
+  outstanding
+
+
 #### E2E-011: Switch between project and temporary sessions
 
 - **Preconditions**: One retained project session and one path-less Temporary
@@ -1769,6 +2356,35 @@ identify the platform validation still needed.
 - **Milestone**: M2
 - **Status**: Source-level regression covered; full visual scenario Draft
 
+#### E2E-TRANSCRIPT-restored-live-tail-status
+
+- **Preconditions**: An isolated renderer with two retained session panes, a
+  running turn with tool output, and the real Composer and SessionPane.
+- **Steps**: Restore a bookmark during selection revalidation; append live
+  output; switch away and reveal the running pane; inspect an unread history
+  range and an explicit search at the tail; settle and abort the turn. While
+  reading above the live tail, click return-to-latest and switch away in the
+  same task, before a native smooth-scroll event. Return first with the pane
+  retained, then repeat while a project switch actually unmounts the pane and
+  output continues in the background.
+- **Expected**: The restored live tail keeps a running process header while
+  Stop is available. Content updates and pane reveal do not falsely show
+  Finished. The restored range and scroll offset remain owned by the reader.
+  Another session, unread pages, and explicit search do not inherit live
+  status. Terminal completion and abort show Finished and Stopped respectively.
+  An empty restored range stays historical, an ordinary empty canonical range
+  shows the initial wait, and a restored navigation-parent copy with the same
+  message id keeps the running presentation.
+  Return-to-latest synchronously records a pinned bookmark; both a retained
+  reveal and a fresh project remount follow the newest output without a second
+  click. The running header and Stop control stay consistent. Readers who did
+  not choose return-to-latest keep their existing historical reading position.
+- **Automation**: `node scripts/e2e-transcript-reading-position.mjs`
+  (`transcriptLiveTailProbe`).
+- **Specs linked**: `04-ux/09-interaction-patterns.md` §2.3 / §2.4
+- **Acceptance**: C (session switching and running status)
+- **Status**: Automated isolated Electron regression
+
 #### E2E-207: Open large and long sessions through bounded transcript windows
 
 - **Preconditions**: A session contains a message with at least 50 MB of text
@@ -1778,7 +2394,11 @@ identify the platform validation still needed.
   visible transcript frame and renderer responsiveness. 2) Scroll to the top
   of the transcript. 3) Repeat the open/close cycle after the session has been
   cached. 4) Inspect the host request/response or test fixture for the session
-  read window.
+  read window. 5) In an isolated Host profile, create a transcript above the
+  layout-cache threshold, append more rows, settle a middle Task result with a
+  longer value, then restart with a legacy layout file beside the transcript.
+  6) Read the newest page, page to the beginning, locate a nested message and
+  its owning Task, then read the complete history.
 - **Expected**: Opening paints the newest bounded page without transferring
   the complete 50 MB value to the renderer. The large value is visibly marked
   as truncated for display while the transcript and model-facing read remain
@@ -1788,13 +2408,38 @@ identify the platform validation still needed.
   historical row before the latest messages become usable. Edit, delete,
   revision, and Stop operations rehydrate the full transcript before any
   rewrite, so older messages are never lost because only a window was visible.
+  The isolated Host journey returns every message once and in order after the
+  middle rewrite, legacy-cache rejection and restart; the Task result is
+  terminal, nested-message navigation resolves its owning Task, and paging
+  reaches the beginning without a UTF-8 error or omitted row.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md`,
   `03-runtime/04-data-storage.md`, `03-runtime/06-host-rpc-protocol.md`,
   ADR 0120
 - **Acceptance**: C (session open and scroll), F (persistence), Quality
 - **Milestone**: M5
-- **Status**: Source-level regression covered; full large-fixture Electron
-  journey Draft
+- **Status**: Source-level and isolated Host RPC cache regressions covered;
+  full large-fixture Electron journey Draft
+
+#### E2E-TRANSCRIPT-invalid-utf8-window-remains-readable
+
+- **Preconditions**: An isolated Host profile contains a session transcript
+  with valid messages before and after a complete line containing invalid
+  UTF-8 bytes. The damaged bytes are inside message text in one fixture and
+  make a separate message line unparseable in another. No real user data.
+- **Steps**: Open the session through the renderer's bounded `session.get`
+  path with `messageLimit`, page across the damaged line, then read the full
+  history through the Host API. Compare the transcript file before and after.
+- **Expected**: The session stays readable. Valid surrounding messages appear
+  in order; parseable damaged text contains U+FFFD, while an unparseable row is
+  skipped. The source transcript remains byte-identical and paging positions
+  stay consistent.
+- **Specs**: `03-runtime/04-data-storage.md` and ADR 0127.
+- **Acceptance**: C (conversation and stream), F (persistence), Quality.
+- **Milestone**: Maintenance.
+- **Automation**: `pnpm test:e2e:transcript-cache` exercises bounded `session.get`
+  against an isolated Host and verifies replacement text plus unchanged source
+  bytes. `crates/host-core/src/transcripts_layout_tests.rs` covers the invalid
+  row and layout reader directly. Full renderer journey remains Draft.
 
 #### E2E-011a: New session while another session is still streaming
 
@@ -1889,6 +2534,20 @@ identify the platform validation still needed.
 - **Coverage**: `scripts/e2e/composer-submission.tsx`, executed by
   `pnpm test:e2e:composer-paste`; real desktop recording uses isolated data and
   a local model with a controlled response delay.
+
+#### E2E-011c-2: Late send failures do not restore stale composer drafts
+
+- **Preconditions**: Session A is idle; the two send results for its composer
+  can be held and settled independently.
+- **Steps**: Submit draft N, then submit draft N+1 before N settles. Accept N+1
+  and reject N. Repeat with N+1 rejected after N remains pending.
+- **Expected**: N's late rejection never restores its text or file references
+  over N+1. If N+1 is rejected, only N+1's own snapshot is restored.
+- **Specs linked**: `04-ux/09-interaction-patterns.md` (session-scoped drafts)
+- **Acceptance**: C (composer input and session isolation)
+- **Milestone**: M2
+- **Status**: Async ownership behavior covered by
+  `apps/desktop/test/composer-submit-race.test.mjs`; rendered UI scenario Draft
 
 #### E2E-SESSION-reference-conversation-link: A pasted conversation link carries that conversation into the turn
 
@@ -2032,7 +2691,7 @@ identify the platform validation still needed.
   composer. 3) Remove the second queued row and switch to B. 4) Send a prompt
   in B, then return to A before either run completes. 5) Choose Send now on A's
   remaining queued row, then choose Send now on a second row. 6) Observe A
-  through the current tool/reply boundary and then the next turn. 7) Start
+  through the next model request within the same turn. 7) Start
   another run in A, clear the draft to expose the single Stop button, press
   Stop, and inspect the queue. 8) Repeat with two queued prompts, let the active
   turn finish without Send now, and delay its host `session.endTurn` response
@@ -2044,15 +2703,19 @@ identify the platform validation still needed.
   edit/remove the pending row, release admission, then edit/remove the durable
   row. Repeat with a captured file-reference draft. 12) Withhold a local Host
   queue-save request until its existing RPC deadline expires, then retry.
+  13) With an empty composer and two waiting rows, press the steering shortcut
+  (`⌥/Alt+Enter`): verify the first row is promoted, press it again to promote
+  the second, then repeat with only a saving row present. 14) Repeat with a
+  draft in the composer and confirm the shortcut steers the draft and leaves
+  both rows waiting.
 - **Expected**: The single submit slot contains exactly one button in every
   state: disabled Send while idle and empty, enabled Send while running with
   content (which queues the prompt), and Stop while running with an empty
   draft. A's two prompts appear in FIFO order, the removed row never sends,
-  and B's queue remains independent. Send now requests a graceful stop: the
-  current batch completes with a normal `agent_end`/completed turn, then the
-  promoted rows are delivered in the order they were promoted, before any
-  waiting row, without `AGENT_BUSY`: the first starts the turn and the rest join
-  it as adjacent user messages, so the model answers once for the whole block.
+  and B's queue remains independent. Send now delivers promoted input in click
+  order into the current turn without requesting a stop. An active TaskWait
+  yields to the input while delegates keep running. Refused input or input
+  with a different permission mode remains queued for a later turn.
   A promoted row locks move/edit and Send now, but permits removal; promotion is
   one-way. Move up/down swaps only waiting rows, never crosses the promoted
   block, and persists. Edit is refused with a visible message while the input
@@ -2070,7 +2733,10 @@ identify the platform validation still needed.
   on Send now, and remain visible without restoring a second draft. Once acknowledged, remove deletes the durable row and edit restores
   exactly its captured draft; neither row reappears after refresh. A local Host
   admission timeout clears the pending row, reports the error, and restores
-  the rejected composer draft; retry can queue normally.
+  the rejected composer draft; retry can queue normally. With an empty composer
+  the steering shortcut promotes the first waiting row exactly as its Send now
+  action does, skipping rows that are saving or already promoted; with a draft
+  present it steers the draft and leaves the queue untouched.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md` (§5.6),
   `04-ux/08-component-spec.md` (§11),
   `04-ux/09-interaction-patterns.md` (§3.4), ADR 0118, ADR 0213, ADR 0265
@@ -2079,7 +2745,8 @@ identify the platform validation still needed.
 - **Status**: Source-level regression and deterministic desktop finalization /
   Agent Host integration covered (`queued-turn-finalization.test.mjs`);
   promotion, reorder, and edit contracts covered at source level
-  (`composer-send-state.test.mjs`); full UI scenario Draft
+  (`composer-send-state.test.mjs`); the empty-composer send-now shortcut is
+  covered by `composer-queued-send-now-shortcut.test.mjs`; full UI scenario Draft
 
 #### E2E-QUEUE-promote-orders-delivery-by-click: Two Send now clicks deliver in click order
 
@@ -2087,14 +2754,14 @@ identify the platform validation still needed.
   least one completed tool batch; three prompts are queued behind it.
   the first queued row. 3) Confirm the promoted block orders third → first, that
   both rows lock their move/edit actions, and that the remaining row is
-  still editable. 4) Let the boundary pass and observe the transcript.
+  still editable. 4) Observe steering delivery at the next model request.
 - **Expected**: The first click is delivered first and the second second — the
   click order is the delivery order, not "last click wins" and not the original
-  queue order. Both rows appear as adjacent user messages in one turn and the
-  model answers once; the queue no longer lists either promoted row. Both
+  queue order. Both rows appear as user messages in the same active turn;
+  the queue no longer lists either accepted promoted row. Both
   promoted rows show as waiting and cannot be edited or reordered. Removal
-  remains available until delivery. A refused or failed graceful stop reports
-  a message and leaves the row cancelable. If cancellation wins admission,
+  remains available until delivery. Refused steering retains the row for the
+  next turn and leaves it cancelable. If cancellation wins admission,
   the input never executes; if delivery wins, cancellation reports that it
   already started. The row disappears only after Host acknowledgement.
   A stalled steering delivery does not block admission or cancellation of other
@@ -2719,12 +3386,12 @@ identify the platform validation still needed.
 #### E2E-019a: Scratch-directory writes stay out of the workspace (D114)
 
 - **Preconditions**: Agent mode; project open; session started.
-- **Steps**: 1) Ask the agent to produce a temporary/intermediate file (e.g. a one-off script). 2) Observe where it writes and whether a permission card appears. 3) Check `git status` and the work-panel state. 4) Delete the session and check `<data_dir>/scratch/`.
-- **Expected**: The file lands under `<data_dir>/scratch/<sessionId>/` without a permission card; project `git status` stays clean; no file or Review artifact tab opens for the scratch write; deleting the session removes the scratch directory.
+- **Steps**: 1) Ask the agent to produce a temporary/intermediate file (e.g. a one-off script). 2) Observe where it writes and whether a permission card appears. 3) Check `git status` and the work-panel state. 4) On Windows with Git Bash selected, print `$PI_SCRATCH_DIR` and write a file through that path. 5) Delete the session and check `<data_dir>/scratch/`.
+- **Expected**: The file lands under `<data_dir>/scratch/<sessionId>/` without a permission card; project `git status` stays clean; no file or Review artifact tab opens for the scratch write; Git Bash receives a directly usable forward-slash path matching the prompt, while PowerShell and cmd retain native path spelling; deleting the session removes the scratch directory.
 - **Specs linked**: `03-runtime/03-tools-and-permissions.md §4b`, `03-runtime/04-data-storage.md`
 - **Acceptance**: E (temp files isolated from workspace)
 - **Milestone**: M5
-- **Status**: Partially automated (host-core unit tests: dual-root resolve, scratch write/read, PI_SCRATCH_DIR, sweep)
+- **Status**: Partially automated (host-core unit tests: dual-root resolve, scratch write/read, Windows Git Bash `PI_SCRATCH_DIR` formatting, sweep)
 
 #### E2E-019b: Scratch containment matches workspace defenses (D114)
 
@@ -2814,62 +3481,108 @@ identify the platform validation still needed.
 
 #### E2E-021: Delete session works
 
-- **Preconditions**: Session exists.
-- **Steps**: 1) Delete a session. 2) Observe session list.
-- **Expected**: Session removed from list; data gone.
-- **Specs linked**: `03-runtime/04-data-storage.md`
+- **Preconditions**: A session exists near the bottom of the expanded Sidebar.
+- **Steps**: 1) Open its overflow menu. 2) Verify the menu and Delete action stay
+  inside the window. 3) Repeat in a short window and scroll the menu to its last
+  action. 4) Delete the session and observe the session list.
+- **Expected**: The menu stays within the viewport, the last action is reachable,
+  and the deleted session disappears from the list with its data removed.
+- **Specs linked**: `03-runtime/04-data-storage.md`,
+  `04-ux/09-interaction-patterns.md`
 - **Acceptance**: F (delete session)
 - **Milestone**: M2
-- **Status**: Draft
+- **Status**: Unit-covered (`sidebar-floating-menu.test.mjs`,
+  `sidebar-navigation.test.mjs`); rendered viewport scenario Draft
 
 #### E2E-021a: Rename session title persists without changing activity
 
 - **Preconditions**: A project-scoped session and a path-less session exist;
   at least one session has transcript history and one still has the default
-  title.
+  title. The standalone Session Titles plugin is enabled with
+  `session.autoTitle`, `agent.complete`, and `models.list`, a deterministic test
+  model, a custom prompt template, and thinking set to off.
 - **Steps**: 1) Open a Sidebar session overflow menu or right-click a session
   row and choose Rename. 2) Enter a title with surrounding whitespace and
   save. 3) Verify the title in the Sidebar, topbar, Project archive, and
   Search. 4) Restart the app and verify the title again. 5) Try an empty and
-  an over-80-Unicode-code-point title. 6) Send the first prompt in the
-  default-title session.
+  an over-80-Unicode-code-point title. 6) Open **Session Titles: Configure**,
+  set the prompt to return a fixed test title, choose the deterministic test
+  model, and save. 7) Send the first prompt in the default-title session. 8)
+  Confirm the Sidebar and topbar immediately show the normalized
+  48-character prompt fallback, then wait for `session:turnEnded` and the
+  plugin completion, which replaces that fallback with the deterministic test
+  title. 9) Manually rename that session and complete another turn. 10) Send
+  the first prompt in another default-title session with the plugin disabled.
 - **Expected**: The saved title is trimmed, displayed across every current
   session-summary surface, and persists after restart. The session stays in
   the same project or Temporary group, its transcript/message count and
   recent-activity ordering do not change, and historical notification title
-  snapshots are unchanged. Empty and overlong values are rejected. A custom
-  title is not replaced by first-prompt auto-title; a still-default session
-  continues to receive its automatic title. After its first turn, the default
-  session first shows the prompt fallback and then adopts the concise
-  background LLM summary when the provider returns one.
+  snapshots are unchanged. Empty and overlong values are rejected. Sending the
+  first prompt immediately persists the normalized 48-character prompt fallback
+  as a still-replaceable automatic title. With the plugin enabled, that fallback
+  is replaced by the deterministic test title after the completed turn; after a
+  manual rename, a later plugin completion cannot replace it. A session without
+  the plugin keeps its prompt fallback, and a second prompt never changes it.
+- **Upgrade regression**: In an isolated v22 fixture, manually rename a session
+  to lowercase `new task` before opening it in the current build. After upgrade,
+  the title remains `new task` with source `legacy`; first-prompt derivation and
+  plugin title writes cannot replace it. New sessions still derive titles.
+  Host regression: `v22_database_migrates_session_title_sources_without_losing_titles`.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md`,
   `03-runtime/04-data-storage.md`, `03-runtime/06-host-rpc-protocol.md`,
-  `04-ux/01-ui-ia.md`, `04-ux/08-component-spec.md`, ADR 0143
+  `03-runtime/02-agent-runtime.md`, `07-plugins/03-plugin-api.md`,
+  `07-plugins/13-plugin-permissions-matrix.md`, `04-ux/01-ui-ia.md`,
+  `04-ux/08-component-spec.md`, ADR 0143, ADR 0323
 - **Acceptance**: F (session metadata persistence), Quality (localized task
   management)
 - **Milestone**: M2
 - **Status**: Draft (run only in a capable environment when this surface changes)
 
-#### E2E-021b: Developer mode copies a conversation id and opens session scratch
+#### E2E-021b: Session context menus expose hover submenus
 
-- **Preconditions**: Developer mode is enabled. A session exists, including one
-  whose scratch directory has not been created yet.
-- **Steps**: 1) Open a conversation overflow menu. 2) Confirm Copy conversation
-  ID and Open session path appear after Create branch and before Delete, and
-  that Copy session path is absent. 3) Choose Copy conversation ID and paste
-  the clipboard. 4) Choose Open session path. 5) Disable developer mode and
-  reopen the menu.
-- **Expected**: The clipboard contains the exact session id. The system file
-  manager opens `<data_dir>/scratch/<sessionId>/`, creating that directory if
-  it was missing. The renderer does not send a filesystem path; Main opens
-  only a resolved scratch directory for that session id. With developer mode
-  off, both actions are absent.
+- **Preconditions**: A session exists, including one whose scratch directory
+  has not been created yet. The session can create a branch; worktree actions
+  are available when it belongs to a Git project.
+- **Steps**: 1) Open the session overflow menu or right-click its row. Hover Git
+  and verify its second-level actions appear; click/tap Git to open it without
+  hover. Use ArrowRight to enter, ArrowLeft to return, and Escape to close only
+  the child menu. 2) Open Copy and choose Copy conversation ID, Copy session
+  path, and Copy conversation link in turn; paste each clipboard value. 3) Enable
+  developer mode, reopen the menu, and choose Open session path. 4) Disable
+  developer mode and verify Open session path is absent while Copy remains.
+- **Expected**: Git and Copy are menuitem/haspopup triggers; hover and click
+  reveal their child menus without dismissing the root. ArrowRight enters a
+  child, ArrowLeft and the first Escape return to its trigger, and a second
+  Escape closes the root. Child actions remain keyboard reachable and execute
+  once. The ID equals the session id, the path equals the Host-resolved scratch
+  path for local sessions, and the link is the canonical conversation link.
+  Remote sessions omit Copy session path. The system file manager opens
+  `<data_dir>/scratch/<sessionId>/` when the developer-only Open session path
+  action is chosen. The renderer never sends a filesystem path to Main.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md`,
-  `04-ux/08-component-spec.md`, `04-ux/06-settings-ia.md`
-- **Acceptance**: C (sessions), Quality (developer tools)
+  `04-ux/08-component-spec.md`, `04-ux/06-settings-ia.md`,
+  `04-ux/09-interaction-patterns.md`
+- **Acceptance**: C (sessions), Quality (nested menu interaction)
 - **Milestone**: M2
-- **Status**: Unit-covered (`session-scratch-path.test.mjs`); desktop journey
-  Draft (run only in a capable environment when this surface changes)
+- **Status**: Component interaction automated (`worktree-menu-user-path.test.mjs`,
+  `sidebar-menu-panel.test.mjs`, `sidebar-navigation.test.mjs`); full Sidebar
+  desktop journey remains Draft
+
+#### E2E-021c: Bottom-edge project menus stay beside their anchor
+
+- **Preconditions**: The expanded Sidebar shows a retained project in its lowest visible row, with insufficient room below it for the project menu.
+- **Steps**: 1) Open the project's Copy submenu; copy the project name and path
+  and verify each pasted value. 2) Right-click the bottom project row and
+  inspect the root menu. 3) Close it, open the row's overflow button, and hover
+  Copy and Git. Verify both child menus and all actions stay inside the viewport.
+- **Expected**: Both root-menu entry points place the menu immediately above
+  the row when it cannot fit below; otherwise they open below. Copy yields the
+  displayed project name and path. Child submenus remain attached to their
+  trigger, flip sides as needed, and are neither clipped nor displaced.
+- **Specs linked**: `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`
+- **Acceptance**: Quality (sidebar interaction)
+- **Milestone**: M2
+- **Status**: Automated (`node scripts/e2e-three-column-layout.mjs --sidebar-only`, `sidebar-floating-menu.test.mjs`, `sidebar-navigation.test.mjs`)
 
 #### E2E-036: Settings session-import destination retired
 
@@ -2916,6 +3629,8 @@ identify the platform validation still needed.
   15. Archive one project session, open it from Projects, and return to Projects.
   16. Return to the app shell and open Plugins.
 - **Expected**: The rail contains exactly General, AI, Shortcuts, Instructions, Models, Skills, MCP, Subagents, Projects, Cloud sync, Remote Hosts, and Info in that order, each with its semantic Lucide icon (Sliders / Sparkles / Keyboard / FileText / Bot / BookOpen / Server / Bot / Archive / CloudDownload / Globe / Info). The flat directory is visually grouped under four muted, non-interactive headings — Preferences / 偏好 for General, AI, and Shortcuts; Agent / 智能体 for Instructions and Models; Workspace / 工作区 for Projects; About / 关于 for Info — with whitespace and no divider lines between groups; searching keeps the destination results flat and hides empty groups together with their headings. Appearance remains in General, while Permissions, Defaults, and the Command shell row live under 全局 AI; an available selected shell is represented by the selector without a duplicate Configured status, while default, fallback, and no-effective-shell states remain explicit; Context management has no settings card; Keyboard shortcuts and global instructions have their own destinations; Developer lives under Info; Projects shows active, closed, and archived durable rows without a visibility toggle, grouping them under the always-visible Pinned / All projects / Archived strips (D168/D267/D455) with per-section counts in a one-column workbench. The destination renders no hero block and no page-level counter run: the intro is one quiet description line, and each group strip's count agrees with its rendered rows; a click selects a row without leaving Settings; sorting by Name reorders rows inside every section without hiding any; search matches project fields and session titles and reports a match count, a session-title result selects its owning project, lists sessions in the inspector by latest activity with relative update times, and reveals history in batches of eight; clearing the search restores the complete index. The inspector menu closes on Escape and on an outside press. Bootstrap completion and background refreshes do not return Settings or Extensions to the chat home; the destination changes only after an explicit navigation action. Restore keeps the archive open and activation returns to chat with the restored project retained in the sidebar. Opening an archived session succeeds before clearing its archived state, returns to chat with that session selected, and makes it visible in the project sidebar; returning to Project archive no longer shows that session as archived. The home sidebar and global page results have no standalone Projects destination; Settings search finds Projects; Plugins remains an independent app-shell destination.
+  Cloud sync and Remote Hosts appear in packaged Settings with Experimental
+  badges on their navigation rows and page titles; see `04-ux/06-settings-ia.md`.
 - **Specs linked**: `04-ux/06-settings-ia.md`, `04-ux/01-ui-ia.md`, `03-runtime/11-provider-model-system.md`
 - **Acceptance**: B (model configuration), F (project persistence)
 - **Milestone**: M4
@@ -3004,38 +3719,56 @@ identify the platform validation still needed.
 #### E2E-040: Nested tool activity survives transcript reload
 - **Preconditions**: Provider configured; project open; a turn can contain
   progress text, multiple search/tool/thinking items, and a failed or denied tool.
-- **Steps**: 1) In Detailed, stream progress paragraph A, a multi-item search
-  segment, progress paragraph B, and a multi-item command segment. 2) Inspect the
-  open whole process and active group; manually close the active group while more
-  output arrives. 3) Complete the turn and inspect untouched versus user-owned
-  groups. 4) Open one completed group and one item, copy its output, close and
-  reopen the group, then open a sibling group independently. 5) Repeat with a
-  singleton item and with the last activity group's literal final item set to a
-  tool/search, thinking, failed tool, and denied tool. 6) Switch to Compact and
-  inspect the active-thinking, failure/recovery and completed states. 7) Remount
-  rows within the retained pane, then reload the renderer and reopen the session.
-- **Expected**: Both modes use one whole-process disclosure and keep the trailing
-  answer outside it. Detailed keeps active and completed processes open; the
-  active multi-item group opens, then closes on completion only if untouched.
-  Compact starts processes/groups and all payloads closed, hides reasoning text,
-  and keeps an untouched active process open after a failed/denied tool through
-  later recovery. A singleton has no group wrapper. Detailed auto-opens a payload
-  only when the literal final item of the last activity group is an eligible
-  tool/search; it never scans backward past thinking, and failure/denial guards
-  keep that leaf closed. Parent, child and sibling choices are independent;
-  closing/reopening a parent preserves descendants, and streaming/completion does
-  not override user-owned choices. Retained-pane remounts preserve choices;
-  renderer restart reapplies defaults while tool names, arguments, results and
-  statuses remain restored. Group/process headers show bounded running and issue
-  summaries without marking the whole turn failed.
+- **Steps**: 1) Stream progress paragraph A, a multi-item search segment,
+  progress paragraph B, and a multi-item command segment with adjacent Bash rows.
+  2) Inspect the open active group; manually close it while more output arrives.
+  3) Complete the turn and confirm exactly one process disclosure owns every
+  pre-answer row; close it and confirm the groups and run rows close with it, then
+  reopen and confirm the group choice returns. 4) Open one completed group and one
+  item, copy its output, close and reopen the group, then open a sibling group
+  independently. 5) Switch `Transcript display` across Flat, Commands first, and
+  Fully folded and inspect the grouping, group boundaries, where the run rows
+  render, and the disclosure count. 6) Repeat with a singleton item and with the
+  last activity group's literal final item set to a tool/search, thinking, failed
+  tool, and denied tool. 7) Toggle `Show thinking` off and on and inspect the
+  active-thinking, failure/recovery and completed states. 8) Remount rows within
+  the retained pane, then reload the renderer and reopen the session.
+- **Expected**: A turn renders exactly one process disclosure containing every
+  pre-answer row, the `Bash`/run rows included; the trailing answer, assistant
+  errors and stopped trailing text stay outside it, as do pending actions. The
+  active group stays open while the turn runs. After completion, ordinary groups
+  with at most four visible items and Task topology groups remain open; larger
+  ordinary groups start closed. Closing the turn's disclosure hides groups and
+  run rows under it, and reopening restores their defaults and explicit user
+  choices. In
+  Fully folded (the default), run rows stay inside their groups and only ordinary
+  assistant progress text splits a group. In Commands first, run rows render as
+  their own rows beside the groups, adjacent calls stay separate, a row's detail
+  stays closed until opened, and a normal assistant progress message or a command
+  ends a group. In Flat, no nested group renders and the rows keep transcript
+  order inside the outer disclosure. Every mode keeps the disclosure count at one.
+  A singleton has no group wrapper. No item payload opens itself except the
+  display mode's Thinking default: a tool/search row stays a header until the user
+  opens it, while a final thinking item never selects an earlier tool. The header
+  reports `Running`, `Finished`, `Stopped`, or `Failed` with failure and stop
+  outranking a normal finish, reads `Thinking` while the live step is reasoning,
+  never repeats the current command, and omits the duration when none was
+  recorded. When `Show thinking` is off, no completed reasoning row renders; only
+  the live TextShimmer `Thinking` indicator remains while reasoning streams, and
+  turning it back on restores the completed rows. Parent, child and sibling
+  choices are independent; closing/reopening a parent preserves descendants, and
+  streaming/completion does not override user-owned choices. Retained-pane
+  remounts preserve choices; renderer restart reapplies defaults while tool names,
+  arguments, results and statuses remain restored. Group headers show bounded
+  running and issue summaries without marking the whole turn failed.
 - **Specs linked**: `04-ux/01-ui-ia.md`,
   `04-ux/07-ui-design-system.md`, `04-ux/08-component-spec.md`,
   `04-ux/09-interaction-patterns.md`
 - **Acceptance**: C (chat stream), E (tools), F (persistence)
 - **Milestone**: M3
-- **Status**: Draft. For the 2026-09-20 nested-disclosure change, this scenario is
-  intended behavior for static source/design review only; no unit, component,
-  integration, browser, Electron or E2E test is added or run by that scoped task.
+- **Status**: Draft. Unit and style checks cover the display modes, Thinking
+  defaults and header rules; this scenario remains the intended manual
+  transcript-reload behavior.
 
 #### E2E-041: Conversation minimap navigates long transcripts
 
@@ -3157,12 +3890,12 @@ identify the platform validation still needed.
 #### E2E-022C: Check, pack, install round-trip
 
 - **Preconditions**: A scaffolded plugin directory.
-- **Steps**: 1) `pnpm pi-plugin check <dir>`. 2) Delete the file named by `main` and run `check` again. 3) Restore it, declare `contributes.skills` without `agent.prompt.inject`, and run `check` again. 4) `pnpm pi-plugin pack <dir>`. 5) Install the resulting `.piplug` from the plugins page. 6) Ask the agent to run `PluginCheck` and `PluginPack` on the same directory.
-- **Expected**: A scaffolded plugin checks clean and reports its file count and size; the missing `main` is an error that blocks `pack`; the inert-skills case is a warning that does not block; `pack` writes `dist/<id>-<version>.piplug` with store-only entries and prints its sha256; the package installs through the normal permission review and appears under Active; the agent tools produce the same verdicts and refuse any directory outside the session workspace.
+- **Steps**: 1) `pnpm pi-plugin check <dir>`. 2) Delete the file named by `main` and run `check` again; repeat with the file named by `manifest.renderer` in a plugin that declares one. 3) Restore it, declare `contributes.skills` without `agent.prompt.inject`, and run `check` again. 4) `pnpm pi-plugin pack <dir>`. 5) Install the resulting `.piplug` from the plugins page. 6) Ask the agent to run `PluginCheck` and `PluginPack` on the same directory.
+- **Expected**: A scaffolded plugin checks clean and reports its file count and size; the missing `main` or `manifest.renderer` entry is an error that blocks `pack`; the inert-skills case is a warning that does not block; `pack` writes `dist/<id>-<version>.piplug` with store-only entries and prints its sha256; the package installs through the normal permission review and appears under Active; the agent tools produce the same verdicts and refuse any directory outside the session workspace.
 - **Specs linked**: `07-plugins/10-plugin-devex.md` §5–§6, `07-plugins/06-plugin-packaging.md`, ADR 0039
 - **Acceptance**: G (local packaging round-trip)
 - **Milestone**: Post-MVP
-- **Status**: Automated in part (`packages/plugin-devkit` vitest: scaffold→check→pack per template, store-method headers, every check rule); install step Documented
+- **Status**: Automated in part (`packages/plugin-devkit` vitest: scaffold→check→pack per template, store-method headers, every check rule, and a parity test that pins the `permission.high-risk` list to the permissions matrix's high rows); install step Documented
 
 #### E2E-023: Plugin command in global search and executes
 
@@ -3173,6 +3906,24 @@ identify the platform validation still needed.
 - **Acceptance**: G (plugin command appears and executes)
 - **Milestone**: M4
 - **Status**: Draft
+
+#### E2E-PLUGIN-command-ownership: Command registration respects plugin ownership
+
+- **Preconditions**: Two plugins run in separate plugin host processes.
+- **Steps**: 1) Register a command from one plugin. 2) Attempt to replace and
+  unregister it from the other plugin. 3) Update and unregister it from the
+  owner. 4) Repeat with a load-time collision and concurrent registrations.
+- **Expected**: Cross-plugin replacement rejects with `CONFLICT`; cross-plugin
+  removal rejects with `PERMISSION_DENIED`. Rejected calls leave the original
+  handler runnable. Same-owner updates preserve the ID; repeated removal is
+  harmless; released IDs can be reused. A failed plugin load or unloading a
+  losing registrant does not remove the winning command. Concurrent calls
+  admit exactly one owner.
+- **Specs linked**: `07-plugins/03-plugin-api.md`, `07-plugins/12-plugin-ipc-and-host-services.md`
+- **Acceptance**: G (plugin command isolation)
+- **Milestone**: M4
+- **Status**: Automated — `pnpm test:e2e:plugin-command-ownership` exercises
+  the public plugin API through real plugin host processes and the host broker.
 
 #### E2E-024: Plugin registers and calls agent tool
 
@@ -3195,39 +3946,55 @@ identify the platform validation still needed.
 
 - **Focus regression**: In light and dark themes, open a marketplace card and press Escape. Like pointer dismissal, Escape leaves no line or focus ring on the card. Then use Tab and Shift+Tab: the detail button shows a complete, unclipped ring, and Install remains separately focusable. Automated focus-state regression: `node scripts/e2e-plugin-detail-focus.mjs`; verify the rendered ring visually.
 
-#### E2E-024F: Refresh official remote marketplace repository
+#### E2E-PLUGIN-reviews-public-reads: Public ratings and reviews stay read-only in the desktop
 
-- **Preconditions**: Network available to GitHub raw content.
-- **Steps**: 1) Open Extensions → Marketplace. 2) Use the header Refresh marketplace action. 3) Confirm the source line names the official channel (`plugins.aiuo.net`) and that the GitHub and CNB backups are selectable.
-- **Expected**: Catalog refreshes from the selected channel; card grid updates; offline fallback still works if fetch fails.
+- **Preconditions**: Extensions reachable with at least one installed and one marketplace plugin the centre knows, plus a second run against a centre that has no review API.
+- **Steps**: 1) Open Extensions → Installed and, without visiting Marketplace, confirm a published plugin's card shows a rating chip only when the centre returned a summary. 2) Open a marketplace card's detail sheet and read the ratings summary between Permissions and Versions; press "See all reviews". 3) In the drawer, filter by sentiment and switch between newest and most helpful; page with Load more. 4) Inspect the composer: it is disabled, and its one action is the link to the plugin centre page. 5) Press Escape once (only the drawer closes) and again (the sheet closes). 6) Reopen the sheet and confirm the drawer left its scroll position untouched. 7) Repeat against the centre without review support and read the summary.
+- **Expected**: Installed and marketplace ids are batched into one summary read that never requires a Marketplace refresh; an unavailable centre shows no fabricated zeros, and the detail summary says ratings are unavailable — while the review entry stays reachable and the drawer retries its own list, so its disabled composer and its web link (official fallback until the host reports `reviewUrl`) are never lost; a successful summary read replaces the ratings for the ids just requested, so a plugin the centre stops serving loses its stale rating chip; the chip rides the card's existing metadata line and adds no row; the drawer covers the mounted detail sheet, keeps its scroll position, closes on the first Escape only, returns focus to its opener (Escape claims the key with preventDefault/stopPropagation; the covered sheet is inert and Tab is trapped inside the drawer), appends pages deduplicated by review id, and drops an answer for a filter the user already left; a review's version reads as user-reported, never as an installed version; the composer accepts no input, and the only write path is the real link opened through `browserOpenExternal` in the system browser on a primary or middle click (right-click stays with the platform menu), with a failed open reported as a toast; no sign-in, vote, report, or review-writing UI exists in any locale.
+- **Specs linked**: `07-plugins/07-plugin-marketplace.md` §7, `07-plugins/14-plugin-roadmap.md`
+- **Acceptance**: G (Extensions page) + Security
+- **Status**: Automated fixture (`node scripts/e2e-plugin-reviews-drawer.mjs`: three probes — full path with card chip, section order, paging/dedup, filter stale-drop, error+retry, link href/middle-click-only/failure toast, Tab trap + inert, Escape/focus/scroll restoration; stale-summary replacement; unavailable-summary drawer entry + retry + fallback link) plus unit-covered (`plugin-reviews-logic.test.mjs`, `plugin-reviews-surface.test.mjs`)
+
+#### E2E-024F: Refresh the official marketplace catalog
+
+- **Preconditions**: Network available to `plugins.aiuo.net`.
+- **Steps**: 1) Open Extensions → Marketplace. 2) Use the header Refresh marketplace action. 3) Confirm the official catalog refreshes and the card grid updates.
+- **Expected**: The marketplace uses `plugins.aiuo.net/catalog.json`; the page has no source selector; the cached official catalog remains available if refresh fails.
 - **Specs linked**: `07-plugins/07-plugin-marketplace.md`
 - **Acceptance**: G (remote marketplace source)
 - **Status**: Documented / host-core unit covered
 
-#### E2E-024P: Switch the marketplace catalog source
+#### E2E-024P: The marketplace ignores legacy source settings
 
-- **Preconditions**: Network available to `plugins.aiuo.net`, `raw.githubusercontent.com`, and `cnb.cool`.
-- **Steps**: 1) Open Extensions → Marketplace on a clean profile and confirm the source line reads Official channel. 2) Switch to GitHub backup, then CNB backup, then Custom with a URL, then back to Official channel. 3) After each switch, confirm the catalog refreshes in the same surface. 4) Install a plugin from the official channel, then one from the CNB backup. 5) Choose Custom URL with an empty value.
-- **Expected**: A fresh profile opens on the official channel, whose catalog comes from `plugins.aiuo.net/catalog.json`; the four choices are labelled Official channel / GitHub backup / CNB backup / Custom in that order; switching triggers a refresh and reports the new plugin count; the source selector remains the only source-status control, with no redundant provider explanation or active-source status line; the official install resolves through the platform while the CNB install downloads from the mirror and passes the same shasum verification as before, so the two backup paths are unchanged; switching back to a source reuses its cached snapshot instead of deleting it and never rounds trips; the installed record names the channel the plugin came from; choosing Custom URL with an empty value falls back to the official default rather than an empty endpoint.
+- **Preconditions**: Profiles can be seeded with legacy `pluginMarketSource` values `github`, `mirror`, and `custom`, including a custom URL. Network or a local request stub is available for the official catalog.
+- **Steps**: 1) Start the app with each seeded profile. 2) Open Extensions → Marketplace and refresh. 3) Inspect the catalog request. 4) Install a published plugin from the marketplace.
+- **Expected**: The page has no source controls; every profile requests `https://plugins.aiuo.net/catalog.json` and ignores the persisted source and custom URL; install uses the official platform resolve path, with the official catalog URL as the verified fallback; legacy settings remain readable and require no migration.
 - **Specs linked**: `07-plugins/07-plugin-marketplace.md` §2
 - **Acceptance**: G (remote marketplace source)
 - **Status**: Documented / host-core unit covered
 
-#### E2E-024Z: Windows localized curl diagnostics stay readable
+#### E2E-024Z: Windows curl handles offline revocation checks and localized errors
 
-- **Preconditions**: Windows x64 host. The official catalog request is forced
-  to fail with a localized, non-UTF-8 curl/Schannel diagnostic (a deterministic
-  fake curl in the test PATH may emit GBK stderr and exit 35).
-- **Steps**: 1) Select Extensions → Marketplace with GitHub (official) as the
-  source. 2) Refresh the marketplace. 3) Inspect the error toast. 4) Switch to
-  the CNB mirror and refresh again.
-- **Expected**: The failed request remains a `PLUGIN_NETWORK` failure and
-  retains the readable localized diagnostic without Unicode replacement
-  characters; switching to the mirror can refresh the catalog normally.
+- **Preconditions**: Windows x64 host with curl built against Schannel. For the
+  offline-revocation case, use a proxy route that can reach the HTTPS fixture
+  while its certificate revocation distribution point is unavailable. For the
+  diagnostic case, force the catalog request to fail with localized, non-UTF-8
+  curl output (a deterministic fake curl may emit GBK stderr and exit 35).
+- **Steps**: 1) Open Extensions → Marketplace. 2) Refresh the catalog and
+  install a package through the system proxy while the revocation distribution
+  point is offline. 3) Confirm the installed curl advertises
+  `--ssl-revoke-best-effort` and inspect the verified package. 4) Force a
+  localized curl/Schannel failure, refresh again, and inspect the error toast.
+- **Expected**: When the installed Schannel curl supports the option, catalog
+  and package requests tolerate an unavailable revocation distribution point
+  without disabling certificate verification; package size and SHA-256 checks
+  still gate installation. A real network/TLS failure remains
+  `PLUGIN_NETWORK`, with localized diagnostics readable and no Unicode
+  replacement characters.
 - **Specs linked**: `07-plugins/07-plugin-marketplace.md`,
-  `03-runtime/07-process-model.md`
+  `03-runtime/07-process-model.md`, ADR 0177
 - **Acceptance**: G (remote marketplace source)
-- **Status**: Documented / host-core unit covered; Windows rendered validation pending
+- **Status**: Documented; host-core unit covered; Windows proxy/TLS validation pending
 
 #### E2E-024B: Marketplace install with permission review
 
@@ -3238,19 +4005,19 @@ identify the platform validation still needed.
 - **Acceptance**: G (marketplace install + permission review)
 - **Status**: Documented / host-core covered by unit tests + protocol methods
 
-#### E2E-024R: Install a center-published plugin from the unchanged distribution source
+#### E2E-024R: Install a center-published plugin from the official marketplace
 
 - **Preconditions**: A `schemaVersion: 2` catalog served from the distribution repository, with one plugin carrying provenance and an approved review verdict, its package under `packages/`. A second fixture declares `artifactBaseUrl` for the mirror/enterprise case.
-- **Steps**: 1) Keep the marketplace source at its default. 2) Open a plugin's detail sheet. 3) Read the Source section. 4) Install the selected version. 5) Switch to the CNB mirror and repeat the install. 6) Repeat against the fixture that declares a base.
-- **Expected**: No settings change or client update is needed to see center-published plugins, because the catalog URL is unchanged; the relative package URL resolves against the catalog directory, so GitHub serves it from `raw.githubusercontent.com` and the mirror from `cnb.cool` with an identical checksum; a declared `artifactBaseUrl` takes precedence when present; the detail sheet shows the source repository, commit, and builder before install; the installed record keeps publisher, trust tier, and source pin.
+- **Steps**: 1) Open a plugin's detail sheet. 2) Read the Source section. 3) Install the selected version through the official resolve path. 4) Repeat with a local resolve stub that returns no source, exercising the official catalog URL fallback and an `artifactBaseUrl` fixture.
+- **Expected**: Center-published plugins appear in the fixed official catalog; the detail sheet shows the source repository, commit, and builder before install; resolve mirror bytes match the platform digest, while catalog fallback bytes match the catalog digest; the installed record keeps publisher, trust tier, and source pin.
 - **Specs linked**: `07-plugins/07-plugin-marketplace.md`, `07-plugins/15-plugin-center.md`
 - **Acceptance**: G (publisher-owned source distribution)
 - **Status**: Documented / host-core covered by unit tests
 
 #### E2E-024S: Package host allowlist refuses an untrusted download
 
-- **Preconditions**: A catalog fixture whose version URL points at a host outside the allowlist, plus one with embedded credentials and one on plain HTTP.
-- **Steps**: 1) Refresh the marketplace. 2) Inspect the plugin card and detail sheet. 3) Attempt an install. 4) Repeat with a private catalog whose packages sit on its own host.
+- **Preconditions**: An isolated host-core test uses `PI_DESKTOP_PLUGIN_MARKET_URL` to load a catalog fixture whose version URL points at a host outside the allowlist, plus fixtures with embedded credentials and plain HTTP.
+- **Steps**: 1) Refresh the fixture catalog. 2) Inspect the plugin card and detail sheet. 3) Attempt an install. 4) Repeat with a private catalog whose packages sit on its own host.
 - **Expected**: The row does not offer an install action for an off-allowlist URL; an attempted install fails with `PLUGIN_MARKET_UNTRUSTED_HOST` naming the rejected host before any request leaves the machine; a credentialed URL and non-loopback plain HTTP are refused the same way; a private catalog can still serve packages from the host that served it, without widening the allowlist for third-party hosts.
 - **Specs linked**: `07-plugins/07-plugin-marketplace.md`, `07-plugins/04-plugin-security.md`
 - **Acceptance**: G (marketplace download boundary)
@@ -3267,8 +4034,8 @@ identify the platform validation still needed.
 
 #### E2E-024U: Trust tier and host version bound are enforced by the client
 
-- **Preconditions**: A custom-source catalog claiming `trust: "verified"`, a catalog with an unrecognised tier, and a version whose `minPiDesktop` exceeds the running host.
-- **Steps**: 1) Point the marketplace at the custom source. 2) Inspect the card and detail sheet badges. 3) Attempt to install the version pinned to a newer host. 4) Repeat with a `minPiDesktop` that is a range expression rather than a version.
+- **Preconditions**: Test runs use `PI_DESKTOP_PLUGIN_MARKET_URL` for a catalog claiming `trust: "verified"`, a catalog with an unrecognised tier, and a version whose `minPiDesktop` exceeds the running host.
+- **Steps**: 1) Load the fixture catalog. 2) Inspect the card and detail sheet badges. 3) Attempt to install the version pinned to a newer host. 4) Repeat with a `minPiDesktop` that is a range expression rather than a version.
 - **Expected**: A `verified` claim from a non-official source renders as community with no shield; an unrecognised tier renders as unknown; the version requiring a newer host is not offered and an explicit install fails with `PLUGIN_HOST_TOO_OLD` naming both versions; an unparseable bound is ignored rather than making the plugin uninstallable.
 - **Specs linked**: `07-plugins/07-plugin-marketplace.md`, `07-plugins/15-plugin-center.md`
 - **Acceptance**: G (trust presentation)
@@ -3318,7 +4085,7 @@ identify the platform validation still needed.
 
 - **Preconditions**: At least one enabled plugin, one disabled plugin, and one plugin whose load failed.
 - **Steps**: 1) Open Extensions → Installed while plugin changed events are arriving in a burst. 2) Read the tab and group counts. 3) Confirm the failed plugin sits under Needs attention with its error message. 4) Search by author and by permission. 5) Clear the search.
-- **Expected**: The page remains usable during transient host backpressure: identical plugin and extension registry refreshes coalesce, and renderer-facing RPC calls retry explicit `HOST_OVERLOADED` responses with bounded backoff before surfacing an error. Rows group as Needs attention / Updates available / Active / Turned off with counts; `status: "error" | "load_error"` renders the error message inline instead of being silent; each row defaults to a two-line name/id/version summary, while a Details disclosure reveals risk-tinted permission chips, capabilities, and resident service status; the single scope trigger opens explained Off / This project / Everywhere choices and the project picker; row icon actions expose hover/focus labels; the result count reflects the filtered subset and clearing restores every group.
+- **Expected**: The page remains usable during transient host backpressure: identical plugin and extension registry refreshes coalesce, and renderer-facing RPC calls retry explicit `HOST_OVERLOADED` responses with bounded backoff before surfacing an error. Plugins group as Needs attention / Updates available / Active / Turned off with counts; `status: "error" | "load_error"` renders the error message inline instead of being silent; each plugin is a card in an auto-filling grid, defaulting to a quiet name/id/version summary (plus a rating chip when the centre has one), while a Details disclosure reveals risk-tinted permission chips, capabilities, and resident service status; the single scope trigger opens explained Off / This project / Everywhere choices and the project picker; card icon actions expose hover/focus labels; the result count reflects the filtered subset and clearing restores every group.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `07-plugins/13-plugin-permissions-matrix.md`
 - **Acceptance**: G (installed plugin management)
 - **Status**: Documented
@@ -3369,6 +4136,25 @@ window; opening a normal panel afterward must still work.
 - **Acceptance**: Security + G (plugin host services)
 - **Status**: Unit/integration-covered; real drag gesture remains manual
 
+#### E2E-PLUGIN-fetch-redirect-policy
+
+- **Preconditions**: Current-main task candidate, built workspace packages,
+  real Node plugin child process and two loopback HTTP fixtures; no real user
+  profile, provider or credentials.
+- **Steps**: Load the example probe plugin and invoke its `probe.fetch` operation
+  through the production panel bridge. Query capabilities, request error/manual/
+  follow, and repeat against the injected single-hop transport. Exercise invalid
+  modes, missing grants, disallowed targets, relative/missing Location, loops,
+  and timeout. Test 301/302/303/307/308 and default compatibility.
+- **Expected**: Error returns REDIRECT_DISALLOWED and manual returns the original
+  response, both with zero target requests. Follow reaches the target only after
+  egress authorization. Error codes survive child IPC; refusals are audited.
+- **Specs linked**: `07-plugins/03-plugin-api.md`, `07-plugins/04-plugin-security.md`
+- **Acceptance**: G + Security
+- **Milestone**: Post-MVP plugin API
+- **Status**: Automated protocol E2E via `pnpm test:e2e:plugin-fetch-redirect`.
+  The sample panel's native-window gesture remains manual; no desktop is attached.
+
 #### E2E-024E: High-risk plugin APIs require grants
 
 - **Preconditions**: Notes plugin installed with explicit grants.
@@ -3417,7 +4203,7 @@ window; opening a normal panel afterward must still work.
 
 - **Preconditions**: A marketplace/package-installable `examples/plugins/hello` variant (`demo.hello`) whose `midnight` theme CSS references a declared package-relative image at `art/preview.png`; a plugin with CSS using `@import` or remote `url()` for rejection plus a comment-only variant; an asset theme with `windowAppearance` variants with and without `ui.window.appearance`, including `cornerRadius: 0` and an invalid value above 24.
 - **Steps**: 1) Install the packaged Hello variant from Marketplace or its `.piplug` package and select `Hello Midnight` in Settings → General → Theme. 2) Restart the app. 3) Disable the providing plugin. 4) Re-enable it, then uninstall it. 5) Load the plugin with unsafe CSS. 6) Load the comment-only variant. 7) Select the asset variant's theme on Windows/Linux and on macOS, verify the package-relative image renders through `plugin-asset:` in the shell and the plugin's panel, and load a sheet with an undeclared package-relative `url()` to verify it is refused. 8) Deselect its theme after removing `ui.window.appearance`.
-- **Expected**: The packaged plugin installs successfully with its relative image resolved inside the plugin root; its theme appears in the picker alongside the built-ins and applies immediately, with the image served through `plugin-asset:`; the choice survives restart as `plugin:demo.hello:midnight`; disabling or uninstalling the provider falls back to `system` instead of an unstyled shell; unsafe CSS is refused at load with the reason logged and no `<style>` element injected; the comment-only sheet loads and contributes its theme, because the sanitizer only inspects CSS the browser would apply; the declared asset paints through `plugin-asset:` in the shell and in the plugin's own panel, an undeclared reference is refused with the reason logged, the declared background colours the native window on Windows/Linux and is never sent on macOS, and `cornerRadius: 0` makes only the Windows main window rectangular while the authorized theme is selected. Deselecting the theme or dropping the grant restores the host background and 4 DIP Windows corners; a radius above 24 rejects without changing the window. The whole shell follows the theme, including the work-panel column, its header, and the browser/file viewer strips, all of which read `--ds-bg-dock` / `--ds-bg-dock-raised` rather than a literal.
+- **Expected**: The packaged plugin installs successfully with its relative image resolved inside the plugin root; its theme appears in the picker alongside the built-ins and applies immediately, with the image served through `plugin-asset:`; the choice survives restart as `plugin:demo.hello:midnight`; disabling or uninstalling the provider falls back to `system` instead of an unstyled shell; unsafe CSS is refused at load with the reason logged and no `<style>` element injected; the comment-only sheet loads and contributes its theme, because the sanitizer only inspects CSS the browser would apply; the declared asset paints through `plugin-asset:` in the shell and in the plugin's own panel, an undeclared reference is refused with the reason logged, the declared background colours the native window on Windows/Linux and is never sent on macOS, and `cornerRadius: 0` makes only the Windows main window rectangular while the authorized theme is selected. Deselecting the theme or dropping the grant restores the host background and the global 12 DIP `--radius-md` Windows corners; a radius above 24 rejects without changing the window. The whole shell follows the theme, including the work-panel column, its header, and the browser/file viewer strips, all of which read `--ds-bg-dock` / `--ds-bg-dock-raised` rather than a literal.
 - **Specs linked**: `07-plugins/02-plugin-manifest-schema.md`, `07-plugins/04-plugin-security.md` §3.1, `04-ux/07-ui-design-system.md`, D175
 - **Acceptance**: G (theme contribution) + Security
 - **Status**: Unit-covered (`plugin-themes.test.mjs`, `theme-css` SDK tests, host-core package-relative asset/install tests). `test:e2e:window-controls` selects an authorized test plugin theme with `cornerRadius: 0` and returns to a built-in theme, verifying the native shape follows both choices. The broader asset visual scenario remains Draft.
@@ -3451,7 +4237,7 @@ window; opening a normal panel afterward must still work.
 
 #### E2E-MCP-pi-client-owner-policy: Pi protocol under existing Desktop owners
 
-- **Preconditions**: Pi 1.0.1 with the pinned host-policy patch; offline stdio and
+- **Preconditions**: Pi 1.1.0 with the pinned host-policy patch; offline stdio and
   HTTP fixtures, no paid provider or user credentials.
 - **Steps**: Run `plugin-mcp.test.mjs`, `user-mcp.test.mjs`,
   `mcp-stdio-launch.test.mjs`, `mcp-call-registry.test.mjs`, `mcp-oauth.test.mjs`,
@@ -3525,11 +4311,14 @@ window; opening a normal panel afterward must still work.
   the compact two-tier header presents the extension mark/title and contextual
   action rail below the native window-control band, then confirm the Installed and Marketplace tabs are the only tabs and both reach the content
   without a four-card numeric overview band or explanatory header/section
-  paragraphs. 3) Confirm installed rows begin
-  as a quiet two-line summary, then expand Details on one row and inspect its
-  capabilities, service status, and permissions. 4) Use the compact scope
-  control and its explained scope menu, contextual primary action, and a
-  secondary update/action button. 5)
+  paragraphs. 3) Confirm installed plugins are cards in an
+  auto-filling grid — cards keep their width above 340px and collapse below —
+  then expand Details on one card and inspect its capabilities, service status,
+  and permissions. 4) Use the compact scope
+  control and its explained scope menu, the card's one call to action (Update to
+  the available version, or Open panel), and the 28px settings and overflow icon
+  actions; widen and narrow the window to see the rail wrap at the card's left
+  edge rather than clip. 5)
   Switch to light theme and repeat. 6) Keyboard-focus the Details disclosure,
   scope states, and each action.
 - **Expected**: The four numeric overview cards are absent; the header uses a
@@ -3538,10 +4327,11 @@ window; opening a normal panel afterward must still work.
   installed group counts, and any update alert remain available in their
   relevant surfaces. The page header, section headers, empty states, and update
   alert use compact labels and actions; decision-specific explanations remain
-  in disclosures, details, and dialogs. Installed rows keep their default height low while the
+  in disclosures, details, and dialogs. Cards keep their default height low while the
   disclosure exposes the complete secondary readout. The scope trigger stays
-  aligned with the row action rail, its menu explains each state, and icon
-  actions remain visible at rest while showing labels on hover and focus.
+  aligned with the card's control rail, its menu explains each state, and icon
+  actions remain visible at rest while showing labels on hover and focus; a
+  disabled card shows no primary action and no settings icon.
   Primary and secondary buttons keep
   visible semantic surfaces, text, borders, hover states, and focus rings in
   both themes, and keyboard focus does not depend on pointer hover.
@@ -3549,7 +4339,8 @@ window; opening a normal panel afterward must still work.
   `07-plugins/07-plugin-marketplace.md`, ADR 0058, D196
 - **Acceptance**: G (Extensions page) + Quality
 - **Status**: Unit-covered (`extensions-page.test.mjs`,
-  `plugins-page-style.test.mjs`); visual scenario Draft
+  `plugins-page-style.test.mjs`, `plugin-reviews-surface.test.mjs`);
+  visual scenario Draft
 
 #### E2E-024O: Marketplace hides development-only sample plugins
 
@@ -3814,11 +4605,12 @@ window; opening a normal panel afterward must still work.
   sidebar renders the derived `src/assets/brand/logo-*.png` asset through `BrandLogo`
   and the docked composer prompt row has no leading
   brand icon or reserved icon slot and its text aligns directly with the input
-  gutter. The right Composer toolbar shows a Bot model × reasoning chip, then
-  a standalone prompt-enhancement Sparkles button, then the single submit
-  slot. The footer Settings, Activity, and Plugins actions are compact icon
-  buttons; Plugins sits immediately to the right of Activity and exposes a
-  localized accessible name. Every scoped session-creation control uses the dedicated
+  gutter. The right Composer toolbar shows a Bot model × reasoning chip and
+  the single submit slot; an installed plugin may contribute text actions
+  between them. Without such a plugin no prompt-enhancement action appears.
+  The footer Settings and Plugins actions are compact icon buttons;
+  Plugins sits immediately to the right of Settings and exposes a localized
+  accessible name. Every scoped session-creation control uses the dedicated
   message-plus icon with localized labels and accessible names. `Codex` remains visible only as
   the external import-source label or in non-runtime design-reference text.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/07-ui-design-system.md`,
@@ -3937,30 +4729,39 @@ window; opening a normal panel afterward must still work.
 #### E2E-048b: Edit a logical project name and folder roots
 
 - **Preconditions**: One retained logical project is visible in the sidebar and
-  in Settings → Project archive; it has a primary folder and one additional
-  folder without chats.
+  in Settings → Project archive; it has a primary folder, one additional folder
+  promoted to primary during the scenario, and one other additional folder
+  without chats.
 - **Steps**: 1) Open the project's overflow menu in the sidebar and choose
-  Edit project. 2) Change the name, remove the additional folder, and add it
-  again with the native folder picker. 3) Confirm the Primary row cannot be
-  removed. 4) Save and inspect the sidebar row, Project archive roots, and
-  active workspace. 5) Restart the app and inspect the group again.
+  Edit project. 2) Change the name, use the extra folder's Set as Primary
+  action, and confirm that row moves to the top with the Primary tag while the
+  former primary becomes an ordinary row. 3) Remove the other additional folder
+  and add it again with the native folder picker. 4) Confirm the Primary row
+  cannot be removed. 5) Save and inspect the sidebar row, Project archive
+  roots, and active workspace. 6) Restart the app and inspect the group again.
 - **Background-update regression**: Open Edit project from Settings, change the
-  name and remove the additional folder, then complete a background task before
-  saving. Both draft edits must remain visible and save together. The isolated
-  rendered test is `node scripts/e2e-project-edit.mjs`; it uses real page/store
-  wiring with a controlled host IPC boundary and does not prove disk persistence.
+  name, promote another folder to primary, and remove the additional folder,
+  then complete a background task before saving. Every draft edit must remain
+  visible and save together. The isolated rendered test is
+  `node scripts/e2e-project-edit.mjs`; it uses real page/store wiring with a
+  controlled host IPC boundary and does not prove disk persistence.
 - **Expected**: Both project menus offer Edit project. The editor keeps focus
-  contained, trims the name, limits it to 80 Unicode characters, preserves the
+  contained, trims the name, limits it to 80 Unicode characters, keeps the
   Primary folder as the first row, and updates the root count without removing
-  another row. Saving persists one logical group with the adjusted roots; the
-  name survives restart, while normalized paths, workspace identity, sessions,
-  and on-disk folders remain unchanged.
+  another row. Promoting a member folder makes it the first row and the stored
+  primary root, so the project opens there afterwards; a folder outside the
+  saved roots is never accepted as primary, and a remote project keeps its
+  host-owned binding unchanged. Saving persists one logical group with the
+  adjusted roots; the name and the promoted primary folder survive restart,
+  while the group's sessions, transcripts, and on-disk folders remain
+  unchanged.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/08-component-spec.md`,
   `04-ux/09-interaction-patterns.md`
 - **Acceptance**: D (workspace identity), F (local presentation persistence)
 - **Milestone**: M5
 - **Status**: Unit-covered (`project-edit.test.mjs`,
-  `sidebar-preferences.test.mjs`); rendered scenario Draft
+  `sidebar-preferences.test.mjs`); rendered scenario Draft, with primary
+  promotion covered by `node scripts/e2e-project-edit.mjs`
 
 #### E2E-048c: Detach a project folder with chats and delete it
 
@@ -3968,9 +4769,9 @@ window; opening a normal panel afterward must still work.
   additional folder with at least one saved chat. All chats are idle.
 - **Steps**: 1) Open Edit project and remove the additional folder. 2) Save and
   inspect the remaining group and the standalone project row for the detached
-  folder. 3) Open the detached project's chat and confirm its transcript is
-  intact. 4) Delete the detached project using its two-click delete action.
-  5) Inspect the remaining group, project list, chat list, and folder on disk.
+  folder. 3) Open its chat and confirm the transcript is intact. 4) Choose
+  Delete for the detached project and explicitly confirm in the dialog. 5)
+  Inspect the remaining group, project list, chat list, and folder on disk.
 - **Expected**: Removing the folder from the group preserves its project row,
   chats, and transcripts, and exposes it as a standalone project. Future chats
   use the detached project's path-scoped context; shared instructions and
@@ -3989,19 +4790,22 @@ window; opening a normal panel afterward must still work.
 - **Preconditions**: One retained project contains more than ten durable
   sessions with distinct updated timestamps; the sidebar uses the default
   Recently updated sort; another retained project has ten or fewer sessions.
-- **Steps**: 1) Inspect the large project's session rows and count them. 2)
-  Select the **Load N more…** control. 3) Switch the sort to Name and inspect
-  the same group before expanding. 4) Restart the app and inspect the group
-  again.
+- **Steps**: 1) Inspect the large project's session rows and count them. Check
+  rows with recent and older replies. Hover a row, then focus one with the
+  keyboard. 2) Select the **Load N more…** control. 3) Switch the sort to Name
+  and inspect the same group before expanding. 4) Restart the app and inspect
+  the group again.
 - **Expected**: The group shows exactly ten session rows by default plus a
-  **Load N more…** control (N = remaining session count) styled like the
-  time-grouped overflow; the ten rows are the first rows in the active sort
-  order, so pinned rows are never pushed behind unpinned rows and a Name sort
-  folds everything after the first ten alphabetically; selecting Load more
-  expands the full time-grouped list (Yesterday/Previous 7 days/Previous 14
-  days/Older headers appear as applicable) and the control disappears;
-  expansion is per group and resets on restart (not persisted); the project
-  with ten or fewer sessions shows no fold control.
+  **Load N more…** control (N = remaining session count); there are no time-group
+  headers. Every row places the title before a divider and the localized last
+  reply date. Replies within seven calendar days show an exact relative day
+  (including 0–7 days); older replies show a concrete localized date. Hovering
+  or focusing a row hides its date and reveals the session action. The ten rows
+  are the first rows in the active sort order, so pinned rows are never pushed
+  behind unpinned rows and a Name sort folds everything after the first ten
+  alphabetically; selecting Load more expands the flat list and the control
+  disappears. Expansion is per group and resets on restart (not persisted); the
+  project with ten or fewer sessions shows no fold control.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/09-interaction-patterns.md`
 - **Acceptance**: C (session organization)
 - **Milestone**: M5
@@ -4073,8 +4877,9 @@ window; opening a normal panel afterward must still work.
   Native range dragging
   follows immediately; arrow keys retain focus and update the selection.
   With reduced motion enabled, the target is shown without a transition.
-- **Expected**: The chip is in the right toolbar with a Bot icon, before the
-  standalone prompt-enhancement Sparkles action and Send/Abort; Off omits the
+- **Expected**: The chip is in the right toolbar with a Bot icon; any
+  explicitly installed plugin text actions appear after it and before
+  Send/Abort. The host has no built-in prompt-enhancement action. Off omits the
   level text. The single anchored menu replaces its root
   with an in-place back row and submenu, never opens tabs or a second popover,
   and always reopens at the root. Model search filters sticky provider groups;
@@ -4205,27 +5010,38 @@ window; opening a normal panel afterward must still work.
   context. 2) Open two distinct file artifacts, the same first file again,
   a URL preview, and a completed Bash row. 3) Verify the header is a tablist:
   open enough tabs to overflow it, confirm only the strip scrolls and the `+`
-  trigger stays visible, activate the scrolled-away tab, and close tabs with
-  hover/focus `×` and middle-click. Drag a tab across another tab and verify
-  the before/after drop indicator, resulting order, and unchanged active tab;
-  hold a drag at each strip edge until hidden tabs scroll into view, then verify
-  the indicator follows the newly visible targets. Repeat with
-  `Alt+ArrowLeft`/`Alt+ArrowRight`. With only one or two tabs, drag unused
-  header space to move the native window; tab and action clicks must still
-  work without moving it. 4) Click `+` twice and verify each click
-  creates and activates a separate New launcher tab. Confirm the launcher body
-  contains Review plus each in-scope plugin view exactly once as clickable rows;
-  there is no work-panel dropdown or popup. Click Browser from one New tab and
-  confirm that tab opens the native plugin surface without changing its bounds.
-  5) Close
-  active middle and edge tabs and verify neighbor selection. Close the final
-  tab and confirm the panel remains open on the New launcher. 6) Use the
-  viewport-fixed work-panel toggle and trigger another artifact. 7) In session A,
-  leave the panel open with multiple
-  tabs and a Browser resource; switch to session B, create a different tab set,
-  then switch repeatedly between A and B and select a project without an active
-  conversation. Generate a background artifact in the non-visible session.
-  7) Drag the inner left-edge handle left and right across its bounds; verify
+  trigger stays visible, and activate the scrolled-away tab. Right-click an
+  inactive tab and choose Close Other Tabs; verify the pointed-to tab remains
+  and becomes active, and that the action is disabled with one tab. Reopen
+  multiple artifacts, then right-click and choose Close All Tabs; confirm the
+  panel remains open on the New launcher. Reopen resources before checking
+  hover/focus `×`, middle-click, drag reorder, insertion indicators, and edge
+  auto-scroll. Open a tab menu with Shift+F10, navigate its items with arrows,
+  and press Escape to leave the tabs unchanged. With only one or two tabs, drag
+  unused header space to move the native window; tab and action clicks must
+  still work without moving it.
+  4) Click `+` twice and verify each creates and activates a separate New
+  launcher tab. Confirm its body lists Review and each in-scope plugin view
+  exactly once. With 40 plugin views and long localized names, shrink the
+  window and narrow the panel: the New title stays pinned, the row list alone
+  scrolls, and 40px rows stay reachable by wheel, scrollbar, and Tab focus
+  (#2026). A quiet scrollbar thumb is visible before hover, its reserved
+  gutter prevents label shifts, and there is no horizontal overflow or scroll
+  chaining into the shell. Repeat with no explicit tab, a `+`-created New tab,
+  few/no plugins, and light/dark themes in English and Chinese. Activate the
+  last tool, close its view, and confirm the complete launcher returns.
+  Open Browser and confirm its native surface opens at unchanged
+  bounds. Open its context menu and verify the native popup appears above Browser
+  chrome while the page remains visible. With Browser active, right-click another
+  tab and confirm it still uses the native menu. Repeat at 50% and 150% app zoom;
+  the menu must remain anchored to the pointer. Escape closes it without hiding
+  the page or changing bounds. Close the window while a native menu is open and
+  confirm the pending request settles. 5) Close active middle/edge tabs, verify neighbor selection,
+  then close the final tab and confirm New remains. 6) Collapse/reopen the panel
+  and trigger an artifact. In session A, leave Browser open; switch to B and
+  create another tab set, then switch repeatedly between sessions and select a
+  project without an active conversation. Generate a background artifact. 7)
+  Drag the inner divider
   pointer-down does not jump the divider or resize the native window, cancel one
   gesture with Escape, then focus the handle and exercise Arrow/Shift+Arrow/Home/End.
   Commit a different panel width with Browser active, double-click the divider and
@@ -4241,7 +5057,11 @@ window; opening a normal panel afterward must still work.
   Move the normal window between displays and change the active display's
   work-area geometry. 12) Send valid and malformed reservation payloads,
   including positive values, and confirm the compatibility seam never changes
-  native bounds. 13) Relaunch.
+  native bounds. 13) Relaunch. 14) Open a contributed plugin view and reload
+  the main renderer with Cmd/Ctrl+R. Confirm the native view detaches before the
+  new renderer appears, then reopen its tab and verify the cached plugin page
+  returns. Repeat with a same-document navigation and a child-frame navigation;
+  neither may detach the active view.
 - **Expected**: Startup shows no panel, welcome chooser, or fixed tool buttons.
   A viewport-fixed toggle in the window's top-right corner is the pointer
   equivalent of Cmd/Ctrl+J; there is still no application-menu launcher.
@@ -4259,16 +5079,23 @@ window; opening a normal panel afterward must still work.
   scrollable tablist with stable `92px–180px` tabs, visible spacing, and a
   fixed `+`; labels stay readable instead of shrinking into one cluster, the
   strip alone scrolls, active tabs scroll into view, and close selects the
-  right neighbor then left. New launcher tabs expose Review and in-scope plugin
-  views as body buttons, with no popup to overlap or shift the panel. Dragging a
-  tab shows a before/after insertion indicator, edge-holding scrolls the strip
-  toward hidden tabs, and reorders only the tab array; the active resource stays
-  active. `Alt+ArrowLeft`/`Alt+ArrowRight` provides the same reorder path from
-  the focused tab. Clicking a launcher row replaces
-  that New tab with the destination or activates its existing singleton.
-  Closing the last tab leaves the panel open on New. Collapse
-  retains runtime tabs but hides the panel until another artifact reopens it.
-  Width follows the shared three-column budget with no fixed pixel cap and
+  right neighbor then left. A localized, keyboard-navigable tab context menu
+  offers Close Tab, Close Other Tabs, and Close All Tabs. Close Other Tabs
+  retains and activates its target and is disabled for one tab; Close All Tabs
+  closes Browser resources and leaves the panel open on New. For an active
+  Browser/plugin view, the tab context menu is a Main-owned native popup above
+  Browser chrome; the page stays visible and its bounds do not change. When
+  Browser is active, right-clicking another tab also selects this native path.
+  Native menu labels, order, and enabled states match the renderer menu, while
+  platform styling preserves the native-view z-order. Its position follows the
+  pointer at the current app zoom, and closing the window settles the request.
+  New launcher tabs expose Review and plugin views as body buttons, with no
+  overlapping popup. Dragging a tab shows a before/after insertion indicator;
+  edge-holding scrolls toward hidden tabs, and reordering leaves the active
+  resource unchanged. `Alt+ArrowLeft`/`Alt+ArrowRight` provides keyboard
+  reordering. Selecting a launcher row replaces New or activates its singleton.
+  Collapse retains runtime tabs while hiding the panel. Width follows the shared
+  three-column budget without a fixed pixel cap and
   previews its current/minimum/maximum values through the panel separator. The
   inner divider exposes the panel width to assistive technology and supports
   the documented keyboard steps. Pointer-down preserves the starting width,
@@ -4288,8 +5115,11 @@ window; opening a normal panel afterward must still work.
   that preferred panel width. The compatibility reservation seam returns
   `{requested: 0, reserved: 0}` for every valid request, including positive
   legacy values, and never changes native bounds. Malformed payloads fail with
-  `INVALID_ARGUMENT` and never coerce. The former context-panel overlay no
-  longer exists.
+  `INVALID_ARGUMENT` and never coerce. A full main-frame renderer reload
+  detaches the visible plugin view without closing its page, so no orphan
+  overlay covers the fresh renderer; reopening the tab reattaches that same
+  page. Same-document and child-frame navigation leave the view attached. The
+  former context-panel overlay no longer exists.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md`, `04-ux/01-ui-ia.md`,
   `04-ux/07-ui-design-system.md`, `04-ux/08-component-spec.md`,
   `04-ux/09-interaction-patterns.md`, ADR 0068, ADR 0151, ADR 0195, D207, D292,
@@ -4298,7 +5128,13 @@ window; opening a normal panel afterward must still work.
 - **Milestone**: M5
 - **Status**: Unit-covered (`work-panel-resize.test.mjs`,
   `work-panel-window.test.mjs`, `work-panel-presentation.test.mjs`,
-  `work-panel.test.mjs`); full UI scenario Draft
+  `work-panel-tabs.test.mjs`, `browser-tab-restore.test.mjs`,
+  `work-panel.test.mjs`, `plugin-work-panel-views.test.mjs`,
+  `plugin-view-navigation.test.mjs`, `work-panel-tab-menu.test.mjs`);
+  isolated Electron tab-menu, Browser native-menu page visibility, and close
+  geometry in `scripts/e2e-work-panel-tab-close.mjs`; launcher overflow,
+  native focus reveal, hit targets, and open/close user paths in
+  `node scripts/e2e-work-panel-launcher-overflow.mjs`; full UI scenario Draft
 
 #### E2E-057: Message-owned review history survives commits and rolls back safely
 
@@ -4339,6 +5175,62 @@ window; opening a normal panel afterward must still work.
 - **Milestone**: M5
 - **Status**: Unit-covered (`chat-review-entry.test.mjs`); full UI scenario Draft
 
+#### E2E-CHAT-turn-changed-files-summary: A finished turn lists the files it changed
+
+- **Preconditions**: A project-bound Agent session with a writable workspace.
+- **Steps**: 1) Ask the agent to create one file and edit another; watch the
+  turn while it streams. 2) After the reply finishes, inspect the area below
+  the answer: only the summary header is visible. Click it to expand, click
+  again to collapse, then focus it and repeat with Enter and Space. Confirm
+  hidden rows and the Review link cannot receive keyboard focus and the title
+  keeps its viewport anchor. 3) Ask for a change touching more than twelve files
+  across several directories; confirm its card starts collapsed independently.
+  Expand it. 4) Click a row, then the `View all N files in Review` link.
+  5) Roll back one file's change in Review and return to the turn.
+  6) Ask a question that writes no files. 7) Switch sessions and come back.
+- **Expected**: No summary appears while a turn streams or after a failed
+  turn. A finished turn that wrote workspace files shows one borderless
+  `Changes this turn` card below its answer and above plugin `entryExtra`
+  blocks. It starts collapsed with only its chevron, title, file count, and
+  summed `+`/`−` visible; directory counts remain visible for dense summaries.
+  The full-width header toggles with click, Enter, or Space, exposes its state
+  through ARIA, and leaves Review closed. Collapsed details occupy no space
+  and cannot receive focus. Each turn's explicit choice is independent and
+  survives ordinary rerenders. When expanded, each path appears once with
+  its merged status letter and counts; up to four files use relaxed rows,
+  more use dense rows with a directory count, and rows past 12 fold into
+  `+N more`. A row click opens the session's Review tab scrolled to that file
+  with its changes expanded; the link opens Review without expanding. The
+  rolled-back file stays listed, struck through. Every earlier finished turn
+  keeps its own card, a turn without writes has none, and a session switch
+  fetches nothing extra. The per-call review rows are unchanged.
+- **Specs linked**: `04-ux/08-component-spec.md` §4.4, D674
+- **Acceptance**: D (workspace), Quality
+- **Milestone**: M5
+- **Status**: Unit/SSR-covered (`turn-changes-card.test.mjs`); isolated Chromium
+  pointer, Enter/Space, independent disclosure, hidden-focus, and Review paths
+  covered by `turn-changes-disclosure-user-path.test.mjs`; full UI scenario Draft
+
+#### E2E-CHAT-completed-turn-scrolls-to-prompt: A finished reply reads from its prompt
+
+- **Preconditions**: An Agent session whose next reply is longer than the
+  transcript viewport.
+- **Steps**: 1) Send a prompt and let the transcript follow the reply to its
+  end. 2) Send a prompt with a reply short enough to fit on screen. 3) Send a
+  long prompt again and scroll up while it streams. 4) Stop a long reply
+  midway. 5) Queue a follow-up while a long reply streams.
+- **Expected**: 1) When the reply completes, its prompt sits at the top of the
+  viewport and jump-to-latest appears. 2) The short reply stays at the bottom
+  in follow mode. 3) The view stays where the user scrolled. 4) The aborted
+  turn stays at the bottom. 5) The follow-up turn keeps following at the
+  bottom.
+- **Specs linked**: `04-ux/09-interaction-patterns.md` §2.2,
+  `04-ux/08-component-spec.md` §4.4, D676
+- **Acceptance**: Quality
+- **Milestone**: M5
+- **Status**: Automated (`pnpm test:e2e:transcript-turn-completion`, real
+  `useTranscriptScroll` in Electron; `turn-completion-scroll.test.mjs`)
+
 #### E2E-058: Built-in interactive terminal is absent
 
 - **Preconditions**: A workspace is open and the Agent has completed a Bash
@@ -4369,7 +5261,7 @@ window; opening a normal panel afterward must still work.
 
 #### E2E-059: Embedded browser preview isolation and overlays
 
-- **Preconditions**: A local dev server is running; a URL or BrowserPreview artifact exists.
+- **Preconditions**: A local dev server is running; a URL or BrowserPreview artifact exists; HTML fixtures exist both inside and outside the workspace.
 - **Steps**: 1) Activate the artifact, enter `localhost:<port>` and
   `localhost:<port>/index.html` without a scheme, and submit each. Enter a
   dotted host with a port (for example, `example.com:8080`), then verify an
@@ -4381,48 +5273,95 @@ window; opening a normal panel afterward must still work.
   and trigger an inline tool permission card. 5) Switch to another panel tab
   and back; close the panel. 6) Use open-external. 7) From both an existing page
   and a blank Browser tab, enter an existing HTML file inside the workspace by
-  `file:` URL and absolute path. Then enter both `file:///tmp/demo.html` and
-  `/tmp/demo.html`, pointing to an existing file outside the workspace.
+  platform-appropriate `file:` URL and absolute path. Then enter an existing
+  file outside the workspace by its platform-appropriate URL and absolute path
+  (for example, `file:///tmp/demo.html` and `/tmp/demo.html` on Unix, or
+  `file:///D:/demo.html` and `D:\demo.html` on Windows). From the loaded
+  local HTML, follow a link to another existing file outside the workspace.
+  From an HTTP page, try the same outside file link and enter a missing local
+  file path.
 - **Expected**: Scheme-less input normalizes to http; nav state (URL bar,
   back/forward enablement, load spinner) mirrors the page. Popups open in
   the default browser (never in-app) only when the URL parses as http(s) or
-  mailto; `file:`, `javascript:`, and custom schemes are denied. Permission
-  requests are denied; non-http(s) navigation is blocked except in-root
-  `file:` siblings. The preview hides for the whole lifetime of the rename
+  mailto; popups using `file:`, `javascript:`, and custom schemes are denied.
+  Permission requests are denied; top-level navigation allows HTTP(S),
+  in-workspace file links, and existing local file links from a local file
+  page. HTTP pages cannot navigate to files outside the workspace. Missing
+  files, directories, remote file authorities, and other schemes are blocked.
+  The preview hides for the whole lifetime of the rename
   dialog and every other blocking overlay, and while
   unmounted, reappearing with correct bounds afterwards. An inline permission
   card does not hide or remount the preview; resize/drag keeps the native view
   visible and aligned with the placeholder rect without a black flash. Opening
   the work-panel context dropdown moves beside the native view; the view keeps
   its full surface rect and the plugin body does not shift down.
-  Open-external launches an http(s) page in the default browser and an in-root
-  file preview via `openPath`. The view uses an isolated persist partition
-  (no session bleed from the app shell). Both in-root forms open; neither
-  outside form reaches the guest load, the submitted address remains visible,
-  and the browser explains in the active locale that only existing workspace
-  files can open.
-- **Specs linked**: `03-runtime/01-ipc-protocol.md` §13a, ADR 0019, ADR 0168
+  Open-external launches an http(s) page in the default browser and any loaded
+  local file via `openPath`. The view uses an isolated persist partition
+  (no session bleed from the app shell). Both inside and outside forms load;
+  the HTTP page's outside link and missing path do not reach the guest load.
+  The submitted address remains visible on failure, with localized copy that
+  only existing local files can open.
+- **Specs linked**: `03-runtime/01-ipc-protocol.md` §13a, `04-ux/08-component-spec.md`, `05-security/01-security.md`, ADR 0019, ADR 0168, ADR 0328
 - **Acceptance**: Quality, Security
 - **Milestone**: M5
-- **Status**: Draft (manual)
+- **Status**: Partial automation: `scripts/e2e-browser-local-file-access.mjs` covers native local-file navigation; the address-bar and overlay workflow remains manual.
 
-#### E2E-BROWSER-capture-resize: Capture completion preserves the latest viewport
+#### E2E-CHAT-html-artifacts: Open generated pages from ordinary and project conversations
+
+- **Preconditions**: Isolated Electron profile, real Host storage and loopback
+  model fixture; no credentials or paid provider requests.
+- **Steps**: Open assistant Markdown links to ordinary-session scratch HTML,
+  primary project HTML, secondary project-folder HTML, project scratch HTML
+  and an isolated session's worktree HTML. Repeat with a `file:` URL containing
+  Unicode/spaces. Interact with each rendered page using native pointer input.
+  Try a missing file, an outside file and a positioned HTML
+  source reference. Send a prompt that invokes BrowserPreview through the real
+  sidecar in ordinary, project and isolated conversations. Disable Browser and click
+  again. Switch conversations between cases.
+- **Expected**: Valid pages render and execute in the side browser at their
+  canonical path. Missing/restricted files report errors without guest loads.
+  A line reference opens source, not execution. Disabled Browser remains
+  disabled and reports an error. BrowserPreview uses its originating session's
+  roots and delivers a valid resource tab. No visible-project fallback.
+- **Automation**: `node scripts/e2e-chat-html-artifacts.mjs`, after building
+  Host, runtime and Electron. Captures and synthetic profiles are retained in
+  `PI_TEST_OUTPUT` (or the OS temporary directory).
+- **Status**: Electron user-path covered on Windows; other OSes pending.
+
+#### E2E-BROWSER-capture-resize: Capture preserves live placement and restores the latest viewport
 
 - **Preconditions**: Isolated Electron profile and a local responsive page
   taller than the visible browser viewport. No provider account is needed.
-- **Steps**: Start a full-page screenshot, then resize the browser hole twice
-  before Chromium completes it. Repeat while alternating larger and smaller
-  sizes and through raw `Page.captureScreenshot`. Queue overlapping captures,
-  change resource tabs, fail a capture, and close a tab with a queued capture.
-- **Expected**: The completed capture does not restore a stale viewport. The
-  page's `innerWidth`/`innerHeight` match the latest requested bounds. Captures
-  on one page serialize without blocking a sibling page. Failed capture
-  releases resize handling. Closing a page cannot redirect its queued capture
-  to another page. No screenshot is repeated to repair layout.
-- **Status**: Native Electron capture/resize path automated by
+- **Steps**: Start a full-page screenshot for pages taller than 2048px and
+  verify proportional scaling to at most 1280×2048 output pixels. Keep one
+  capture pending while resizing the browser hole twice. Repeat with raw
+  `Page.captureScreenshot`, which retains caller-supplied capture settings.
+  While a capture is pending, maximize, restore, enter fullscreen, and leave
+  fullscreen so the panel moves or changes size. Also queue overlapping
+  captures, switch resource tabs, hide and restore a captured page, fail a
+  capture, close a tab with a queued capture, and recreate a destroyed guest.
+- **Expected**: Full-page Browser captures are proportionally bounded to
+  1280×2048; viewport captures are unchanged. During capture, the native guest
+  follows the panel's current position and remains clipped within its bounds;
+  it never covers the conversation. Its capture-time viewport stays stable
+  until completion, then `innerWidth`/`innerHeight` match the latest requested
+  bounds. Captures on one page serialize without blocking a sibling page.
+  Failed capture releases resize handling. Hiding or closing a page cannot
+  expose it or redirect its queued capture to another page. A destroyed guest
+  leaves no orphan native view when it is recreated or disposed. No screenshot
+  is repeated to repair layout.
+- **Image failure recovery**: If a full-page image cannot be normalized, the tool
+  result keeps its screenshot path/text and replaces the image with an omission
+  message; the failed image is absent from later model requests.
+- **Timeout recovery**: When either screenshot API does not complete within
+  30 seconds, it fails with `TIMEOUT`, detaches the stalled CDP session, and
+  releases the page queue; the next capture reattaches and can run.
+- **Status**: Native Electron capture/resize and pending window-transition
+  placement path automated by
   `node scripts/e2e-browser-capture-resize.mjs` (artifacts retained). The
-  production Host/Pane/CDP service paths for failure, queueing and tab closure
-  are covered by `apps/desktop/test/browser-capture-resize.test.mjs`.
+  production Host/Pane/CDP service paths for failure, queueing, tab closure,
+  guest recreation, and relocated-panel clipping are covered by
+  `apps/desktop/test/browser-capture-resize.test.mjs`.
 
 #### E2E-BROWSER-session-preview-race: Session switching does not expose a stale preview
 
@@ -4467,10 +5406,10 @@ window; opening a normal panel afterward must still work.
   does not create a work-panel tab. Session switches and invalid schemes retain
   their security and visibility gates.
 - **Additional paths**: Invoke BrowserPreview through ToolSearch/BrowserPreview
-  while a tab has unsent form input: only a new tab navigates. Queue navigation
-  for an inactive session with an existing tab, then return and verify the queued
-  destination wins over an old load completion. Open a blank tab and inspect its
-  empty address and state. Close a background tab and verify its WebContents is
+  while a tab has unsent form input: only a new host-owned page navigates, before
+  its renderer tab mounts. Navigate for an inactive session and verify immediate
+  execution in its connected page without changing the visible one. Open a blank
+  tab and inspect its empty address and state. Close a background tab and verify its WebContents is
   destroyed without affecting its sibling; deleting a session and plugin/window
   disposal release the appropriate retained pages.
 - **Status**: Targeted isolated Electron validation; no new repository test suite.
@@ -4488,6 +5427,31 @@ window; opening a normal panel afterward must still work.
 - **Coverage**: `browser-pane-navigation.test.mjs` for published state and event
   isolation; native Electron click-through for actual same-document events.
 - **Specs linked**: `04-ux/08-component-spec.md` §5.3.
+
+#### E2E-BROWSER-background-lifecycle: Side-panel presentation does not own page execution
+
+- **Preconditions**: Dedicated worktree, reused Electron/toolchain, isolated
+  profile and localhost A/B/C pages. No real account or paid provider requests.
+- **Steps**: Snapshot A, switch to B, fill and click A through production CDP,
+  then start a new hidden screenshot. Detach presentation, reload the renderer,
+  repeat A's snapshot/screenshot and restore its tab. Open a first C preview
+  before UI mounting. Close C and try unknown/closed targets. Exercise every
+  Browser API through real concurrent plugin invocations with spoofed argument
+  identities. Restore missing renderer tabs while the panel is collapsed.
+- **Expected**: A's actions, pixels and screenshot path belong to A; B is
+  unchanged and remains the only visible guest. No background action reveals
+  a page. Renderer reload retains native identity and inputs. C executes before
+  mounting. Unknown/closed targets fail without fallback. Restored tabs are
+  scoped, duplicate-free and do not reopen or replace a user's selected resource.
+  Hidden backing hosts remain invisible and release with the last parked page.
+- **Automation**: `node scripts/e2e-browser-background.mjs`,
+  `browser-background-session.test.mjs`, `browser-tab-restore.test.mjs`,
+  `browser-capture-resize.test.mjs`, and `plugin-tool-invocations.test.mjs`.
+  The isolated Desktop trial also uses real Composer, sidecar, plugin and Host
+  wiring with a localhost SSE model; no real provider is contacted.
+- **Specs**: `04-ux/08-component-spec.md`, `07-plugins/03-plugin-api.md`,
+  `05-security/01-security.md`, [background lifecycle ADR](../../adr/browser-background-lifecycle.md).
+- **Status**: Automated native Chromium/service paths; isolated Desktop trial passed.
 
 #### E2E-060: Files tab browsing stays inside the workspace
 
@@ -4573,6 +5537,74 @@ window; opening a normal panel afterward must still work.
 - **Status**: Unit-covered (`chat-context-menu.test.mjs`,
   `chat-context-menu-items.test.mjs`, `chat-context-menu-surface.test.mjs`);
   full UI scenario Draft
+
+#### E2E-CHAT-radial-background-menu: Radial menu on the empty transcript background
+
+- **Preconditions**: Settings → General → Radial context menu is available. A
+  session has a completed user prompt, a completed assistant answer, and enough
+  history to scroll.
+- **Steps**: 1) With the switch off, right-click empty space below the last
+  turn and confirm the vertical conversation menu. 2) Turn the switch on and
+  right-click the same space; inspect the four sectors and their at-rest
+  icon-and-label stacks. 3) Move the pointer through each sector and click
+  Copy conversation; reopen, press the right button over a sector and release
+  it there, and confirm the action runs. 4) Set Up to Copy last
+  answer and Right to Leave empty, then reopen the ring. 5) Click the hub
+  without moving, then reopen and press Escape; repeat with an outside click,
+  a scroll, and a window resize; reopen and right-press on a sector, then
+  release over the hub and confirm nothing runs. 6) Reopen with Shift+F10, walk
+  the sectors with the arrow keys, and run one with Enter. 7) Restart the app,
+  confirm the switch and the four directions persist, then write an unknown
+  action for one direction into the settings file and confirm that direction
+  resolves to its default.
+- **Expected**: With the switch off the vertical menu opens unchanged. With it
+  on, a four-sector ring centred on the pointer replaces it and stays fully
+  inside the window near an edge. Every sector shows its action's icon and
+  label before any hover; the sector under the pointer highlights as a filled
+  sector, with no focus rectangle over it. Clicking runs that action, closes
+  the ring, and shows the usual toast where the action copies. A right-press
+  started while the ring is open runs the sector it is released on; releasing
+  over the hub dismisses without running, and the release trailing the
+  right-click that opened the ring runs nothing. A **Leave empty** direction renders a disabled sector and
+  runs nothing; Copy last answer is disabled until an answer exists.
+  Open browser reveals the work panel on a blank browser tab, the work panel
+  direction toggles — it reads Open work panel while the panel is collapsed and
+  Close work panel while it is open, and the second click closes it — and Open
+  project folder opens the session's project in the OS file manager and is
+  disabled for a session without one. A click on
+  the hub, an outside press, Escape, Tab, scroll, and resize all dismiss the
+  ring without running anything. Arrow keys move the highlight and Enter runs
+  the highlighted action. The switch and the four directions survive a restart,
+  and an unknown stored action falls back to that direction's default. Message
+  rows, links, file references, the sidebar, and the work panel keep their
+  vertical menus.
+- **Specs linked**: `04-ux/09-interaction-patterns.md` §1.11,
+  `04-ux/06-settings-ia.md`
+- **Acceptance**: C (chat stream), Quality
+- **Milestone**: M5
+- **Status**: Chromium component check (`node scripts/e2e-radial-menu.mjs`:
+  at-rest sector labels, pointer highlight, click/hub/disabled/Escape paths,
+  the right-press marking release paths, arrow-key focus, and viewport
+  clamping) plus unit coverage (`radial-menu.test.mjs`,
+  `settings-roundtrip.test.mjs`); full desktop journey Draft
+
+### E2E-CHAT-delete-turn-preserves-other-live-outputs
+
+- **Preconditions**: A session has three completed turns. The renderer has
+  assistant and tool outputs for all three turns, while persistence is missing
+  at least one output because its outbox append is still pending.
+- **Steps**: Delete the middle user turn, then reload the session after the
+  transcript replacement completes.
+- **Expected**: The deleted user turn and its outputs remain absent. The first
+  and third turns retain their user, assistant, and tool messages before and
+  after reload. A pending append cannot run after transcript replacement and
+  restore the deleted turn.
+- **Specs linked**: `03-runtime/04-data-storage.md`,
+  `03-runtime/06-host-rpc-protocol.md`, ADR 0060
+- **Acceptance**: C (chat stream), F (persistence), Quality
+- **Milestone**: M6+
+- **Status**: Unit-covered (`delete-message-preserves-transcript.test.mjs`,
+  `persistence-outbox.test.mjs`); complete desktop journey remains Draft
 
 - **Full-history regression**: Open a 140-message session without scrolling
   back and choose Copy conversation. The clipboard must contain messages
@@ -4741,17 +5773,29 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 
 #### E2E-060d: Assistant meta chips, compact context summary, and retry action
 
-- **Preconditions**: A completed assistant message includes modelId and token
-  usage; another completed assistant message has content but no usage. The
-  selected model has a published 1m-class context window, while its provider
-  binding still contains the legacy 128k generic seed.
+- **Preconditions**: A completed visual turn includes modelId and token usage
+  across more than one assistant message; another completed assistant message
+  has content but no usage. The selected model has a published 1m-class context
+  window, while its provider binding still contains the legacy 128k generic
+  seed.
 - **Steps**: 1) Open the session. 2) Confirm the completed turn shows a model
-  badge and no context inspector under the answer. 3) Hover the composer
+  badge and no context inspector under the answer. Confirm the turn usage
+  capsule follows the badge with its average speed and compact total, then
+  hover or keyboard-focus it and inspect the cache-read/input/output exact
+  counts, the turn total, and cache write only when non-zero. Move the pointer
+  into the popover and confirm it stays open, then dismiss it with Escape and
+  with an outside pointer press. 3) Hover the composer
   toolbar inspector trigger, confirm the panel stays closed, then click it.
   4) Inspect the remaining-token-plus-percentage heading, used/window counts,
-  unboxed turn/speed values, one inline provider-usage summary, and one
-  aggregate tool-usage summary, with no doubled heading rule and no inner
-  section hairlines. 5) Scroll the transcript and resize the window while the
+  unboxed turn/speed values, total session duration, and three timing rows for
+  network/provider wait, streamed model response (including thinking and
+  answer), and tool execution, each with its share of session duration. Confirm
+  overlapping top-level tool calls are counted once, nested delegate timings
+  are excluded, and one inline provider-usage summary plus one aggregate
+  tool-usage summary remain. There is no doubled heading rule or inner section
+  hairline. For a transcript with more than one loaded page, wait for earlier
+  timing metadata to finish loading and confirm the cumulative values include
+  it. 5) Scroll the transcript and resize the window while the
   panel is open. Toggle and resize the sidebar and work panel while the panel
   remains open. 6) Move the pointer away from the panel, then dismiss it by
   clicking the trigger again, clicking outside it, and pressing Escape from
@@ -4762,20 +5806,35 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   without usage still offers Retry on completed turns and omits the composer
   inspector.
 - **Expected**: Model badge appears under completed assistant answers when a
-  model id exists. The compact Context inspector appears in the composer
+  model id exists, followed immediately by the turn usage capsule when that
+  turn has usage. The capsule's speed is summed output tokens over summed
+  response duration, and its total sums input/output/cache read/cache write
+  across the visual turn, counting reasoning inside output and excluding
+  subagent spend. Its popover stays open while the pointer is over it, closes
+  on pointer leave after a grace delay unless the trigger retains keyboard
+  focus, on Escape, or on an outside press; it portals to the body, clamps to
+  the conversation pane, and is absent on streaming turns.
+  The compact Context inspector appears in the composer
   right toolbar, left of the model picker, once any usage exists, and always
   mirrors the newest usage-bearing assistant turn. The trigger shows the ring
   plus remaining-capacity percentage (no Context label) and low-space
   warning/error states; click or keyboard activation toggles the same compact
   summary while pointer hover alone never opens or closes it. An open panel
   survives the pointer leaving it and closes on a second trigger activation,
-  an outside click, or Escape, which returns focus to the trigger. Provider
+  an outside click, or Escape, which returns focus to the trigger. Session
+  duration runs from session creation to the latest activity (or to now while
+  running). Network request wait ends at the first model response event; model
+  response includes streamed thinking and answer, and tool time excludes nested
+  delegates and unions overlapping top-level calls. Each cumulative timing
+  percentage is relative to that wall-time span. Earlier transcript pages load
+  only while the inspector is open. Provider
   values remain exact, tool values remain visibly approximate through the `~`
   aggregate total, and no per-tool list, source badge, progress bar, or
   explanatory estimate paragraph is rendered. Occupancy, turn total, and
   provider cache/input/output/reasoning/hit-rate are the last usage-bearing
   assistant message, not the summed tool-loop, so cache read stays on the
-  same scale as the context window. The cache hit rate is omitted
+  same scale as the context window; this last-request value remains distinct
+  from the capsule's visual-turn aggregate. The cache hit rate is omitted
   when cache-read metadata is absent rather than inferred. A published 1m-class
   limit (for example `gpt-5.6-luna` at 1,050,000 tokens) is shown instead of
   128k, the same effective window is used by the agent runtime, and a non-default
@@ -5178,10 +6237,10 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   `close-behavior.json`); the main window is visible; Settings → General is
   reachable. macOS is excluded: it keeps the native Dock lifecycle.
 - **Steps**: 1) With the preference unset, click the close button (or press
-  the close-window shortcut) and answer the prompt: Cancel keeps the window
-  open and the preference unset; Close to tray hides the window, shows the
-  tray icon, and the app keeps running (a turn in flight stays live); Quit
-  exits the app. 2) Re-run each choice and verify it is remembered across a
+  the close-window shortcut) and verify the themed in-app dialog opens with Cancel focused. Escape, a
+  backdrop click, or Cancel keeps the window open and preference unset; Close to
+  tray hides the window, shows the tray icon, and leaves a live turn running;
+  Quit exits the app. Renderer-unavailable behavior uses the native fallback. 2) Re-run each choice and verify it is remembered across a
   full restart and that no second prompt ever appears once a choice exists.
   3) With `tray` set, click the tray icon: the window
   restores, shows, and focuses; the tray context menu offers Open and Quit,
@@ -5197,8 +6256,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   covered separately by E2E-124. 7) Invoke unknown values and `"ask"` on
   `pi-desktop/window/closeBehavior/set` and verify they fail closed, and
   verify the channel is rejected outright on macOS.
-- **Expected**: The first close prompts exactly once per unset state and
-  Cancel never persists a choice. Tray mode keeps the app alive with a
+- **Expected**: The first close renders the themed dialog exactly once per unset state. Escape, backdrop click, or Cancel never persists a choice; if the renderer is unavailable, a bounded native fallback is used, and failure to show it does not trap close. Tray mode keeps the app alive with a
   localized tooltip/menu and no data loss; switching to Quit app leaves the
   tray icon in place, because close-to-tray and macOS minimize still need a
   restore surface. The preference survives restarts and is honored by both
@@ -5214,38 +6272,50 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   ADR 0123
 - **Acceptance**: A (app startup), Quality
 - **Milestone**: M5 on Windows/Linux (release qualification)
-- **Status**: Draft
+- **Status**: Themed renderer path, broker fallback, and Main close/quit choices
+  are covered by `lifecycle-confirmation-dialog-user-path.test.mjs`,
+  `lifecycle-dialog-broker.test.mjs`, and `lifecycle-close-behavior-runtime.test.mjs`;
+  the full persisted close-behavior journey remains Draft.
 
 #### E2E-204: Explicit quit confirms before shutdown (D363)
 
 - **Preconditions**: A normal interactive session is running (not a boot,
   supervision, or capture probe). The main window may be visible or tray-hidden.
 - **Steps**: 1) Choose Quit from the tray menu, or press Cmd+Q / the
-  application-menu Quit item. 2) Cancel the native warning and confirm the
-  window, tray, host-core, and sidecar remain. 3) Repeat and confirm Quit;
-  confirm the ordered shutdown runs. 4) On Windows/Linux with close behavior
-  unset, close the window and choose Quit on the D230 dialog; confirm no
-  second warning. 5) Launch with `PI_DESKTOP_BOOT_PROBE=1` (and the
-  supervision/capture equivalents) and confirm `app.quit()` exits without a
-  dialog. 6) On a packaged Windows NSIS or Linux AppImage install, download an
-  update and choose Restart to update; confirm the quit warning never appears
-  and the installer finishes the upgrade and relaunch.
-- **Expected**: Accidental explicit quit is cancellable. A user who already
-  chose Quit on the close-behavior dialog is not asked again. Probes used by
-  automation never block on the warning. An in-app update restart is never
-  deferred behind the warning either: the platform installer is spawned before
-  `app.quit()` and aborts once the app outlives its wait window, so the
-  update-triggered quit must run the ordered shutdown immediately — the user
-  already committed to the restart by choosing that action.
+  application-menu Quit item. If tray-hidden, confirm the main window is restored.
+  2) Verify the themed in-app confirmation, Cancel as initial focus, and distinct
+  title/body. While it is open, issue a second Quit request and verify the same
+  decision remains pending: no duplicate dialog and no shutdown bypass. Exercise
+  Escape and a backdrop click; confirm the window, tray, host-core, and sidecar
+  remain. 3) Repeat and Confirm; verify ordered shutdown. 4) On Windows/Linux
+  with close behavior unset, close the window. Verify the themed D230 dialog
+  offers Cancel / Close to tray / Quit: cancel leaves the preference unset, and
+  choosing Quit causes no second dialog. 5) Launch with `PI_DESKTOP_BOOT_PROBE=1`
+  (and supervision/capture equivalents) and confirm `app.quit()` exits without a
+  dialog. 6) On packaged Windows NSIS or Linux AppImage, restart to install an
+  update; confirm no quit warning appears and the installer completes upgrade
+  and relaunch.
+- **Expected**: Accidental explicit quit is cancellable. Repeated quit requests
+  cannot duplicate or bypass an outstanding confirmation; Cancel clears the
+  pending decision so a later quit asks again. Tray Quit presents the dialog
+  even when the main window was hidden. A D230 Quit is not re-confirmed. When the
+  renderer is unavailable, crashes, or fails to answer, the bounded native
+  fallback is used; failure to show it does not hold shutdown. Probes never
+  block on the warning. An in-app update restart is never deferred: the installer
+  is spawned before `app.quit()` and aborts if the app stays alive past its wait
+  window, so that quit goes directly into ordered shutdown.
 - **Specs linked**: `04-ux/08-component-spec.md`,
   `04-ux/09-interaction-patterns.md`, `08-meta/decisions-log.md` (D216, D230,
-  D363), ADR 0022
+  D363), ADR 0022, ADR 0090
 - **Acceptance**: A (app startup), Quality
 - **Milestone**: M5
-- **Status**: Unit-covered (`close-behavior-tray.test.mjs` asserts the
-  probe and update-restart exemptions; `auto-update.test.mjs` asserts the
-  install latch is set before `quitAndInstall`); native dialog journey Draft
-  (run only in a capable environment when this surface changes)
+- **Status**: Broker, renderer user path, Main close/quit runtime, and pending
+  shutdown lifecycle covered (`lifecycle-dialog-broker.test.mjs`,
+  `lifecycle-confirmation-dialog-user-path.test.mjs`,
+  `lifecycle-close-behavior-runtime.test.mjs`, `close-behavior-tray.test.mjs`,
+  `shutdown-regenerate-persistence.test.mjs`). Full application shutdown and
+  packaged update journey remains Draft; run in a capable release environment
+  when lifecycle wiring changes.
 
 #### E2E-067A: Prerelease install discovers newer stable release (D120)
 
@@ -5308,11 +6378,12 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 - **Preconditions**: A clean worktree at the current stable version. No release
   tag has been created for the candidate version.
 - **Steps**: 1) Run `node scripts/check-release-docs.mjs` on the aligned tree.
-  2) Regress one surface at a time — remove the newest changelog entry from
-  `en`, then from `zh-CN`, then change a highlight count so the locales differ,
-  then set `docs/package.json` to an older version, then leave the READMEs
-  stating the previous `<major>.<minor>.x` release line — and rerun the
-  preflight after each. 3) Run `node scripts/release.mjs <next-version> --tag`
+  2) Regress one surface at a time — replace the models.dev catalog with an
+  empty object, remove the newest changelog entry from `en`, then from `zh-CN`,
+  change a highlight count so the locales differ, set `docs/package.json` to
+  an older version, and leave the READMEs stating the previous
+  `<major>.<minor>.x` release line — then rerun the preflight after each. 3) Run
+  `node scripts/release.mjs <next-version> --tag`
   with one surface still regressed. 4) Restore every surface, rerun the
   preflight, and repeat the release command.
 - **Expected**: The aligned tree reports alignment and exits 0. Each regression
@@ -5530,24 +6601,41 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 - **Steps**: 1) Open sessions A, B, and C in that order, scrolling each one up a
   measured amount. 2) Switch back to A, then B, and confirm each returns to its
   own offset. 3) Open D and then E, so A and B fall outside the retained budget.
-  4) Return to A. 5) Return to E, then D, and confirm they are still warm. 6)
-  Repeat the whole cycle once more and watch for a stuck progress track, an error
-  toast, or a blank chat area.
+  4) Return to A and scroll to the lower boundary of the restored range without
+  clicking any load control. 5) Return to E, then D, and confirm they are still
+  warm. 6) Repeat the whole cycle once more and watch for a stuck progress track,
+  an error toast, or a blank chat area.
 - **Expected**: Only the visible pane and the two most recently visited ones are
   retained; visiting beyond that budget evicts the oldest pane. A warm return
-  paints the retained frame and offset immediately. Returning to an evicted
-  session behaves exactly like a cold open: the visible pane stays on its own
-  session under the thin progress track, the composer is inert until the
-  destination commits, and the destination then paints at its newest turn with no
-  error, no empty frame, and no restored offset from before eviction. Nothing is
+  paints the retained frame and offset immediately. The returned pane keeps the
+  page that already holds its anchor, so a warm return never offers to load later
+  messages for rows that page already had. Returning to an evicted
+  session restores the message and viewport offset recorded before eviction,
+  including explicit expanded content, using a bounded historical read if the
+  latest page no longer contains the anchor. If the anchor is already loaded but
+  outside the mounted window, the saved absolute scroll offset is restored while
+  the row window remains bounded. The cold selection's progress track
+  and composer fence remain unchanged. No search highlight is introduced, live
+  model-input messages are unchanged, and real input or a new turn cancels
+  automatic alignment. First visits and pinned revisits still follow latest. Nothing is
   dimmed at any point, hidden panes stay non-interactive and out of the
   accessibility tree, and repeated cycling neither leaks a growing number of
   mounted transcripts nor leaves a pane showing another session's rows.
+  A restored historical range has no Load later messages button: reaching its
+  lower boundary automatically reads bounded newer pages without moving the
+  visible anchor. Short ranges fill the viewport automatically; hidden panes do
+  not initiate reads. Pending reads coalesce, obsolete results cannot replace
+  a newer navigation, and failures do not cause automatic retry loops. After
+  continuation reaches the tail, live updates resume without adding older
+  cached rows above the reading position. Explicit search still uses manual
+  later-message paging.
 - **Specs linked**: `04-ux/08-component-spec.md` §1.6 / §3.5 / §7,
   `04-ux/09-interaction-patterns.md` §5, ADR 0130, ADR 0137
 - **Acceptance**: C (switch sessions), Quality
 - **Milestone**: M5
-- **Status**: Draft
+- **Status**: Renderer regression automated by
+  `node scripts/e2e-transcript-reading-position.mjs` (isolated React/Electron,
+  fixture IPC); live UI scenario Draft.
 
 #### E2E-071h: Reopening a session while its response is streaming
 
@@ -5982,7 +7070,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   - Escape and outside click dismiss the menu without creating anything.
 
 #### E2E-076: Startup splash appears then yields to the main shell
-- **Status**: Partially automated (`startup-splash-motion.test.mjs` covers splash markup, motion tokens, reduced-motion, and catalog keys; `macos-sidebar-vibrancy.test.mjs` covers the darwin glass splash and shell cross-fade; full window timing remains Draft)
+- **Status**: Partially automated (`startup-splash-motion.test.mjs` covers splash markup, motion tokens, reduced-motion, and catalog keys; `macos-sidebar-vibrancy.test.mjs` covers the darwin glass splash and shell cross-fade; `startup-animation.test.mjs` and `packages/shared/src/startup-animation.test.ts` cover the D679 animation's bounds, phase machine, discovery, surface, and boot-surface ranking; `pnpm test:e2e:startup-animation` boots the real app against a generated video and asserts `pi-startup:` decoding, advancing playback, the reveal, and that an unplayable file still yields the shell; full window timing remains Draft)
 - **Priority**: P1
 - **Covers**: A, Quality / US-UI shell polish
 - **Preconditions**: App launch path available (dev or packaged).
@@ -5993,11 +7081,18 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   4. Repeat with OS `prefers-reduced-motion: reduce` when available.
   5. On macOS, compare the splash surface with the sidebar glass after the shell appears.
   6. Repeat with `bootstrap` held unanswered past the watchdog bounds, and observe the boot surface at 30s and after 180s (issue #831).
+  7. Drop a short playable video into `<dataDir>/startup/` and relaunch (D679).
+  8. Replace it with an unplayable file (for example a renamed text file) and relaunch.
+  9. With the animation present, relaunch under `prefers-reduced-motion: reduce`, then reload the renderer, then close the window and reopen it from the tray or Dock.
 - **Expected**:
   - Before ready: full-window splash with brand mark, shell name, tagline, and accessible starting status (`data-testid="startup-splash"`).
   - After ready: splash exits with a short fade (or instantly under reduced motion) and the main shell (or settings page) is interactive underneath.
   - If the initial state never arrives, the splash is replaced rather than held: the boot surface gains logs, diagnostics, and quit at 30s (`STARTUP_SLOW_HINT_MS`) without reporting a failure, and at 180s (`STARTUP_STALLED_MS`) becomes the recovery surface, which also offers a retry (`data-testid="startup-recovery"`); every action works without a backend, the renderer-drawn window controls stay above the surface on Windows/Linux, and quit goes through `pi-desktop/app/quit`.
   - On macOS the splash uses the same glass tint and sheen as the sidebar over native `sidebar` vibrancy; the mounted shell stays hidden until the splash exit fade, then cross-fades in. Other platforms keep the opaque `--ds-bg-primary` fill.
+  - With a video in `<dataDir>/startup/` (D679): `data-testid="startup-animation"` replaces the splash in the first painted frame, plays over opaque black with no controls and no audio, then holds the same black until bootstrap finishes, then fades out over about a second with the shell already clickable during the fade. A boot slower than the video shows an indeterminate bar after 3s of black. `Escape` jumps straight to that fade.
+  - An unplayable file never holds the launch: the animation ends within 2s (no first frame) or on `error`, and the reveal runs exactly as it does after a clean finish.
+  - The animation is not played under reduced motion, on a renderer reload, or on a window reopened from the tray or Dock; the brand splash is used instead. Settings → General → Appearance names the resolved file, offers the folder, and applies a toggled switch on the next launch only.
+  - A boot held past the watchdog bounds replaces the animation with the recovery surface — it is never left behind the opaque mask.
   - No plain unbranded “Starting…” centered text as the only boot UI.
   - Overlay/dialog enter motion uses shared tokens; reduced motion keeps state changes without decorative duration.
   - If a non-settings bootstrap request fails while the settings read is still
@@ -6005,9 +7100,26 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
     settings request itself fails, the active section shows a loading/failure
     state and retry action rather than a blank content pane; retrying after the
     local service recovers restores the controls without leaving Settings.
-- **Specs linked**: `04-ux/07-ui-design-system.md` §8, `04-ux/02-i18n-english-first.md`, decisions-log D146 / D304 / D348
+- **Specs linked**: `04-ux/07-ui-design-system.md` §8, `04-ux/02-i18n-english-first.md`, `04-ux/09-interaction-patterns.md` §1.12, ADR 0338, decisions-log D146 / D304 / D348 / D679
 - **Acceptance**: A (app startup), Quality
 - **Milestone**: M5
+
+#### E2E-SESSION-reopen-restores-running: Recreated windows retain live turn status
+
+- **Steps**: Start a Desktop turn in a session with an older completion
+  notification. Close and recreate its renderer while Main keeps the turn
+  alive. Inspect the sidebar and select the session before another agent event.
+  Repeat after the turn ends, and with a start/end event arriving during bootstrap.
+- **Expected**: Live tasks show running, and selecting one restores the running
+  composer state. Completed tasks stay idle. A delayed snapshot never overrides
+  a start/end event already received by the new renderer.
+- **Automation**: `node scripts/e2e-running-session-reopen.mjs` recreates real
+  Electron windows with the production bootstrap, Sidebar and selection flow,
+  using fixture backend responses. `session-list-runtime.test.mjs` checks the
+  Main snapshot; `session-running-bootstrap.test.mjs` covers event races and
+  responses from older hosts. The native macOS close gesture remains a manual check.
+- **Specs**: `03-runtime/01-ipc-protocol.md`, ADR 0090.
+
 #### E2E-099: Brand logo follows the active theme
 - **Status**: Draft
 - **Priority**: P3
@@ -6281,7 +7393,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   Electron; deterministic messages/status transitions, no provider credentials.
 - **Steps**: Send a turn, stream partial text, stop delivering deltas, start and
   finish a tool, clear/set runtime phases, resume text, then complete, stop, or
-  fail. Repeat in detailed and compact modes. Exercise planning, permission,
+  fail. Repeat with `Show thinking` on and off. Exercise planning, permission,
   question and proposal waits, history reading, and switching sessions.
 - **Expected**: Exactly one localized, accessible tail status remains through
   output pauses and completed-tool gaps. Runtime phases take precedence over
@@ -6291,7 +7403,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   Active and assistant-error turns mount no empty action toolbar. A partial
   answer has 24 CSS px between its fragment box and the status label
   at the default font scale; settled non-error content retains Copy, Fork,
-  and Regenerate. Check detailed and compact modes. History reading and
+  and Regenerate. Check the `Show thinking` preference on and off. History reading and
   permission cards retain normal message padding. Ending a turn keeps pinned
   follow at the bottom while restoring the normal toolbar height. A scrolled-up reader keeps the exact text position
   and scroll offset.
@@ -6348,24 +7460,29 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   fails by 40.125px of content height and 40px of row movement when the reserved
   lane is removed (issue #323).
 
-#### E2E-263: Native interaction stays live during large transcript streaming
+#### E2E-263: Native interaction stays live during large transcript and tool-output rendering
 
 - **Preconditions**: Isolated visible Electron window with the production
-  `Markdown` renderer and built app stylesheet. A separate local Node fixture
-  emits ordered synthetic deltas; no provider, real Host, production session,
-  or user data is used.
-- **Steps**: Stream a 90 Ki-code-unit unbroken message plus a final marker from
-  the child process. Once the rendered message exceeds the streaming-tail
-  threshold, use Electron `webContents.sendInputEvent` to click, type into the
-  draft, switch to another session and back, collapse and expand the transcript,
-  and scroll while deltas continue. Finish the stream and compare every received
-  source code unit, sequence number, final marker, and rendered source length.
+  `Markdown` and `ToolDetailBlocks` renderers and built app stylesheet. A
+  separate local Node fixture emits ordered synthetic deltas; no provider, real
+  Host, production session, or user data is used.
+- **Steps**: Mount a 680 Ki-code-unit tool result, then stream a 90 Ki-code-unit
+  unbroken message plus a final marker from the child process. Once the rendered
+  message exceeds the streaming-tail threshold, use Electron
+  `webContents.sendInputEvent` to click, move between tool-output pages, type
+  into the draft, switch to another session and back, collapse and expand the
+  transcript, and scroll while deltas continue. Finish the stream and compare
+  every received source code unit, sequence number, final marker, and rendered
+  source length.
 - **Expected**: Every native action is acknowledged while streaming remains
   active, each completes within 250 ms, and the action P95 is at most 100 ms on
   the recorded environment. The independent producer advances all 180 sequence
   numbers in order; switching sessions does not move or lose the background
-  stream, and the finished content retains the exact received source.
-- **Specs linked**: `04-ux/08-component-spec.md` §8.7.
+  stream, and the finished content retains the exact received source. The large
+  tool result exposes page controls, renders one page at a time (at most 32 Ki
+  code units plus one code unit where a surrogate pair crosses the boundary),
+  and retains its final page marker.
+- **Specs linked**: `04-ux/08-component-spec.md` §8.7, §9.6.
 - **Status**: Automated by `pnpm test:e2e:renderer-responsiveness`. The parent
   Electron process drives native input under an external 25-second deadline;
   the renderer cannot self-report its own timeout. The fixture is deterministic
@@ -6427,7 +7544,10 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
     (`openai-responses`, `openai-codex-responses`) the outgoing payload keeps
     the session id as `prompt_cache_key`, exactly as the session's turns do, so
     a gateway fronting a Codex backend accepts it instead of answering 400
-    `invalid_responses_request`. Providers on other wire APIs are unchanged.
+    `invalid_responses_request`. A provider on another wire API, or on a
+    published vendor host, is unchanged; an unrecognized endpoint on Chat
+    Completions gains the key for the reason
+    `E2E-PROVIDER-custom-endpoint-session-identity` records.
   - Each `turn_end` is evaluated before another provider request and never
     marks the overall task idle; composer/config controls remain blocked until
     `agent_end`, `error`, or manual-only `compaction_end`. In-run follow-up
@@ -6438,6 +7558,13 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
     positioned immediately after the last message that checkpoint covers, and
     raises exactly one warning toast. Two checkpoints produce two rows, in
     order, and neither row replaces or hides a message.
+  - Once a checkpoint is installed, including the manual `/compact` in step 9,
+    the composer context ring drops to the checkpoint's estimated next-request
+    size without waiting for another turn; the provider usage rows in its
+    panel still describe the last real request. The next request's reported
+    usage replaces the estimate, and reopening the session after a restart
+    shows the same estimate (#2015; unit coverage in
+    `apps/desktop/test/compaction-context-usage.test.mjs`).
   - The `new_context` call appears as a normal tool activity row, returns
     immediately, and the checkpoint is created at the following turn boundary
     rather than mid-turn.
@@ -6467,6 +7594,10 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
     loop on a second overflow. A recoverable first overflow emits no terminal
     error message or `error` event; only a failed retry (or failed compaction)
     closes the bubble with `CONTEXT_TOO_LARGE` / the actual terminal error.
+  - If a retryable provider stream failure arrives after compaction has already
+    replaced the failed assistant with a summary or retained user message, the
+    retry keeps that current compacted transcript and calls `continue()`; it
+    does not surface the missing-assistant guard error (issue #1768).
   - If automatic summary generation fails, a durable retained-tail fallback
     checkpoint is appended, the run stays active, and one warning explains
     that older model context was reduced; the transcript row for that
@@ -6502,6 +7633,42 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   `context-compaction.test.mjs`, `assistant-turns.test.mjs`, host-core
   transcript/session unit tests); full provider/UI journey Draft
 
+#### E2E-PROVIDER-custom-endpoint-session-identity: A self-hosted endpoint receives the session id
+
+- **Preconditions**: Two independent sessions, each with several turns, bound to
+  a provider row whose API style is `chat_completions` and whose base URL points
+  at a local capture endpoint (not a published vendor host). A third row on a
+  published vendor host, a fourth on `anthropic_messages`, and a fifth on
+  `openai-responses`, use the same capture endpoint's stand-ins where
+  applicable.
+- **Steps**: 1) Send a turn in each session and capture the full request headers
+  and body of both. 2) Compare the two requests field by field. 3) Trigger a
+  context-compaction summary in the first session and capture it. 4) Run a
+  subagent turn and a plugin one-shot that carry a session id, and capture both.
+  5) Repeat step 1 on the row whose base URL host is a published vendor host.
+  6) Repeat step 1 on a row whose API style is `opencode_go`.
+- **Expected**:
+  - Both captured requests carry a stable per-session identifier that differs
+    between the two sessions: `x-session-affinity` and `x-client-request-id`
+    beside `session_id`, plus `prompt_cache_key` in the body, all holding the
+    session's own conversation id and unchanged across that session's turns.
+  - The custom Responses request also carries `x-session-affinity` alongside
+    the adapter's existing `session_id`, `x-client-request-id`, and
+    `prompt_cache_key`, so a reverse proxy that drops underscore headers can
+    still route the session.
+  - The compaction summary, the subagent turn, and the one-shot carry the same
+    id for their session, so a gateway pins the whole session to one backend.
+  - The published-vendor-host row and the OpenCode row are byte-identical to
+    their pre-change requests (the OpenCode row keeps `x-opencode-session`).
+  - A one-shot call with no session id gains no `prompt_cache_key` or
+    `x-session-affinity` header.
+- **Specs linked**: `03-runtime/02-agent-runtime.md` (§6.2, §6.3),
+  `03-runtime/11-provider-model-system.md`, issue #1634
+- **Acceptance**: C (chat/stream) + Quality
+- **Milestone**: M5
+- **Status**: Unit-covered (`session-affinity.test.ts`); full gateway capture
+  journey Draft
+
 #### E2E-AGENTS-001: Project instruction chain configures an agent session
 
 - **Preconditions**: A project contains root `AGENTS.md`, nested
@@ -6521,7 +7688,10 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   `AGENTS.md`; `CLAUDE.md` and `.claude/CLAUDE.md` are fallback names. The idle
   follow-up uses changed root content rather than reusing the prior runtime.
   Empty, unreadable, oversized, and out-of-root instruction files do not block
-  the turn; combined UTF-8 content is capped at 32 KiB. A file tool whose target
+  the turn; the global file and the project chain each have an independent
+  32 KiB UTF-8 budget, an oversized global file does not remove project
+  entries, and a truncated file ends with a notice naming its source and the
+  loaded and total byte counts. A file tool whose target
   is outside the project root, or targets the root itself, keeps the root chain
   rather than clearing the project instructions; instruction files are still
   read only from inside the root. A fixture-backed sidecar run verifies that a
@@ -6858,7 +8028,9 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   succeed after a retry and can return eleven consecutive 429 responses. Fixtures
   cover `retry-after-ms`, `retry-after` seconds, and HTTP-date headers, and
   support aborting during the wait. A builtin subagent uses a
-  fixture with the same responses.
+  fixture with the same responses. Billing/account-exhaustion fixtures also
+  return HTTP 429 with `insufficient_quota`, `credit_balance_exhausted`,
+  organization usage-limit, and spend-limit codes.
 - **Steps**:
   1. Start an Agent turn with a setup-429 fixture whose next request succeeds.
   2. Repeat with a mid-stream-429 fixture whose next request succeeds.
@@ -6871,11 +8043,18 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
      later provider request or terminal retry is started.
   7. Repeat with authentication, model-selection, malformed-request, and
      context-error fixtures.
+  8. Repeat with the billing/account-exhaustion 429 fixtures and inspect the
+     terminal assistant error and provider request count.
 - **Expected**:
-  - Every 429 is classified as retryable `PROVIDER_RATE_LIMITED` in both setup
-    and post-start recovery, including a response body that omits rate-limit
-    wording when the captured HTTP status is 429. Diagnostics retain
-    `providerStatus: 429`.
+  - Throughput rate-limit 429s are classified as retryable
+    `PROVIDER_RATE_LIMITED` in both setup and post-start recovery, including a
+    response body that omits rate-limit wording when the captured HTTP status
+    is 429. Diagnostics retain `providerStatus: 429`.
+  - Explicit billing/account exhaustion is terminal `PROVIDER_ERROR` even
+    when returned with HTTP 429, including `insufficient_quota`,
+    `credit_balance_exhausted`, organization usage-limit, and organization/
+    project spend-limit codes. It starts no retry and consumes neither retry
+    budget.
   - Setup and mid-stream failures share one budget of ten retries after the
     initial attempt. A persistent fixture therefore makes eleven provider
     attempts, never multiplies attempts through nested pi-ai retries, and
@@ -7290,8 +8469,10 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   deadline. 3) Run with an in-range override including values above 300
   seconds. 4) Submit zero, negative, and over-21,600-second overrides.
 - **Expected**: Missing timeout uses exactly 60 seconds and returns
-  `TOOL_TIMEOUT` after process-tree shutdown. In-range values work within
-  1–21,600 seconds; out-of-range values fail validation and never spawn.
+  `TOOL_TIMEOUT` after process-tree shutdown; the error names the effective
+  `timeoutMs` budget and suggests raising it or splitting the command. In-range
+  values work within 1–21,600 seconds; out-of-range values fail validation and
+  never spawn.
 - **Specs linked**: `03-runtime/03-tools-and-permissions.md`,
   `03-runtime/06-host-rpc-protocol.md`, `03-runtime/08-error-codes.md`,
   `03-runtime/16-tool-result-limits.md`, `05-security/01-security.md`, ADR 0054,
@@ -7310,7 +8491,12 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   descendants, output events, audit, and turn state after the shutdown grace.
 - **Expected**: The process group/job tree is terminated, no descendant remains,
   no later output arrives, the turn returns `TURN_ABORTED`, and the workspace is
-  not rolled back automatically.
+  not rolled back automatically. On Windows, the hidden runner requests
+  `CREATE_BREAKAWAY_FROM_JOB` only when the job that contains the host grants
+  `JOB_OBJECT_LIMIT_BREAKAWAY_OK`, then enters its own kill-on-close job. A host
+  job that withholds breakaway leaves the runner in a nested job instead of
+  failing the tool closed; termination is still scoped to that job, so the
+  Desktop tree never becomes the termination scope.
 - **Specs linked**: `03-runtime/03-tools-and-permissions.md`,
   `03-runtime/07-process-model.md`, `03-runtime/08-error-codes.md`,
   `03-runtime/16-tool-result-limits.md`, `05-security/01-security.md`, ADR 0054
@@ -7319,6 +8505,47 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 - **Status**: Automated (passed 2026-08-04): `test:e2e:plan` aborts a real
   descendant process tree and verifies no late marker/output; host-core tests
   verify cancellation registry cleanup
+
+#### E2E-265: Background Bash tasks outlive their turn
+
+- **Preconditions**: A project session whose catalog shell supports background
+  execution, and a port the test server may bind.
+- **Steps**: 1) Ask the agent to start a long-lived process with
+  `runInBackground` (a local web server) and watch the running-tasks bar above
+  the composer. 2) Abort the turn, send a second prompt in the same session,
+  then reload the renderer. 3) Expand the row's `Output`. 4) Press `Stop`.
+  5) Start ten tasks with 100,000 lines of 100 characters on both streams,
+  then inspect their final output. 6) Show Todo and Ask alongside the task list
+  at wide and narrow widths, scroll to the tenth task, and switch output previews
+  while an earlier read is pending. 7) Fail a Stop request and retry it.
+  8) Start two more tasks and quit the app during output capture.
+- **Expected**: The tool result carries `backgroundTaskId` and resolves without
+  waiting for the command; the bar lists the task as running with a growing
+  elapsed time and shows its streamed output; the process stays alive across the
+  abort, across the 60-second Bash timeout, and across a renderer reload.
+  `Stop` settles the row to `Stopped` and kills the process tree; quitting the
+  app leaves no orphan process behind. The ten-task list scrolls within its
+  height cap without displacing Todo, Ask, or input. Only the selected log is
+  fetched and refreshed; old responses cannot erase it. Each stream remains
+  bounded to 256KiB and retains its final marker after exit. A Stop failure is
+  visible without an unhandled rejection and the control remains retryable.
+  An ended task keeps its row only for a short grace window and can be closed
+  from the bar, so finished commands do not accumulate above the composer.
+- **Specs linked**: `03-runtime/03-tools-and-permissions.md` (§5),
+  `03-runtime/06-host-rpc-protocol.md` (§4)
+- **Acceptance criterion**: C, E, F
+- **Milestone**: M6+
+- **Status**: Partially automated (host-core `background_tasks::tests` and the
+  renderer contract test `apps/desktop/test/background-tasks.test.mjs`;
+  `node scripts/e2e-background-tasks-host.mjs` runs the real Host/process/pipe
+  stress path without providers, and `node scripts/e2e-background-tasks.mjs`
+  exercises production React components in isolated Electron at 1280px, 700px,
+  and 390px widths. Host tests cover exit-before-drain and shutdown under output
+  lock contention. The full agent-to-Desktop journey and an 83-minute paced
+  100,000-line soak remain manual; the automated volume test is accelerated.
+  Renderer visibility (grace window, close action, pinned output preview) is
+  covered by `apps/desktop/test/background-tasks-bar-visibility.test.mjs` with a
+  controlled clock; the multi-second hand-off itself is not timed in Electron.)
 
 #### E2E-117: Agent/Plan/Goal UX and locales contain no Chat controls
 
@@ -7401,6 +8628,52 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   archived payload, and the index `(seq, turn_id)` rows;
   `replace_messages_preserves_owning_turn_ids` covers the remaining rewrite
   callers. UI paging remains manual.
+
+- **Bounded-history regression (#1870)**: Regenerate an older prompt, then
+  continue until the root is outside the newest 100-message page. Complete
+  another turn while viewing that page, then repeat after switching to another
+  session. The archive must not append the older user root after the latest
+  answer in the active transcript, retained pane, or session cache. If the root
+  is loaded, its pager updates in place using its current message identity,
+  which can differ from the stable family key. A root removed during the
+  archive RPC stays absent. Previous variants remain available after restart.
+  With neither a cached nor retained background transcript, the acknowledgement
+  must leave the cache absent and allow the next prefetch to read the Host.
+  Automated event-to-projection coverage:
+  `apps/desktop/test/regenerate-root-projection.test.mjs`.
+  `node scripts/e2e-regenerate-root.mjs` exercises the real Host process,
+  production main persistence and renderer projections with an isolated
+  3,484-message transcript, three follow-up turns, restart, and a revision
+  round trip. Set `PI_DESKTOP_HOST_BIN` to a host built from the candidate.
+
+#### E2E-REVIEW-append-state: Rolling back a historical tool card does not rewrite its session
+
+- **Preconditions**: An isolated real Host process, a temporary workspace with
+  a file changed by `Write`, and a transcript with 16 MiB of synthetic retained
+  tool output after the review-owning message. Use `--large` for 384 MiB.
+- **Steps**: Run `review.rollback`, compare the transcript prefix hash and
+  appended bytes, read the review with a one-message `messageAround` window,
+  read the tail, restart the Host, and retry the same rollback.
+- **Expected**: Workspace bytes are restored. The original transcript prefix
+  is unchanged and fewer than 256 bytes are appended. The selected card reads
+  `rolledBack` before and after restart, its original position and the last
+  message remain correct, and message count is unchanged. Retrying returns
+  `alreadyRolledBack` without appending another state record.
+- **Specs linked**: `03-runtime/04-data-storage.md` §2.0; ADR
+  [append-only-review-state](../../adr/append-only-review-state.md).
+- **Acceptance**: C (conversation), F (persistence), Quality.
+- **Milestone**: M6.
+- **Status**: Automated by `pnpm test:e2e:review-state`; set
+  `PI_DESKTOP_HOST_BIN` to the candidate Host binary. No provider or user data
+  is used. `transcripts::review_state_tests` additionally covers duplicate IDs,
+  snapshot isolation, disk cache reuse, intentional rewrites and torn appends.
+  `equal_length_state_appends_replay_in_file_order_across_cached_reads` pins
+  file-order precedence for equal-sized state appends through warm and cold
+  layouts. `truncate_from_folds_review_state_into_the_retained_prefix` verifies
+  that a later truncate removes the state log while retaining the effective
+  state in the surviving canonical tool message.
+  This validates the review-state trigger in #1836; it does not assert Windows
+  UI timing or eliminate full rewrites for deliberate history replacement.
 
 #### E2E-246: Retrying a large session truncates without a whole-transcript RPC
 
@@ -7890,6 +9163,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   6. Settings UI updates status to `Ready` with discovered tools, shows localized success toast, and displays `OAuth` badge.
   7. When access token expires, `UserMcpRuntime` transparently uses refresh token to obtain a fresh access token without user prompt.
   8. Moving the server via `mcp.transfer` preserves and re-keys the OAuth token secret under the destination ID.
+- **No-DCR case**: When authorization-server metadata omits `registration_endpoint` and there is no reusable client, Authorize does not open a browser. The error event contains `MCP_OAUTH_DCR_UNAVAILABLE` and Settings shows localized recovery guidance to request a client ID from the server operator or use a DCR-capable server.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md`, ADR 0283, ADR 0142
 - **Acceptance**: E (tools & permissions), Security
 - **Milestone**: M5
@@ -7987,6 +9261,11 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
     text-plus-image send to verify full draft restoration. In a narrow pane,
     prefill 20 images, confirm 20 inline chips inside the composer, and remove
     one without losing the others.
+    Send a prompt that puts text, an image, then more text in that order:
+    confirm the sent message renders the image chip at that position instead of
+    after the body, and that an image the draft did not name inline still
+    follows the text. The provider-facing prompt keeps the same order; the
+    runtime placement tests assert those content blocks.
     Inspect the chip and open it with click, Enter, and
      Space. Confirm a centered modal preview opens, the work panel stays
      unchanged, and the draft is neither edited nor sent. Check small images
@@ -8037,7 +9316,12 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   F (persistence), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered (`composer-paste-files.test.mjs`,
-  `composer-clipboard.test.mjs`, `composer-native-deletion.test.mjs`); `pnpm test:e2e:composer-paste` mounts the real
+  `composer-clipboard.test.mjs`, `composer-native-deletion.test.mjs`);
+  `prompt-inline-attachments.test.mjs` covers where an inline image's `@path`
+  is recorded and that a replayed fallback copy still travels,
+  `session-message-presentation.test.mjs` renders the row order, and
+  `packages/agent-runtime/src/runtime.test.ts` asserts the prompt content
+  blocks. `pnpm test:e2e:composer-paste` mounts the real
   ComposerInput, draft/paste hooks, file viewer, production CSS and sandboxed
   preload. It dispatches Chromium ClipboardEvents with synthetic mixed data
   and native File objects, exercises the real scratch writer and contained
@@ -8110,7 +9394,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 - **Status**: Unit-covered (`apps/desktop/test/composer-drag-drop.test.mjs`);
   full desktop gesture journey Draft (run only in a capable environment when this surface changes)
 
-#### E2E-102a: Composer file reference results use compact leaf names
+#### E2E-102a: Composer file reference results show leaf names with full relative paths
 
 - **Preconditions**: The app is running with an Agent session in a workspace
   containing nested files, duplicate leaf names in different directories, and
@@ -8123,10 +9407,17 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   and continue to a child file. 4) Send the completed references and inspect
   the persisted user message.
 - **Expected**:
-  - Each result persistently renders only its leaf name; directories retain a
-    trailing `/`, and no parent path consumes horizontal row space.
+  - Each result persistently renders its leaf name followed by the entry's
+    complete workspace-relative path in a de-emphasized span; directories
+    retain a trailing `/` on the leaf name, the span carries the raw
+    `entry.path`, and it ellipsizes before the leaf name can while the row
+    never overflows the menu.
   - The tooltip and accessible name retain the complete relative path so
     duplicate leaf names remain distinguishable.
+  - In a Git workspace containing accented, CJK, and emoji file names,
+    indexing and filtering retain each name exactly, including when Git's
+    stdout chunks split a UTF-8 character. Accepting the result names the
+    existing file, without replacement characters in its path.
   - Enter/Tab/click on a file replaces the `@` token with an inline chip that
     stays in the draft; that key does not send. File acceptance retains the
     original complete `entry.path` behind the chip; directory acceptance
@@ -8135,12 +9426,49 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
     the agent can read both selected files normally.
 - **Specs linked**: `04-ux/08-component-spec.md` §11.8,
   `04-ux/09-interaction-patterns.md` §8a, `03-runtime/01-ipc-protocol.md` §13c,
-  `08-meta/decisions-log.md` (D124, D209, D362), ADR 0024, ADR 0070
+  `08-meta/decisions-log.md` (D124, D209, D362, D660), ADR 0024, ADR 0070
 - **Acceptance**: C (conversation & stream), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered
-  (`apps/desktop/test/composer-file-reference-display.test.mjs`); full UI
-  journey Draft (run only in a capable environment when this surface changes)
+  (`apps/desktop/test/composer-file-reference-display.test.mjs` and
+  `packages/host-runtime/src/fs-index-encoding.test.ts`); Unicode filtering and
+  file acceptance run in `composer-deep-file-search-user-path.test.mjs`; file-mode row
+  layout covered by `scripts/e2e-composer-autocomplete.mjs`; full UI journey
+  Draft (run only in a capable environment when this surface changes)
+
+#### E2E-COMPOSER-deep-file-mentions: `@` reaches deep files in a large workspace
+
+- **Preconditions**: The app is running with an Agent session in a workspace
+  whose index is truncated (more than 8000 files and directories), with a
+  script several folders below thousands of shallow assets — for example a
+  Unity project's `Assets/_Game/Scripts/Gameplay/Player/FeatureController.cs`.
+  Run once with the workspace under git and once without.
+- **Steps**: 1) Type `@` and inspect the footnote. 2) Type the script's name
+  and pause. 3) Accept the script's row with Enter. 4) Edit the query quickly
+  through several prefixes. 5) Repeat in a small workspace and in a remote
+  session.
+- **Expected**:
+  - The bare `@` lists the index and shows the truncation footnote.
+  - After the pause the deep script appears as a row, ranked like any other
+    match, and the footnote disappears once that search has answered; files
+    excluded by `.gitignore` or the ignore set never appear.
+  - Accepting it inserts the same file chip as any other reference.
+  - Rows never belong to an earlier query. The menu keeps the local matches
+    while a search is pending.
+  - A small workspace issues no search request; a remote session keeps its
+    snapshot and footnote.
+- **Specs linked**: `04-ux/08-component-spec.md` §11.8,
+  `03-runtime/01-ipc-protocol.md` §13c, `08-meta/decisions-log.md` (D124,
+  D669), ADR 0024
+- **Acceptance**: C (conversation & stream), Quality
+- **Milestone**: M5
+- **Status**: Unit-covered (`packages/host-runtime/src/fs-index.test.ts`
+  covers the git and walk listings, ignore rules, directories, and the result
+  limit); the renderer journey — search after the pause, merge, accept, stale
+  answers, the footnote, and the complete-index path — is covered by
+  `apps/desktop/test/composer-deep-file-search-user-path.test.mjs` in a real
+  Electron renderer. The full desktop journey against a large real tree is
+  Draft (run only in a capable environment when this surface changes).
 
 #### E2E-102b: Unanswered Stop restores compact file-reference drafts
 
@@ -8665,6 +9993,8 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   - Stopped throughput is present before and after reload. It uses exact output
     usage when the provider supplied it; otherwise the UI labels the persisted
     four-code-point estimate as approximate.
+  - Completed-response throughput uses pi-ai 1.1.0's monotonic request duration;
+    stopped partial responses retain the sidecar duration fallback.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md`,
   `03-runtime/02-agent-runtime.md` §5b/§9,
   `04-ux/07-ui-design-system.md` §8.2–8.3,
@@ -8832,8 +10162,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   groups, that the summary line above the Change action names the account
   holding the current default, and that typing an account label filters to that
   account's models while typing the vendor name still reaches both. Repeat the
-  same check on the Settings prompt-enhancement model picker. 5) Resolve
-  and use each account separately, including model discovery and one streamed
+  5) Resolve and use each account separately, including model discovery and one streamed
   turn per account. 6) Start the device-code login on a second vendor, including
   Meta/Muse when available, then press Cancel while the dialog is polling;
   confirm no row or credential is left. 7) Remove the first Anthropic account,
@@ -8966,48 +10295,63 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
      the view's top-left folder control to the project's second folder and
      confirm the tree follows it while the app's visible workspace does not,
      then switch back to the project's primary folder.
-  4. Right-click a file and confirm **Open with default app** and **Show in
-     folder** are offered and work; right-click a directory and confirm they are
-     not offered, because the host refuses the action for directories.
+  4. Right-click an HTML file and confirm **Open in built-in Browser** appears
+     under Open With. Select it and verify a new Browser resource tab opens the
+     file in the active local session while the File Manager tab remains open.
+     Right-click a non-HTML file and confirm that item is absent. Confirm
+     **Open with default app** and **Show in folder** remain available for files
+     and work. For directories, confirm the built-in Browser and Show in folder
+     actions are absent, the default-app action is disabled, and editor choices
+     remain available.
   5. Open a text file, edit it, and save. Confirm the file on disk changed and
-     the editor keeps the saved content. Change the same file outside the app,
-     edit and save again, and confirm the conflict is reported instead of the
-     external change being overwritten. Click the binary file and confirm it
-     reports as unsupported rather than printing replacement characters; open
-     the image, the CSV, and the Markdown file and confirm each gets its own
-     viewer. Switch the app to Simplified Chinese and confirm the tree, viewer,
-     and context menu are localized. Switch projects and confirm the tree
-     updates without waiting on a poll.
+     the editor keeps the saved content. In dark appearance, press `Ctrl/Cmd+F`
+     and confirm the find text, replace text, and action labels remain readable
+     against their themed fields and buttons; repeat after switching to light
+     appearance. Change the same file outside the app, edit and save again, and
+     confirm the conflict is reported instead of the external change being
+     overwritten. Click the binary file and confirm it reports as unsupported
+     rather than printing replacement characters; open the image, the CSV, and
+     the Markdown file and confirm each gets its own viewer. Switch the app to
+     Simplified Chinese and confirm the tree, viewer, and context menu are
+     localized. Switch projects and confirm the tree updates without waiting on
+     a poll.
   6. Click a project file path in the conversation. Confirm it opens in this
      view on that file — a chat click now prefers the file view over the host
      `file:` tab.
   7. Click a conversation reference to `src/example.ts:42`. Confirm the host
      `file:` tab opens at line 42 even though the File Manager plugin is enabled.
   8. Disable the File Manager plugin. Confirm the view disappears from the menu
-     and the panel, and that a clicked conversation file path falls back to the
-     host `file:<path>` tab under Open resources.
-  9. Re-enable it, then restart the app. Confirm the enabled state and the tree
-     return, and that the registry did not gain a duplicate row.
+     and the panel. Click a project file path in the conversation; the host
+     should enable the bundled plugin and open that file in its view.
+  9. Restart the app. Confirm the enabled state and the tree return, and that
+     the registry did not gain a duplicate row.
 - **Expected**: A panel surface runs entirely on the public plugin contribution
   channel, is user-disableable, cannot be uninstalled, and survives restart. Its
   host-mediated actions obey the declared `fs.read` scope, and its own reads and
   writes stay inside the jail of the one project folder it is browsing
-  (ADR 0241, ADR 0263). Plain project-file links open in the bundled view; a
-  positioned `path:line` reference opens the host file tab and scrolls the
-  requested line even while the plugin view is available.
+  (ADR 0241, ADR 0263). Plain project-file links open in the bundled view,
+  bringing it up on demand after a direct click when its scope and permission
+  allow it; a positioned `path:line` reference opens the host file tab and
+  scrolls the requested line even while the plugin view is available.
 - **Specs linked**: `07-plugins/03-plugin-api.md` §3,
   `07-plugins/13-plugin-permissions-matrix.md` §2,
   `04-ux/08-component-spec.md` §5, ADR 0104, ADR 0109, ADR 0111,
-  ADR 0169, ADR 0241, ADR 0249, ADR 0263
+  ADR 0169, ADR 0241, ADR 0249, ADR 0263, ADR 0330
 - **Acceptance**: G (plugins), D (workspace), Security, Quality
 - **Milestone**: M6+
-- **Status**: Unit coverage in `apps/desktop/test/bundled-plugins.test.mjs`
-  (manifest contract, public-bridge-only page, vendored checksums),
-  `apps/desktop/test/plugin-fs-scope.test.mjs` (`fs.openDefault` and `fs.reveal`
-  guards), `apps/desktop/test/plugin-work-panel-views.test.mjs` (docked-view
-  event broadcast), and host-core
-  `bundled_plugins_refresh_from_disk_but_keep_user_state`; the packaged journey
-  is Draft (run only in a capable environment when this surface changes)
+- **Status**: `pnpm test:e2e:file-manager-theme` loads the shipped plugin view
+  in Electron, opens a text file through a fixture public bridge, invokes
+  `Ctrl/Cmd+F`, and checks the rendered find/replace fields and actions in dark
+  and light appearances. `apps/desktop/test/bundled-plugins.test.mjs` also
+  covers the manifest contract, public-bridge-only page, vendored checksums,
+  and themed CodeMirror controls. `apps/desktop/test/plugin-fs-scope.test.mjs`
+  covers `fs.openDefault`, `fs.openInBrowser`, and `fs.reveal` guards;
+  `apps/desktop/test/browser-preview-tool.test.mjs` covers Browser resource-tab
+  event routing; `apps/desktop/test/plugin-work-panel-views.test.mjs` covers
+  docked-view event broadcast; and host-core covers
+  `bundled_plugins_refresh_from_disk_but_keep_user_state`. The remaining
+  packaged journey is Draft (run only in a capable environment when this
+  surface changes).
 
 #### E2E-PLUGIN-file-view-collapse-persists
 
@@ -9212,7 +10556,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   it checks create/update/discovery payloads and the Codex model binding save.
   This does not verify Host storage, live OAuth or live model/search calls.
 - **Specs linked**: `03-runtime/11-provider-model-system.md`,
-  `03-runtime/12-provider-config-schema.md`, ADR 0095, ADR 0330.
+  `03-runtime/12-provider-config-schema.md`, ADR 0095, ADR 0347.
 - **Acceptance**: B (model configuration), Security.
 - **Status**: The Electron/React scenario passed in English and Simplified
   Chinese: eight scenario groups, four creates and eight provider updates through
@@ -9228,13 +10572,16 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   model discovery, explicitly select Step 5 Preview, then save.
 - **Expected**: The chooser and connection summary both visibly include
   `api.stepfun.com/step_plan/v1`. Discovery receives `https://api.stepfun.com/step_plan/v1`,
-  `anthropic_messages` and the entered key. Save retains that URL and format,
+  `anthropic_messages`, and the entered key sent as `Authorization: Bearer` rather
+  than the Anthropic `x-api-key`. Save retains that URL and format,
   the catalog vendor `stepfun-step-plan`, and the selected model. The ordinary
   StepFun `/v1` endpoint is not substituted for the subscription endpoint.
 - **Automation**: `pnpm test:e2e:provider-api-style` uses real settings components
   with only the API boundary stubbed. `provider-presets.test.ts` checks the
   preset contract and ordinary-endpoint separation; `service-catalog.test.mjs`
-  checks discoverability by localized label, name, vendor key, and URL.
+  checks discoverability by localized label, name, vendor key, and URL;
+  `provider-stepfun-plan-discovery.test.mjs` drives the real provider handlers
+  and pins the Bearer model list for both discovery and the connection test.
 - **Scope**: Save/discovery payloads are covered; host persistence, live model
   calls, and visual layout are not asserted by this fixture.
 - **Specs linked**: `03-runtime/12-provider-config-schema.md`, `guide/stepfun.md`.
@@ -9386,79 +10733,103 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   because the host has no device backend yet, so this scenario stays Draft until
   audio lands.
 
-### E2E-CONFIG-SYNC-webdav-portable-configuration
+<a id="e2e-config-sync-webdav-portable-configuration"></a>
 
-- **Preconditions:** A built task candidate, an isolated host profile, and a
-  local WebDAV fixture that supports strong ETags and conditional PUT, plus a
-  fixture variant that ignores conditional headers but supports `PROPFIND`
-  directory listing. No real WebDAV account, provider, or production desktop.
-  Developer mode starts off so the public destination is exercised as shipped.
-- **Steps:** 1) Open Settings with developer mode off; confirm Cloud sync is
-  present in the rail and returned by settings search, then open it and
-  confirm neither the rail row nor the page title carries an Experimental
-  badge. 2) Toggle developer mode on and off and confirm the destination stays
-  reachable either way. 3) Enter the fixture URL,
-  device label, directory, and backup password. 4) Run the capability test and
-  confirm it uses temporary objects. 5) Select provider/MCP/skill categories
-  while leaving credentials and memory off; enable credentials in a second
-  preview and verify only redacted counts are shown. 6) Configure device A,
-  create a user provider and MCP definition, and sync. 7) Configure device B
-  against the same vault, sync, inspect pending activation/mapping, and verify
-  no command or task runs before approval. 8) Approve a changed safe entity,
-  reject one staged entity, edit disjoint settings on both devices, and sync
-  again. 9) Exercise a concurrent head writer, wrong password, weak ETag,
-  ciphertext corruption, redirect, archive traversal, and network interruption.
-  10) On the ignored-precondition fixture, select explicit compatibility mode,
-  confirm the warning, and configure two devices. Verify each device publishes
-  its own encrypted head under the heads collection, a concurrent update is
-  merged from both tips, and compatibility mode does not delete immutable
-  history. Cancel the confirmation once and verify configuration is not saved.
-  11) Use the explicit LAN HTTP acknowledgement with a loopback/private fixture,
-  verify the setting survives a state refresh, and confirm a public HTTP
-  endpoint is rejected even when the checkbox is selected. 12) Leave the
-  Cloud sync page with an unfinished connection edit, reopen it, and confirm
-  the non-sensitive draft is painted immediately while host state/history
-  refreshes in the background. Confirm a configured endpoint reuses its stored
-  WebDAV app password, while password fields themselves remain blank and no
-  vault password is written to renderer storage.
-- **Expected:** Cloud sync is reachable in every build without developer mode,
-  carries no Experimental badge on the rail row or page title, and neither its
-  availability nor its behavior changes when developer mode is toggled.
-  Strict mode refuses
-  unreliable conditional writes. The explicit
-  compatibility mode accepts only a server that proves bounded directory
-  listing, explains that it is not atomic CAS, and retains per-device tips for
-  merge/recovery. A server that ignores conditional headers is never accepted
-  without that user selection. HTTP remains opt-in and is accepted only for
-  localhost, `.local`, or private/link-local addresses; public HTTP endpoints
-  are rejected and the UI explains the credential exposure risk. A fixture that
-  reports a missing object as 502 is accepted only after the capability probe
-  observes that endpoint-specific behavior. WebDAV sees
-  only authenticated ciphertext and opaque object names; raw secrets never
-  appear in renderer state or logs. Identical and disjoint edits converge,
-  conflicts remain reviewable, explicit deletions use tombstones, category
-  opt-out is not deletion, and executable imports remain inactive until local
-  approval and mapping. Reopening Settings does not block on history, and
-  unfinished non-sensitive connection choices survive navigation or reload.
-  Recovery never exposes a partial local apply.
-- **Specs:** `04-ux/06-settings-ia.md`, `03-runtime/22-config-sync.md`,
-  `03-runtime/14-secrets-storage.md`, `05-security/01-security.md`, ADR 0300,
-  ADR 0301.
-- **Acceptance:** F (persistence), Security, Quality.
-- **Milestone:** M6+.
-- **Status:** Draft; merge/crypto, in-process WebDAV conditional-write
-  coverage, and the two-device host/WebDAV path are automated by
-  `pnpm test:e2e:config-sync`. Public Cloud sync visibility without developer
-  mode is asserted by `settings-developer-only-destinations.test.mjs`; full
-  renderer-driven persistence and checkpoint recovery fault injection remain.
+### E2E-CONFIG-SYNC-s3-portable-configuration
+
+- **Preconditions:** A built task candidate, isolated Host processes with
+  separate data, HOME and agent directories, and a local S3 fixture with strong
+  ETags and conditional PUT. No real model provider or running desktop instance.
+  A live S3 run is separately opt-in and requires explicit authorization.
+- **Steps:**
+  1. In a packaged build, confirm Cloud sync appears in Settings navigation
+     and search with Experimental badges on its row and page title. Open the
+     destination and confirm only the new S3 setup is offered; old formats are
+     not detected, migrated or deleted.
+  2. Confirm initial setup shows only required connection/password fields and
+     automatic runs use the shared switch. Expand Advanced to edit region,
+     prefix, addressing, device label and optional token; collapse/reopen it
+     without losing values. Select categories before the first save, keeping
+     credentials/memory opt-in. Test conditional creation, readback, matching
+     update, stale-write rejection and probe cleanup.
+     Reject ignored preconditions, weak ETags, redirects, public HTTP and 403;
+     never interpret 502 as a missing object. LAN HTTP follows network policy.
+  3. Configure two sync devices. Publish a provider and mapped packaged skill,
+     receive them as pending where approval is required, approve, and verify
+     visible persisted configuration and resource bytes. Verify there is no
+     projects category and publishing project/group metadata neither registers
+     nor changes projects/groups on the receiving device. Register its workspace
+     locally, then map and approve the project skill; its resources must arrive
+     without changing local group names, roots or ordering. Existing vault
+     `projects` entities are ignored on sync/restore, preserving local projects
+     and cloud history. Exercise disjoint edits,
+     same-entity conflicts and explicit choice convergence, remote deletion
+     versus offline edit, and repeated polling. Credential opt-out must not
+     manufacture local edits or prevent deletion convergence. No real executable
+     capability is run.
+  4. Configure backup mode. Verify remote configuration is not applied, backup
+     history is separate, unchanged snapshots do not duplicate revisions, and
+     a local restore does not change either cloud head.
+  5. Restore an older sync revision with propagation acknowledgment. Verify a
+     local recovery point, a new shared revision and propagation to the second
+     device, with sensitive activation still requiring approval. Rewrap the
+     password without claiming revocation of already unlocked devices.
+  6. Reopen Settings with saved and unfinished drafts. Preserve typed S3 choices
+     and automatic-run preferences, but never persist secret keys, tokens or
+     passwords. Test blank credential reuse, explicit token clearing and full
+     replacement. Invalidate history on destination/mode changes and ignore
+     outstanding responses from the old connection. Unsaved mode changes must
+     not alter restore confirmation or propagation flags.
+     Saved connections reopen collapsed while status, manual run and inline
+     unlock remain visible above them. Open History and Security/connection
+     to restore, change password or disconnect. Pending approvals and errors
+     remain visible. At narrow content widths the form becomes one column
+     without horizontal overflow. In light/dark themes, activate shared
+     checkboxes by label and Space; verify focus, disabled and mixed states.
+  7. Restart an isolated Host and verify persisted state, then disconnect without
+     deleting unrelated data. Inspect remote object bytes for known fixture
+     plaintext and verify there is no automatic immutable-object GC.
+  8. Hold an in-flight manual sync, navigate away from Settings and return.
+     Verify Host still reports `syncing`, duplicate actions stay disabled, and
+     releasing the fixture completes the operation and refreshes Host state.
+- **Expected:** Only S3 is supported, with mandatory conditional writes and
+  encrypted vault contents. Identical/disjoint edits converge; conflicts and
+  tombstones preserve changes; excluded categories do not imply deletion.
+  Backup never downloads/applies remote configuration during normal runs.
+  History queries index at most 30 revisions; stored immutable objects are not
+  automatically deleted. Import recovery remains observable; per-file atomic
+  replacement is not asserted to be a whole-filesystem transaction.
+- **Live S3 safety:** `--live-s3 --env-file <authorized-file>` reads credentials
+  programmatically without logging/copying them. Use a new random test prefix,
+  confirm it is initially empty, run actual isolated Host processes, delete
+  only objects created under that prefix, and verify it is empty afterward.
+  Never use an existing backup prefix or production desktop profile. Record
+  tested base/candidate and distinguish this run from a standalone SDK probe.
+- **Automation:** `pnpm test:e2e:config-sync` is the multi-Host harness.
+  Rust `config_sync::` and `user_skills::` suites cover transport, merge,
+  application and resource safety. `config-sync-user-path.test.mjs` runs the
+  real settings page and shared checkbox with a mocked external IPC boundary,
+  actual styles and isolated Electron input, without network access;
+  `config-sync-ipc.test.mjs` covers Main notification shape. Visibility remains
+  covered by `settings-developer-only-destinations.test.mjs`.
+- **Specs:** `03-runtime/22-config-sync.md`, `04-ux/06-settings-ia.md`,
+  `03-runtime/14-secrets-storage.md`, `05-security/01-security.md`,
+  `docs/adr/s3-only-configuration-backup-sync.md`.
+- **Acceptance:** F (persistence), Security, Quality. **Milestone:** M6+.
+- **Status:** Candidate validation required; full checkpoint-recovery fault
+  injection is not claimed by the settings or multi-Host happy-path suites.
 
 **E2E-CHAT-session-todo-checklist: TodoWrite to session-aware TodoDock**
 
 - **Preconditions**: An isolated local Electron profile with a deterministic
   Agent/host fixture, two Desktop sessions, and no real provider or paid API.
 - **Steps**: Start a multi-step Agent turn that calls `TodoWrite` with ordered
-  pending and `in_progress` items. Observe the TodoDock above the Composer,
-  expand it, switch sessions, and confirm the checklist stays session-scoped.
+  pending and `in_progress` items. Observe the TodoDock above the Composer;
+  confirm its progress text is left-aligned, its separate arrow button is at
+  the right edge, measures at least 36px square, and contains an independently
+  sized 18px arrow icon. Confirm clicking the text does not expand it. Click
+  the upward arrow to expand, then confirm the arrow points down. Switch
+  sessions and confirm the checklist stays session-scoped.
   Expand a checklist longer than the dock's height cap: every row must render
   and the list must scroll inside the dock without growing the Composer stack.
   Complete and cancel items, confirm the all-cancelled label, then clear the
@@ -9469,9 +10840,13 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 - **Expected**: Host SQLite is authoritative; each successful full replacement
   advances revision, including clear, and emits one committed `todos.changed`
   snapshot. Invalid or unauthorized writes do not mutate or emit. TodoDock
-  renders plain text, does not take focus, resets expansion on session changes,
-  lists every ordered row with the dock's own list as the scrollport,
-  keeps a collapsed dock to its header height,
+  renders plain text, separates collapsed progress from the current item,
+  uses glyph status marks in a flat expanded list, does not take focus,
+  strikes through completed task text, sweeps a light band across the working
+  step's text only (the header line while collapsed, its row while expanded),
+  resets expansion on session changes,
+  lists every ordered row with the dock's
+  own list as the scrollport, and keeps a collapsed dock to its header height,
   rejects stale events, and skips local recovery for `remote:` sessions because
   RACP v1 has no Todo snapshot operation.
 - **Specs**: `03-runtime/03-tools-and-permissions.md`,
@@ -9498,40 +10873,54 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 
 | Acceptance | Scenarios |
 |---|---|
+| C / E / Security / Quality — Gemini work setup | E2E-LIVE-VOICE-gemini-work-schema |
+| C / Quality — Continue after malformed tool output | E2E-RUNTIME-malformed-tool-call-continue-recovery |
+| B / Security / Quality — Optional provider client certificate requests | E2E-PROVIDER-optional-client-certificate |
 | C / E / F / Quality / Security — Session Todo checklist | E2E-CHAT-session-todo-checklist |
 | C / E / Security / Quality — Live Voice four-stage interaction | E2E-LIVE-VOICE-four-stage-ui |
 | C / F — Hourly task updates | E2E-SCHEDULED-manual-to-hourly |
 | C / F / Quality — Saved project isolation | E2E-SCHEDULED-manual-workspace-binding |
 | C / F / Quality — Desktop automations | E2E-SCHEDULED-desktop-automation-lifecycle |
-| F / Security / Quality — Portable configuration sync | E2E-CONFIG-SYNC-webdav-portable-configuration |
+| F / Security / Quality — Portable configuration sync | E2E-CONFIG-SYNC-s3-portable-configuration |
 | A / C — Unicode stdio framing | E2E-RPC-unicode-separators |
 | C / G / Quality — Plugins navigation | E2E-NAV-plugins-button-goes-back |
 | C / D / Quality — Sidebar row states | E2E-LAYOUT-sidebar-row-states |
+| E / Quality — Browser screenshot timeout recovery | E2E-BROWSER-capture-resize |
 | A / C / Quality — Sidebar material and settings return | E2E-LAYOUT-sidebar-settings |
 | C / Quality — Destination loading and focus | E2E-087b |
 | A / H / Quality — Renderer process crash recovery | E2E-RUNTIME-renderer-crash-recovery |
 | C / F / Quality — Project folder with chats detaches and deletes safely | E2E-048c |
 | B / F / Security — Provider copy | E2E-PROVIDER-copy-config-without-credentials |
+| C / Quality — Self-hosted endpoint receives the session id | E2E-PROVIDER-custom-endpoint-session-identity |
 | B / F / Quality — Selected model order | E2E-MODEL-selected-order-persists |
 | E / F / Quality — MCP server timeout override | E2E-261 |
 | A — App startup | E2E-001, E2E-002, E2E-003, E2E-004, E2E-067, E2E-076, E2E-079, E2E-092, E2E-097, E2E-143, E2E-150, E2E-168, E2E-204 |
 | A / C / F / Quality — Tray session navigation | E2E-TRAY-bounded-session-navigation |
-| B — Model config | E2E-005, E2E-006, E2E-007, E2E-038, E2E-050, E2E-052, E2E-055, E2E-066, E2E-080, E2E-082, E2E-102c, E2E-102d, E2E-102e, E2E-151, E2E-154, E2E-163, E2E-166, E2E-172, E2E-174, E2E-197, E2E-005G, E2E-005J, E2E-199, E2E-201, E2E-202, E2E-203, E2E-205, E2E-206, E2E-209 |
+| B — Model config | E2E-005, E2E-PROVIDER-custom-endpoint-no-api-key, E2E-006, E2E-007, E2E-038, E2E-050, E2E-052, E2E-055, E2E-066, E2E-080, E2E-082, E2E-102c, E2E-102d, E2E-102e, E2E-151, E2E-154, E2E-163, E2E-166, E2E-172, E2E-174, E2E-197, E2E-005G, E2E-005J, E2E-199, E2E-201, E2E-202, E2E-203, E2E-205, E2E-206, E2E-209, E2E-PLUGIN-provider-catalog-add-service |
 | C — Conversation & stream | E2E-CHAT-long-history-stream-keeps-responsive, E2E-CHAT-running-status-survives-output-pauses, E2E-008, E2E-008d, E2E-008e, E2E-008a, E2E-009, E2E-010, E2E-011, E2E-011a, E2E-011b, E2E-011d, E2E-011e, E2E-011g, E2E-031, E2E-040, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-052, E2E-053, E2E-054, E2E-055, E2E-059, E2E-059a, E2E-060c, E2E-060d, E2E-061, E2E-061a, E2E-062, E2E-064, E2E-065, E2E-068, E2E-071, E2E-073, E2E-074, E2E-075, E2E-081, E2E-083, E2E-084, E2E-086, E2E-087, E2E-088, E2E-088b, E2E-089, E2E-090, E2E-COMPOSER-narrow-controls, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-106, E2E-109, E2E-111, E2E-114, E2E-116, E2E-117, E2E-118, E2E-119, E2E-120, E2E-121, E2E-218, E2E-259, E2E-219, E2E-AGENTS-001, E2E-142, E2E-144, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-151, E2E-154, E2E-155, E2E-158, E2E-159, E2E-161, E2E-162, E2E-166, E2E-172, E2E-173, E2E-174, E2E-177, E2E-178, E2E-179, E2E-180, E2E-182, E2E-183, E2E-187, E2E-198, E2E-199, E2E-202, E2E-203, E2E-207, E2E-208, E2E-CHAT-content-width-handles, E2E-250, E2E-102i, E2E-PLUGIN-session-orchestrator-real-workers, E2E-SUBAGENT-settlement-updates-before-parent-poll, E2E-SUBAGENT-resume-a-settled-delegation |
-| C — Conversation & stream (composer drafts) | E2E-011c, E2E-011c-1 |
+| C — Conversation & stream (composer drafts) | E2E-011c, E2E-011c-1, E2E-011c-2 |
 | D — Workspace | E2E-012, E2E-013, E2E-022B, E2E-024I, E2E-047, E2E-049, E2E-057, E2E-058, E2E-060, E2E-068, E2E-075, E2E-078, E2E-153, E2E-158, E2E-182, E2E-187, E2E-252 |
+| C / D / Quality — Project session history resets after collapse | E2E-263 |
 | D — Workspace (project ordering) | E2E-253 |
 | E — Tools & permissions | E2E-008a, E2E-014, E2E-015, E2E-016, E2E-017, E2E-018, E2E-019, E2E-024I, E2E-024K, E2E-040, E2E-049, E2E-074, E2E-093, E2E-097, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102d, E2E-102e, E2E-102g, E2E-103, E2E-105, E2E-106, E2E-107, E2E-111, E2E-112, E2E-113, E2E-114, E2E-115, E2E-116, E2E-119, E2E-121, E2E-122, E2E-142, E2E-145, E2E-147, E2E-155, E2E-158, E2E-166, E2E-181, E2E-PLUGIN-imported-pi-package-skills |
-| F — Persistence | E2E-020, E2E-021, E2E-021a, E2E-038, E2E-SETTINGS-inline-capability-imports, E2E-040, E2E-042, E2E-047, E2E-048, E2E-051, E2E-054, E2E-056, E2E-061, E2E-062, E2E-064, E2E-066, E2E-068, E2E-071, E2E-072, E2E-073, E2E-082, E2E-084, E2E-096, E2E-098, E2E-102, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-102i, E2E-103, E2E-AGENTS-001, E2E-061a, E2E-073a, E2E-104, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-118, E2E-119, E2E-120, E2E-121, E2E-123, E2E-142, E2E-146, E2E-146a, E2E-148, E2E-151, E2E-158, E2E-160, E2E-168, E2E-171, E2E-177, E2E-178, E2E-183, E2E-186, E2E-005J, E2E-PLUGIN-session-orchestrator-real-workers |
+| F — Persistence | E2E-020, E2E-021, E2E-021a, E2E-038, E2E-SETTINGS-inline-capability-imports, E2E-040, E2E-042, E2E-047, E2E-048, E2E-051, E2E-054, E2E-056, E2E-061, E2E-062, E2E-064, E2E-066, E2E-068, E2E-071, E2E-072, E2E-073, E2E-082, E2E-084, E2E-096, E2E-098, E2E-102, E2E-102b, E2E-102c, E2E-102d, E2E-102g, E2E-102i, E2E-103, E2E-AGENTS-001, E2E-061a, E2E-073a, E2E-104, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-118, E2E-119, E2E-120, E2E-121, E2E-123, E2E-142, E2E-146, E2E-146a, E2E-148, E2E-151, E2E-158, E2E-160, E2E-168, E2E-171, E2E-177, E2E-178, E2E-183, E2E-186, E2E-005J, E2E-PROVIDER-custom-endpoint-no-api-key, E2E-PLUGIN-session-orchestrator-real-workers, E2E-PLUGIN-provider-catalog-add-service, E2E-SESSION-outbox-unclassifiable-failure-does-not-stall-the-queue |
 | F — Persistence (project ordering) | E2E-251 |
-| G — Plugins | E2E-022, E2E-022A, E2E-022B, E2E-022C, E2E-023, E2E-024, E2E-024B, E2E-024C, E2E-024D, E2E-024AA, E2E-024E, E2E-024W, E2E-024F, E2E-024G, E2E-024H, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M, E2E-024N, E2E-024O, E2E-024P, E2E-025, E2E-026, E2E-105, E2E-117, E2E-120, E2E-122, E2E-123, E2E-024Q, E2E-148, E2E-152, E2E-153, E2E-PLUGIN-imported-pi-package-skills, E2E-PLUGIN-imported-pi-package-wrapper, E2E-PLUGIN-import-extension-installs-dependencies, E2E-PLUGIN-import-extension-reports-missing-dependency, E2E-PLUGIN-global-shortcut-owns-only-its-own-command, E2E-PLUGIN-permission-gate-for-real-time-capabilities, E2E-PLUGIN-background-audio-and-realtime-connection, E2E-PLUGIN-fs-root-follows-the-calling-session |
+| G / Security — Fetch redirect policy | E2E-PLUGIN-fetch-redirect-policy |
+| G — Plugins | E2E-022, E2E-022A, E2E-022B, E2E-022C, E2E-023, E2E-024, E2E-024B, E2E-024C, E2E-024D, E2E-024AA, E2E-024E, E2E-024W, E2E-024F, E2E-024G, E2E-024H, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M, E2E-024N, E2E-024O, E2E-024P, E2E-025, E2E-026, E2E-105, E2E-117, E2E-120, E2E-122, E2E-123, E2E-024Q, E2E-148, E2E-152, E2E-153, E2E-PLUGIN-imported-pi-package-skills, E2E-PLUGIN-imported-pi-package-wrapper, E2E-PLUGIN-import-extension-installs-dependencies, E2E-PLUGIN-import-extension-reports-missing-dependency, E2E-PLUGIN-global-shortcut-owns-only-its-own-command, E2E-PLUGIN-permission-gate-for-real-time-capabilities, E2E-PLUGIN-background-audio-and-realtime-connection, E2E-PLUGIN-fs-root-follows-the-calling-session, E2E-PLUGIN-provider-catalog-add-service, E2E-PLUGIN-reviews-public-reads |
 | H — Diagnostics | E2E-027, E2E-031, E2E-034, E2E-042, E2E-096, E2E-098, E2E-104, E2E-107, E2E-108, E2E-109, E2E-110, E2E-113, E2E-115, E2E-116, E2E-118, E2E-121, E2E-146, E2E-146a, E2E-155, E2E-159, E2E-176, E2E-194, E2E-195 |
-| Security | E2E-SETTINGS-inline-capability-imports, E2E-028, E2E-029, E2E-030, E2E-024J, E2E-024K, E2E-024M, E2E-049, E2E-068, E2E-086, E2E-102c, E2E-102d, E2E-102e, E2E-105, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-113, E2E-115, E2E-116, E2E-117, E2E-119, E2E-121, E2E-122, E2E-123, E2E-142, E2E-148, E2E-151, E2E-153, E2E-158, E2E-187, E2E-196c, E2E-196b, E2E-196, E2E-PLUGIN-fs-root-follows-the-calling-session |
-| Quality | E2E-SETTINGS-inline-capability-imports, E2E-CHAT-long-history-stream-keeps-responsive, E2E-CHAT-running-status-survives-output-pauses, E2E-032, E2E-033, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-053, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-103, E2E-AGENTS-001, E2E-021a, E2E-024N, E2E-059a, E2E-060b, E2E-060c, E2E-061a, E2E-073a, E2E-111, E2E-114, E2E-117, E2E-118, E2E-119, E2E-120, E2E-122, E2E-123, E2E-142, E2E-143, E2E-144, E2E-145, E2E-146, E2E-147, E2E-148, E2E-150, E2E-151, E2E-153, E2E-155, E2E-158, E2E-159, E2E-160, E2E-161, E2E-162, E2E-163, E2E-168, E2E-172, E2E-173, E2E-174, E2E-011g, E2E-176, E2E-177, E2E-178, E2E-179, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-196a, E2E-196b, E2E-196c, E2E-198, E2E-199, E2E-200, E2E-196, E2E-201, E2E-204, E2E-202, E2E-203, E2E-205, E2E-206, E2E-207, E2E-208, E2E-209, E2E-210, E2E-UPDATE-preference-and-once-only-reminder, E2E-218, E2E-259, E2E-219, E2E-250, E2E-252, E2E-102i, E2E-SUBAGENT-settlement-updates-before-parent-poll, E2E-PLUGIN-imported-pi-package-skills, E2E-PLUGIN-fs-root-follows-the-calling-session, E2E-SUBAGENT-resume-a-settled-delegation |
+| Security | E2E-SETTINGS-inline-capability-imports, E2E-028, E2E-029, E2E-030, E2E-024J, E2E-024K, E2E-024M, E2E-049, E2E-068, E2E-086, E2E-102c, E2E-102d, E2E-102e, E2E-105, E2E-106, E2E-107, E2E-108, E2E-109, E2E-110, E2E-112, E2E-113, E2E-115, E2E-116, E2E-117, E2E-119, E2E-121, E2E-122, E2E-123, E2E-142, E2E-148, E2E-151, E2E-153, E2E-158, E2E-187, E2E-196c, E2E-196b, E2E-196, E2E-PROVIDER-custom-endpoint-no-api-key, E2E-PLUGIN-fs-root-follows-the-calling-session, E2E-PLUGIN-provider-catalog-add-service, E2E-PLUGIN-reviews-public-reads |
+| Quality | E2E-SETTINGS-inline-capability-imports, E2E-CHAT-long-history-stream-keeps-responsive, E2E-CHAT-running-status-survives-output-pauses, E2E-032, E2E-033, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-053, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-094, E2E-095, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-103, E2E-AGENTS-001, E2E-021a, E2E-024N, E2E-059a, E2E-060b, E2E-060c, E2E-061a, E2E-073a, E2E-111, E2E-114, E2E-117, E2E-118, E2E-119, E2E-120, E2E-122, E2E-123, E2E-142, E2E-143, E2E-144, E2E-145, E2E-146, E2E-147, E2E-148, E2E-150, E2E-151, E2E-153, E2E-155, E2E-158, E2E-159, E2E-160, E2E-161, E2E-162, E2E-163, E2E-168, E2E-172, E2E-173, E2E-174, E2E-011g, E2E-176, E2E-177, E2E-178, E2E-179, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-196a, E2E-196b, E2E-196c, E2E-198, E2E-199, E2E-200, E2E-196, E2E-201, E2E-204, E2E-202, E2E-203, E2E-205, E2E-206, E2E-207, E2E-208, E2E-209, E2E-210, E2E-UPDATE-preference-and-once-only-reminder, E2E-218, E2E-259, E2E-219, E2E-250, E2E-252, E2E-102i, E2E-SUBAGENT-settlement-updates-before-parent-poll, E2E-PLUGIN-imported-pi-package-skills, E2E-PLUGIN-fs-root-follows-the-calling-session, E2E-SUBAGENT-resume-a-settled-delegation, E2E-PLUGIN-provider-catalog-add-service |
+| Quality (sidebar menu placement) | E2E-021c |
 | Quality (project ordering) | E2E-253 |
+| Quality (work-panel tab close visibility) | E2E-WORK-PANEL-active-tab-close-visibility |
+| Quality (turn changed-files disclosure) | E2E-CHAT-turn-changed-files-summary |
+| C / E / G / Quality — Pi kernel upgrade | E2E-PI-130-kernel-upgrade |
+| C / E / G / Quality — Pi kernel upgrade | E2E-PI-140-kernel-upgrade |
 | C — Conversation & stream (IME slash alias) | E2E-255 |
 | E — Tools & permissions (Skill residency) | E2E-254 |
 | Quality (Skill residency and IME slash alias) | E2E-254, E2E-255 |
+| C / E / F / Quality — Built-in skill activation | E2E-SKILL-builtin-activation |
+| Quality — Market catalog retry recovery | E2E-MARKET-CATALOG-RETRY |
 | C — Conversation & stream (plugin session import visibility) | E2E-257 |
 | F — Persistence (plugin session import visibility) | E2E-257 |
 | G — Plugins (session import visibility) | E2E-257 |
@@ -9555,6 +10944,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 | C / Quality / Security (Conversation MP4 attachments) | E2E-CHAT-mp4-attachment-opens-in-system-player |
 | G — Plugins (Chat file references) | E2E-CHAT-file-ref-opens-the-surface-that-owns-it, E2E-PLUGIN-file-view-collapse-persists |
 | Quality (Chat file references) | E2E-CHAT-shorthand-file-ref-opens-the-matching-file, E2E-CHAT-file-ref-opens-the-surface-that-owns-it, E2E-PLUGIN-file-view-collapse-persists |
+| C / Quality (Composer deep file mentions) | E2E-COMPOSER-deep-file-mentions |
 | G — Plugins (project folder roots) | E2E-PLUGIN-file-view-switches-folder-per-project |
 | Security (project folder roots) | E2E-PLUGIN-file-view-switches-folder-per-project |
 | Quality (project folder roots) | E2E-PLUGIN-file-view-switches-folder-per-project |
@@ -9565,6 +10955,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 | Security (plugin real-time capabilities) | E2E-PLUGIN-global-shortcut-owns-only-its-own-command, E2E-PLUGIN-permission-gate-for-real-time-capabilities, E2E-PLUGIN-background-audio-and-realtime-connection |
 | C — Conversation & stream (disclosure reading position) | E2E-CHAT-disclosure-toggle-keeps-reading-position |
 | E — Tools & permissions (disclosure reading position) | E2E-CHAT-disclosure-toggle-keeps-reading-position |
+| D (surfaces) / Quality — Remote-host Add and Pair form disclosure | E2E-REMOTE-HOST-settings-compact-inventory |
 | E — Tools & permissions (capability level move) | E2E-CAPABILITY-move-across-levels |
 | F — Persistence (capability level move) | E2E-CAPABILITY-move-across-levels |
 | Quality (capability level move) | E2E-CAPABILITY-move-across-levels |
@@ -9574,9 +10965,10 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 | Post-MVP experimental interaction maintenance | E2E-LIVE-VOICE-four-stage-ui |
 | M1 | E2E-001, E2E-002, E2E-003, E2E-028, E2E-029 |
 | M2 | E2E-004, E2E-005, E2E-006, E2E-007, E2E-008, E2E-008d, E2E-008e, E2E-009, E2E-010, E2E-011, E2E-011a, E2E-011b, E2E-011d, E2E-011e, E2E-011g, E2E-020, E2E-021, E2E-021a, E2E-027, E2E-031, E2E-042, E2E-087, E2E-088, E2E-088b, E2E-089, E2E-090, E2E-COMPOSER-narrow-controls, E2E-144, E2E-005J, E2E-201, E2E-202, E2E-207, E2E-206 |
+| M2 (sidebar menu placement) | E2E-021c |
 | M3 | E2E-012, E2E-013, E2E-014, E2E-015, E2E-016, E2E-017, E2E-018, E2E-019, E2E-040 |
 | M4 | E2E-022, E2E-023, E2E-024, E2E-025, E2E-026, E2E-030, E2E-038 |
-| M5 | E2E-CHAT-long-history-stream-keeps-responsive, E2E-CHAT-running-status-survives-output-pauses, E2E-008a, E2E-032, E2E-033, E2E-034, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-051, E2E-052, E2E-053, E2E-054, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-AGENTS-001, E2E-059a, E2E-060b, E2E-060c, E2E-061a, E2E-073a, E2E-094, E2E-095, E2E-143, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-177, E2E-178, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-204, E2E-208, E2E-CHAT-content-width-handles, E2E-250, E2E-252, E2E-102i |
+| M5 | E2E-CHAT-long-history-stream-keeps-responsive, E2E-CHAT-running-status-survives-output-pauses, E2E-008a, E2E-032, E2E-033, E2E-034, E2E-039, E2E-043, E2E-044, E2E-045, E2E-046, E2E-047, E2E-048, E2E-048A, E2E-049, E2E-050, E2E-051, E2E-052, E2E-053, E2E-054, E2E-055, E2E-056, E2E-057, E2E-058, E2E-059, E2E-060, E2E-061, E2E-062, E2E-063, E2E-064, E2E-065, E2E-066, E2E-067, E2E-068, E2E-069, E2E-070, E2E-071, E2E-072, E2E-073, E2E-074, E2E-075, E2E-076, E2E-077, E2E-078, E2E-079, E2E-080, E2E-081, E2E-082, E2E-083, E2E-084, E2E-085, E2E-086, E2E-092, E2E-093, E2E-096, E2E-097, E2E-098, E2E-099, E2E-100, E2E-101, E2E-102, E2E-102a, E2E-102b, E2E-102c, E2E-102d, E2E-102e, E2E-AGENTS-001, E2E-059a, E2E-060b, E2E-060c, E2E-061a, E2E-073a, E2E-094, E2E-095, E2E-143, E2E-145, E2E-146, E2E-146a, E2E-147, E2E-177, E2E-178, E2E-180, E2E-181, E2E-182, E2E-183, E2E-186, E2E-187, E2E-194, E2E-195, E2E-204, E2E-208, E2E-CHAT-content-width-handles, E2E-250, E2E-252, E2E-102i, E2E-BROWSER-capture-resize |
 | M5 (project ordering) | E2E-253 |
 | M2 (IME slash alias) | E2E-255 |
 | M5 (Skill residency) | E2E-254 |
@@ -9590,14 +10982,15 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 | M6+ (Windows updater cache) | E2E-260 |
 | M6+ (Independent session communication) | E2E-SESSION-independent-top-level-communication, E2E-SESSION-hover-card-model-and-links |
 | M5 (Chat file references) | E2E-CHAT-shorthand-file-ref-opens-the-matching-file, E2E-CHAT-file-ref-opens-the-surface-that-owns-it |
+| M5 (Composer deep file mentions) | E2E-COMPOSER-deep-file-mentions |
 | M5 (Conversation MP4 attachments) | E2E-CHAT-mp4-attachment-opens-in-system-player |
 | M6+ (Chat file references) | E2E-PLUGIN-file-view-collapse-persists |
 | M6+ (project folder roots) | E2E-PLUGIN-file-view-switches-folder-per-project |
 | Post-MVP | E2E-022A, E2E-022B, E2E-022C, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M (plugin roadmap R2/R3/R6) |
 | Post-baseline local automation | E2E-220 |
 | Post-baseline local automation (MCP `pi_session_get` large compaction) | E2E-MCP-session-get-projects-large-compaction |
-| Post-MVP remote control | E2E-221, E2E-222, E2E-223, E2E-224, E2E-225, E2E-226, E2E-227, E2E-228, E2E-229, E2E-230, E2E-231, E2E-232 |
-| Trusted extensions (R7 v1) | E2E-DIALOG-long-text-boundaries, E2E-241, E2E-242, E2E-HOOKS-prompt-chain, E2E-HOOKS-cancel-and-dispose, E2E-TRUSTED-EXTENSION-custom-agent-stream-and-binding, E2E-243, E2E-244, E2E-245, E2E-PLUGIN-imported-pi-package-skills, E2E-PLUGIN-import-extension-installs-dependencies, E2E-PLUGIN-import-extension-reports-missing-dependency, E2E-PLUGIN-declared-provider-appears-in-the-native-provider-list |
+| Post-MVP remote control | E2E-221, E2E-222, E2E-223, E2E-224, E2E-225, E2E-226, E2E-227, E2E-228, E2E-229, E2E-230, E2E-231, E2E-232, E2E-REMOTE-HOST-settings-compact-inventory |
+| Trusted extensions (R7 v1) | E2E-DIALOG-long-text-boundaries, E2E-241, E2E-242, E2E-HOOKS-prompt-chain, E2E-HOOKS-context-every-request, E2E-HOOKS-cancel-and-dispose, E2E-TRUSTED-EXTENSION-custom-agent-stream-and-binding, E2E-243, E2E-TRUSTED-EXTENSION-temporary-session-cwd-is-scratch, E2E-244, E2E-245, E2E-PLUGIN-imported-pi-package-skills, E2E-PLUGIN-import-extension-installs-dependencies, E2E-PLUGIN-import-extension-reports-missing-dependency, E2E-PLUGIN-declared-provider-appears-in-the-native-provider-list, E2E-PLUGIN-provider-catalog-add-service |
 | Trusted extensions (R7 v1 npm recovery) | E2E-PLUGIN-import-extension-recovers-missing-npm |
 | Post-MVP regression coverage (plugin tool dispatch) | E2E-PLUGIN-slow-tool-is-not-cut-off-by-host-dispatch |
 | Git work panel (M6+) | E2E-265, E2E-266 |
@@ -9626,10 +11019,14 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 | F — Persistence (stored model binding array) | E2E-PROVIDER-stored-binding-array-reads-entry-by-entry |
 | Quality (stored model binding array) | E2E-PROVIDER-stored-binding-array-reads-entry-by-entry |
 | Quality (unique tool-call ids) | E2E-RUNTIME-unique-tool-call-ids-per-request |
+| C — Conversation & stream (system update during a tool call, restored) | E2E-RUNTIME-system-update-during-tool-call-restore |
+| Quality (system update during a tool call, restored) | E2E-RUNTIME-system-update-during-tool-call-restore |
 | C — Conversation & stream (loop context ownership) | E2E-RUNTIME-loop-context-ownership |
+| C / F / Quality — Transcript invalid UTF-8 recovery | E2E-TRANSCRIPT-invalid-utf8-window-remains-readable |
 | Quality (loop context ownership) | E2E-RUNTIME-loop-context-ownership |
 | G — Plugin host lifecycle (crash report) | E2E-PLUGIN-crash-report-names-the-exit-code |
 | Quality (crash report) | E2E-PLUGIN-crash-report-names-the-exit-code |
+| C / E / F / Quality — Background Bash tasks outlive their turn | E2E-265 |
 
 The `US-UI-*` visual scenarios (§UI shell visual scenarios) trace to the
 Codex parity decisions in [decisions-log §D](../08-meta/decisions-log.md)
@@ -9719,24 +11116,26 @@ This test plan spec is accepted when:
 - Composer omits the 本地 workspace label and shows Agent/Plan/Goal plus the
   active model ID; both locales expose the Plan and Goal approval copy.
 
-### US-UI-06 Session auto-title
+### US-UI-06 Session title plugin
 - Create a new task and send a first prompt such as "同步代码".
-- Expect its project or temporary session row to show the normalized prompt
-  fallback immediately, then adopt a concise LLM summary after the first turn.
-- Restart before/after the summary and confirm the current title is retained;
-  rename a task from its session menu and send a first prompt if it was still
-  using a default title. Expect the custom label to remain unchanged while the
-  default-title task receives the normal first-prompt title.
+- The core keeps the localized default title while the prompt is sent and after
+  completion. When the Session Titles plugin is enabled and authorized, it may
+  generate a title after the first completed turn using its configured prompt,
+  model, and thinking level. Without the plugin, the title remains the default.
+- Rename the session manually and complete another turn. The plugin must not
+  replace the user-defined title.
 
 ### US-UI-08 Shortcut-only destination history
 - Navigate Settings → Project archive → a project session → Plugins.
 - Expect no back/forward buttons in the expanded sidebar or main titlebar.
 - Press `Cmd/Ctrl+[` and `Cmd/Ctrl+]`; expect them to traverse that history.
 
-### US-UI-09 Grouped session title backfill
-- Open an older session that previously showed "New task"/"New chat" but has a first user message.
-- Expect its scoped sidebar row to display a truncated first-user-message title
-  after session list load.
+### US-UI-09 Default session title persistence
+- Open an older session that showed "New task"/"New chat" and has a first user
+  message.
+- Without the title plugin, its scoped sidebar row keeps the default title;
+  with the plugin, the title changes only after the first turn completes and the
+  plugin is authorized.
 
 ### US-UI-11 Empty draft reuse
 - Click New task twice.
@@ -9811,6 +11210,15 @@ This test plan spec is accepted when:
 - On macOS with Stage Manager, shrink or unfocus the PI window until width < 800 or height < 560.
 - Expect the shell to re-assert a Codex-like footprint (~1200×800, min 800×560 capped to the display work area) and keep restoring while still collapsed (not only during the first 20s after launch).
 - The recovery watchdog is macOS-only (D447). On Windows/Linux it must not run at all: the app must never re-layer or re-raise its own window unprompted. Focus another window, then confirm PI-Desktop stays behind it instead of jumping back to the top of the stack, and that a stacking check (`xprop -root _NET_CLIENT_LIST_STACKING`) never shows it returning to the top periodically.
+- Windows regression: trigger tiny-bounds recovery through show, focus, or
+  restore, then Alt+Tab to another app. PI-Desktop must stay behind that app
+  immediately and after four seconds. Ordinary focus must not resize or raise it;
+  hidden/minimized windows keep their state. Recovery must never enable
+  always-on-top off macOS.
+- Automated lifecycle coverage: `window-topmost-lifecycle.test.mjs` executes the
+  production recovery handlers and watchdog with controlled time, including the
+  unchanged macOS temporary pin and release. Native Alt+Tab validation remains
+  a separate platform check.
 
 ### US-UI-20 Dark floating composer box
 - Switch to dark theme on chat home.
@@ -9874,8 +11282,9 @@ This test plan spec is accepted when:
 - Open Settings (footer profile → Settings).
 - Expect **full-page** Codex settings (no app sidebar/nav). Left rail has Back
   to app, search, and exactly General / AI / Shortcuts / Instructions / Models /
-  Skills / MCP / Subagents / Projects / Cloud sync / Remote Hosts / Info in that
-  order; content pane shows the selected destination.
+  Skills / MCP / Subagents / Projects, Cloud sync / Remote Hosts / Info in that
+  order; packaged builds show both Cloud sync and Remote Hosts with Experimental
+  badges. The content pane shows the selected destination.
 - Return to the app shell and expect Plugins to remain an independent
   sidebar-footer destination.
 - Drag the empty 46px top band over either the rail or content pane; the native
@@ -10004,9 +11413,8 @@ This test plan spec is accepted when:
   an outside press, or scrolling the trigger out of view closes it while focus
   returns to Change.
 - Plugin load/enable/disable/uninstall remains available from the app shell's
-  independent Extensions destination; its Marketplace tab also owns the
-  official/mirror/custom catalog source picker, so Settings has no duplicate
-  Extensions destination.
+  independent Extensions destination; its Marketplace tab always uses the
+  official catalog, so Settings has no duplicate Extensions destination.
 - Dark: rail `#000`, main `#181818`, cards elevated `#212121`.
 
 ### US-UI-38 Composer workspace context omitted
@@ -10087,8 +11495,8 @@ This test plan spec is accepted when:
 - Expect the working theme selector without inert toggle or open-target rows.
 - Expect Appearance in General and Permissions + Defaults in AI. The rail
   contains General, AI, Shortcuts, Instructions, Models, Skills, MCP,
-  Subagents, Projects, Cloud sync, and Info; Remote Hosts appears only in
-  developer mode. Voice may appear between AI and Shortcuts in development
+  Subagents, Projects, Cloud sync and Remote Hosts (both Experimental in all
+  builds), and Info. Voice may appear between AI and
   builds with developer mode on; plugin-contributed destinations follow the
   core groups. There is no Import destination.
 - Resize between 800px, 1200px, and 1600px widths; the content cards fill the
@@ -10228,32 +11636,31 @@ This test plan spec is accepted when:
 - **Preconditions**: three durable projects A, B, and C, each with at least one
   session that has a transcript; A archived and retained as a sidebar tab; B the
   active workspace; C a root of a stored two-folder project group.
-- **Steps**: open Settings → Project archive, open A's row menu, choose Delete
-  project, and confirm in the dialog. Then repeat the same action from the
-  sidebar project menu for B while B is the active workspace: the item arms on
-  the first click and only the second click removes B. Then attempt the same
-  action for C, then for a path the host no longer knows, and finally for a
-  fourth project D while one of D's tasks is still running.
-- **Expected**: the dialog names the project, states that the project and its
-  sessions with their transcripts are removed permanently, and states that the
-  folder on disk is not deleted; nothing is removed before the confirmation, and
-  an armed item that is left alone disarms itself and removes nothing.
-  After confirming, the durable project row, that project's sessions, their
-  transcripts, scratch and review files, and its durable project memory are
-  gone, while the folder on disk is untouched. The deleted project disappears
-  from Settings → Project archive and from the sidebar immediately and again
-  after a reload: no retained tab, no recent-project entry, no session-derived
-  row, and no stale pin, archive, or order preference. Sessions and transcripts
-  of every other project are untouched. When the deleted project was the active
-  workspace, the workspace falls back to another open project or to Temporary,
-  and the next launch does not reopen the deleted path. A project whose folder
-  was moved or deleted on disk is still removable. Deleting C is refused with a
-  message and the group is unchanged; a path the host has no durable row for is
-  removed from the archive and the sidebar anyway, without a missing-project
-  error. Deleting D while its task runs opens the confirmation dialog instead
-  of a warning that disappears with its toast; the dialog names the running
-  sessions and its confirm button reads as stopping them, cancelling removes
-  nothing, and confirming stops exactly those turns and then deletes D (see
+- **Steps**: open Settings → Project archive, choose Delete project for A, and
+  verify the confirmation dialog appears before anything is removed. Press X
+  and verify A remains. Reopen the dialog and explicitly confirm. From the
+  sidebar project menu, repeat for active project B: choose Delete project,
+  cancel, verify B remains, then reopen and confirm. Then attempt the same
+  action for C, a path the host no longer knows, and a fourth project D while
+  one of D's tasks is still running.
+- **Expected**: choosing Delete immediately opens the dialog for idle projects
+  on both surfaces. X, Cancel, Escape, and backdrop clicks dismiss it without
+  removing the project, sessions, or transcripts. The dialog names the project,
+  states that its sessions and transcripts are removed permanently, and says
+  the folder on disk is untouched. After explicit confirmation, the durable
+  project row, owned sessions, transcripts, scratch and review files, and
+  project memory are gone. The project disappears from Settings → Project
+  archive and the sidebar immediately and after reload, with no retained tab,
+  recent-project entry, session-derived row, or stale pin/archive/order
+  preference. Other projects' sessions and transcripts are untouched. If the
+  deleted project was active, the workspace falls back to another open project
+  or Temporary, and the next launch does not reopen its path. A project whose
+  folder was moved or deleted on disk is still removable. Deleting C is refused
+  with a message and leaves the group unchanged; an unknown host path is removed
+  from the archive and sidebar without a missing-project error. Deleting D
+  while its task runs opens the same dialog with the running sessions named and
+  a stop-and-delete confirm label; cancelling leaves it and its task untouched,
+  while confirming stops exactly those turns before deleting D (see
   E2E-PROJECT-delete-running-sessions-are-named-and-stopped).
 - **Specs linked**: `03-runtime/06-host-rpc-protocol.md` §Projects,
   `03-runtime/04-data-storage.md`, `04-ux/08-component-spec.md` §3.9, ADR 0251
@@ -10293,35 +11700,30 @@ This test plan spec is accepted when:
 - **Acceptance criterion**: D (workspace), Quality
 - **Milestone**: M6+
 - **Status**: Partially automated — `apps/desktop/test/project-delete.test.mjs`
-  pins both menus reaching the dialog with the project's live running session
-  ids, the dialog's running-session line and stop-and-delete label, the abort
-  loop running before `deleteProject`, the `CONFLICT` fallback, and the new
-  copy in every shipped catalog; the end-to-end journey remains Draft
+  checks that both menu handlers always open the confirmation dialog without
+  deleting, and that X/Cancel only dismiss while the confirm handler owns the
+  delete call; the rendered Settings/sidebar journey remains Draft
 
 ### E2E-SESSION-two-click-delete-arms-first
 
-- **Preconditions**: a project with one idle session and one running session,
-  both reachable from the sidebar session menu, the sidebar project menu, and
-  the Projects index.
-- **Steps**: open the session menu of the idle session, press Delete once, and
-  leave the item armed until the arm expires before pressing it again to confirm
-  the removal. Repeat for a project row from the sidebar menu and from the
-  Projects index.
+- **Preconditions**: a project with one idle and one running session, both
+  reachable from the sidebar session menu.
+- **Steps**: open the idle session menu and press Delete once. Verify it arms,
+  then cancel with Escape or wait for expiry and verify the session remains.
+  Reopen the menu, press Delete twice, and verify the session is removed. Repeat
+  the arm/cancel/confirm sequence for the running session after it becomes idle.
 - **Expected**: the first press removes nothing and relabels the item to
-  `nav.deleteTaskConfirm` / `project.deleteMenuConfirm` ("Delete?" / "确认删除？")
-  with `data-armed="true"`; the menu stays open, and an outside press, Escape, or
-  the expiry clears the arm without removing anything. Only the second press
-  removes the session with its transcript and its row, and only the second press
-  on a project row removes an idle project. A session and a project never share
-  an arm. Deleting a project whose turn is live still opens the dialog that names
-  those sessions and stops them (see
-  E2E-PROJECT-delete-running-sessions-are-named-and-stopped).
-- **Specs linked**: `04-ux/09-interaction-patterns.md` §1.6, D421, D431, D441
+  `nav.deleteTaskConfirm` ("Delete?" / "确认删除？") with `data-armed="true"`;
+  the menu stays open, and an outside press, Escape, or expiry clears the arm
+  without removing anything. Only the second press removes a session and its
+  transcript. Project deletion instead requires its explicit confirmation
+  dialog (see E2E-PROJECT-delete-removes-project-and-owned-sessions).
+- **Specs linked**: `04-ux/09-interaction-patterns.md` §1.6, D421, D431
 - **Acceptance criterion**: Quality
 - **Milestone**: M6+
 - **Status**: Partially automated — `apps/desktop/test/two-step-delete.test.mjs`
-  pins the shared arm and its expiry, both labels in every shipped catalog, and
-  that the first press only arms; the end-to-end journey remains Draft
+  pins the session arm and expiry plus localized labels; the end-to-end journey
+  remains Draft
 ### US-UI-59 Session-rooted background tools
 - Start a visible turn in project A, switch to project B while it runs, and
   inspect both sidebar status indicators.
@@ -10546,10 +11948,12 @@ This test plan spec is accepted when:
 
 ### US-UI-73 Composer mode selector has stable width
 - Open the empty home and a docked thread in both English and zh-CN.
-- Switch the Composer mode chip through Agent/Plan/Goal several times.
-- Expect the mode chip to keep one fixed width sized for the longest built-in
-  label (English "Agent" / zh-CN "智能体"); the adjacent Thinking and
-  permission controls, send button, and composer shell do not move or resize.
+- Open the Composer mode chip and switch between Agent/Plan/Goal several times.
+- Expect the chip to list the three modes as checked menu items, to name only
+  the committed mode, and to keep one fixed width sized for the longest built-in
+  label (English "Agent" / zh-CN "智能体") plus its caret; the adjacent Thinking
+  and permission controls, send button, and composer shell do not move or
+  resize.
 - In Goal, expect the permission chip to remain visible with the same geometry,
   show Full auto / 全自动, and stay disabled without opening a permission menu.
   The Plan/Goal approval card remains the separate execution-policy control.
@@ -10598,8 +12002,8 @@ This test plan spec is accepted when:
   inline code, and a short list. 2) Confirm each card renders the formatting
   while keeping choices keyboard/selectable. 3) Answer the first question,
   click Next, and select two answers on the multi-select question. 4) Skip the final
-  question without entering text. 5) Inspect the completed tool row and the
-  next model response.
+  question without entering text. 5) Expand the completed tool row and inspect
+  its question-and-answer summary, then inspect the next model response.
 - **Expected**: One question is visible at a time; the small indicators show
   answered, current, and skipped states in the composer approval area, at the
   same dock position used by Plan and Goal approval. The request has no
@@ -10614,22 +12018,49 @@ This test plan spec is accepted when:
   fixture contains enough options to overflow, only that list scrolls and the
   question header, custom-answer input, and Skip / Next / Submit actions remain
   reachable. Scrolling the list does not move the conversation page or hide the
-  action row. The tool output is ordered as
-  `question：answer`, uses `、` between multiple answers and `\n---\n`
+  action row. A long question prompt is bounded the same way: the question body
+  scrolls inside the card (`min(208px, 24dvh)`, with a `24vh` fallback) and the
+  header actions stay outside that scroller. The question body is keyboard
+  focusable with a visible focus ring. Next, Skip, and the step indicators open
+  each question at the top of that body. The tool output is
+  ordered as `question：answer`, uses `、` between multiple answers and `\n---\n`
   between questions, and
   keeps `question：` for the skipped question. Markdown renders as rich text
   without activating embedded links or loading images. Selecting a formatted
   option returns its original Markdown source label. Decline all produces empty placeholders for every
-  question and still completes the tool call. A pending ask shows a stable
+  question and still completes the tool call. The completed row shows the
+  ordered questions and answers, keeps multi-select labels separate, marks
+  skipped questions with localized copy, and does not expose the structured
+  JSON details. Its model-facing result stays unchanged. A pending ask shows a stable
   localized title and the first question in its toast; generated session-title
   text never replaces that title. Background sessions retain the existing
   native notification policy. Exactly one soft chime plays for the ask; the
-  toast and native banner do not double it.
+  toast and native banner do not double it. With a right-docked work panel,
+  the toast stays horizontally centered within the main-content safe area and
+  never intersects the panel tab strip, browser navigation controls, or URL
+  field. It follows both safe-area resize and same-width horizontal shifts.
+  Clicking the question toast (including from New task or Settings) opens its
+  originating conversation and project, shows the pending card, and permits
+  submitting an answer for that request. Enter and Space activate the focused
+  message button. Dismiss and text selection do not navigate. Identical prompt
+  text from two sessions preserves two independent navigation targets; ordinary
+  info toasts stay non-interactive. A history-read failure produces a visible
+  error and leaves both the original reminder and question pending. Retrying
+  from that same reminder after the read recovers opens the correct chat and
+  dismisses the reminder only after navigation succeeds.
 - **Specs linked**: `03-runtime/17-asktool-questions.md`,
   `04-ux/11-asktool-question-card.md`, ADR 0077
 - **Acceptance**: E (interactive tool output), C (inline card)
 - **Milestone**: M5
-- **Status**: Draft (runtime/unit coverage active; desktop journey pending)
+- **Automated coverage**: `pnpm test:e2e:asktool-card` mounts the production
+  component in Electron and covers long-prompt scrolling, keyboard reachability,
+  visible header actions, and scroll reset on Next.
+  `pnpm test:e2e:question-notification` exercises real renderer event handling,
+  safe-area geometry under resize and horizontal shift, toast creation,
+  session/project navigation, and answer submission in isolated Electron with
+  only the IPC boundary stubbed, plus native keyboard input.
+- **Status**: Partially automated (component paths and long-prompt behavior are
+  covered; full application journey pending)
 
 - **Request transition regression**: Keep a one-question request pending in chat
   B. In chat A, advance a two-question request to question two, then select B.
@@ -10642,11 +12073,12 @@ This test plan spec is accepted when:
 
 - **Preconditions**: Built desktop app on macOS, Windows, and Linux; English
   and zh-CN locales are available; a normal main window is open.
-- **Steps**: 1) On Windows, leave the focused main window visible and click its
+- **Steps**: 1) On Windows, maximize the focused main window and click its
   taskbar button; confirm it minimizes while the PI-Desktop taskbar entry
-  remains. Click the same taskbar button again and confirm the window restores
-  and focuses. Cover the window with another app, click the PI-Desktop taskbar
-  entry, and confirm it comes to the front without entering the tray. 2) On
+  remains. Click the same taskbar button again; after the restore settles,
+  confirm the window remains maximized within the display work area and the
+  taskbar stays visible. Cover the window with another app, click the PI-Desktop
+  taskbar entry, and confirm it comes to the front without entering the tray. 2) On
 -  macOS, click the traffic-light minimize control and confirm it hides the
   window to the tray. On Windows/Linux, use the renderer minimize control and
   confirm the native taskbar entry remains available; click it again and
@@ -10657,7 +12089,9 @@ This test plan spec is accepted when:
   zh-CN and invoke macOS app activation while the window is tray-hidden.
 - **Expected**: Windows native taskbar toggling and the Windows/Linux renderer
   minimize controls keep the taskbar entry and round-trip through native
-  minimize/restore; a taskbar click on a covered window brings it to the front.
+  minimize/restore. Restoring a maximized frameless Windows window keeps it
+  within the display work area and leaves the taskbar visible. A taskbar click
+  on a covered window brings it to the front.
   Close to tray is the only Windows/Linux close path that hides the window,
   while Quit exits. On macOS the menu bar icon is a readable transparent
   monochrome PI mark without the rounded application tile, and native minimize
@@ -10799,8 +12233,11 @@ This test plan spec is accepted when:
   3) Drag the slider to 125%. Confirm Trenta becomes selected and
      every `--text-*` surface and icon grows further. Confirm the UI never
      shows a px field.
-  4) Use Zoom In, then Reset Zoom. Confirm window zoom still scales chrome
-     and that the type scale remains 125% after reset.
+  4) Open the Browser and Files work-panel tabs, then use Zoom In and Reset
+     Zoom. Confirm window zoom still scales chrome, that the type scale
+     remains 125% after reset, and that both docked plugin pages follow it:
+     their text and controls keep the same proportion as the app, and the
+     Browser guest page still fills the area under its per-type-size toolbar.
   5) Restart the app and confirm the 125% scale is still applied
      (`AppSettings.fontScale` = 1.25).
   6) Choose Grande. Confirm the whole UI returns to 100% immediately;
@@ -10811,13 +12248,20 @@ This test plan spec is accepted when:
   `AppSettings.fontScale` (absent means 1) and sets `--font-scale`, multiplying
   every `--text-*` token and shared Lucide icon. Window Zoom In/Out/Reset remains
   independent.
+  Docked plugin work-panel views (the bundled Browser and Files pages) repeat
+  that multiplier — times the window zoom — as their own page zoom instead of
+  importing the app tokens, so they stay in proportion at every setting, and a
+  `pi.browser` guest rect is converted with the same factor. Detached plugin
+  windows and widgets keep their own base size.
   Invalid values are rejected or clamped. No protocol or schema version bump.
 - **Specs linked**: `04-ux/06-settings-ia.md`, `04-ux/07-ui-design-system.md`,
   ADR 0180, D343
 - **Acceptance**: A (core shell), B (settings), H (localization)
 - **Milestone**: M5+
 - **Status**: Unit-covered (`packages/shared/src/font-size.test.ts`,
-  `apps/desktop/test/settings-font-size.test.mjs`); full UI journey Draft
+  `apps/desktop/test/settings-font-size.test.mjs`,
+  `apps/desktop/test/plugin-view-scale.test.mjs`,
+  `apps/desktop/test/browser-guest-hole-scale.test.mjs`); full UI journey Draft
   (run only in a capable environment when this surface changes)
 
 #### E2E-127: macOS keeps the app in the Dock and Cmd+Tab
@@ -11175,12 +12619,20 @@ This test plan spec is accepted when:
   6. Emit `Edit` on a path that does not exist but whose basename and tag match
      exactly one file this session recorded, and inspect the warning.
   7. Repeat step 6 with two recorded candidates sharing that basename and tag.
+  8. Emit `MV` to the source itself, `./source`, `sub/../source`, and its
+     absolute path, plus a directory symlink (Windows junction) pointing back
+     to its directory; on a case-insensitive filesystem also use a case-only
+     alias. Repeat with a
+     content-changing `PUT` in the same call, then use the original Read tag
+     for a valid content edit.
 - **Expected**: Step 1 records a source deletion and a destination creation under
   one tool call; step 3 restores both or neither. Step 4's rollback restores the
   captured bytes, hash-guarded on the full digest rather than the 16-bit tag.
   Step 5 fails rather than editing against content the rollback replaced. Step 6
   rebinds to the real file with a warning, and the write-permission gate is
   evaluated against the rebound path; step 7 declines instead of picking one.
+  Step 8 returns `EDIT_NO_CHANGE` without writing or deleting the source, and
+  the original Read tag remains usable for the following valid edit.
 - **Specs linked**: `03-runtime/18-line-anchored-edit-contract.md` §9.2, §13.1,
   `03-runtime/03-tools-and-permissions.md` §4c, ADR 0043, ADR 0087
 - **Acceptance**: E (tools & permissions), Quality
@@ -11439,6 +12891,23 @@ This test plan spec is accepted when:
      confirm the sheet saves with the pin `<display name>/<modelId>` and the
      save button enabled. The picker and the draft check must never disagree
      about what is saveable.
+  4b. Configure two providers with the same display name and vendor key, so
+     their pins use distinct stored provider ids. Add one as a fallback model,
+     save and reopen the sheet. Confirm the ordered row and its move/remove
+     accessible names use the provider display name and model ID, not the id,
+     while the saved pin still identifies the chosen provider. Add the second
+     provider with the same model ID and confirm both rows and their accessible
+     names include their provider IDs to distinguish them. Disable one provider
+     and confirm its row and move/remove accessible names retain the configured
+     provider name and model ID, with a localized disabled status; the row must
+     not revert to a raw UUID label. Confirm the disabled provider is absent
+     from the add menu, while its saved row remains movable and removable.
+     Save and reopen, then re-enable the provider: its name remains visible,
+     the disabled status clears, and its stored pin is unchanged. A genuinely
+     missing or ambiguous provider binding keeps its raw pin with an unavailable
+     status rather than borrowing another provider's name. Reorder or remove
+     that row, save and reopen, and confirm all remaining pins and their order
+     are preserved exactly.
   5. Confirm the picker offers no **Custom (provider/model)…** entry and the
      field renders no free-text input, so a model id can only come from the
      configured catalog. Switch the picker to **Inherit session model**, save,
@@ -11713,9 +13182,11 @@ This test plan spec is accepted when:
   3. Repeat with the crossing landing while a tool result is still pending,
      then with it landing on a completed turn.
   4. Repeat with the summary request scripted to fail.
-  5. Run the same brief as the session Agent on the same fixture and compare
+  5. Repeat with a summary response containing only thinking blocks or
+     whitespace, including a response stopped at the output limit.
+  6. Run the same brief as the session Agent on the same fixture and compare
      its requests and transcript rows with a run recorded before this change.
-  6. Inspect the delegation card, the transcript, the context inspector, and
+  7. Inspect the delegation card, the transcript, the context inspector, and
      the parent's own model context after the delegate settles.
 - **Expected**: The delegate keeps working instead of failing. The request
   after the crossing is below the hard limit and carries a summary plus the
@@ -11724,10 +13195,13 @@ This test plan spec is accepted when:
   completed turn retains none. A failed summary degrades to the original task
   brief plus the most recent message(s), the run still completes, and the
   report and lifecycle details say it was degraded rather than presenting a
-  partial answer as complete. Delegate compaction adds no transcript row, no
-  host-core checkpoint, no warning toast, and no context-inspector line; the
-  delegate's own rows stay complete and the parent's model context still holds
-  only the report. The session Agent behaves exactly as it did before.
+  partial answer as complete. A thinking-only or whitespace-only summary also
+  follows that degradation path, preserves the recent tool evidence, and never
+  installs an empty successful checkpoint. Delegate compaction adds no
+  transcript row, no host-core checkpoint, no warning toast, and no
+  context-inspector line; the delegate's own rows stay complete and the
+  parent's model context still holds only the report. The session Agent
+  behaves exactly as it did before.
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §5.1, §5f,
   `03-runtime/08-error-codes.md` §3.2, ADR 0299, ADR 0064, ADR 0136
 - **Acceptance criterion**: C — Conversation & stream; Quality
@@ -11794,7 +13268,8 @@ This test plan spec is accepted when:
 - **Preconditions**: The same injected small-window fake provider. One settled
   `reader` chain read enough to exceed the delegate hard limit while staying
   under `MAX_RESUMABLE_READ_LINES`; a second settled chain fits well inside
-  the budget.
+  the budget. The resumed fixture uses `vendorKey: "deepseek"` and includes a
+  persisted assistant row with both answer text and thinking.
 - **Steps**:
   1. `Task.resume` the over-budget chain and capture its first provider
      request in full.
@@ -11805,6 +13280,8 @@ This test plan spec is accepted when:
      the over-budget chain again.
   5. Accumulate more than `MAX_RESUMABLE_READ_LINES` of read-only output in a
      chain and read the reusable list the next prompt offers.
+  6. Inspect the resumed assistant history in the captured request and verify
+     its same-model reasoning remains in `reasoning_content`.
 - **Expected**: The first request of a resumed run is below the hard limit. It
   opens with the original task brief and holds the most recent turns; the
   oldest tool results are dropped first, and dropping an assistant message
@@ -11813,8 +13290,11 @@ This test plan spec is accepted when:
   conclusion is answered from the seeded context; the first round's may be
   gone, and the run says so rather than inventing it. A resume never fails
   with `CONTEXT_TOO_LARGE` or `SUBAGENT_CONTEXT_OVERFLOW` on its first
-  request. `MAX_RESUMABLE_READ_LINES` still removes an over-read chain from
-  the reusable list; truncation does not make it resumable again.
+  request. With a vendorKey binding, restored assistant history uses the same
+  `model.provider` / `model.id` identity as live requests, and its thinking
+  stays in the native `reasoning_content` field. `MAX_RESUMABLE_READ_LINES`
+  still removes an over-read chain from the reusable list; truncation does not
+  make it resumable again.
 - **Specs linked**: `03-runtime/02-agent-runtime.md` §5f, ADR 0299, ADR 0279
 - **Acceptance criterion**: C — Conversation & stream; Quality
 - **Milestone**: M6+
@@ -11850,6 +13330,13 @@ This test plan spec is accepted when:
 - **Acceptance**: C (conversation), Quality
 
 #### E2E-155: Subagent lifetime is parent-judged; runtime delivers reports
+
+- Abort the parent while it is waiting for a provider response and while it is
+  idle waiting for two delegates. Hold delegate teardown at the provider edge;
+  retire the parent and one child first. Abort must remain pending, status must
+  remain busy and a new prompt must be rejected until the last child retires.
+  Concurrent abort requests share cleanup. A follow-up prompt is accepted after
+  abort resolves, with no old-turn continuation or tool execution.
 
 - **Preconditions**: A project-bound Agent session with a Bash-capable
   `explorer` definition and a mocked provider stream.
@@ -12058,12 +13545,21 @@ This test plan spec is accepted when:
      maximum, then verify the target follows the live budget (`client width - 360px - expanded sidebar`) instead of a fixed cap.
   4. Close and relaunch the app after the resize settles.
   5. On Windows, start an edge gesture, press Escape, and verify original bounds
-     return. Release the pointer outside the original window bounds, then
-     maximize and enter fullscreen; native hit regions must not block
-     window controls or content in those states.
-  6. On Windows, inspect the default 4 DIP corner cutouts before and after
-     resizing. Apply an authorized theme with `cornerRadius: 0`, then return to
-     a built-in theme. Reject an out-of-range radius without changing the shape.
+     return. Maximize and enter fullscreen; corners must be square in both
+     states. Restore the window and confirm the selected corner preference
+     returns. Record native corner hit behavior rather than assuming that DWM
+     corners pass clicks through.
+  6. On Windows, inspect the default 12 DIP corner request before and after
+     resizing. Apply authorized theme radii of 0 and 24 DIP, then return to a
+     built-in theme. Radius 0 must be square. On Windows 11, positive values
+     request the same system-rounded preference and are not asserted as exact
+     DIP radii; on earlier Windows builds, the existing clip retains its exact
+     DIP behavior. Reject an out-of-range radius without changing the surface.
+  7. On Windows, minimize and restore the window, then confirm the selected
+     corner preference is applied again. Open browser and plugin child views and
+     confirm their pixels stay within the top-level silhouette. On Windows 11,
+     also verify alpha theme colors are flattened over the built-in theme
+     background on an opaque top-level window.
 - **Expected**: Native edge and corner hit regions remain available in frameless
   chrome, the minimum size remains 800×560 (capped to the display
   work area), and the recovery watchdog does not
@@ -12073,17 +13569,30 @@ This test plan spec is accepted when:
   Electron's frameless native hit regions without the thick-frame rim; no left, bottom,
   or right native rim is visible. No temporary
   work-panel reservation width is persisted or restored.
-  The four normal-window corners have no painted or interactive pixels outside
-  the active radius; the default is 4 DIP, an authorized theme may choose 0..24
-  DIP, and maximized/fullscreen windows are rectangular.
+  Windows 11 uses DWM's native rounded preference for positive radii and a
+  square preference for radius 0, maximize, and fullscreen. The default request
+  remains 12 DIP and authorized themes retain the integer 0..24 DIP range, but
+  DWM selects the actual positive radius and the test does not require 12 and
+  24 to look different. Its top-level surface is opaque, including when a
+  contributed alpha color is flattened over the built-in theme background.
+  Earlier Windows builds retain the existing content clip and integer shape
+  hit region. Browser/plugin child views stay within the top-level outline;
+  Windows 11 corner click behavior is recorded as native system behavior and
+  is not treated as `setShape()` click-through.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md`,
   `04-ux/01-ui-ia.md`, `04-ux/07-ui-design-system.md`,
   `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`,
-  ADR 0029 / ADR 0151
+  ADR 0029 / ADR 0151 / ADR 0317 / ADR 0325
 - **Acceptance**: A (app shell), F (persistence), Quality
 - **Milestone**: M6+
-- **Status**: `test:e2e:window-controls` covers corner cutouts, theme radius
-  changes, fullscreen, maximize, and controls in an isolated profile.
+- **Status**: `test:e2e:window-controls` covers corner preferences before and
+  after minimize/restore, theme radius changes, fullscreen, maximize, and
+  controls in an isolated profile. The isolated `test:e2e:window-surface`
+  candidate samples controlled light/dark desktop backgrounds and child-view
+  bounds. Windows 11 additionally verifies the opaque DWM path and system
+  preference; earlier Windows builds verify the legacy clip and shape path.
+  Both Windows suites still require a dedicated Windows desktop; source tests
+  do not qualify native compositing.
   `test:e2e:window-resize-native` adds physical Windows left/right/bottom/corner
   drags and the 800×560 minimum; run it on a dedicated interactive desktop,
   since another app can take foreground or pointer input during the gesture.
@@ -12647,7 +14156,8 @@ are withdrawn with ADR 0165.
     canonical path. Quoted and scratch-absolute paths are included.
   - A chip plus a short prompt keeps the user plate content-sized; it does
     not stretch to the `min(82%, 600px)` ceiling.
-  - Clicking the HTML chip opens the work-panel browser on that file.
+  - Clicking an unpositioned project or scratch HTML chip opens the work-panel
+    browser on that file.
   - Clicking the workspace source chip opens it in the File Manager work-panel
     view on that file; the host `file:` tab and the OS default application are
     no longer what a chip click opens.
@@ -12687,10 +14197,9 @@ are withdrawn with ADR 0165.
   - Clicking `openimage.js` opens the project's `img/openimage.js`, although the
     scratch store holds a file with that same leaf name: the project is
     searched to exhaustion before the scratch store is considered at all.
-  - `dir/a.ts` opens `src/dir/a.ts`: an exact path beats a shorthand, a longer
-    matching tail beats a bare leaf name, and the shallowest candidate wins a
-    tail-length tie, so the deeper `packages/app/dir/a.ts` is never the one
-    that opens.
+  - `dir/a.ts` matches both `src/dir/a.ts` and
+    `packages/app/dir/a.ts`, so the shorthand is ambiguous and opens nothing.
+    The exact reference `src/dir/a.ts` opens that path.
   - A reference the project cannot answer resolves in the session scratch
     store; one that neither answers resolves in the attachment store, and an
     `attachments/<sha256>` ref opens that stored blob.
@@ -12724,14 +14233,18 @@ are withdrawn with ADR 0165.
   every allowed root. Repeat the path-recognition checks with a POSIX project
   path containing a space on macOS or Linux.
 - **Steps**: 1) Click the full path in the Write row. 2) Click the same full
-  path as inline code and as ordinary text in the assistant reply. 3) Click a
+  path as inline code and as ordinary text in the assistant reply. On Windows,
+  also click it as a Markdown link with an angle-bracketed destination, for
+  example `[readme.md](<C:\workspace with spaces\readme.md>)`. 3) Click a
   relative path whose middle directory contains a space, then a first-segment
   spaced path using an explicit `@"..."` reference. 4) Click the outside
   absolute path.
 - **Expected**: Every allowed reference opens the exact file in the existing
   side file view; no path is truncated to its suffix or redirected to the
-  same-name file. The outside path opens nothing and reports the access limit,
-  while a missing in-root file reports that no file matches.
+  same-name file. The Windows Markdown link keeps a valid sanitized address
+  and reaches the existing file opener with the original drive path. The outside
+  path opens nothing and reports the access limit, while a missing in-root file
+  reports that no file matches.
 - **Specs linked**: `03-runtime/01-ipc-protocol.md` § fs,
   `04-ux/08-component-spec.md` §8.3.
 - **Acceptance**: C (conversation & stream), D (workspace), Quality
@@ -12742,8 +14255,9 @@ are withdrawn with ADR 0165.
 #### E2E-CHAT-file-ref-opens-the-surface-that-owns-it
 
 - **Preconditions**: The bundled File Manager plugin is loaded and enabled and
-  the work panel is closed. The open session's scratch store holds one file and
-  the attachment store one blob. The project is a group whose primary folder
+  the work panel is closed. The open session's scratch store holds one HTML
+  file and one other file, and the attachment store holds one blob. The project
+  is a group whose primary folder
   contains an `.html` page and a text file, and whose second folder holds a text
   file of its own. The same session's transcript carries a `Read` row whose
   summary names a project file, a `Glob` result listing project paths, and a
@@ -12752,24 +14266,27 @@ are withdrawn with ADR 0165.
   unsaved edit into that view and click the same reference again. 3) Click a
   reference that resolves into the session scratch store, then the
   `attachments/<sha256>` reference. 4) Click a workspace `.html` reference in an
-  assistant reply and the same reference as a sent user chip. 5) Click the file
+  assistant reply and the same reference as a sent user chip; click the scratch
+  HTML reference too. 5) Click the file
   path in the tool row's summary, then a path in the `Glob` result's file list
   and a path heading of the `Grep` result. 6) Disable the File Manager plugin,
-  click a project file reference and the tool row summary again, then re-enable
-  it and click both once more. 7) Click a reference that resolves in the
-  project's second folder, then one that resolves in its primary folder. 8)
-  Right-click the sent `@path` chip, the inline-code reference, the markdown
-  link, the local image, a tool row's file path, a tool result's file list, and
-  an attachment image chip; then right-click a reference that matches nothing. 9)
-  On that chip, use Copy full path and Copy relative path, then do the same on a
-  reference that resolves in the session scratch store.
+  then click a project file reference and the tool row summary. 7) Click a
+  reference that resolves in the project's second folder, then one that resolves
+  in its primary folder. 8) Right-click the sent `@path` chip, the inline-code
+  reference, the markdown link, the local image, a tool row's file path, a tool
+  result's file list, and an attachment image chip; then right-click a reference
+  that matches nothing. On an HTML reference, open the Open with submenu and
+  choose File Manager, built-in browser, and default browser; repeat for the
+  scratch HTML file. 9) Use Copy full path and Copy relative path, then do the
+  same on a reference that resolves in the session scratch store.
 - **Expected**:
-  - Right-clicking a file reference opens the renderer's own menu with the
-    file's own folder (Show in folder) and both of its addresses (Copy full
-    path, Copy relative path). The inline-code reference, the file link, the
-    local image, a tool row's path, a tool result's file or match list, and an
-    attachment image chip offer the same items, and a reference that matches
-    nothing reports itself instead of revealing a same-named file elsewhere.
+  - Right-clicking a file reference offers Copy full path and Copy relative
+    path on each transcript surface that names it. The transcript menu has no
+    Show in folder item. An unpositioned HTML reference also has a second-level
+    Open with submenu for File Manager, built-in browser, and default browser;
+    non-HTML references keep only the copy actions. Each open choice resolves
+    the reference first, and a missing reference reports itself without opening
+    a same-named file elsewhere.
   - A copy writes exactly what it names: the absolute address for the full copy
     and the project-relative spelling for the relative one; a scratch or
     attachment file reports that it has no relative path instead of copying an
@@ -12781,11 +14298,12 @@ are withdrawn with ADR 0165.
     is still in the editor and no second tab appears.
   - A scratch or attachment file opens in the host `file:` tab under Open
     resources, addressed by its absolute path, never in the File Manager view.
-  - A `.html` / `.htm` page of the project's primary folder opens in the
-    work-panel side browser, from the assistant reply and the user chip alike; a
-    page in a sibling folder is a project file like any other and opens in the
-    File Manager view, because the side browser is rooted at the primary folder
-    (ADR 0263).
+  - A plain click on an unpositioned `.html` / `.htm` reference from any
+    project folder or session scratch opens it in the work-panel side browser.
+    In the Open with submenu, File Manager opens the resolved file in that
+    plugin view, built-in browser opens the same absolute path in the side
+    browser, and default browser uses the host's validated OS file-open path.
+    A positioned HTML reference keeps its line-aware host file tab behavior.
   - A tool surface reaches the destination of the file it names, not one of its
     own: the tool row's summary path and the paths of the `Glob` file list and
     the `Grep` path headings open the same project file in the File Manager view.
@@ -12796,20 +14314,26 @@ are withdrawn with ADR 0165.
     Manager view on that file, reached by its absolute path, with no host
     `file:` tab; the reference from the primary folder opens in that same view
     addressed project-relative (ADR 0263).
-  - With the plugin disabled, a project file reference — from the reply and from
-    a tool row or result list alike — falls back to the host `file:` tab, the
-    surface those clicks used before, which now also reaches the project's other
-    folders; re-enabling the plugin restores the File Manager destination.
+  - With the plugin disabled, a direct project-file click from the reply, tool
+    row, or result list starts the bundled File Manager within its existing
+    scope and permission grant, then opens the requested file there. If the
+    scope or grant excludes the current project, or the view still cannot
+    start, the host `file:` tab opens with an unavailable notice.
 - **Specs linked**: `04-ux/08-component-spec.md` §8.3, §9.6,
   `04-ux/09-interaction-patterns.md` §8a.2, ADR 0104, ADR 0163, ADR 0241,
   ADR 0249, ADR 0262, ADR 0263
 - **Acceptance**: C (conversation & stream), G (plugins), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered
-  (`apps/desktop/test/transcript-file-chips.test.mjs` for the wiring and
-  `apps/desktop/test/tool-row-file-refs.test.mjs` for the work-panel entry each
-  shape of resolution produces); full UI journey Draft (run only in a capable
-  environment when this surface changes)
+  (`apps/desktop/test/chat-file-open-with-menu.test.mjs` for menu destinations
+  and resolved-path routing, `apps/desktop/test/transcript-file-chips.test.mjs`
+  for the wiring, and `apps/desktop/test/tool-row-file-refs.test.mjs` for the
+  work-panel entry each shape of resolution produces). The isolated Electron renderer journey in
+  `scripts/e2e-file-ref-line-scroll.mjs` verifies a Markdown link enables the
+  File Manager on demand and a positioned reference still opens in the host
+  viewer. `pnpm test:e2e:transcript` also exercises the rendered second-level
+  menu, destination selection, and keyboard focus return; the full
+  file-reference journey through all three destinations remains Draft.
 
 #### E2E-CHAT-mp4-attachment-opens-in-system-player
 
@@ -12866,12 +14390,14 @@ are withdrawn with ADR 0165.
 
 - **Preconditions**: An Agent session in a workspace that contains
   `apps/desktop/src/App.tsx`, `docs/adr/0163-transcript-file-reference-chips.md`,
-  `docs/spec/00-baseline.md`, and a Unicode-named file such as `报告.pdf`.
+  `docs/spec/00-baseline.md`, `核查报告.md`, and a Unicode-named file such as
+  `报告.pdf`.
 - **Steps**: 1) Open an existing session whose transcript already contains
   assistant markdown. 2) Prompt a turn whose assistant reply mentions
   `apps/desktop/src/App.tsx` as a bare path, as inline code, a Unicode path such
-  as `报告.pdf`, and as a markdown link. 3) Click each. 4) Open the ADR markdown
-  file in the work-panel files viewer and click a `../spec/00-baseline.md` link.
+  as `报告.pdf`, and as a markdown link; also include
+  `[核查报告.md](核查报告.md)`. 3) Click each. 4) Open the ADR markdown file
+  in the work-panel files viewer and click a `../spec/00-baseline.md` link.
   5) Include an absolute path under the workspace, an outside absolute path,
   and a `~/` path in chat; confirm only the under-root path becomes a target.
   6) Send a user message `使用llama.cpp，给我迁移步骤，只读。`, then a user
@@ -12885,6 +14411,8 @@ are withdrawn with ADR 0165.
   - Each chat path opens `apps/desktop/src/App.tsx` in the File Manager
     work-panel view — the file view a chat click prefers — not a host `file:`
     tab.
+  - Clicking `[核查报告.md](核查报告.md)` in the assistant reply opens that
+    project Markdown file in the File Manager work-panel view.
   - Unicode filenames and multi-segment paths inside the workspace become
     targets, while an outside absolute path and a `~/` path stay plain text.
   - An absolute path under the workspace resolves to its workspace-relative
@@ -12964,7 +14492,7 @@ are withdrawn with ADR 0165.
 - **Specs linked**: `04-ux/06-settings-ia.md`,
   `03-runtime/01-ipc-protocol.md`, `03-runtime/06-host-rpc-protocol.md`,
   ADR 0171, ADR 0173, ADR 0306, `08-meta/decisions-log.md`
-  (D331, D335, D650)
+  (D331, D335, D680)
 - **Acceptance**: F (persistence), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered (agent-runtime usage split, host-core history
@@ -13065,9 +14593,14 @@ are withdrawn with ADR 0165.
      localhost / 127.0.0.1 / ::1 / `<local>`, and Test. Enter
      `not-a-proxy` and blur. Confirm an inline invalid-URL error and that
      settings are not saved.
-  3. Enter `socks5://127.0.0.1:1080` or `http://127.0.0.1:7890` and blur.
-     Confirm `AppSettings.networkProxy.mode` is `custom` after
-     `settings.get`.
+  3. Enter `socks5://127.0.0.1:1080` or `http://127.0.0.1:7890`, then select
+     System immediately without clicking elsewhere. Confirm `settings.get`
+     retains the URL and Bypass while `mode` is `system`. Select Custom again
+     and confirm both values return to the fields and `mode` is `custom`.
+     With the valid URL saved, enter `not-a-proxy` and blur so the invalid
+     draft remains visible. Switch to System and back to Custom; confirm the
+     field returns to the remembered valid URL and `settings.get` still holds
+     that URL instead of the built-in default.
   4. Click Test against a listening proxy. Confirm a Connected status. Click
      Test against a closed port. Confirm a failure status without changing
      the saved URL. Enter `http://user:pass@127.0.0.1:<auth-port>` and
@@ -13086,7 +14619,9 @@ are withdrawn with ADR 0165.
   7. Switch to System. Confirm Chromium returns to `mode: "system"` and send a
      provider request and marketplace refresh. Confirm both follow the OS/PAC
      route selected for each destination, including ordered proxy-to-direct
-     fallback, without restarting the app.
+     fallback, without restarting the app. Select Custom again. Confirm the URL
+     and Bypass entered in step 3 come back from `AppSettings.networkProxy`,
+     which kept them while System was selected.
 - **Expected**: Custom covers model calls, marketplace, updates, plugin
   `net.fetch`, and the in-app browser. System covers provider and marketplace
   requests through Electron's OS/PAC resolver. Workspace Bash `env` does not
@@ -13106,8 +14641,10 @@ are withdrawn with ADR 0165.
   credentials and unsupported SOCKS4 schemes are covered by shared parser
   tests. `system-proxy-relay.test.ts` covers authenticated provider traffic,
   PAC proxy fallback, HTTP proxy forwarding, and scheme detection on
-  non-default ports. Full UI journey Draft (run only in a capable environment
-  when this surface changes).
+  non-default ports. The stale-invalid-draft Custom → System → Custom
+  restoration path is covered by `pnpm test:e2e:settings-scroll`. The full UI
+  journey remains Draft (run only in a capable environment when this surface
+  changes).
 
 #### E2E-191: Newly emitted AppError codes stay registered
 
@@ -13129,16 +14666,21 @@ are withdrawn with ADR 0165.
 
 - **Preconditions**: At least one supported local config exists among
   `~/.claude/settings.json`, `~/.codex/config.toml` `[model_providers.*]`,
-  `~/.config/opencode/opencode.json`, `~/.pi/agent/models.json`, or
+  `~/.config/opencode/opencode.json`, `~/.pi/agent/models.json`,
+  `~/.pi/agent/auth.json` plus `~/.pi/agent/models-store.json`, or
   `~/.cc-switch/cc-switch.db`, including two API-key profiles with the same
-  endpoint and different keys, and optionally one OAuth-only vendor.
-  PI-Desktop may already have an equivalent provider.
+  endpoint and different keys, one auth-only Pi API-key provider, and
+  optionally one OAuth-only vendor. PI-Desktop may already have an equivalent
+  provider.
 - **Steps**:
   1. Open Settings → Models and expand **Import from other tools**. Confirm
-     the inline workbench is idle until Scan is activated.
+     its scan explanation appears as inline text without a help icon, and the
+     workbench remains idle until Scan is activated.
   2. Scan model configuration. Confirm source groups start expanded, rows
      show name, model count, host, and an API key / No API key badge, and no
-     secret value appears in the UI or scan IPC payload.
+     secret value appears in the UI or scan IPC payload. Confirm the
+     auth-only Pi provider appears in the Pi group with its cached model
+     count and an API key badge.
   3. Import the selected providers. Confirm both same-endpoint profiles appear
      as separate rows under Settings → Models and remain selectable in the
      Composer model menu. Re-import the same selection and confirm those
@@ -13149,9 +14691,12 @@ are withdrawn with ADR 0165.
   5. Confirm an OAuth-only source account is absent from the candidate
      list.
 - **Expected**: Explicit scan only (D007). Stored API keys land in the host
-  secret store. Only equivalent providers (normalized URL + API style + same
-  credential) skip; different credentials at one endpoint remain separate.
-  No protocol or schema version bump.
+  secret store. Pi providers connected through `auth.json` are paired with
+  the cached `models-store.json` catalog; OAuth grants and `!command` keys
+  are not imported. Only equivalent providers (normalized URL + API style +
+  same credential) skip; different credentials at one endpoint remain
+  separate. The expanded importer shows its scan explanation directly
+  without a question-mark control. No protocol or schema version bump.
 - **Specs linked**: `04-ux/06-settings-ia.md`,
   `04-ux/08-component-spec.md` §18.5, `03-runtime/01-ipc-protocol.md`,
   `03-runtime/11-provider-model-system.md`, ADR 0179, D342
@@ -13168,12 +14713,15 @@ are withdrawn with ADR 0165.
   includes userinfo and query credentials.
 - **Steps**:
   1. Open Settings → Skills, select Project and a project, then expand Scan
-     other tools. Confirm opening the panel does not scan. Scan, select a skill,
-     choose its copy or link mode, and import it.
+     other tools. Confirm its scan explanation is visible without a help icon
+     and that opening the panel does not scan. Scan, select a skill, choose its
+     copy or link mode, and import it.
   2. Confirm the new skill belongs to the selected project. Change the project
      and confirm the prior candidates and selection are cleared.
   3. Open Settings → MCP, select Project and the same project, expand Scan
-     other tools, scan, select the disabled MCP candidate, and import it.
+     other tools. Confirm its scan explanation is visible without a help icon
+     and that opening the panel does not scan. Scan, select the disabled MCP
+     candidate, and import it.
   4. Confirm the server belongs to that project, remains disabled, and the
      candidate row shows only the URL host without userinfo, path, or query.
   5. Change project scope and confirm the prior MCP candidates and selection
@@ -13181,7 +14729,8 @@ are withdrawn with ADR 0165.
 - **Expected**: Skills and MCP scans start only after an explicit Scan action.
   Project scans and writes carry the selected project path; scope changes clear
   stale candidates. MCP disabled state is preserved and URL credentials never
-  render in candidate metadata.
+  render in candidate metadata. Scan explanations render inline; the skill
+  mode explanation remains on its existing help control.
 - **Specs linked**: `04-ux/06-settings-ia.md`,
   `04-ux/08-component-spec.md` §18.3 / §18.6 / §18.7, ADR 0319 / D645
 - **Acceptance**: F (persistence), Security, Quality
@@ -13441,9 +14990,11 @@ are withdrawn with ADR 0165.
   setup wizard or administrator prompt, keeps the normal PI-Desktop taskbar
   identity/icon, uses the existing application data directory, and reports
   update preference `manual` by default and effective update mode `manual`.
-  An available update does not download or run
-  `PI-Desktop-Setup-<version>.exe`. Relaunch restores sessions from that same
-  profile.
+  Its `resources/app-update.yml` points to the same GitHub feed, so the manual
+  check settles as up-to-date or available instead of failing with `ENOENT`.
+  When an update is available, Settings offers the Releases page; it does not
+  download or run `PI-Desktop-Setup-<version>.exe`. Relaunch restores sessions
+  from that same profile.
 - **Specs linked**: `01-product/01-product-scope.md`,
   `06-delivery/06-release-runbook.md`, `03-runtime/07-process-model.md`,
   ADR 0197 / D603
@@ -13620,83 +15171,61 @@ are withdrawn with ADR 0165.
 - **Status**: Source-contract-covered; clean-machine Windows x64 and ARM64
   qualification remains runner validation (run only in a capable environment when this surface changes)
 
-#### E2E-218: Prompt enhancement preserves pasted image chips
+#### E2E-218: An installed Composer transform preserves inline attachment chips
 
-- **Preconditions**: A configured, authenticated model is available; an Agent
-  session has a Composer draft containing one pasted image chip followed by
-  ordinary prompt text.
-- **Steps**: 1) Paste the image into the Composer and type a prompt after the
-  chip. 2) Click `Enhance prompt`. 3) Observe the request and the updated
-  Composer draft. 4) Send the enhanced draft and inspect the dispatched
-  attachment metadata.
-- **Expected**: The Sparkles action is enabled with the image chip present.
-  The one-shot request contains only the visible prompt text, completes
-  successfully, and rewrites that text. The image chip remains at the front of
-  the draft, remains removable, and is dispatched exactly once with the
-  enhanced prompt. Enhancement does not create a transcript row or alter the
-  attachment bytes. The request is built from the built-in system prompt and the
-  effective user template: with no saved override the built-in template applies;
-  with an override saved in Settings, that text applies instead (E2E-259).
+- **Preconditions**: A plugin that contributes a Composer transform is
+  installed, enabled, and granted `composer.transform`. An Agent session has a
+  draft with ordinary prompt text and inline file and image chips.
+- **Steps**: 1) Add file and image chips to the draft. 2) Invoke the plugin's
+  Composer action. 3) Observe the plugin request and updated draft. 4) Undo the
+  transform and confirm the draft and chips return.
+- **Expected**: The plugin action is visible only while its plugin is loaded and
+  its permission is granted. The transform callback receives the visible draft
+  text and optional model key, but no image bytes, attachment metadata, file
+  reference token, session id, or conversation history. The file and image
+  chips remain in place and removable through the transform and its one-step
+  undo. The transform does not create a transcript row. Without the plugin, no
+  prompt-enhancement action appears.
 - **Specs linked**: `04-ux/12-prompt-enhancement.md`,
-  `04-ux/08-component-spec.md` §11.3/§11.7–11.8,
-  `03-runtime/01-ipc-protocol.md` §13,
-  `03-runtime/02-agent-runtime.md`
+  `07-plugins/02-plugin-manifest-schema.md`,
+  `07-plugins/03-plugin-api.md`,
+  `07-plugins/13-plugin-permissions-matrix.md`
 - **Acceptance**: C (conversation & stream), Quality
 - **Milestone**: M6+
-- **Status**: Unit/source-contract-covered; full UI journey Draft (run only in a capable environment when this surface changes)
+- **Status**: Covered by `test:e2e:plugin-ui-slots` for plugin-process dispatch,
+  draft-only update, inline file/image chip preservation, one-step undo, and no
+  transcript row. Attachment sending is covered by the separate Composer send
+  E2E.
 
-#### E2E-259: Prompt enhancement honors the configurable user template
+#### E2E-259: Installing the prompt-enhancement plugin migrates preferences once
 
-- **Preconditions**: A configured, authenticated model is available; an Agent
-  session has an empty Composer draft; Settings -> AI is reachable.
-- **Steps**: 1) Open Settings -> AI and inspect the Prompt enhancement card with
-  no saved override: the custom-template switch is off, disabled, and explains
-  that saving a template unlocks it, and the row offers only the edit icon
-  button. 2) Confirm no field for the system prompt is offered
-  anywhere on the card or in the editor. 3) Open the editor; while the sheet is
-  open, clear the draft variable token out of the user template and attempt to
-  save. 4) Use the insert action to put the draft variable back, save, and
-  confirm the sheet closes and the switch is now enabled and on. 5) Enhance a
-  Chinese draft
-  that also names a file such as `prompt-templates.ts`. 6) Enhance a
-  mixed-language draft. 7) Resolve a model that returns the rewritten draft
-  wrapped in quotation marks. 8) Reopen the editor, press `Escape`, and confirm
-  the edit was abandoned. 9) Reopen the editor, edit the template, and close it
-  by clicking the backdrop. 10) Turn the switch off and enhance again, then turn
-  it back on and confirm the user's text is still there. 11) Pin an enhancement
-  model, disable that provider, and enhance once more. 12) Confirm the reasoning row
-  defaults to `Off (no reasoning)` and offers no follow-the-session entry, then
-  raise it and enhance again to see the difference.
-- **Expected**: With no override the editor opens on the built-in default text,
-  so the displayed value equals the value in force, and the card shows no
-  system-prompt field at all. Saving a user template without the draft variable
-  is refused locally with a message, and no write reaches host-core. With no
-  saved template the switch is disabled; after saving one it is enabled and on
-  without a separate toggle. `Escape` and
-  a backdrop click abandon the edit, leaving the stored value unchanged. With the
-  switch off, enhancement uses the built-in template even though a custom one is
-  stored; with it on, the stored template applies. Either way the request's system
-  prompt is the built-in one and its user message contains the draft inside
-  `<draft>` tags with the placeholder substituted. The rewritten draft keeps the
-  draft's language, carries no language meta note, keeps `prompt-templates.ts`
-  byte-identical, and has the wrapping quotation pair removed. Turning the switch
-  off and on again leaves the user's stored text intact. A disabled pinned
-  enhancement provider falls back to the Composer's current model, the
-  enhancement still succeeds, and the fallback is logged as a warning. The
-  reasoning row defaults to `Off (no reasoning)`, offers every canonical level
-  plus `Off`, has no follow-the-session entry, and a level the model cannot
-  honour is clamped rather than rejected. An enhancement that receives no provider response fails
-  within about 60 seconds with `TIMEOUT` and a message naming the budget and the
-  setting to change; it does not hang and does not silently retry on the session
-  model.
-- **Specs linked**: `04-ux/12-prompt-enhancement.md` §3/§5,
-  `04-ux/06-settings-ia.md`, `03-runtime/01-ipc-protocol.md` §13,
-  `03-runtime/04-data-storage.md`, ADR 0121, D447
-- **Acceptance**: C (conversation & stream), Quality
+- **Preconditions**: The profile contains legacy host prompt-enhancement
+  settings and has no `pi.prompt-enhancement` plugin data. The standalone plugin
+  is available from a configured catalog or repository; a Composer session is
+  ready.
+- **Steps**: 1) With the plugin absent, inspect the Composer and Settings and
+  confirm there is no prompt-enhancement action or settings card. 2) Install the
+  plugin explicitly and grant its requested permissions. 3) Inspect the
+  plugin-owned settings and confirm valid legacy model, thinking, and enabled
+  custom-template values were copied before the plugin loaded. 4) Transform a
+  draft, undo it, and send it; confirm the action does not create a transcript
+  row. 5) Clear a migrated plugin value, reload the plugin, and confirm the
+  migration does not restore it. 6) Uninstall the plugin and confirm legacy host
+  values remain.
+- **Expected**: Installing the plugin is the only path that exposes the action.
+  Existing plugin settings win over legacy values; invalid or inactive custom
+  templates are skipped. A private marker makes migration one-time. Clearing a
+  plugin setting does not cause a later import, and uninstalling the plugin does
+  not delete legacy host values. Plugin transforms preserve draft/session race
+  safety and attachment chip positions.
+- **Specs linked**: `04-ux/12-prompt-enhancement.md`,
+  `04-ux/06-settings-ia.md`, `03-runtime/04-data-storage.md`,
+  `07-plugins/03-plugin-api.md`, ADR 0324
+- **Acceptance**: C (conversation & stream), Quality, compatibility
 - **Milestone**: M6+
-- **Status**: Unit/RPC/source-contract-covered for the template resolution,
-  validation, and quote stripping; full UI journey Draft (run only in a capable
-  environment when this surface changes)
+- **Status**: Migration and plugin-runtime integration tests cover the copy,
+  precedence, one-time marker, permission gate, and callback; full UI journey
+  Draft (run only in a capable environment when this surface changes)
 
 #### E2E-220: Local MCP control drives a running desktop
 
@@ -14324,6 +15853,62 @@ browser milestones are scheduled.
 - **Milestone**: Post-MVP
 - **Status**: Draft; remote harness required
 
+#### E2E-REMOTE-MVP: Legacy remote Agent compatibility
+
+- **Preconditions**: Current Desktop and complete same-platform Host bundle,
+  isolated data/profile, and a loopback mock model. No production credentials.
+- **Steps**: Copy an explicitly selected eligible provider and repeat the copy;
+  pair, register a project, create/open an Agent/Ask session and send text. Drop
+  the client connection while a real Bash approval is pending, reconnect and
+  approve once. Read the resulting transcript/file/diff, reject a path outside
+  the project, remove the host and attempt another prompt.
+- **Expected**: Import preserves the default and is idempotent. The command and
+  turn execute once, in the Host project only; stale routing never falls back
+  locally. Snapshot recovery restores pending requests and clears peer-resolved
+  cards. Local workspace/model state is unchanged.
+- **Compatibility coverage**: Existing remote Agent session routing remains
+  covered by `remote-mvp-renderer.test.mjs`; the Settings inventory exposes no
+  session-list or new-session controls. New projects follow E2E-REMOTE-HOME.
+- **Automation**: `scripts/e2e-remote-mvp.mjs` (packaged Host, real Rust/Agent
+  runtime and Desktop main routing, mocked model); `scripts/e2e-remote-mvp-ui.mjs`
+  (real components, mocked IPC). Neither is a full SSH/Desktop acceptance result.
+- **Status**: Automated narrow-MVP scenario. Linux `sshd`, release download,
+  password authentication and full R2 remain separately gated by E2E-231.
+
+#### E2E-REMOTE-HOME: Create and continue a remote workspace as a local project
+
+- **Preconditions**: Isolated Desktop profile, connected Host directory fixtures,
+  a local provider fixture, and local/remote directories with the same basename.
+  No user profile, production host, credentials or paid model calls.
+- **Steps**: Open Settings → Remote Hosts and click **New project** on the
+  intended host. Confirm the shared Create project dialog has Remote selected
+  and that host preselected. Browse through a separate folder dialog,
+  cancel/reopen, navigate parent/child and confirm a directory. Enter a custom
+  name, create, rename and reopen the project. Start a normal local chat, choose
+  a local model and send a request that invokes Read and Bash remotely. Approve
+  locally, cancel a command, disconnect/reconnect and retry explicitly.
+- **Expected**: Focus and drafts survive picker cancellation. Late host responses
+  cannot replace the current host selection. Project metadata and sessions are
+  local and stable after reload, including name/memory/instructions and ordinary
+  sidebar/archive operations. Model requests and provider secrets never appear
+  in remote transport. Only locally admitted workspace tools execute on Host.
+  Equal paths on two hosts or on Desktop never collide. Failed calls never
+  execute locally or replay automatically. Existing remote histories remain readable.
+- **Specs**: `02-architecture/05-remote-agent-control.md`, `04-ux/01-ui-ia.md`,
+  ADR `local-agent-remote-workspace-tools`.
+- **Acceptance / milestone**: Local Agent remote-workspace execution; additive
+  project KV metadata and authenticated workspace-tool endpoints.
+- **Automation**: `remote-project-dialog-user-path.test.mjs`,
+  `remote-workspace-tools.test.mjs`, host-core remote project/relay tests,
+  pi-host workspace-tool tests and Agent runtime remote-workspace tests;
+  `PI_HOST_CORE_BINARY=<candidate binary> node scripts/e2e-local-agent-remote-tools.mjs`
+  runs a local model fixture through production Desktop relay, WebSocket RACP
+  and real Rust Read/Bash execution, asserting zero remote providers, projects
+  and sessions. Both local and remote Rust Hosts are real; the model service
+  and the fixture's user approval action are controlled test boundaries.
+- **Status**: Candidate implementation; real SSH release validation remains the
+  separately provisioned E2E-231 scenario.
+
 #### E2E-231: The desktop drives a remote Host over an SSH tunnel
 
 - **Preconditions**: A Linux test machine runs `sshd` and holds a project
@@ -14387,18 +15972,65 @@ browser milestones are scheduled.
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: Draft; remote harness with a Linux SSH target required
 
+#### E2E-REMOTE-SSH-OPTIMIZATION: Verified deployment, local Agent and recovery
+
+- **Preconditions**: Isolated Desktop profile and a Linux x64/arm64 SSH target
+  with `sshd`, POSIX shell, archive/hash tools and kernel `flock`; no system Node,
+  systemd, public listener, production credential or paid model. A controlled
+  release fixture serves a matching Host archive and digest.
+- **Steps**: Install through SSH with remote download; repeat bootstrap and verify
+  immutable installed files are reused. In a separate isolated account, block
+  remote release access and verify one bounded Desktop-download/SSH-upload path.
+  Corrupt the archive and alter an installed file; verify integrity failures do
+  not fall back or replace a working install. Reboot/kill the Host and repeat
+  readiness; rotate Host identity and revoke a device token. Create a local
+  project bound to the remote workspace, use local model credentials and remote
+  `AGENTS.md` with local global instructions, then run Read and permissioned Bash.
+  Drop SSH during Write and inspect the remote file before any manual retry.
+  Exercise offline project browsing and the Settings connection status labels.
+  Repoint the fixture release so the paired Host no longer matches the desktop,
+  then select a remote folder and verify the Host is realigned over the same
+  verified install, re-paired in place and connected without removing it.
+- **Expected**: Bundled Node starts the Host without a system Node or remote
+  release access. Reuse validates the external release receipt and installed
+  manifest; failed staging leaves the previous `current` intact. Daily readiness
+  starts/reuses the same Host without re-pairing, resetting credentials, killing
+  another client’s Host or replaying tools. Identity/authentication failures stop
+  automatic retry. Local model requests, API keys, sessions and permissions stay
+  local; workspace tools/files and root-only repository instructions come from
+  the remote canonical root. A lost mutation reply reports
+  `REMOTE_MUTATION_OUTCOME_UNKNOWN` and is not replayed or executed locally. A
+  Host that falls behind the desktop release is realigned over the same verified
+  install and re-paired in place — once per release per host, and again on an
+  explicit user reconnect — while a Host that still cannot serve this desktop
+  keeps the upgrade message instead of looping or dropping the pairing.
+- **Automation**: `remote-host-realign.test.mjs`,
+  `remote-host-supervisor.test.mjs`, SSH bootstrap shell,
+  packaging, artifact transfer, concurrent readiness/auth lifecycle and UI
+  contract suites; `PI_HOST_CORE_BINARY=<candidate binary> node
+  scripts/e2e-local-agent-remote-tools.mjs` covers local model/instructions
+  through real loopback RACP and Rust Read/Bash, but is not SSH qualification.
+- **Acceptance**: Security, Recovery, Quality; release remains gated on the
+  real Linux SSH run and a new matching Desktop/Host release. This scenario does
+  not claim reverse-relay, interactive-terminal or complete R2 acceptance.
+- **Status**: Candidate implementation; Linux SSH and release qualification
+  pending.
+
 #### E2E-REMOTE-HOST-ssh-password-authentication
 
-- **Preconditions**: Developer mode is enabled (Settings → Info → Developer),
-  so the Remote Hosts destination exists. A Linux test machine runs `sshd` with
+- **Preconditions**: Settings → Remote Hosts is available with its Experimental
+  badge, independently of developer mode. A Linux test machine runs `sshd` with
   `PasswordAuthentication yes` and `PubkeyAuthentication no`, so the login is
   only reachable with a password; the user's local SSH agent holds no usable key
   for it. A GitHub Releases fixture serves the `pi-host` bundle for that platform
   at the desktop's version. A second machine accepts the user's key only.
-- **Steps**: 1) In Settings → Remote Hosts, open the Add form's SSH tab and install over SSH with key
-  authentication and confirm the form shows the identity-file field.
-  2) Switch the authentication mode to password, confirm the identity-file field
-  is replaced by a masked password field, and reveal it once.
+- **Steps**: 1) In Settings → Remote Hosts, open the Add form's SSH tab, choose
+  a local private-key file in key mode, and confirm its path is displayed. Cancel
+  a second file selection and confirm the existing choice remains; select the
+  same file again and confirm it can be reselected. Clear the selection once to
+  confirm the SSH agent/config fallback is available, then choose the key again.
+  2) Switch the authentication mode to password, confirm the identity-file
+  picker is replaced by a masked password field, and reveal it once.
   3) Try to submit an empty password. 4) Point the form at the
   password-only machine, enter the password, and bootstrap it.
   5) Quit the desktop, relaunch it, and let the host reconnect.
@@ -14407,9 +16039,13 @@ browser milestones are scheduled.
   8) Inspect the desktop's process arguments and `remote-hosts.json` while a
   password-authenticated host is connected. 9) Attempt to submit a password
   containing a newline through the IPC channel directly.
-- **Expected**: Key mode is byte-for-byte today's behaviour — `BatchMode=yes` and
-  no credential file anywhere. In password mode the password field replaces the
-  identity-file field, the reveal toggle shows and re-hides the value, and an
+- **Expected**: Key mode lets the user choose a local identity file; its path
+  is read-only in the form and is passed to the existing `ssh -i` flow. The app
+  never reads or uploads the key contents. Cancel preserves the prior choice, the
+  same file can be selected again, and Clear returns to SSH agent/config lookup.
+  The key-authenticated SSH behavior remains unchanged: `BatchMode=yes` and no
+  credential file anywhere. In password mode the picker is replaced by a masked
+  password field, the reveal toggle shows and re-hides the value, and an
   empty password keeps the submit disabled. The password-only machine installs
   and pairs. After the relaunch the host reconnects with no prompt, proving the
   saved credential is used. The wrong password yields exactly one failed attempt
@@ -14428,39 +16064,46 @@ browser milestones are scheduled.
 - **Acceptance**: Security, D (surfaces), Quality
 - **Milestone**: Post-MVP (rollout R2b)
 - **Status**: Draft; remote harness with a password-only Linux SSH target
-  required. The credential seam itself is covered offline by
-  `apps/desktop/test/remote-host-ssh-password.test.mjs`.
+  required. The chooser control is covered by
+  `apps/desktop/test/settings-remote-hosts.test.mjs`; the SSH credential seam is
+  covered offline by `apps/desktop/test/remote-host-ssh-password.test.mjs`.
 
 
 #### E2E-REMOTE-HOST-settings-compact-inventory
 
 - **Preconditions**: The desktop Settings window can open. No paired remote
-  host is required. Developer mode is off in persisted settings.
-- **Steps**: 1) Open Settings and confirm the rail has no Remote Hosts row and
-  that searching settings for it returns nothing. 2) Enable developer mode in
-  Info → Developer and confirm Remote Hosts appears on the rail between
-  Projects and Info with an Experimental badge. 3) Open it and confirm the page
-  title carries the same badge, with a host inventory and one Add form
-  (SSH / Pair) and no instructional copy. 4) Switch Add to Pair and back to
-  SSH; confirm both forms stay filled and each tab's `aria-controls` points
-  to its panel, whose `aria-labelledby` points back to that tab. Repeat the
-  association check after changing the interface language. 5) Disable developer mode while the
-  destination is open and confirm the page returns to General and the rail row
-  is gone.
-- **Expected**: The whole destination is marked Experimental and is reachable
-  only while developer mode is on; the rail row, the page, and settings search
-  add and drop it together. Field labels and placeholders remain; overview,
-  body, and hint copy are absent. There is no Experimental switch list. SSH
-  stays the default Add tab. Pairing and SSH bootstrap keep their existing
-  success and failure toasts.
+  host is required. Developer mode is off in persisted settings. The isolated
+  renderer harness can return a successful pair result without network access.
+- **Steps**: 1) Open Settings with developer mode off and confirm Remote Hosts
+  and its search hits are available. 2) Open the page and confirm the rail and
+  title carry the Experimental badge. 3) Confirm the SSH and Pair action row is
+  above the inventory and neither dialog is open. Open SSH; verify the dialog is
+  named, modal, and focuses its first field. Cancel and confirm focus returns to
+  SSH. Open Pair, submit the fixture pairing form, and confirm success closes
+  the dialog and clears the draft. Change language and confirm action labels
+  update. Reopen Pair, enter a draft, cancel, and confirm the dialog closes and
+  the draft clears. Open SSH password mode, enter a fixture password, cancel,
+  reopen, and confirm the password is empty. Press Escape and verify the dialog
+  closes and focus returns to SSH. 4) Toggle developer mode and confirm the
+  destination stays selected and available. 5) On a paired SSH host, open the
+  historical sessions browser and verify model-copy and remote-create controls
+  are absent. New workspace creation stays on Home.
+- **Expected**: Experimental availability is consistent across packaged and
+  development builds. Add actions precede inventory; the forms open in the
+  shared modal surface, one at a time. Cancel, Escape, backdrop dismissal, and
+  successful submission close the dialog and clear drafts; focus returns to the
+  initiating action. Existing pairing toasts remain. The inline browser
+  preserves existing remote histories; new SSH workspace projects use the
+  local model and project controls from Home.
 - **Specs linked**: `04-ux/06-settings-ia.md` §1, §3,
   `06-delivery/07-remote-control-rollout.md` §2 R2,
   `02-architecture/05-remote-agent-control.md` §5.2
 - **Acceptance**: D (surfaces), Quality
 - **Milestone**: Post-MVP (rollout R2b)
-- **Status**: Draft; covered offline by
-  `apps/desktop/test/settings-remote-hosts.test.mjs` and
-  `apps/desktop/test/settings-developer-only-destinations.test.mjs`.
+- **Status**: Offline coverage in `settings-remote-hosts.test.mjs` and
+  `remote-mvp-renderer.test.mjs`; isolated Electron/Chromium interaction coverage
+  in `scripts/e2e-remote-mvp-ui.mjs`, including disclosure, success and cancel
+  paths. Real SSH acceptance is separate.
 
 #### E2E-232: The outbound messaging integration relays events and commands
 
@@ -14502,7 +16145,7 @@ browser milestones are scheduled.
   spent pairing token is rejected. The Host never accepts a non-loopback peer.
 - **Specs linked**: `03-runtime/19-remote-agent-control-protocol.md` §§3, 6.2,
   7.2, and 11.1, `05-security/02-remote-control-security.md` §§3.4 and 5.1,
-  ADR 0326
+  ADR 0343
 - **Acceptance**: Security, Recovery, Quality
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: binding-covered by `packages/agent-host/src/racp-ws.test.ts`;
@@ -14524,7 +16167,7 @@ browser milestones are scheduled.
   PID and port, and starts through `setsid` without sudo. The tampered record
   fails before extraction and never executes the downloaded bundle.
 - **Specs linked**: `03-runtime/07-process-model.md` §§6–7,
-  `06-delivery/06-release-runbook.md` §§3–4, ADR 0326
+  `06-delivery/06-release-runbook.md` §§3–4, ADR 0343
 - **Acceptance**: Security, Quality
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: source-contract covered by
@@ -14557,7 +16200,7 @@ browser milestones are scheduled.
   sync/delete names the remote machine and never
   returns the secret.
 - **Specs linked**: `04-ux/06-settings-ia.md` §Connections,
-  `03-runtime/20-remote-ssh-desktop.md` §§3–8, ADR 0326
+  `03-runtime/20-remote-ssh-desktop.md` §§3–8, ADR 0343
 - **Acceptance**: A, Security, Quality
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`;
@@ -14593,7 +16236,7 @@ browser milestones are scheduled.
   creates or reuses the connection, registers the remote project, activates it,
   and refreshes the renderer project surface. Unsafe links are ignored without
   a dialog.
-- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §9, ADR 0326
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §9, ADR 0343
 - **Acceptance**: A, Security, Quality
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: parser/source-contract covered by
@@ -14616,7 +16259,7 @@ browser milestones are scheduled.
   process is started as a fallback.
 - **Specs linked**:
   `03-runtime/19-remote-agent-control-protocol.md` §6.2,
-  `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0326
+  `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0343
 - **Acceptance**: A, B, Security
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: remote process contract covered by
@@ -14637,7 +16280,7 @@ browser milestones are scheduled.
   removes the model-facing Skill without touching the local registry.
 - **Specs linked**:
   `03-runtime/19-remote-agent-control-protocol.md` §6.2,
-  `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0326
+  `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0343
 - **Acceptance**: A, B, Security
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: source-contract covered by
@@ -14656,7 +16299,7 @@ browser milestones are scheduled.
   unavailable warning, while the agent-capability plugin is additionally marked
   unavailable remotely. Switching back to the local project removes only the
   remote-unavailable markers.
-- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0326
+- **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §6, ADR 0343
 - **Acceptance**: A, B, Quality
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: source-contract covered by `apps/desktop/test/remote-ssh.test.mjs`
@@ -14686,7 +16329,7 @@ browser milestones are scheduled.
   tools, or duplicate Host runtimes. WSL behaves as a Linux remote Host without
   local-path fallback.
 - **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §§3–5 and 10,
-  ADR 0326
+  ADR 0343
 - **Acceptance**: A, Recovery, Security, Quality
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: draft; requires explicit E2E authorization and live SSH targets
@@ -14712,7 +16355,7 @@ browser milestones are scheduled.
   turns; stopping Project B leaves Host A and Host C turns running, and Host
   A reconnect resumes without replaying completed work.
 - **Specs linked**: `03-runtime/20-remote-ssh-desktop.md` §§2, 5–6, and 10,
-  ADR 0326
+  ADR 0343
 - **Acceptance**: A, Recovery, Security, Quality
 - **Milestone**: Post-MVP (rollout R2)
 - **Status**: draft; requires explicit E2E authorization and live SSH targets
@@ -14864,6 +16507,19 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   failed handlers do not discard earlier additions, cancelled turns send no
   request, and the next turn can proceed. Other events retain existing folds.
 - **Specs linked**: `07-plugins/16-trusted-extensions.md` §6; ADR 0214; #1023.
+
+#### E2E-HOOKS-context-every-request: Context handlers shape every provider request
+
+- **Preconditions**: An enabled fixture extension appends a marker message in
+  `context`; the provider is a local deterministic HTTP/SSE service whose first
+  reply is a tool call.
+- **Steps**: Run two turns through the real runtime: the first turn makes a
+  tool call and a follow-up request, the second answers directly. Inspect every
+  provider request and the persisted transcript rows.
+- **Expected**: `context` fires once per provider request, including the first
+  request of each run, and every request carries the marker exactly once. The
+  marker never reaches the persisted transcript.
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §6; ADR 0214; #1838.
 - **Acceptance**: B (agent), Quality
 - **Milestone**: Post-MVP (R7 v1)
 - **Status**: Automated by `extensions/prompt-chain.test.ts`,
@@ -14922,6 +16578,22 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 - **Acceptance**: A (app control), Quality
 - **Milestone**: Post-MVP (R7 v1)
 - **Status**: Partially automated (`pnpm test:e2e:trusted-extensions`); global/composer command discovery, prompt broker round-trip, abort, session rename, exec, and Host-owned queue pass, while no-session and remote-control cases remain additional validation.
+
+#### E2E-TRUSTED-EXTENSION-temporary-session-cwd-is-scratch: Extensions in a temporary session work in its scratch
+
+- **Preconditions**: An enabled fixture extension registering command `where`
+  that reports `ctx.cwd`, `ctx.sessionManager.getCwd()`, and the working
+  directory of a child started with `pi.exec` without a `cwd` option.
+- **Steps**: 1) Start a temporary session (no project) and run `/where`
+  before any tool call. 2) Run `/where` in a project session.
+- **Expected**: In the temporary session all three values are the session's
+  `scratch/<sessionId>` directory, which exists and the child starts in; none
+  is the sidecar's process directory. In the project session all three are
+  the project root, and no scratch directory is created for the extension.
+- **Specs linked**: `07-plugins/16-trusted-extensions.md` §7; D114
+- **Acceptance**: A (app control), Quality
+- **Milestone**: Post-MVP (R7 v1)
+- **Status**: Unit-covered (`packages/agent-runtime/src/extensions/runtime-lifecycle.test.ts`); Electron journey Documented
 
 #### E2E-244: Unsupported APIs, load errors, and handler timeouts degrade to diagnostics
 
@@ -15007,7 +16679,7 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 - **Specs linked**: `07-plugins/03-plugin-api.md` (Git API),
   `07-plugins/13-plugin-permissions-matrix.md`,
   `04-ux/08-component-spec.md` §5.2.3, `04-ux/09-interaction-patterns.md` §1.8;
-  ADR 0323, D651
+  ADR 0340, D681
 - **Acceptance**: D (plugins), Security, Quality
 - **Milestone**: M6+
 - **Status**: Draft; service, runtime, and source-contract tests cover the
@@ -15050,7 +16722,7 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   explicit action.
 - **Specs linked**: `07-plugins/03-plugin-api.md` (models and agent.complete),
   `04-ux/08-component-spec.md` §5.2.3,
-  `04-ux/09-interaction-patterns.md` §1.8; ADR 0324, ADR 0325, D652, D653
+  `04-ux/09-interaction-patterns.md` §1.8; ADR 0341, ADR 0342, D682, D683
 - **Acceptance**: D (plugins), Security, Quality
 - **Milestone**: M6+
 - **Status**: Draft; runtime permission and bundled-plugin source-contract tests
@@ -15318,30 +16990,75 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   rendered desktop journey Draft
   (run only in a capable environment when this surface changes)
 
+#### E2E-SKILL-builtin-activation: Manage bundled skills from Settings
+
+- **Preconditions**: An isolated Desktop profile and an ordinary project
+  workspace. Keep a separate active user or plugin Skill so the `Skill` tool
+  remains available after imagegen is disabled.
+- **Steps**:
+  1. Open Settings > Agent > Skills and inspect the Built-in skills group.
+     Confirm `pi-desktop/imagegen` and `pi-desktop/plugin-development` are
+     listed and enabled by default.
+  2. Turn off `pi-desktop/imagegen` and open a new session in the ordinary
+     workspace. Inspect its skill catalog and Composer's `/` menu.
+  3. Invoke the local `Skill` tool with the stale imagegen id.
+  4. Turn imagegen back on and open another session. Restart the app and
+     inspect the setting and a new session catalog again.
+- **Expected**: The disabled imagegen skill is absent from the prompt catalog
+  and the `skill:pi-desktop/imagegen` slash entry. A stale direct `Skill` load
+  reports that the built-in skill is disabled. Re-enabling restores both
+  entries on a new session, and the setting survives restart. The
+  plugin-development row stays visible in Settings but its session entry
+  remains limited to plugin workspaces. Associated agent tools remain
+  independently available.
+- **Specs linked**: `07-plugins/01-plugin-system.md` (§12.3),
+  `03-runtime/01-ipc-protocol.md` (§12b), `03-runtime/02-agent-runtime.md`
+  (§7.0.0), `04-ux/04-builtin-commands.md` (§8)
+- **Acceptance**: C (conversation & stream), E (tools & permissions),
+  F (persistence), Quality
+- **Coverage**: `settings-inline-import-user-path.test.mjs` exercises the
+  Settings switch in isolated Electron and asserts the persisted IPC request
+  and visible off state. `image-generation.test.mjs`,
+  `composer-mcp.test.mjs`, host-core user-skill/RPC tests cover catalog
+  filtering, stale loads, persistence, and the activation wire contract. The
+  restart and full new-session journey remain part of desktop acceptance.
+- **Milestone**: M6+
+- **Status**: Rendered desktop journey Draft
+
 #### E2E-255: An ideographic comma opens the slash menu
 
 - **Preconditions**: A Chinese IME is available, the composer draft is empty,
   and at least one slash entry exists (builtin alias, template, plugin command,
   or Skill).
 - **Steps**:
-  1. With the draft empty, type `、` and inspect the composer.
+  1. With the draft empty, compose `、`, inspect the pre-edit text, then commit.
   2. Continue typing a command name and accept the highlighted row.
   3. Type a draft that contains `、` between other characters.
   4. Send a draft whose first character was typed as `、` without accepting any
      row.
+  5. Cancel a composition, then type `/` again. Also delete text after a
+     dropped `compositionend` and confirm the slash menu still reopens.
 - **Expected**: The committed `、` is rewritten to `/` in place, the ordinary
   slash menu opens with the same filtering and keyboard behavior as a typed
   `/`, and the caret stays after the substituted character. A `、` anywhere
   later in the draft stays untouched text, and the `@` file menu never reacts
-  to the mark.
+  to the mark. Pre-edit `、` remains unchanged until commit; the result is `/`,
+  never `/、`. Ordinary Chinese composition and punctuation in existing drafts
+  remain unchanged. Cancelling leaves a blank draft, and replacing the draft
+  releases the old composition's empty-draft origin.
 - **Specs linked**: `04-ux/04-builtin-commands.md` (§9),
   `04-ux/08-component-spec.md` (§11), `08-meta/decisions-log.md` (D405),
   ADR 0024, ADR 0231
 - **Acceptance**: C (conversation & stream), Localization, Quality
 - **Milestone**: M2
-- **Status**: Unit-covered (`packages/shared/src/composer-trigger.test.ts`,
-  `apps/desktop/test/composer-ime.test.mjs`); rendered desktop journey Draft
-  (run only in a capable environment when this surface changes)
+- **Status**: Partially automated. Unit coverage:
+  `packages/shared/src/composer-trigger.test.ts`,
+  `apps/desktop/test/composer-ime.test.mjs`. Rendered Electron coverage:
+  `node scripts/e2e-composer-ime-stack.mjs` mounts the production input, draft,
+  and completion components, drives Chromium composition through CDP, and
+  covers alias commit, ordinary Chinese text, cancellation, draft replacement,
+  completion acceptance, and lost-end recovery. Sending and a physical OS IME
+  candidate window remain manual checks.
 
 #### E2E-256: Empty-home project name switches among sidebar projects
 
@@ -15499,7 +17216,9 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   1. Open the work panel and request the user's preferred width.
   2. Drag the inner divider toward MainChat's left edge, including during
      pointer preview, then release.
-  3. Manually reopen the sidebar after the layout collapsed it.
+  3. Manually reopen the sidebar after the layout collapsed it. Repeat in an
+     866px viewport, where the reopen narrows the panel below 244px, then
+     collapse the sidebar again and drag the divider toward the panel.
   4. Close the work panel and confirm the sidebar returns; repeat after
      manually collapsing the sidebar.
   5. Repeat divider changes with `ArrowLeft`, `ArrowRight`, `Home`, and `End`.
@@ -15519,7 +17238,9 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   budget is exhausted the expanded sidebar collapses immediately, and the panel
   may keep growing afterwards. A manual reopen spends panel width first;
   MainChat is preserved where possible and otherwise lands on the 460px reopen
-  target. Closing the panel restores only a sidebar the layout collapsed. The
+  target. That width is lent, not stored: the stored preferred width is
+  unchanged, collapsing the sidebar again restores it, and divider drags still
+  stop at 244px. Closing the panel restores only a sidebar the layout collapsed. The
   separator's ARIA minimum/maximum follow the same dynamic budget. The panel
   header's `+`, maximize, and viewport-fixed collapse toggle resolve to a single
   control gap (`--ds-work-panel-control-gap`) with no divider, inset, or margin
@@ -15553,15 +17274,19 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 
 #### E2E-LAYOUT-work-panel-maximize
 
-- **Preconditions**: A desktop session is open with the work panel visible.
+- **Preconditions**: A desktop session is open with the work panel visible and
+  the bundled Browser plugin active on a loaded page.
   1. Note the current panel width. If the sidebar is expanded, collapse it;
      then click the panel header's `+` action to open a real work-panel tab.
   2. Click the panel header's preview toggle.
-  3. Inspect the header border box and tab alignment with the sidebar collapsed
+  3. While preview remains active, collapse and reopen the sidebar. Compare the
+     Browser/plugin placeholder's viewport-relative rectangle with the latest
+     native bounds report after each layout settles.
+  4. Inspect the header border box and tab alignment with the sidebar collapsed
      and expanded on macOS windowed/fullscreen and Windows/Linux. Confirm the
      overlay row and spacer declare neither drag nor no-drag and do not cover
      the panel controls with opaque paint.
-  4. Using native pointer input, click the centers and edges of sidebar and
+  5. Using native pointer input, click the centers and edges of sidebar and
      New Task controls; confirm sidebar toggles and New Task exits preview to
      an editable composer. Reenter preview, operate tabs, close, add, restore,
      panel toggle and native controls, then drag empty header space and confirm
@@ -15570,7 +17295,10 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   width to the panel, so the panel spans the client area minus the expanded
   sidebar (the whole client area when the sidebar is collapsed). The native
   window never changes size. The divider is inert while preview mode is on
-  (`aria-disabled`). Leaving preview mode restores the previous panel width and
+  (`aria-disabled`). The native Browser/plugin surface matches the complete
+  renderer placeholder rect after both sidebar transitions, including when
+  only its absolute position changes; no stale page edge or uncovered strip
+  remains beside it. Leaving preview mode restores the previous panel width and
   keeps whatever sidebar state the user chose last. The mode is transient: it is
   not persisted and ends when the panel closes. Preview mode keeps the shell's
   new-task, sidebar, and system-window actions reachable while MainChat is
@@ -15592,20 +17320,63 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 - **Status**: Partially automated (`scripts/e2e-three-column-layout.mjs` —
   preview entry/exit, DOM action behavior, header border-box exclusion, row/spacer
   drag ownership, and all-platform/fullscreen CSS fixtures in both sidebar
-  states). DOM clicks and CDP input are not native hit-test proof; native pointer,
-  window-drag and visual checks remain required on each platform. Branch runs
-  are exploratory and do not satisfy the integrated-main gate.
+  states). `plugin-view-bounds-sync.test.mjs` mounts the production
+  `PluginViewTab` in Electron and covers a position-only layout commit with
+  unchanged surface dimensions. DOM clicks and CDP input are not native hit-test
+  proof; native pointer, window-drag, and visual checks remain required on each
+  platform. Branch runs are exploratory and do not satisfy the integrated-main
+  gate.
+
+### E2E-WORK-PANEL-overflow-tab-drag-exclusion
+
+- **Preconditions**: On Windows, open a desktop session and create enough work-panel
+  tabs to overflow the horizontal tab strip.
+- **Steps**: Scroll the strip toward both ends, switch to another conversation and
+  back, reorder a tab with the keyboard, then close tabs until one and none remain.
+  Query native `WM_NCHITTEST` over the adjacent sidebar and conversation titlebars,
+  visible tabs, header actions, and spare header space.
+- **Expected**: Offscreen tabs do not block native dragging outside the visible
+  scroll viewport. Adjacent titlebars and unused header space return `HTCAPTION`;
+  visible tabs and actions return `HTCLIENT`. Switching, reordering, and closing
+  tabs preserve those hit regions.
+- **Specs linked**: `04-ux/07-ui-design-system.md` §10
+- **Acceptance**: Quality
+- **Status**: Windows native regression covered by
+  `scripts/e2e-work-panel-drag.mjs` (`pnpm test:e2e:work-panel-drag`). macOS/Linux
+  native dragging remains unqualified.
+
+### E2E-WORK-PANEL-active-tab-close-visibility
+
+- **Preconditions**: Render the work panel with enough long-named tabs to
+  overflow the horizontal strip.
+- **Steps**: Activate an overflowing tab in the narrow layout and inspect its
+  close-button rectangle and `elementFromPoint` hit target. Resize the layout
+  while keeping the same tab active and repeat. Then partially scroll the strip
+  to an inactive tab, hover it, and inspect its close button the same way.
+- **Expected**: The active close button stays fully inside the strip after
+  activation and resize. Hovering a partially visible inactive tab scrolls its
+  close button into the viewport too. In all three states the button is visible
+  and hit testable without requiring a middle click, keyboard shortcut, or
+  widening the panel.
+- **Specs linked**: `04-ux/07-ui-design-system.md` §10, issue #1762
+- **Acceptance**: Quality
+- **Milestone**: Post-M6 desktop shell maintenance
+- **Status**: Electron geometry and hit-target coverage runs in
+  `scripts/e2e-work-panel-tab-close.mjs`; `apps/desktop/test/work-panel.test.mjs`
+  also covers the reveal contract. The Windows probe in
+  `scripts/e2e-work-panel-drag.mjs` checks native hit testing separately.
 
 #### E2E-LAYOUT-sidebar-project-group-fold
 
-- **Preconditions**: Four retained sidebar project groups, seeded through the
-  host: one holding five sessions across four date buckets, one holding a single
-  session, one holding none, and one holding ten pinned sessions.
+- **Preconditions**: Five retained sidebar project groups, seeded through the
+  host: one holding five sessions with recent and old reply dates, one holding
+  a single session, one holding none, and one holding ten pinned sessions.
+  A fifth group has twelve unpinned sessions for the project history pager.
   `prefers-reduced-motion` is unset.
 - **Steps**:
-  1. Inspect the groups: body layering, row and date-label counts, the empty
-     state, the tail each expanded group contributes to the next one, and the
-     non-project lists' budgets.
+  1. Inspect the groups: body layering, row and per-row date counts, no time
+     headings, the empty state, the tail each expanded group contributes to
+     the next one, and the non-project lists' budgets.
   2. Collapse the multi-row group with a real pointer click on its directory row —
      scrolled into view and confirmed to hit that button — and read the group
      body's height, opacity, resolved `grid-template-rows`, and the distance to
@@ -15633,7 +17404,9 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   reduced motion both endpoints are kept and the travel is dropped. The pinned
   list holds eight rows inside `min(233px, 30vh)` and scrolls to its remaining
   rows, and the standalone list keeps its flex column and 146px budget. The group
-  indent, ordering, and workspace state are unchanged.
+  indent, ordering, and workspace state are unchanged. The five seeded project
+  sessions remain in one flat list with no time headings and each has its own
+  date label.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/07-ui-design-system.md` §6.1 and
   §13, `04-ux/08-component-spec.md` §6.2, `08-meta/decisions-log.md`
   (2026-09-16, sidebar list rhythm and project-group fold)
@@ -15651,13 +17424,20 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 #### E2E-LAYOUT-sidebar-row-states
 
 - **Preconditions**: Host-seeded project, pinned and standalone conversations;
-  a current workspace; built desktop with isolated data and profile directories.
+  the sidebar Session time preference enabled; a current workspace; built
+  desktop with isolated data and profile directories.
 - **Steps**: In dark and light themes, select a project conversation, hover its
   project title and an unselected conversation, then hover the selected row.
-  Exercise the window-blur handler, drop-target styling, project action hover
-  and keyboard Tab/Shift+Tab focus. Fold and reopen the selected conversation's
-  group. Select pinned and standalone conversations. Open Settings and return.
-  Enable reduced motion and inspect both row transition durations.
+  Check that a project session date is visible at rest and replaced by its
+  action in the same trailing slot on hover and focus; verify no divider appears
+  before the date, dates through seven calendar days are relative, and older
+  dates show month and day without a year. Exercise the window-blur handler,
+  drop-target styling, project action hover and keyboard Tab/Shift+Tab focus. Fold and
+  reopen its group. Select pinned and
+  standalone conversations. Open Settings and return. Enable reduced motion and
+  inspect both row transition durations. In a separate twelve-session project,
+  load the remaining two sessions, fold and reopen the group, and verify only
+  the initial ten sessions remain visible.
 - **Expected**: Project and conversation hover backgrounds, radii and transitions
   match. The title button stays transparent. Only a conversation uses selected
   fill, which wins over hover; workspace identity remains a separate dot with
@@ -15666,17 +17446,25 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   retains an outline, action buttons retain local feedback, drop-target paint
   wins over hover, and blur releases hover without clearing selection. Settings
   replaces sidebar navigation, and returning restores conversation and workspace
-  context without a second selected row. Rendered component tests additionally
-  cover no selected session, a pending destination and non-chat page state.
+  context without a second selected row. Project session rows show dates at rest
+  in the same trailing slot used for session actions, with no divider. Hover and
+  focus replace the date with the action in that slot. Dates through seven
+  calendar days are relative and older dates show month and day without a year.
+  Loading more sessions
+  reveals all twelve; folding and reopening restores the initial ten and the
+  two-session remainder control. Rendered component tests additionally cover no
+  selected session, a pending destination and non-chat page state.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/08-component-spec.md`,
   `04-ux/09-interaction-patterns.md` §9.1c
 - **Acceptance**: C, D, Quality
 - **Milestone**: Post-M6 desktop shell maintenance
 - **Status**: Automated via `pnpm test:e2e:layout` and
   `scripts/e2e/sidebar-row-states.mjs`: real CDP pointer/keyboard input and
-  computed-style assertions. Window blur/focus events and the drop-target class
-  are injected for those styling checks; this is not a native focus/drag test.
-  Unit coverage: `sidebar-navigation.test.mjs`, `sidebar-pinned-rendering.test.mjs`.
+  computed-style assertions, plus the load-more / fold / reopen session-history
+  flow. Window blur/focus events and the drop-target class are injected for those
+  styling checks; this is not a native focus/drag test. Unit coverage:
+  `sidebar-navigation.test.mjs`, `sidebar-pinned-rendering.test.mjs`, and
+  `sidebar-project-sessions.test.mjs`.
 
 #### E2E-LAYOUT-sidebar-settings
 
@@ -15865,9 +17653,30 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 | E2E-MCP-MARKET-NET-BOUNDARY | The URL guard rejects credentials, cloud metadata, unspecified, multicast and reserved forms (trailing dot included) even when the user typed them, and rejects loopback, private, special-use IPv4, v4-mapped, ULA, site-local and link-local forms for *third-party* hops — a redirect target or a catalog body; the same forms typed by the user into a source field are accepted, with plain `http` behind `networkPolicy.allowInsecureUserEndpoints`; direct/unknown routes pin the checked address by default, while a fully proxied route uses the session transport and an explicit `allowFakeIp` opt-in can cover transparent-router fake-IP sources without allowing real private answers | deterministic guard assertions; source-contract coverage for DNS pin, proxy route selection, explicit fake-IP scope and bounded responses |
 | E2E-MCP-MARKET-SEMANTICS | Registry records map to install templates preserving package versions, named/positional runtime/package arguments and required/optional env variables; a remote header variable is recognized in both the registry's `{name}` and the catalog's `${NAME}` spelling, prompts for declared editable values, preserves unbound brace literals, and resolves header-local defaults, fixed values, and optional flags without merging same-named inputs across headers (ADR registry-header-variable-spelling) | deterministic mapping assertions |
 | E2E-MCP-MARKET-INSTALL | Builtin catalog entry resolves through `resolveCatalogEntry` and installs via the host `mcp.upsert` RPC; record lands in `~/.agents/servers/` | real host binary, isolated temp HOME |
+| E2E-MCP-MARKET-explicit-project-owner | Select Project on the MCP page, open Market, and install a builtin entry; the upsert carries the selected project and the saved row appears in that project. All and Global retain global installation, and an entry in another level does not block installation | real React page and market in isolated Electron; IPC boundary fixture (`apps/desktop/test/mcp-market-owner-user-path.test.mjs`) |
 | E2E-MCP-MARKET-HEADER-SCOPE | Registry header-local `{token}` resolves only in its header; same-named URL path/query tokens remain literal through mapping, resolution, host upsert/list and persistence. URL templates retain only legacy `${NAME}` substitution. When `headerBindings` exists (even empty or partial), unbound tokens in every header stay literal and never consume another header's input or default | shared regressions plus real host binary with isolated temporary storage; remote entry disabled, no network call |
 | E2E-MCP-MARKET-partial-header-bindings-stay-literal | Resolve a catalog with only Authorization bound and another header using the same `{token}` / `${token}`; an undeclared `${UNBOUND}` in a third header also remains literal through host upsert/list and disk persistence | real host binary, disabled remote entry, synthetic input and isolated temporary storage; no network call |
+| E2E-MARKET-CATALOG-RETRY | In Skill Market and MCP Market, a failed query and then a partial source failure expose Retry; clicking it announces loading, refreshes the same query, and clears the failure when the source recovers | real React components in Electron with deterministic mocked market API responses; no live network |
 
+
+#### E2E-MCP-MARKET-explicit-project-owner: Market installation respects an explicit Project filter
+
+- **Preconditions**: MCP settings with a selected project; isolated Electron
+  profile and deterministic IPC responses, without live market or MCP calls.
+- **Steps**: Select Project, open Market, install a builtin entry, and reopen
+  Market. Repeat with All and Global, with no project under All, and with the
+  same entry already present in the other level. Select Project with no
+  project, then try an install directly through the panel's public interface.
+- **Expected**: Project sends `level: "project"` and the selected `projectPath`;
+  All and Global send `level: "global"` without a project owner. The installed
+  row appears on return, and reopening Market marks it installed only for the
+  target level. A record in another level never blocks installation. With no
+  project selected, the Project market action is disabled and the panel guard
+  reports the missing selection without writing.
+- **Specs linked**: `04-ux/06-settings-ia.md`, ADR 0112.
+- **Acceptance**: Quality.
+- **Milestone**: M6+.
+- **Status**: Automated (`node --test apps/desktop/test/mcp-market-owner-user-path.test.mjs`).
 
 #### E2E-SKILL-MARKET-NET-BOUNDARY: A user-supplied source reaches the LAN, third-party content does not
 
@@ -15915,6 +17724,33 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   `apps/desktop/test/skill-market-failure.test.mjs`,
   `apps/desktop/test/skill-market-policy-refusal.test.mjs`,
   `packages/shared/src/public-network.test.ts`)
+
+#### E2E-MARKET-CATALOG-RETRY: Retry a failed or partially available market query
+
+- **Preconditions**: Rendered Skill Market and MCP Market panels with the
+  market APIs stubbed at the IPC boundary. Each API returns a total failure,
+  then a result with one failed source, then a complete result. A second run
+  loads a result first, fails afterwards, and recovers on retry; a third run
+  changes the query after a success so the failure carries a snapshot taken
+  for another query; a fourth run fails with nothing loaded.
+- **Steps**: Open each market; click Retry after the total failure; confirm the
+  loading announcement and recovered entry; click Retry again after the
+  partial failure. Then load a list, fail the next query, retry, and change
+  the query before failing once more.
+- **Expected**: Both markets repeat the current search, show loading while the
+  request runs, retain a Retry action for partial failures, and clear the failed
+  source after recovery. After a successful load, a later failure keeps that
+  list on screen, says when it was taken, retains each remote source badge,
+  and still offers Retry; the retained list disappears once a retry succeeds,
+  and it never stands in for a different query or for a failure with nothing
+  loaded. The test makes no live network request and does not change the
+  main-process network policy.
+- **Specs linked**: `04-ux/06-settings-ia.md`, ADR 0177, ADR 0272
+- **Acceptance**: Quality
+- **Milestone**: M6+
+- **Status**: Automated (`pnpm test:e2e:market-retry`,
+  `apps/desktop/test/skill-market-panel.test.mjs`,
+  `apps/desktop/test/mcp-market-panel.test.mjs`)
 
 #### E2E-SKILL-MARKET-EXPANSION: Adjacent markdown resources inline before install
 
@@ -16103,6 +17939,30 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 - **Specs:** runtime §12; storage §12; ADR 0254.
 - **Status:** Source-regression covered; full Desktop journey Draft.
 
+### E2E-SESSION-native-pi-project-session-dir
+
+- **Preconditions:** A local project has `.pi/settings.json` with
+  `"sessionDir": ".pi/sessions"` and a valid native v3 JSONL in that directory.
+  The default Pi agent session root also contains a valid session. A nested
+  JSONL and a symlink that leaves `.pi/sessions` are present. A second fixture
+  sets an absolute global `sessionDir` and no project path. A third sets a
+  relative global `sessionDir`.
+- **Steps:** Refresh the session list, open the project-local session, and fork
+  it. Repeat list and open for the absolute global directory. Refresh the
+  relative global fixture once with no known project and once after that
+  project is known, including a remote project id in the known set.
+- **Expected:** The project-local session and the default-root session both
+  appear. The nested file and the escaping symlink do not. Opening the
+  project-local session returns its transcript. Fork publishes one new JSONL
+  beside the parent and does not rewrite the parent. The absolute global
+  directory is listed without a project path. The relative global directory is
+  listed only for the known local project. Remote project ids are ignored.
+  Untrusted project resources stay browseable and read-only.
+- **Specs:** runtime §12; storage §12; security §12; ADR 0254.
+- **Status:** Source-regression covered by
+  `packages/agent-runtime/src/native-pi-session.test.ts` (the project fixture
+  asserts `readOnlyReason: project-untrusted` and `canPrompt: false`) and
+  `apps/desktop/test/native-pi-sessions.test.mjs`; full Desktop journey Draft.
 
 ### E2E-SUBAGENT-ordered-model-fallback-preserves-work
 
@@ -16143,6 +18003,53 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   The configuration-editor journey passed under WSL; task-transcript reload
   acceptance remains outstanding. Required post-integration suites: `test:e2e`,
   `test:e2e:subagents`, `test:e2e:subagent-models`.
+
+#### E2E-PLUGIN-provider-catalog-add-service: Select a plugin provider from its custom Add Service category
+
+- **Preconditions**: A loaded plugin has `provider.register` and declares two
+  API-key providers with a `baseUrl`, a localized `category`, and a short
+  localized `description`; one provider has static models and the other has an
+  empty model list. Both Host-owned rows have no saved key. Include another row
+  whose key is already configured and a provider contribution from a plugin
+  without `provider.register`.
+- **Steps**: 1) Open Settings → Models → Add provider. 2) Find the declared
+  category and hover or keyboard-focus a provider tile. 3) Select the provider,
+  enter a fixture key, and save. 4) Reopen Add provider and search the remaining
+  entry by category, provider name, introduction, endpoint, and model ID. 5)
+  Change the app language between English and Simplified Chinese and reopen the
+  chooser. 6) Load a manifest with malformed localized category/description
+  fields, an empty category/description, and values over their length limits.
+- **Expected**: Step 1 groups unconfigured API-key contributions under the
+  category for the active locale. Tiles show only provider names; hover/focus
+  shows the one-sentence introduction, and the tile's accessible description
+  remains available to assistive technology. The chooser has no provider-count
+  cap and omits configured providers, OAuth / no-auth rows, and contributions
+  whose plugin lacks the grant. Step 2 opens the existing Host-owned provider
+  key form; the endpoint and plugin remain visible there for a destination
+  check. Step 3 saves through the Host provider secret API; only an empty-model
+  declaration triggers Host model discovery after save. Discovered models are
+  cached for that plugin-owned row. The key is never returned to plugin code or
+  included in catalog metadata. The provider row and key remain in the service
+  list, and that entry disappears from Add Service while the other unconfigured
+  entry remains. Step 4 finds the remaining tile by the listed search fields
+  and never offers the saved row. Step 5 switches the declared localized text
+  correctly. Step 6 rejects malformed metadata without partially loading the
+  plugin. Existing plugin row ids, ownership, reconciliation, and key retention
+  remain unchanged.
+- **Specs linked**: `07-plugins/02-plugin-manifest-schema.md` §5.4,
+  `07-plugins/03-plugin-api.md`, `07-plugins/04-plugin-security.md`,
+  `07-plugins/13-plugin-permissions-matrix.md`, `04-ux/06-settings-ia.md`,
+  `04-ux/08-component-spec.md`, ADR 0322; D650.
+- **Acceptance**: B (model config), E (tools & permissions), F (persistence),
+  G (plugins), Security, Quality
+- **Milestone**: Post-MVP (R7 v1)
+- **Status**: The representative Add Service → category → key save path runs
+  in `apps/desktop/test/plugin-provider-catalog-user-path.test.mjs` under an
+  isolated Electron renderer with a fake Host IPC boundary. Catalog filtering,
+  locale resolution, description tooltip, category validation, filtering, and
+  search have focused tests. The user-path test also confirms that model
+  discovery follows key save and saving one entry hides only that configured
+  row while another entry remains available.
 
 #### E2E-PLUGIN-declared-provider-appears-in-the-native-provider-list: Plugin providers use Host-owned rows, permissions, and OAuth sign-in
 
@@ -16358,15 +18265,15 @@ plugin-form fixtures in an isolated temporary directory at runtime.
   nothing is auto-sent, and audio bytes never appear in transcripts or logs.
 - **Specs linked**: `03-runtime/20-speech.md`, `03-runtime/01-ipc-protocol.md`
   §13e, `05-security/01-security.md` §2, `04-ux/06-settings-ia.md` §2;
-  ADR 0329, D657
+  ADR 0346, D687
 - **Acceptance criterion**: C (conversation & stream), Security, Quality
 - **Milestone**: M6+
 - **Status**: Automated (network-gated): `node --test apps/desktop/test/local-voice-inference.test.mjs` (real model download from HF once, real local inference, fetch disabled during transcription)
-#### E2E-PLUGIN-official-channel-resolves-through-the-platform: An official-channel install resolves through the platform and installs from the first working mirror
+#### E2E-PLUGIN-official-channel-resolves-through-the-platform: An official-channel install uses platform mirrors when resolve answers promptly
 
 - **Preconditions**: A clean profile on the official channel, a plugin present in `plugins.aiuo.net/catalog.json`, and a request log for the platform and both mirror hosts (a local stub may stand in for each).
-- **Steps**: 1) Open Extensions → Marketplace and confirm the source line reads Official channel and that the catalog came from `plugins.aiuo.net`. 2) Install the plugin. 3) Capture the request the platform received. 4) Inspect which mirror served the package. 5) Install a second plugin, then install the same version of the first one again.
-- **Expected**: Exactly one `POST /api/v1/download/resolve` is sent per install or update, with a JSON body carrying `deviceId`, `pluginId`, and the version when one was picked; the package comes from the first entry in `downloads` that answers, and its bytes match the returned `sha256` and `sizeBytes` before anything is extracted; a mirror that is unreachable or fails is abandoned and the next one is used without user interaction; reinstalling the same version issues a fresh resolve call rather than reusing the earlier answer, because the response is never cached; the installed plugin passes the ordinary permission review and its record names the official channel as its provider.
+- **Steps**: 1) Open Extensions → Marketplace and confirm the catalog loads. 2) Capture the catalog request and verify it used `plugins.aiuo.net`. 3) Install the plugin. 4) Capture the request the platform received. 5) Inspect which mirror served the package. 6) Install a second plugin, then install the same version of the first one again.
+- **Expected**: The marketplace UI has no source selector; exactly one `POST /api/v1/download/resolve` is sent per install or update, with a JSON body carrying `deviceId`, `pluginId`, and the version when one was picked; when resolve answers within three seconds, the package comes from the first entry in `downloads` that answers, and its bytes match the returned `sha256` and `sizeBytes` before anything is extracted; a mirror that is unreachable or fails is abandoned and the next one is used without user interaction; if resolve exceeds its deadline, the install switches to the catalog URL and verifies its catalog digest; reinstalling the same version issues a fresh resolve call rather than reusing the earlier answer, because the response is never cached; the installed plugin passes the ordinary permission review and its record names the official channel as its provider.
 - **Specs linked**: `07-plugins/07-plugin-marketplace.md` §2, `07-plugins/15-plugin-center.md` §10
 - **Acceptance**: G (remote marketplace source)
 - **Milestone**: M6+
@@ -16376,17 +18283,17 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 
 - **Preconditions**: An official-channel install whose `downloads` list has at least two entries, with the first mirror serving bytes that do not match the returned `sha256` (a stale distribution, or a stub that serves the CNB-era bytes for `pi.todo-0.6.5`), plus a view of the install cache and the plugin directory.
 - **Steps**: 1) Start the install. 2) Watch the first mirror's download and the digest check. 3) Inspect the install cache and the plugin directory before the install finishes. 4) Let the install continue. 5) Repeat with a stub whose first mirror fails only the announced `sizeBytes`.
-- **Expected**: The mismatching bytes are discarded without being extracted or handed to the installer, nothing lands in the plugin directory, and the rejection is reported in the install progress instead of being swallowed; the next mirror's bytes are verified against the same digest and the install completes from there; the size-mismatch case behaves identically; when every entry fails, the install ends as a reported failure rather than a partially installed plugin.
+- **Expected**: The mismatching bytes are discarded without being extracted or handed to the installer, nothing lands in the plugin directory, and the rejection is reported in the install progress instead of being swallowed; the next mirror's bytes are verified against the same digest and the install completes from there; the size-mismatch case behaves identically; when every returned mirror fails digest or size validation, the install ends as a reported failure rather than falling back to different bytes or leaving a partial plugin.
 - **Specs linked**: `07-plugins/07-plugin-marketplace.md` §2
 - **Acceptance**: G (remote marketplace source) + Security
 - **Milestone**: M6+
 - **Status**: Draft
 
-#### E2E-PLUGIN-platform-unreachable-install-falls-back-to-the-catalog-url: An install falls back to the catalog URL when the platform cannot be reached
+#### E2E-PLUGIN-platform-unreachable-install-falls-back-to-the-catalog-url: A slow or unavailable platform resolve falls back quickly to the catalog URL
 
-- **Preconditions**: The official catalog is already cached from a successful refresh, and `plugins.aiuo.net` becomes unreachable for the install (a blocked stub, or a refused DNS/proxy route).
-- **Steps**: 1) Refresh the catalog while the platform is reachable, then make it unreachable. 2) Install a plugin whose catalog entry carries a relative `url`. 3) Confirm which host served the package and whether the platform received a resolve request. 4) Restore reachability and install a version the platform refuses in turn with `403 NOT_PUBLISHED`, `403 PLUGIN_ARCHIVED`, `404`, `429`, and `503`.
-- **Expected**: The install resolves the package from the catalog's own URL — `artifactBaseUrl` plus the relative `url` — and completes after the same shasum verification; no resolve request reaches the platform for that install and the fallback install is not counted; the failed resolve call is visible in the install log instead of being hidden; once the platform answers again each refusal produces its own message — not-published with no retry, archived hiding the plugin from install and update selection, not-found, one `Retry-After` wait for the rate limit, and a deployment error for `503` — and no refusal silently switches to another channel or another version.
+- **Preconditions**: The official catalog has been refreshed. A local stub can delay `POST /api/v1/download/resolve` beyond three seconds or return `429`, `503 NO_DOWNLOAD_SOURCE`, and the publication refusals.
+- **Steps**: 1) Install a plugin while the resolve stub delays its response beyond three seconds. 2) Confirm the UI leaves Resolve and begins downloading from the catalog URL. 3) Repeat with a `429` and `503 NO_DOWNLOAD_SOURCE`. 4) Return `403 NOT_PUBLISHED`, `403 PLUGIN_ARCHIVED`, and `404` for a selected version.
+- **Expected**: A slow resolve call is abandoned after three seconds; timeout, `429`, and `503 NO_DOWNLOAD_SOURCE` proceed through the catalog's `artifactBaseUrl` plus relative `url`, and bytes still pass the catalog digest check before installation; rate limiting is not retried or waited out; `403 NOT_PUBLISHED`, `403 PLUGIN_ARCHIVED`, and `404` remain explicit failures and never install the fallback package; archived plugins remain hidden from install and update selection; the selected channel does not change.
 - **Specs linked**: `07-plugins/07-plugin-marketplace.md` §2
 - **Acceptance**: G (remote marketplace source)
 - **Milestone**: M6+
@@ -16442,39 +18349,118 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 
 - **Preconditions:** A turn with progress paragraph A, multiple searches plus
   thinking, progress paragraph B, multiple commands plus thinking, and a final
-  answer; Detailed and Compact display modes; legacy message-level transcript
-  search targets.
-- **Steps:** In Detailed, confirm a live process starts open, let that same turn
-  finish without interacting, and confirm the process collapses. On a second
-  turn, explicitly open the completed process and confirm the choice survives
-  subsequent updates. Review the nested path, including independent group/item
-  toggles, parent close/reopen, a singleton segment, literal-final-item leaf
-  selection, failure/denial/recovery, retained-pane remounts and a legacy search
-  reveal. Repeat in Compact with permission/question/plan/goal cards, a stopped
-  partial answer, an assistant error and delegated child work.
-- **Expected:** Both modes use one whole-process disclosure and leave the final
-  answer, assistant errors, stopped trailing text and pending actions outside it.
-  Detailed starts active processes open; untouched processes collapse at
-  completion, while explicit user choices persist. The active multi-item group
-  is open and an untouched group closes on completion. Compact starts processes
-  and groups closed, hides reasoning, and keeps payloads closed; an untouched
-  active process with a recorded failed/denied tool stays open through recovery
-  and closes on completion. Singletons have no group. Detailed auto-opens only
-  an eligible literal final tool/search item of the last activity group; it does
-  not scan past thinking, and failed/denied leaves stay closed. Parent/child/
-  sibling states remain independent, pane-owned user choices survive updates,
-  mode changes and remounts, and renderer restart reapplies defaults. Search
-  reveals the process and activity group that own the named message once per
-  request; item-level targeting is not part of this change, and Compact
-  reasoning requires an explicit switch to Detailed. Saved mode survives
-  restart and a missing/unknown setting resolves to Detailed.
+  answer; the `Show thinking` preference on and off; the `Transcript display`
+  preference at Flat, Commands first, and Fully folded; a restart with saved
+  settings; legacy message-level transcript search targets.
+- **Steps:** Confirm a live active group starts open, let that same turn finish
+  without interacting, and confirm the process closes so only the final answer
+  (and any error or pending-action surface) remains. Reopen it and confirm a
+  group with at most four visible items and any Task topology group stay open,
+  while a larger ordinary group is closed. Confirm tool and search payloads stay
+  closed, and Fully folded keeps each visible reasoning row open when
+  `Show thinking` is on. On a second turn, explicitly
+  open a completed group and confirm the choice survives subsequent updates; then
+  close the turn's disclosure and confirm the group closes with it, and reopen to
+  confirm the group choice is restored. In Fully folded, confirm run rows stay
+  inside their activity groups and that only ordinary assistant progress text
+  splits a group. In Commands first, confirm `Bash`/run rows render as standalone
+  rows beside the groups, that a normal assistant progress message or a command
+  ends the current group, adjacent calls stay separate, and Thinking rows default
+  expanded. In Flat, confirm no nested activity group renders, the outer
+  disclosure lists tools, commands, thinking and progress in transcript order,
+  and tool details stay collapsed. In every mode confirm the turn renders exactly
+  one outer disclosure and that closing it hides, then reopening restores, the
+  rows under it. Turn `Show thinking` off and confirm no completed reasoning row
+  remains and only a live whole-run TextShimmer `Thinking` indicator appears
+  while reasoning streams, with no spinner, pulsing dot or per-character
+  animation and a static presentation under reduced motion; turn it back on and
+  confirm the completed rows return. Select each `Transcript display` value,
+  restart, and confirm it persists; remove the saved value and confirm it
+  defaults to Fully folded. Confirm the header reads running, finished, stopped,
+  or failed for each case, names compaction and recovery while those stages are
+  live, omits the duration when none was recorded, and never repeats the current
+  command. Confirm the top-level header shows exactly status, recorded duration
+  and direct tool/search count; its caret sits immediately after the tool count;
+  a hairline underlines the row; hovering changes only the text colour with no
+  background fill; and a failed turn does not add an issue count. Review the
+  nested path, including independent group/item toggles, a
+  singleton segment, literal-final-item leaf selection, failure/denial/recovery,
+  retained-pane remounts, run rows keeping their details closed until opened, and
+  a legacy search reveal.
+  In AI settings, check the display selector in English and Simplified Chinese
+  at 800px, 1000px, and 1440px window widths with 100% and 150% font scales.
+  Select all three values and verify each remains visibly selected and saved.
+- **Expected:** A turn renders exactly one process disclosure containing every
+  pre-answer row, leaving the final answer, assistant errors, stopped trailing
+  text and pending actions outside it; when no final answer text exists, the
+  process header and those error or pending-action surfaces remain. An untouched
+  process closes at completion. In Flat there are no nested activity groups, and
+  active tools, commands, thinking and progress rows follow transcript order with
+  tool details collapsed. In Commands first, `Bash`/run rows are standalone
+  beside the groups, adjacent calls stay separate, and a normal assistant
+  progress message or a command ends a group, so the middle progress paragraph
+  and each command start a new group. In Fully folded (the default), run rows
+  stay inside their groups and only ordinary assistant progress text splits a
+  group, so the middle progress paragraph ends the preceding group and the
+  following activity starts a new one. A group appears only with at least two
+  visible items; a singleton has no group. Every group stays open while its turn
+  runs; after completion, groups with at most four visible items, Task topology
+  groups and groups that still render a Thinking row remain open, while larger
+  ordinary groups of plain tool rows start closed. Thinking rows default
+  expanded in every mode when `Show thinking` is on.
+  Explicit user choices persist and are restored when the enclosing disclosure is
+  reopened, and never pin an ancestor; an automatic close is deferred only while
+  focus or a selection remains inside. Apart from visible reasoning, group
+  defaults do not depend on `Show thinking`. The header
+  reports running, finished, stopped, or failed with failure and stop outranking
+  a normal finish, reads `Thinking` while the live step is reasoning, names
+  compaction and recovery while those stages are live, omits a duration the
+  transcript did not record, and never repeats the current command. It carries
+  only status, duration and direct tool/search count, with the caret immediately
+  after the tool count, a hairline under the row, text-colour-only hover, and no
+  issue count. Nested group headers and run rows share the turn header's left
+  edge. When `Show thinking` is off, no completed reasoning row renders, and only
+  the live whole-run TextShimmer `Thinking` indicator remains while reasoning
+  streams; turning it back on restores the rows. No item payload opens itself
+  except the display mode's Thinking default: a tool/search row stays closed until
+  the user opens it.
+  Parent/child/sibling states remain independent, pane-owned user choices survive
+  updates, preference changes and remounts, and renderer restart reapplies
+  defaults. Search reveals the turn process and, where one exists, the activity
+  group that own the named message once per request; item-level targeting is not
+  part of this change, and reasoning hidden by the preference stays hidden until
+  the user turns `Show thinking` on. A saved `transcriptDisplayMode` survives
+  restart and an absent or unknown value resolves to Fully folded; saved
+  `showThinking` survives restart, and an absent value falls back to the legacy
+  `thinkingDisplayMode` (`compact` hides, `detailed`/unknown/absent shows).
+  The Settings selector grows to its labels beyond the standard 240px field
+  cap. Option labels remain single-line and unclipped; the control and whole
+  options wrap only as needed, preserving the title/help space and preventing
+  horizontal row overflow. Wide windows keep the title and control inline.
 - **Validation scope for the 2026-09-20 change:** Nested disclosure and activity
   group presentation only; precise item-level transcript search targeting is out
   of scope and keeps the existing message-level search behavior.
-- **Automation:** `pnpm test:e2e:transcript` covers default and active-to-completed
-  process disclosure behavior; `pnpm test:e2e:transcript-disclosure` verifies
-  manual-open retention and viewport anchoring; `apps/desktop/test/turn-process.test.mjs`
-  covers default selection.
+- **Automation:** `pnpm test:e2e:transcript` covers the command-first and
+  fully-folded layouts, active-to-completed process disclosure behavior, the
+  automatic folding and reading-hold transitions, and the activity issue
+  counter's inline layout at 320/800px and 100%/150% zoom in English and
+  Simplified Chinese; `pnpm test:e2e:transcript-disclosure` verifies manual-open
+  retention and viewport anchoring; `apps/desktop/test/turn-process.test.mjs`
+  covers mode segmentation, `apps/desktop/test/activity-group-folding.test.mjs`
+  covers the settled group defaults and the issue-counter contract,
+  `apps/desktop/test/transcript-display-modes-ui.test.mjs` covers
+  the renderer's mode wiring, Thinking defaults and TextShimmer,
+  `apps/desktop/test/turn-process-header.test.mjs` covers the top-level header's
+  status/duration/tool-count composition and the absence of issue counts,
+  `apps/desktop/test/turn-process-header-style.test.mjs` covers its hairline and
+  text-only hover,
+  `apps/desktop/test/transcript-display-mode-settings.test.mjs` covers the
+  Settings row and search indexing, and
+  `apps/desktop/test/settings-roundtrip.test.mjs` covers normalization, write
+  validation and the fully-folded default.
+  `node scripts/e2e-settings-scroll.mjs` additionally exercises the mounted
+  Settings page's selector layout and settings-save path across both locales,
+  three window widths, and both font scales with isolated Electron state.
 - **Specs:** 04-ux/06-settings-ia, 04-ux/08-component-spec,
   04-ux/09-interaction-patterns; ADR turn-process-and-thinking-display.
 
@@ -16600,6 +18586,37 @@ the latest destination. These assertions measure work counts, not device FPS.
 - **Status:** Automated at the runtime level; no UI driver reads the plugin
   page's error text.
 
+### E2E-DIALOG-native-selection-across-boundaries
+
+- **Preconditions:** Built renderer, isolated Electron profile, real production
+  React dialogs/hover card and stylesheet; only preload IPC is stubbed. Reveal
+  and dismissal delays use a controlled clock, not arbitrary sleeps.
+- **Steps:** Drag from release-note/table text onto the backdrop and copy the
+  selected text with Chromium's native Copy command; repeat content-to-backdrop
+  and reverse drags in project instructions and provider setup. Open provider
+  Advanced, drag across its boundary, then deliberately click its backdrop.
+  Cancel a backdrop press or blur the window before release, then try a fresh
+  outside click. Save project
+  instructions while trying outside click/Escape, then use the close button.
+  Hover a session row, drag card text outside, advance past the grace period
+  while held and after release, Copy, revisit/leave the row, clear selection,
+  and repeat ordinary leave, cancellation, Escape and outside press.
+- **Expected:** Cross-boundary drags preserve the modal and native selection;
+  deliberate backdrop clicks still dismiss. Cancelled/blurred presses never
+  dismiss; the next fresh click works. Nested clicks close only Advanced and
+  saving protections remain effective. The hover card survives dragging and
+  remains copyable while its text selection exists; row timers cannot override
+  retention. Clearing selection or ending an unselected/cancelled drag resumes
+  ordinary 160ms dismissal. Escape/outside press still dismiss selected cards.
+- **Specs:** `04-ux/09-interaction-patterns.md` sections 1.10 and 9.1b;
+  `04-ux/07-ui-design-system.md` section 11.4.
+- **Automation:** `pnpm test:e2e:overlay-selection`; production Chromium mouse
+  and keyboard input with deterministic host replies. On macOS the fixture uses
+  Chromium's native copy command because Electron's synthetic Command+C input
+  does not invoke the system clipboard. No running user app or real provider is
+  used.
+- **Status:** Automated on Windows and macOS; Linux native evidence pending.
+
 ### E2E-DIALOG-long-text-boundaries
 
 - **Preconditions:** Built renderer assets and an isolated Electron component
@@ -16626,16 +18643,24 @@ the latest destination. These assertions measure work counts, not device FPS.
   window, supports parent and subagent requests, and records request payloads.
 - **Steps:** Configure a user context override larger than the published window;
   send a CJK-heavy parent prompt, invoke a subagent, and run a one-shot
-  completion. Repeat the parent request with `thinkingLevel: "omit"`.
+  completion. Repeat the parent request with `thinkingLevel: "omit"`. Restore a
+  session whose transcript holds many large instruction updates on a Responses
+  gateway without mid-conversation system support, then continue it and run a
+  subagent whose updates follow its last usage report.
 - **Expected:** Each request carries a concrete output budget no larger than the
   remaining published window after input estimation and safety reserve. The
   runtime compacts against the published safety ceiling, and no request is sent
   with `input + output` beyond that ceiling. Small ASCII requests retain the
-  configured budget when it fits.
+  configured budget when it fits. The restored session and the subagent send one
+  folded instruction message and keep the configured output budget instead of
+  the provider's minimum.
 - **Specs linked:** `03-runtime/02-agent-runtime.md`,
   `03-runtime/13-model-catalog-and-selection.md`
 - **Acceptance:** F (runtime provider requests), C (chat and stream)
-- **Status:** Unit-covered; deterministic provider fixture pending
+- **Automation:** `packages/agent-runtime/src/output-cap-request.test.ts` drives
+  the restored-session and subagent steps through a loopback Responses gateway.
+- **Status:** Unit-covered; folded-instruction steps covered by a loopback
+  gateway; remaining deterministic provider fixture pending
 
 ### E2E-PROVIDER-certificate-trust-and-terminal-errors
 
@@ -16646,7 +18671,9 @@ the latest destination. These assertions measure work counts, not device FPS.
   desktop sidecar and submit a chat prompt against an untrusted localhost
   certificate. Relaunch with its CA in `NODE_EXTRA_CA_CERTS`, then request the
   same certificate through a hostname absent from its SAN.
-- **Expected:** The child's default CA set includes system roots and extra CAs.
+- **Expected:** The child's default CA set includes every non-expired system
+  root and extra CAs, while expired system-store entries are omitted. Bundled
+  roots and inherited extra CAs remain available.
   The first request fails once with a non-retriable certificate error and no
   retry status; the trusted request returns text; the hostname mismatch still
   fails once. TLS and hostname verification remain enabled.
@@ -16711,6 +18738,26 @@ the latest destination. These assertions measure work counts, not device FPS.
 - **Status:** Unit-covered (`context-calibration.test.ts`, including the CJK and
   boundary cases); desktop E2E pending
 
+### E2E-CONTEXT-reported-occupancy-drives-compaction
+
+- **Preconditions:** A production sidecar, isolated Host fixture and localhost
+  Responses gateway. The gateway reports cached input separately from a total
+  that omits it; no real provider credentials are used.
+- **Steps:** Send a turn whose input, output and cache buckets exceed the
+  automatic threshold, then send another prompt. Repeat with ordinary
+  under-budget usage and with an incomplete bucket breakdown whose reported
+  total exceeds the threshold.
+- **Expected:** The first session summarizes and persists one checkpoint before
+  the next provider request, which includes the summary and new prompt. The
+  under-budget session continues without a checkpoint. A larger reported total
+  still triggers the guard when bucket details are missing; billing totals
+  remain unchanged.
+- **Automation:** `node scripts/e2e-context-usage-compaction.mjs` after building
+  shared and the production sidecar bundle. The real Agent-loop tests in
+  `context-usage-compaction.test.ts` also cover restored sessions and compaction
+  between a tool result and the next request.
+- **Specs:** `03-runtime/02-agent-runtime.md` §5.1.
+
 ### E2E-RUNTIME-unique-tool-call-ids-per-request
 
 - **Preconditions:** A session transcript that carries the same tool call twice
@@ -16735,6 +18782,40 @@ the latest destination. These assertions measure work counts, not device FPS.
 
 - **Status:** Unit-covered; no end-to-end driver issues a real provider request
   against a duplicated transcript.
+
+- **Reused-id regression (#1815):** Run two actual tool executions whose
+  provider responses reuse the same id, then inspect the next request. Both
+  results must remain, with distinct paired ids and no synthetic placeholder.
+  Repeat after context trimming and restored history, and verify cancellation,
+  metadata and replayed pending snapshots retain their semantics.
+  `runtime.test.ts` covers the parent prompt path; `subagent-fallback.test.ts`
+  drives the real Pi adapter over local HTTP with two executions and three
+  requests; `tool-call-identity.test.ts` covers retained identities after trim.
+
+### E2E-RUNTIME-system-update-during-tool-call-restore
+
+- **Preconditions:** A session transcript with a model system record saved
+  while a tool call ran: it sits after the assistant row that made the call and
+  before that call's tool row (`beforeMessageId` is the tool row id). Loaded
+  into a recreated runtime against a deterministic Anthropic Messages fixture
+  with mid-conversation system messages enabled. No real provider credentials.
+- **Steps:** Send one prompt so the runtime assembles and issues a request. Read
+  the outgoing request body the fixture received.
+- **Expected:** The tool call stays on the assistant message that made it,
+  next to that message's text, and no call-only assistant is synthesized. Every
+  mid-conversation `system` message follows a `user` message, so the provider
+  does not answer `role 'system' must follow a 'user' message or an 'assistant'
+  message ending in a server tool result`.
+- **Specs:** `03-runtime/02-agent-runtime.md` §5c and §7.0.0,
+  `08-meta/decisions-log.md` D127.
+- **Acceptance:** C (conversation and stream), Quality.
+- **Milestone:** Post-MVP regression coverage.
+- **Automation:** `packages/agent-runtime/src/system-transcript-runtime.test.ts`
+  restores the rows into a real runtime and passes the captured request through
+  Pi's Anthropic adapter.
+
+- **Status:** Unit-covered; no end-to-end driver restores such a transcript
+  against an Anthropic provider fixture.
 
 ### E2E-RUNTIME-loop-context-ownership
 
@@ -16807,12 +18888,15 @@ the latest destination. These assertions measure work counts, not device FPS.
   host data directory, local image HTTP fixture, no production credentials.
 - **Steps:** Choose a model in Advanced, cancel and verify no change; save and
   replace it through another provider's Advanced settings. Clear the binding via
-  the test settings API to verify recovery. Generate same-prompt variants and distinct images,
-  edit a generated image, inspect partial failures, then restart the host/session.
-  Attempt the tool in a durable Plan session and verify no HTTP request occurs.
+  the test settings API to verify recovery. Generate same-prompt variants and
+  distinct images; confirm each result appears once in the conversation gallery
+  while the assistant confirms completion in text. Edit a generated image,
+  inspect partial failures, then restart the host/session. Attempt the tool in a
+  durable Plan session and verify no HTTP request occurs.
 - **Expected:** One image binding persists without changing the chat default;
   generated files, edit sources and transcript references survive restart.
-  Images render in chat; unconfigured errors navigate to Models settings.
+  Each successful image appears once in its result card instead of being
+  repeated as a Markdown embed; unconfigured errors navigate to Models settings.
 - **Specs:** 03-runtime/21-image-generation; 03-runtime/13-model-catalog-and-selection.
 - **Acceptance:** Configured image generation/editing, safe cancellation and persistence.
 - **Milestone:** Post-MVP.
@@ -16920,9 +19004,11 @@ the latest destination. These assertions measure work counts, not device FPS.
 - Automated coverage: `pnpm test:e2e:settings-scroll` mounts the production
   SettingsPage, store, translations, and built CSS in isolated Electron. Only
   preload data is stubbed; search navigation uses SearchDialog's public store
-  entry points. It also checks that Cloud sync has no developer-mode gate and
-  no Experimental badge, that Remote hosts keeps its badge, and the fallback
-  to General. This covers renderer interaction, not host persistence or the
+  entry points. The development UI path checks both destinations and their
+  Experimental badge surfaces; `settings-developer-only-destinations.test.mjs`
+  separately verifies packaged visibility/search and developer-only fallback.
+  This covers
+  renderer interaction, not host persistence or the
   full global-search dialog.
 
 ### E2E-SCHEDULED-dispatch
@@ -16950,6 +19036,11 @@ the latest destination. These assertions measure work counts, not device FPS.
 - **Scenario:** Workspace identity.
 - **Expected:** Stored workspace bindings use the existing project canonicalization contract on both write and read. On Windows, slash direction, case, trailing separators and extended path prefixes do not hide a task from its own project's conversation. The distinction between missing legacy bindings and explicit null remains unchanged. Foreign-project tools cannot list or mutate bound tasks.
 - **Automation:** `node --experimental-strip-types scripts/e2e-scheduled-paths.mjs` uses an isolated real Host and SQLite profile. Inference is not sent to a live provider.
+### E2E-SCHEDULED-cancelled-quit-keeps-runner
+
+- **Scenario:** Cancelled quit and automatic runs (issue #2048, D363).
+- **Expected:** An explicit quit that the user cancels in the quit confirmation leaves the app running with no `app shutdown` lifecycle entry and no scheduled-runner stop. A task that becomes due afterwards still runs automatically, and its `nextRunAt` advances. A later quit prompts again; Confirm runs the ordered shutdown, the process exits with code 0, and the runtime log records `scheduled runner stopped` exactly once. Only the shutdown handler listens to `before-quit`; services that must survive a cancelled quit stop through `onConfirmedQuit`.
+- **Automation:** `pnpm test:e2e:scheduled-quit-cancel` (`scripts/e2e-scheduled-quit-cancel.mjs`) drives the built desktop, preload, real Host SQLite and agent sidecar over CDP in an isolated profile, clicking the in-app confirmation with real pointer input. Only the model is a local SSE fixture; the due instant is set through `configJson.nextRunAt` instead of waiting for the wall clock. Requires `apps/desktop/out` and a host-core debug binary.
 
 ### E2E-MARKDOWN-table-actions
 
@@ -16963,7 +19054,8 @@ the latest destination. These assertions measure work counts, not device FPS.
   syntax and alignment. CSV decodes as UTF-8 and preserves fields and line breaks.
   The modal fits the viewport, traps focus, updates streamed rows, blocks native
   work-panel surfaces, and returns focus on dismissal. Narrow previews keep short
-  headers on one line and scroll horizontally; sticky headers fully cover the
+  headers on one line and scroll horizontally with visible scrollbars on
+  overflowing axes; sticky headers fully cover the
   rows behind them. Failed copies report an
   error, not success. Existing table wrapping remains intact.
 - **Automated coverage**: `node --test apps/desktop/test/markdown-table.test.mjs`
@@ -16974,7 +19066,7 @@ the latest destination. These assertions measure work counts, not device FPS.
 
 ## Hosted-search continuation contract (offline sidecar)
 
-**Scope:** ADR 0330; provider-hosted search content, estimation, local tools,
+**Scope:** ADR 0347; provider-hosted search content, estimation, local tools,
 Task delegation, and saved-history recovery. No real model or search service.
 
 **Entry:** `pnpm test:e2e:hosted-search`, which rebuilds the shared
@@ -17062,7 +19154,7 @@ renderer's durable transcript reads. No real model or provider is contacted.
   format, name, key and other model settings; Cancel writes nothing. A selected
   explicit format wins over hostname defaults. Relay advice preserves origin.
 - **Specs:** 03-runtime/12 endpoint guidance; 03-runtime/11 search setup guidance;
-  ADR 0330 official-route amendment.
+  ADR 0347 official-route amendment.
 - **Acceptance:** English/Chinese interaction flows and the previous custom and
   Codex account paths pass. Real adapter contracts verify opt-in request routes,
   credentials and search tools. A DeepSeek conversation continues off/on/off,
@@ -17085,7 +19177,7 @@ renderer's durable transcript reads. No real model or provider is contacted.
 
 ## E2E-OAUTH-pi-installation-identity-and-standalone-load
 
-- **Preconditions**: Pi 1.0.1; temporary Host secrets and account fixtures;
+- **Preconditions**: Pi 1.1.0; temporary Host secrets and account fixtures;
   network/browser/callback I/O mocked; no user account or paid service.
 - **Steps**: Run `installation-identity.test.mjs`, `vendor-oauth-login.test.mjs`
   and `oauth-standalone-bundle.test.mjs` under `apps/desktop/test`.
@@ -17188,23 +19280,46 @@ renderer's durable transcript reads. No real model or provider is contacted.
   closure behavior. Covered by the parameterized runtime overflow user-path test.
 
 
-#### E2E-262: Transcript path:line opens and scrolls the host file viewer
+#### E2E-262: Transcript positioned file references open and scroll the host file viewer
 
 - **Preconditions:** Isolated Electron/Chromium, an active workspace and session,
   the bundled file-manager view available, and deterministic filesystem IPC
   fixtures.
-- **Steps:** Render a real transcript `path:line:column` reference followed by
+- **Steps:** Render a real transcript `path:line-range` reference followed by
   sentence punctuation; click its verified file chip and wait for the host file
-  viewer to load.
+  viewer to load. Unit coverage also exercises `path:line:column` and GitHub
+  `path#Lline[-Lend]` references.
 - **Expected:** Despite the bundled file-manager view being available, the
   positioned reference opens in the host's read-only file tab. The file request
-  retains its line and column, and the viewer scrolls the requested line into
-  the visible center area. The path and file contents remain the same as the
+  retains the range's starting line, and the viewer scrolls that line into the
+  visible center area. The path and file contents remain the same as the
   reference target.
 - **Specs:** `04-ux/08` §11.8; ADR 0262.
 - **Status:** `node scripts/e2e-file-ref-line-scroll.mjs` mounts production
   `LinkifiedText` and `FilesTab` in isolated Electron with filesystem IPC
   fixtures; no real project files or provider are used.
+
+#### E2E-263: Collapsing a project resets its loaded session history
+
+- **Preconditions:** One retained project has at least twelve unpinned sessions,
+  and its group can be expanded in the sidebar.
+- **Steps:** 1. Expand the project and confirm the latest ten sessions plus a
+  Load more control are visible. 2. Click Load more and confirm all twelve
+  sessions appear. 3. Collapse the project, then expand it again. 4. Inspect the
+  visible sessions and the Load more count.
+- **Expected:** Reopening the project shows only the latest ten unpinned
+  sessions, and Load more reports the two hidden sessions. The collapse clears
+  only that project's loaded-more state; session selection and other project
+  groups remain unchanged.
+- **Specs:** `04-ux/08-component-spec.md` §3.9;
+  `04-ux/09-interaction-patterns.md` §1.6.
+- **Acceptance:** C / D / Quality.
+- **Milestone:** Post-MVP maintenance.
+- **Coverage:** `scripts/e2e/sidebar-row-states.mjs` exercises the full user path
+  with a host-seeded project and real CDP pointer clicks. The unit test
+  `sidebar-project-sessions.test.mjs` covers the initial page, Load more,
+  collapse reset, and project isolation. `app-store-sidebar.test.mjs` checks
+  that sidebar collapse and Load more use those transitions.
 
 ### Imported-extension GUI executable discovery regression (#1173)
 
@@ -17276,6 +19391,50 @@ host-created files. The full app's file-preview viewer is covered separately.
   Send in an older chat: accepted submission updates new-chat inheritance;
   rejected submission does not. Deferred configuration alone does not count
   as usage.
+
+- **Preconditions:** Isolated Electron profile, fake Host IPC/secret storage,
+  and a `globalThis.fetch` fixture for `https://api.typesafe.ai/v1/systemone`.
+  Build workspace JS packages with `pnpm build:js`, then run
+  `pnpm test:e2e:jev`. Do not use a real TypeSafe key or endpoint.
+- **Steps:** 1) On the service chooser's add path, confirm Jev is offered in
+  its own Classifiers group and absent when an existing row changes service,
+  and that no Jev card is on the model configuration page yet. 2) Open the Jev
+  form, paste a sentinel key and Check and save: the fixture answers the check,
+  the key reaches Host secure storage, Jev is on, and the card appears. Confirm
+  AI services (with catalog status and refresh) precede Jev and image generation,
+  and that the card's privacy explanation is available from its heading help
+  control instead of as a persistent paragraph.
+  3) Resolve a session launch with Jev enabled, then disabled and in Plan mode.
+  4) Through the runtime's deferred catalog, request Jev in Agent mode and
+  inspect Plan/Goal catalogs. 5) Call `JevClassify` with one choice, one score
+  and one boolean question over a small JSON state. 6) Answer a check with 401
+  for a second key: nothing is written and Jev stays off. 7) Start a check and
+  close the dialog while it is still in flight: the key is not stored and Jev
+  stays off. 8) In the Jev card, switch Jev off and remove the key; the card
+  leaves with it.
+- **Expected:** The check runs before any write, in the order check, store, then
+  enable, so a refused key leaves no secret and no enabled setting behind, and
+  the refusal is reported with TypeSafe's status. The card is on the page only
+  once Jev has been added, and it leaves when the key does. The UI never returns
+  the key to settings state, and removal disables Jev before deleting it. Only
+  the Jev title, key status and controls occupy the card; explanatory privacy
+  copy appears on demand from the heading help control. AI services stay above
+  Jev, followed by image generation. An enabled Agent launch reads the key and
+  passes it ephemerally to the sidecar.
+  `JevClassify` appears in the Agent's deferred catalog only with a key and
+  never in Plan or Goal. Closing the dialog cancels an in-flight check the same
+  way a refused key does: nothing stored, nothing enabled. The fixture receives
+  the TypeSafe System One payload and bearer header; the tool returns bounded
+  structured answers and usage.
+- **Specs:** [Tools and permissions](../03-runtime/03-tools-and-permissions.md),
+  [provider/model system](../03-runtime/11-provider-model-system.md),
+  [secrets storage](../03-runtime/14-secrets-storage.md),
+  [settings IA](../04-ux/06-settings-ia.md).
+- **Acceptance:** No paid or real-provider call. The suite verifies the UI user
+  path, the ordered check-then-store gate, the refused-key path, the fixed
+  secret reference, opt-in Agent launch boundary, deferred mode catalog,
+  request body, bearer auth, usage, error redaction, cancellation, timeout,
+  malformed and oversized input rejection, and key removal.
 - Disable/remove a provider or model and mark a model for image generation:
   unavailable history entries are skipped for inheritance and recent menu rows.
 - Settings contains no fixed chat-default picker or Make default service action;
@@ -17313,6 +19472,437 @@ host-created files. The full app's file-preview viewer is covered separately.
   log or serialized state.
 - **Specs linked**: `03-runtime/19-remote-agent-control-protocol.md`,
   `03-runtime/21-cc-connect-bridge.md`, `07-plugins/13-plugin-permissions-matrix.md`;
-  ADR 0330, D658
+  ADR 0347, D688
 - **Acceptance criterion**: A (agent & runtime), Security
 - **Milestone**: M6+
+
+
+#### E2E-CHAT-subagent-direct-stop
+
+- Environment: isolated Desktop profile, real Main/sidecar/Host and a local
+  streaming provider fixture; no real API account or user data.
+- Start two delegates, open A's detail panel and stop A. Verify B and the parent
+  remain active, A's partial output remains readable, and no model request was
+  needed. Stop all from the group header; B stops and the parent remains active.
+- Terminal cards remove their Stop controls and persisted Task snapshots record
+  `stopped`. An empty explicit ID list is rejected rather than stopping all.
+- Run `node scripts/e2e-subagent-stop.mjs`. Runtime tests additionally cover
+  cross-session isolation and uncooperative cancellation remaining pending;
+  `e2e-subagent-parent-error.mjs` covers explicit cancellation/resume semantics.
+
+## BOM-marked UTF-16 text tools
+
+- Create a UTF-16LE PowerShell build log with a BOM and CRLF, then ask the agent
+  to Read it. The tool and the next model request contain readable log lines.
+- Edit a displayed line. The original BOM, endian and CRLF bytes are preserved.
+- Repeat with UTF-16BE Chinese text. Ordinary binary files remain rejected.
+- Automated coverage: `read_powershell_utf16le_log`,
+  `read_and_edit_utf16be_chinese_text`, and the existing binary/CRLF tool tests.
+
+
+## Delegate mutation recovery isolation
+
+- Start two Task delegates editing the same file. Delegate A produces text and
+  fails three Edits; B fails twice and then completes. A is failed with
+  `MUTATION_RETRY_BUDGET_EXHAUSTED`, B completes, and the parent has no mutation
+  error. Resume A with a corrected task and verify successful completion.
+- Run the same flow with failing shell patch commands. Repeat with one delegate
+  to prove that text preceding exhaustion does not become a completed report.
+- While a delegate continues, a new parent prompt resets only the parent's
+  recovery counters. Both default and explicit delegate permissions retain the
+  same isolation.
+- Automated provider-boundary flow: `node scripts/e2e-subagent-edit-isolation.mjs`
+  with optional `--single` and `--patch`; runtime tests cover parent restart.
+
+
+## Mutation recovery file aliases
+
+- Retry a failing Edit using relative, absolute, `.`/`..`, directory-link and
+  Windows case-alias spellings of the same existing file. The third counted
+  failure terminates; changing spelling does not grant another recoverable-code
+  grace. Distinct files retain independent budgets.
+- Successfully Edit or Write through an alias and retry: the count and grace
+  reset. Removing the file through a linked path clears its pre-mutation identity.
+- Repeat relative/absolute aliases in a temporary session: its scratch root is
+  the relative base. Probe the directory's actual case sensitivity: distinct
+  case-sensitive files remain separate, while case aliases share an identity.
+- Automated filesystem/runtime boundary coverage: `runtime.test.ts` and
+  `mutation-recovery.test.ts`; no UI, production profile or real provider is used.
+
+## Regenerate archival during quit
+
+- Regenerate a completed answer and quit as soon as the terminal event arrives.
+  Restart the isolated profile: both revisions and their final messages remain
+  readable, and no `host-core disposed` archival failure appears in the logs.
+- Hold the archive RPC while requesting quit. Host disposal waits for successful
+  archival; storage errors are logged. An unresponsive archive warns and allows
+  quit after the existing two-second bounded wait.
+- Automated coverage: `shutdown-regenerate-persistence.test.mjs` and
+  `node scripts/e2e-regenerate-quit.mjs` (built Desktop, sidecar and host required;
+  Playwright can be supplied through `PI_TEST_PLAYWRIGHT`). Only the model server
+  is simulated in the Electron flow. The fixture profile and screenshots stay
+  under `.artifacts/` for inspection; no user profile or paid model is used.
+
+### E2E-COMPOSER-configured-context-window
+
+- **Steps:** Save a 500K user context limit for a model whose catalog publishes 1M. Open the Composer model list, then send a short message and inspect context usage. Repeat with a catalog-owned limit and with discovery unavailable.
+- **Expected:** The user-configured row and context inspector show 500K; a catalog-owned row follows the published limit; a configured model without discovery retains its saved context label. Model selection remains unchanged.
+- **Status:** Automated unit regression in `apps/desktop/test/composer-models.test.mjs` covers user overrides, catalog inheritance, and missing discovery; the full save → picker → message → context-inspector path remains a manual validation scenario.
+
+### E2E-PLUGIN-automatic-jsx-activation
+
+- Preconditions: a granted renderer plugin whose compiled entry imports
+  `react/jsx-runtime` or `react/jsx-dev-runtime`, with React externalized to the
+  host.
+- Steps: activate production and development entries through the host import
+  map; render automatic JSX components that read a host context with a hook.
+- Expected: both entries resolve and render the supplied context value without
+  bundling a second React instance. Legacy React bindings remain unchanged.
+- Automated regression: `apps/desktop/test/plugin-renderer-import-map.test.mjs`
+  evaluates the generated shims and renders an automatic JSX component using
+  the host hooks and context. Isolated Electron coverage uses
+  `scripts/e2e-plugin-jsx-runtime.mjs`; no user profile or provider is used.
+
+### E2E-264: Reopening an archived project restores sidebar visibility
+
+- **Preconditions**: A durable project group exists for a local folder and can
+  be archived through the renderer-owned sidebar preferences.
+- **Steps**:
+  1. Archive the project and confirm its row is hidden from the default
+     sidebar but remains available in Settings → Project archive.
+  2. Use the project's Open action in Project archive.
+  3. Archive it again, open Add project, select the same folder, and create.
+  4. Archive it again and open one of its sessions from Project archive.
+- **Expected**: Each successful activation clears the path's archived
+  presentation state, returns to chat, and makes the project visible in the
+  sidebar. Selecting an inspector row without activating it and ordinary
+  session refreshes leave the archive state unchanged. Reopening the same
+  folder reuses the existing group without duplicating project or session data.
+- **Specs linked**: `04-ux/06-settings-ia.md`,
+  `04-ux/09-interaction-patterns.md`, ADR 0294, D659, issue #1653.
+- **Acceptance**: Renderer project activation restores the normalized path's
+  local archive metadata only after the host project activation succeeds.
+- **Status**: Source-contract coverage in
+  `apps/desktop/test/app-store-sidebar.test.mjs` and
+  `apps/desktop/test/project-create-dialog.test.mjs`; full UI scenario remains
+  Draft and is run only when explicitly requested in a capable environment.
+
+### E2E-266: Project headers show running activity while collapsed
+
+- **Preconditions**: At least two local project groups with sessions, one of
+  them with a running turn (and optionally a session waiting for a
+  permission prompt), plus a connected remote host group with a running
+  session. Settings → General → Sidebar switches are at their defaults.
+- **Steps**:
+  1. Start a turn in one project and collapse that project group.
+  2. Inspect the collapsed header, then expand it again.
+  3. Start a second concurrent turn in a different project and a turn in the
+     remote host's project.
+  4. Open Settings → General → Sidebar and turn off **Show running activity
+     on projects**, then re-check the sidebar.
+  5. Turn the master switch back on and turn on **Activity rail**.
+  6. Turn off **Count badge** only and re-check; turn it back on.
+  7. Turn off **Activity rail** only and re-check; turn it back on.
+  8. Enable the OS "reduce motion" setting and re-check the rail.
+- **Expected**: A project with live work marks its header — the collapsed
+  header shows only the count badge by default; the activity rail is off.
+  Running and permission-waiting counts are separate figures and never merge
+  into one number. The remote host group shows the same default. Turning on the
+  activity rail displays it alongside the badge. The master switch removes
+  both affordances at once and leaves the two sub-switches disabled while
+  retaining their stored value, so
+  re-enabling the master restores the previous choice. Each sub-switch hides
+  only its own affordance. Under reduced motion both affordances stay visible
+  with their animation removed. Settings persist across a renderer reload.
+- **Specs linked**: `04-ux/01-ui-ia.md` §3.2, `04-ux/06-settings-ia.md`
+  (General → Sidebar card).
+- **Acceptance**: The "is anything running under here?" answer is available
+  from a collapsed project group, and each affordance can be switched off
+  independently through a persisted setting.
+- **Status**: Draft. Existing unit coverage in
+  `apps/desktop/test/sidebar-project-runs.test.mjs` covers count
+  classification, master/sub-switch gating, both render call sites, and
+  theme-token and reduced-motion guarantees. It does not exercise settings
+  API default normalization or the full interaction; those remain manual
+  validation in a capable environment.
+
+### E2E-267: A plugin follows the selected session and opens its own view
+
+- **Preconditions**: A development plugin that declares one
+  `contributes.views` entry and holds `ui.view`, and whose command calls
+  `pi.session.getActive()`, subscribes to `pi.events.on("session:activated")`,
+  and then calls `pi.ui.revealView({ location: "src/App.tsx" })`. Two sessions
+  exist in different projects; one of them is running a turn.
+- **Steps**:
+  1. Select the idle session and run the plugin's command.
+  2. Switch to the other project's session and start a turn; re-check the
+     payload the plugin reported.
+  3. While that turn runs, run the plugin's command and inspect the work panel.
+  4. Switch to the first session, then run the plugin's command again from a
+     stale reference to the previous session id.
+  5. Disable the plugin and re-open the same work-panel tab.
+- **Expected**: `pi.session.getActive()` answers with the session on screen, its
+  project path, and `activeTurn: null` while it is idle. `session:activated`
+  arrives once per real change — a selection switch, a project change, and the
+  turn starting or finishing — and the running session reports the durable
+  `turnId` with its start time rather than an inferred one. `pi.ui.revealView`
+  opens the plugin's view as a work-panel tab of the active session and focuses
+  it, and the view receives `src/App.tsx` through `piViewOpen`/`view:open`
+  without being reloaded when it is already open. A call naming a session the
+  user left fails with `INVALID_ARGUMENT` and opens nothing. Revealing without
+  `ui.view` fails with `PERMISSION_DENIED`. With the plugin disabled the tab
+  reports the missing view instead of showing stale content.
+- **Specs linked**: `07-plugins/03-plugin-api.md` §ui, §session follow, §5
+  events, §6 panel bridge; ADR 0331.
+- **Acceptance**: A plugin can follow the selected session and show its own view
+  beside it without importing host internals, and a stale session can never be
+  revealed onto a panel the user is no longer looking at.
+- **Status**: Draft. Unit coverage in
+  `apps/desktop/test/plugin-session-follow.test.mjs` (snapshot assembly,
+  announcement deduplication, stale-turn and stale-session refusal,
+  `ui.view` gating, panel-bridge channel) and the wiring contract in
+  `apps/desktop/test/main-wiring-contract.test.mjs`; the interactive Electron
+  scenario remains a manual validation run.
+
+### E2E-FAST-MODE: `/fast` asks for the priority tier only on an allowed model
+
+- **Preconditions**: A ChatGPT subscription (Codex) account and a Responses
+  API-key provider, each with two configured models. No real provider is
+  required for the automated path; the manual path uses a capturing local
+  endpoint or the user's authorized account.
+- **Steps**:
+  1. In Settings → Models, check **Fast mode** on one model of each provider.
+     Confirm the checkbox is disabled on a Chat Completions provider.
+  2. Start a new task on the allowed Codex model, type `/fast`, send a prompt.
+  3. Send `/fast` again, then send another prompt.
+  4. Switch the session to the model without the opt-in and send `/fast`.
+  5. Fork the session while Fast is on; restart the app and reopen both.
+- **Expected**: Step 1 persists `fastModeAllowed` on the binding only. Step 2
+  shows the Fast mark on the model chip and the request body carries
+  `service_tier: "priority"`; a Responses API-key model shows the per-token
+  price toast instead. Step 3 clears the mark and the field. Step 4 refuses
+  with the model-settings hint and stores nothing. Step 5 keeps the switch on
+  the fork and across restart. Subagent and compaction requests never carry
+  the field. Remote sessions refuse `/fast`. A trusted extension that switches
+  the session to its own Responses model sends its next request without the
+  field.
+- **Specs linked**: `03-runtime/11-provider-model-system.md`,
+  `03-runtime/04-data-storage.md` (v27), `04-ux/04-builtin-commands.md`,
+  ADR 0334, issue #1657.
+- **Status**: Automated coverage: `apps/desktop/test/fast-mode-command.test.mjs`
+  (draft → created session, toggle, refusals, remote, chip),
+  `apps/desktop/test/fast-mode-session-launch.test.mjs` (launch resolution),
+  `packages/agent-runtime/src/fast-mode.test.ts` (request body through the real
+  pi-ai Responses and Completions adapters),
+  `packages/agent-runtime/src/fast-mode-reuse.test.ts` (mid-session switch on a
+  reused runtime; an extension model switch drops the tier), host-core
+  migration, RPC and fork
+  tests. The full settings → `/fast` → captured request path is a manual
+  validation scenario.
+
+### E2E-PROVIDER-optional-client-certificate
+
+- **Preconditions:** The locked Electron 43 runtime, built workspace packages,
+  and an isolated profile. Only a local HTTPS fixture and local proxy are used;
+  trust is confined to the test process/session and fixture certificate.
+- **Steps:** Run `node scripts/e2e-provider-client-certificate.mjs`. Confirm one
+  real `net.fetch` fails or stalls before HTTP. Replay that isolated fixture
+  failure for subsequent probes to avoid a second Chromium TLS handshake, then
+  exercise model discovery and connection through the real metadata fallback;
+  repeat with an invalid fixture key and an authenticated custom HTTP proxy.
+  Return a cross-origin redirect, then cancel a pending response.
+- **Expected:** Valid credentials return the fixture model; invalid credentials
+  reach HTTP 401. The retry follows the proxy route, sends no client identity,
+  refuses cross-origin redirects and aborts with the original signal.
+- **Security coverage:** `provider-https-metadata.test.mjs` additionally checks
+  mandatory client authentication, untrusted server certificates, hostname
+  mismatch, compressed responses, and late-tunnel cleanup. The metadata policy
+  tests reject fallback on other TLS/network errors or HTTP failures.
+- **Specs linked:** `03-runtime/07-process-model.md`,
+  ADR `provider-metadata-client-certificate-retry`, issue #1676.
+- **Acceptance:** Recovery without an Electron major upgrade, TLS verification
+  bypass, direct proxy bypass, or change to persisted provider bindings.
+- **Milestone:** Maintenance.
+- **Status:** Automated fixture; record the tested head/base and execution
+  result in the delivery report.
+
+#### E2E-1175: A plugin suggestion rides in the Composer placeholder and is taken with Tab
+
+- **Preconditions**: A plugin that declares `composer.suggest` is installed,
+  enabled, and granted the permission, and it offers one line on
+  `session:turnEnded` after its own completion.
+- **Steps:** 1) Run an Agent turn in a session and let it complete while that
+  session is on screen and its Composer is empty. 2) Observe the placeholder
+  layer. 3) Press Tab. 4) Repeat, then press Esc. 5) Repeat, then type one
+  character. 6) Repeat, then switch session before the offer arrives.
+- **Expected**: The suggestion appears in the placeholder layer of an empty
+  draft, brighter than the shell placeholder and on one line with an ellipsis,
+  with a `Tab` / `Esc` hint and one polite announcement. Tab writes the exact
+  text into the draft with the caret at the end and the input focused, keeping
+  any staged attachment; Esc drops it; a first character drops it; a missed
+  offer answers `{ shown: false, reason }` and shows nothing. No transcript row,
+  toast, or overlay appears, and the plugin's call is audited.
+- **Specs linked**: `07-plugins/03-plugin-api.md`,
+  `07-plugins/13-plugin-permissions-matrix.md`, ADR 0333.
+- **Acceptance**: A (Composer entry path), Security (permission-gated, never
+  sent by the plugin).
+- **Milestone**: M6+
+- **Status**: Unit/source-contract-covered by
+  `composer-suggestion-state.test.mjs`, `composer-suggestion-relay.test.mjs`,
+  and `plugin-composer-suggestion.test.mjs`; the rendered journey remains a
+  manual/Electron check when this surface changes.
+
+### E2E-REMOTE-FILE-MANAGER: Scoped remote plugin reads
+
+Run `node scripts/e2e-remote-file-manager.mjs` to validate the shipped copy in
+`apps/desktop/resources/plugins/pi.file-manager`. This is the release acceptance
+path: passing against a separate development plugin does not prove the bundled
+user path is repaired. The runner records the loaded directory in its output.
+An optional `<built-file-manager-directory>` argument selects the companion
+plugin's rebuilt `views/` or unpacked official PluginPack artifact for development
+validation only. Before accepting #1711, update the bundled release, its upstream
+tag/commit and per-file checksums, then rerun the default path on the updated PR
+integration candidate.
+
+A development integration may exercise a Desktop hotfix in that actual bundled
+directory, with its immutable source commit, local patch and artifact checksums
+recorded honestly in `UPSTREAM.md`. A passing hotfix journey does not claim that
+the companion upstream release or the maintainer's final acceptance is complete.
+`PI_FILE_MANAGER_QA_DIR` may point to an existing plugin `tests/electron`
+installation providing Playwright; `PI_ELECTRON_BINARY` selects an existing
+compatible Electron runtime. `PI_E2E_ARTIFACTS` optionally preserves screenshots.
+
+The isolated production plugin process and `file://` view use Desktop's actual
+SDK broker, durable-binding reader, loopback RACP transport and Host filesystem
+service. Only the fixture's project-record lookup and authentication bootstrap
+are supplied by the harness. The remote fixture root is registered explicitly
+outside the Host folder picker's browse root. Verify nested listings,
+text/image bytes, hidden credentials, read-only editor/save/menu controls,
+visible disconnect errors and refresh recovery, rejected late previews and
+ancestor opens after a project switch, and restored local
+editing/Browser/editor detection. No model, user profile or external SSH server
+participates. Real SSH transport and native Windows/Linux behavior require
+their separate platform acceptance.
+
+### E2E-GENUI-inline-visualization-card: a visualization renders inline and stays sandboxed
+
+- **Preconditions**: The app is running with a local Agent session, Settings →
+  AI → Inline visualizations switched on, and the builtin
+  `pi-desktop/visualize` skill enabled. A second session uses a remote
+  workspace.
+- **Steps**: 0) With the switch off (the default), ask for a chart and confirm
+  no directory, skill, or card appears; then switch it on. 1) Ask for an
+  interactive chart (for example "show a slider that
+  changes a sine wave's frequency"). 2) Wait for the turn to finish, then drag
+  the slider. 3) Switch the app theme between light and dark. 4) Press the
+  card's expand button, then Esc. 5) Ask the model to write a non-`.html` file
+  into the visualization directory, and to write a fragment that calls
+  `fetch("https://example.com")`. 6) Fork the session, then delete the source
+  session. 7) Repeat step 1 in the remote session. 8) Relocate the data directory,
+  then fork a transcript that still names its old visualization path. 9) Try
+  redirected visualization roots and a `.html` FIFO, and open two document
+  URLs from callers that omit the iframe sandbox. 10) Expand a card while
+  eight inline cards are live.
+- **Expected**:
+  - No permission card appears for the fragment write. While streaming, the
+    reply shows plain text; after completion the `::visualize` line is
+    replaced by a card whose height fits the content (at most 2000 px).
+  - The slider works; theme changes recolor the card without a reload.
+  - Expand opens a large modal copy; Esc closes it and the inline card keeps
+    its state.
+  - The non-`.html` write fails with a tool error; fetch requests are blocked,
+    and the frame cannot open popups or navigate remotely. The ADR's WebRTC
+    ICE limitation remains explicit rather than a blanket no-network claim.
+  - The fork retains its own card after the source session is deleted, including
+    a fork made after data relocation. The source's directory is removed.
+  - Redirected roots cannot bypass Ask write confirmation or let cleanup delete
+    unrelated data. FIFO requests fail without blocking other filesystem work.
+  - Every document response enforces an opaque sandbox; a caller that omits
+    iframe sandbox cannot read another session's DOM.
+  - Expanded and inline frames share the eight-frame quota, and the expanded
+    card's original inline control state remains unchanged.
+  - The remote session gets no visualization directory or skill.
+- **Coverage**: `pnpm test:e2e:gen-ui` runs the offline Electron card journey,
+  including real protocol responses, bundled assets, the preloaded `viz`
+  helpers (`viz.chart` sizing, `viz.render` charts and their date, year,
+  re-render, and donut edge cases), a fragment script error shown in the
+  card, the fragment inside the kit's `#widget` container with its top-level
+  blocks spaced while inline controls, block styling, wrapped roots, and flex,
+  grid, and column roots keep their geometry, focus/guest Escape,
+  viewport release, and unsandboxed callers through a real isolated Host.
+  Native directory, FIFO, and ABA regressions run in `visualizations/files`;
+  `gen-ui-file-safety.test.mjs` validates the private Host-to-Main boundary.
+  Rust visualization RPC/lifecycle/fork tests
+  cover authorization, deletion safety, Windows path spelling, and relocation.
+- **Status**: Automated without a paid provider or a user's running instance.
+
+#### E2E-PROVIDER-reasoning-effort-override: Preserve an explicit gateway reasoning parameter
+
+- **Setup:** A custom Chat Completions provider with a DeepSeek-family model;
+  start with a legacy binding that omits `supportsReasoningEffort`.
+- **Steps:** In English, Chinese and German at 850/1000/1400px widths, open model settings, confirm Auto, select
+  Send, save and reopen; repeat for Do not send and Auto. Switch to Responses
+  and Anthropic and confirm the Completions-only control is hidden.
+- **Expected:** Each saved binding retains true, false, or null respectively.
+  With High selected, the real Completions adapter sends `reasoning_effort: high`
+  only when enabled; Auto keeps the existing DeepSeek compatibility default.
+  Responses continues using its own reasoning contract. Provider creation,
+  update/read, copying, and sync preserve the explicit override.
+- **Automation:** `node scripts/e2e-provider-api-style.mjs --reasoning-effort` exercises real
+  React/Chromium controls and captures the Host API payload (the IPC boundary is
+  stubbed). Rust provider tests independently verify real SQLite persistence;
+  `provider-reasoning-effort.test.ts` captures requests from the real pi-ai
+  adapter with fixture SSE responses. No live gateway credentials are required.
+
+
+#### E2E-RUNTIME-malformed-tool-call-continue-recovery: Continue after malformed tool output
+
+- **Preconditions**: An isolated sidecar and loopback Responses fixture can
+  emit an empty tool name, then a corrected Read call. Unit fixtures also
+  cover missing names/IDs, empty Responses wire IDs, non-object arguments,
+  retained malformed context, compaction tails and resumed delegates.
+- **Steps**: Return one malformed response, then invoke the same `agent.prompt`
+  entry used by Continue three times. Repeat with three consecutive malformed
+  responses followed by a corrected response. Keep the runtime alive throughout.
+- **Expected**: Each malformed batch settles with one local
+  `context-validation` error before tool execution, with no transport retry.
+  All three later prompts complete; the corrected Read executes once, and the
+  runtime is reused rather than restarted. Model context retains valid history
+  and system updates while excluding malformed calls and associated results.
+  Optional usage estimation does not lose terminal tool events. The durable
+  transcript and Host permissions are unchanged; unrelated malformed hosted
+  search still fails strict validation.
+- **Specs linked**: `03-runtime/02-agent-runtime.md` §5d.
+- **Acceptance**: Conversation, runtime recovery and quality.
+- **Milestone**: M5 hardening.
+- **Automation**: `pnpm test:e2e:hosted-search` runs the production sidecar and
+  real Responses adapter against synthetic SSE, including one-error and
+  three-error recovery cases. `malformed-tool-recovery.test.ts`,
+  `tool-call-identity.test.ts` and `subagent.test.ts` cover retained state,
+  event/result agreement, batch rejection and delegate restoration.
+- **Status**: Automated offline; native UI clicking and live providers are
+  outside this fixture's coverage.
+
+### E2E-PLUGIN-PROJECTS: Enumerate durable projects without switching workspace
+
+- **Preconditions**: An isolated Host profile with a standalone project and a
+  multi-folder group, plus a session with no project. A plugin with no granted
+  permissions registers a command that calls `pi.projects.list()`.
+- **Steps**:
+  1. Run the command through the plugin process and read the same list through
+     the panel bridge's `projects.list` channel.
+  2. Compare the entries with the Host's durable `projects.list` rows and group
+     roots, and verify that the visible workspace remains unset.
+  3. Restart the Host and run the command again.
+  4. Stop the Host and run the command again.
+- **Expected**: Exactly one entry per durable row, including ungrouped and
+  secondary-folder rows; non-empty decimal database ids; most recently opened
+  first regardless of pins; every entry has its own primary path first in
+  non-empty roots. A primary group row includes its additional roots in order.
+  Identities survive restart. No workspace is opened or switched, no filesystem
+  grant is added, and a stopped Host returns `[]`. No Host credentials appear.
+- **Automation**: `pnpm test:e2e:plugin-projects` runs a real isolated Rust Host
+  and plugin child process without provider calls. The companion
+  `apps/desktop/test/plugin-projects.test.mjs` covers pin-independent ordering,
+  group lookup failure, missing project providers, failed/malformed lookup,
+  rename identity, and stale results after Host replacement.

@@ -3,9 +3,13 @@ import test from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 import {
   fileDirOf,
   getToolPreviewTarget,
+  handleMarkdownFileLinkClick,
   isHttpUrl,
   linkifyMdastTree,
   parseFileRef,
@@ -18,10 +22,142 @@ import {
 
 const ROOT = "/Users/dev/project";
 
+function renderSanitizedMarkdown(source, root = "D:\\person") {
+  return renderToStaticMarkup(
+    React.createElement(ReactMarkdown, {
+      remarkPlugins: [remarkGfm, remarkChatFileLinks(root)],
+      rehypePlugins: [rehypeRaw, rehypeSanitize],
+      children: source,
+    }),
+  );
+}
+
+function assertMarkdownLinkClick(markup, expectedPath) {
+  const href = markup.match(/<a href="([^"]+)"/)?.[1];
+  assert.ok(href, `rendered Markdown link has no href: ${markup}`);
+  const calls = [];
+  let prevented = false;
+  const handled = handleMarkdownFileLinkClick(
+    { preventDefault: () => { prevented = true; } },
+    href,
+    "D:\\person",
+    undefined,
+    (...args) => calls.push(args),
+  );
+  assert.equal(handled, true);
+  assert.equal(prevented, true);
+  assert.deepEqual(calls, [[expectedPath, undefined]]);
+}
+
+test("Windows Markdown file links survive parsing and sanitization without changing their paths", () => {
+  const paths = [
+    String.raw`D:\person\test.js`,
+    "D:/person/test.js",
+    String.raw`D:\person\dir name\报告 2026.js`,
+    "D:/person/dir name/报告 2026.js",
+  ];
+
+  for (const path of paths) {
+    const source = `[file](<${path}>)`;
+    const markup = renderSanitizedMarkdown(source);
+    const href = markup.match(/<a href="([^"]+)"/)?.[1];
+    assert.ok(href, `sanitized Markdown link lost href for ${path}: ${markup}`);
+    assert.equal(decodeURIComponent(href), path);
+    assertMarkdownLinkClick(markup, path);
+  }
+
+  const plainMarkdown = String.raw`[test.js](D:\person\test.js)`;
+  const plainMarkup = renderSanitizedMarkdown(plainMarkdown);
+  assert.match(plainMarkup, /<a href="D%3A%5Cperson%5Ctest\.js">test\.js<\/a>/);
+  assertMarkdownLinkClick(plainMarkup, String.raw`D:\person\test.js`);
+
+  const referencePath = String.raw`D:\person\dir name\报告 2026.js`;
+  const referenceMarkup = renderSanitizedMarkdown(
+    `[file][local]\n\n[local]: <${referencePath}>`,
+  );
+  const referenceHref = referenceMarkup.match(/<a href="([^"]+)"/)?.[1];
+  assert.ok(referenceHref, `reference-style link lost href: ${referenceMarkup}`);
+  assert.equal(decodeURIComponent(referenceHref), referencePath);
+  assertMarkdownLinkClick(referenceMarkup, referencePath);
+
+  const encodedPath = "D%3A%5Cperson%5Cdir%20name%5C%E6%8A%A5%E5%91%8A.js";
+  const encodedMarkup = renderSanitizedMarkdown(`[file](${encodedPath})`);
+  const encodedHref = encodedMarkup.match(/<a href="([^"]+)"/)?.[1];
+  assert.ok(encodedHref, `encoded path link lost href: ${encodedMarkup}`);
+  assert.equal(decodeURIComponent(encodedHref), String.raw`D:\person\dir name\报告.js`);
+  assert.equal(encodedHref, encodedPath, "normalization must not double-encode an existing URI path");
+  assertMarkdownLinkClick(encodedMarkup, String.raw`D:\person\dir name\报告.js`);
+
+  const encodedSlashPath = "D%3A%2Fperson%2Fdir%20name%2F%E6%8A%A5%E5%91%8A.js";
+  const encodedSlashMarkup = renderSanitizedMarkdown(`[file](${encodedSlashPath})`);
+  const encodedSlashHref = encodedSlashMarkup.match(/<a href="([^"]+)"/)?.[1];
+  assert.ok(encodedSlashHref, `encoded forward-slash link lost href: ${encodedSlashMarkup}`);
+  assert.equal(decodeURIComponent(encodedSlashHref), "D:/person/dir name/报告.js");
+  assert.equal(encodedSlashHref, encodedSlashPath);
+  assertMarkdownLinkClick(encodedSlashMarkup, "D:/person/dir name/报告.js");
+});
+
+test("positioned HTML references preserve source navigation through Markdown sanitization", () => {
+  for (const source of [
+    "Source: animation.html:12:3",
+    "`animation.html:12:3`",
+    "[Source](animation.html:12:3)",
+    "[Source](<D:/person/animation.html:12:3>)",
+  ]) {
+    const markup = renderSanitizedMarkdown(source);
+    const href = markup.match(/<a href="([^"]+)"/)?.[1];
+    assert.ok(href, source);
+    const calls = [];
+    handleMarkdownFileLinkClick({ preventDefault() {} }, href, "D:/person", undefined,
+      (...args) => calls.push(args));
+    assert.deepEqual(calls, [[source.includes("D:/person") ? "D:/person/animation.html" : "animation.html",
+      undefined, undefined, { line: 12, column: 3 }]], source);
+  }
+});
+
+test("file URL links survive sanitization only as references for main-process resolution", () => {
+  for (const [url, path] of [
+    ["file:///C:/scratch/animation.html", "C:/scratch/animation.html"],
+    ["file:///tmp/my%20animation.html", "/tmp/my animation.html"],
+    ["file:///C:/scratch/%E9%B9%88%E9%B9%95.html", "C:/scratch/鹈鹕.html"],
+  ]) {
+    const markup = renderSanitizedMarkdown("[Open animation](<" + url + ">)");
+    assertMarkdownLinkClick(markup, path);
+    assert.doesNotMatch(markup, /href="file:/i);
+  }
+});
+
+test("Markdown link normalization leaves web, relative, automatic, and unsafe links alone", () => {
+  const httpMarkup = renderSanitizedMarkdown("[web](https://example.com/a%20b)");
+  assert.match(httpMarkup, /href="https:\/\/example\.com\/a%20b"/);
+
+  const relativeMarkup = renderSanitizedMarkdown("[relative](../docs/readme.md)");
+  assert.match(relativeMarkup, /href="\.\.\/docs\/readme\.md"/);
+
+  const autoPath = String.raw`D:\person\test.js`;
+  const autoMarkup = renderSanitizedMarkdown(`Open ${autoPath}`);
+  assert.match(autoMarkup, /href="D%3A%5Cperson%5Ctest\.js"/);
+
+  for (const destination of [
+    "javascript:alert%281%29",
+    "data:text/html,unsafe",
+    "file://other-host/secret.txt",
+    "file:///tmp/page.html?redirect=1",
+    "ms-msdt:/diagnostics",
+    "custom:payload",
+  ]) {
+    const unsafeMarkup = renderSanitizedMarkdown(`[unsafe](${destination})`);
+    assert.doesNotMatch(unsafeMarkup, /href=/, destination);
+  }
+});
+
 test("parseFileRef accepts pathy tokens and strips line refs", () => {
   assert.equal(parseFileRef("apps/desktop/src/App.tsx"), "apps/desktop/src/App.tsx");
   assert.equal(parseFileRef("src/main.rs:42"), "src/main.rs");
   assert.equal(parseFileRef("src/main.rs:42:7"), "src/main.rs");
+  assert.equal(parseFileRef("src/main.rs:42-44"), "src/main.rs");
+  assert.equal(parseFileRef("src/main.rs#L42"), "src/main.rs");
+  assert.equal(parseFileRef("src/main.rs#L42-L44"), "src/main.rs");
   assert.equal(parseFileRef("./scripts/build.sh"), "./scripts/build.sh");
   assert.equal(parseFileRef("/abs/path/file.ts"), "/abs/path/file.ts");
   assert.equal(parseFileRef("docs/Makefile"), "docs/Makefile");
@@ -113,6 +249,10 @@ test("resolvePreviewTarget classifies urls and workspace files", () => {
   assert.deepEqual(resolvePreviewTarget("./README.md", ROOT, "docs"), {
     kind: "file",
     path: "docs/README.md",
+  });
+  assert.deepEqual(resolvePreviewTarget("核查报告.md", ROOT), {
+    kind: "file",
+    path: "核查报告.md",
   });
   assert.deepEqual(resolvePreviewTarget(`${ROOT}/src/a.ts`, ROOT), {
     kind: "file",
@@ -640,6 +780,12 @@ test("markdown linkification encodes a Windows file path without losing its sour
   assert.equal(uncLink.children[0].value, unc);
 });
 
+test("a relative Unicode Markdown anchor reaches the local file opener", () => {
+  const markup = renderSanitizedMarkdown("[核查报告.md](核查报告.md)");
+  assert.match(markup, /<a href="[^"]+">核查报告\.md<\/a>/);
+  assertMarkdownLinkClick(markup, "核查报告.md");
+});
+
 test("splitChatText keeps unknown extensions literal", () => {
   assert.deepEqual(splitChatText("安装包.dmg 在下载目录", ROOT), [
     { kind: "text", text: "安装包.dmg 在下载目录" },
@@ -736,13 +882,27 @@ test("URL link creation is capped per conversion without changing source text", 
   );
 });
 
-test("parseFileRefPosition keeps :line[:col] that parseFileRef strips", () => {
+test("parseFileRefPosition handles line, column, range, and GitHub anchors", () => {
   assert.deepEqual(parseFileRefPosition("src/main.rs:42"), { line: 42 });
   assert.deepEqual(parseFileRefPosition("src/main.rs:42:7"), { line: 42, column: 7 });
+  assert.deepEqual(parseFileRefPosition("src/main.rs:42-44"), { line: 42 });
+  assert.deepEqual(parseFileRefPosition("src/main.rs#L42"), { line: 42 });
+  assert.deepEqual(parseFileRefPosition("src/main.rs#L42-L44"), { line: 42 });
   assert.deepEqual(parseFileRefPosition("src/main.rs:42."), { line: 42 });
   assert.deepEqual(parseFileRefPosition("src/main.rs:42:7,"), { line: 42, column: 7 });
   assert.equal(parseFileRefPosition("src/main.rs"), null);
   assert.equal(parseFileRefPosition("src/main.rs:0"), null);
+  assert.equal(parseFileRefPosition("src/main.rs:42-41"), null);
+});
+
+test("splitChatText preserves common line-reference formats as positioned file chips", () => {
+  for (const [suffix, line] of [[":42-44", 42], ["#L43", 43], ["#L44-L48", 44]]) {
+    const source = `See src/main.rs${suffix}.`;
+    const segments = splitChatText(source, ROOT);
+    const target = segments.find((segment) => segment.kind === "target");
+    assert.deepEqual(target?.target, { kind: "file", path: "src/main.rs", line }, source);
+    assert.equal(segments.map((segment) => segment.text).join(""), source);
+  }
 });
 
 test("resolvePreviewTarget carries line/col on file chips (#681)", () => {
@@ -756,6 +916,16 @@ test("resolvePreviewTarget carries line/col on file chips (#681)", () => {
     path: "src/a.ts",
     line: 42,
     column: 7,
+  });
+  assert.deepEqual(resolvePreviewTarget("src/a.ts:42-48", ROOT), {
+    kind: "file",
+    path: "src/a.ts",
+    line: 42,
+  });
+  assert.deepEqual(resolvePreviewTarget("src/a.ts#L43-L48", ROOT), {
+    kind: "file",
+    path: "src/a.ts",
+    line: 43,
   });
   assert.deepEqual(resolvePreviewTarget("src/a.ts:42:7.", ROOT), {
     kind: "file",

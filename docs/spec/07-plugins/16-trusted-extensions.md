@@ -206,7 +206,7 @@ atomically and must not be inside the selected source.
 This is an explicit local import, not a pi CLI package manager. It never
 automatically imports `~/.pi`, does not read the CLI's installed package
 registry, and does not run npm lifecycle scripts. The Skills page separately
-discovers global npm skill candidates as described below. When dependencies
+discovers global npm skill candidates. When dependencies
 are declared, the bounded installer accepts only registry version specs and
 registry-resolved npm lockfiles, rejects unsafe package locations and nested
 dependency specs, disables git resolution, and isolates npm's config/cache from
@@ -250,7 +250,7 @@ never in Electron main, the renderer, or a plugin host process.
   does not load the full coding-agent runtime as a fallback.
   `TRUSTED_EXTENSION_KERNEL_VERSION` remains the legacy marker exposed as
   `VERSION` by this shim. It describes the compatibility subset modeled on the
-  0.87.1 API and deliberately does not mirror the installed 1.0.0 package.
+  0.87.1 API and deliberately does not mirror the installed package release.
 
 ### 4.3 Runner per session
 
@@ -326,7 +326,7 @@ are honored where the event type defines a result.
 | `project_trust` | v1 note: not emitted; enablement per project is the trust decision | No |
 | `resources_discover` | v1 note: not emitted; skills and prompt discovery stay in Electron main | n/a |
 | `before_agent_start` | Before the first provider request of a turn | Yes, returned system prompt replacements chain in handler order |
-| `context` | `prepareNextTurn` | Yes, replacement message list |
+| `context` | `transformContext`, before every provider request of a run, including the first | Yes, replacement message list for that request only; the run context and transcript keep the original messages |
 | `before_provider_request`, `before_provider_headers`, `after_provider_response` | Provider call wrapper | Request return value; headers mutate the payload in place |
 | `agent_start`, `agent_end`, `agent_settled` | Agent loop boundaries | No |
 | `turn_start`, `turn_end` | Turn boundaries | No |
@@ -348,6 +348,10 @@ additions. Returning a different string, including an empty string, deliberately
 replaces the current prompt. Missing or non-string prompt fields, exceptions,
 timeouts, and unreturned input mutations retain the last accepted prompt.
 Cancelled dispatches return no result; late completions cannot change it.
+The user-run payload also carries `messageType: "user"` and `prompt`, matching
+the Pi 1.3 discriminator. This is additive to the legacy shim surface; it does
+not enable `sendMessage` or custom-message runs. Native Pi sessions continue
+using the upstream SDK event union and lifecycle.
 
 Each turn starts this chain from its freshly composed base prompt, so additions
 do not accumulate across turns. The same ordered handlers, base, and returned
@@ -419,7 +423,10 @@ the UI broker's own prompt timeout does not extend that budget.
 4. Every execution writes an audit line with extension id, tool name, and
    duration. Parameters are not logged.
 5. `exec` runs in the sidecar with the session's working directory and the
-   session's proxy and environment settings.
+   session's proxy and environment settings. That directory, also `ctx.cwd`,
+   is the project root; a temporary session uses its own scratch directory
+   (D114), which the runtime creates before extensions load, never the
+   sidecar's process directory.
 
 ## 8. Commands
 
@@ -515,7 +522,11 @@ The Plugins page shows agent extensions on the owning plugin's row:
 | v1.1 | Modules become `contributes.agentExtensions` with the `agent.extension` grant; import of pi CLI extensions as development plugins; the standalone registry and settings tab are removed | Shipped (D388) |
 | v1.1 amendment | Plugin-owned custom agents via `registerAgent`, provider compatibility alias, redacted model registry, idle-only session binding and restore through `extension-agent:` ids | Implemented (D426 / ADR 0258) |
 | v2 | Custom session entries (`sendMessage`, `appendEntry`) with a schema bump and a generic renderer, `sessionManager` read shim, `switchSession`, editor read and write, autocomplete providers, `registerShortcut`, markdown transformers | Planned, needs a decision on entry persistence and compaction |
-| v3 | `pi` package manifests and installation, read-only hints from the pi CLI's `settings.json`, unified skill and prompt discovery, remote-control routing for prompts, marketplace listing | Not scheduled |
+| v3 | Read-only hints from the pi CLI's `settings.json`, unified skill and prompt discovery, remote-control routing for prompts, marketplace listing | Not scheduled |
+
+Explicit local package import, including `pi.extensions` / `pi.skills` and bounded
+registry-only dependency preparation, is already implemented in §3.2. It is not
+a promise of a general pi package manager or automatic settings discovery.
 
 v1 delivery order: bundling spike (E2E-245), shared protocol types, then the
 runtime, main, and renderer tracks in parallel.
@@ -542,4 +553,4 @@ runtime, main, and renderer tracks in parallel.
 |---|---|
 | Should v2 custom entries persist to host-core and take part in compaction? | Persist; excluded from compaction summaries |
 | Should v3 read the pi CLI's `settings.json` enabled paths as discovery hints? | Read-only hints, never written |
-| Should extension tools be selectable per project like plugin tools? | Scope from §3.2 is the only gate |
+| Should extension tools be selectable per project like plugin tools? | The plugin activation scope in §2, item 4 is the only gate |

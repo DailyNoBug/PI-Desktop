@@ -1,12 +1,8 @@
 # 06. Desktop Release Runbook
 
 > Scope: D126/D285/D603 tag artifacts for macOS arm64 and Intel x64, Windows x64,
-<<<<<<< HEAD
-> and Linux x64, including the Linux system-Electron ASAR asset and checksummed
-> Linux x64/arm64 `pi-host` Remote SSH runtime bundles;
-=======
-> and Linux x64 and arm64, including the Linux system-Electron ASAR assets;
->>>>>>> origin/main
+> and Linux x64 and arm64, including the Linux system-Electron ASAR assets and
+> checksummed Linux x64/arm64 `pi-host` Remote SSH runtime bundles;
 > macOS signing/notarization remains the detailed qualification lane below.
 > Cross-references: [milestones](01-mvp-milestones.md) · [process model](../03-runtime/07-process-model.md) · [security](../05-security/01-security.md)
 
@@ -128,11 +124,16 @@ Surfaces in scope:
 
 Blocking steps:
 
-1. Refresh `apps/desktop/resources/models.dev/api.json` **before** tagging.
-   `scripts/release.mjs` does this by default for every bump, including
-   prereleases. A no-op refresh (already current) still counts: the snapshot
-   in the tagged tree is what artifacts ship. Do not treat a minified
-   one-line JSON diff as absent.
+1. Refresh `apps/desktop/resources/models.dev/api.json` **before** tagging:
+
+   ```bash
+   curl -fsSL https://models.dev/api.json -o apps/desktop/resources/models.dev/api.json
+   ```
+
+   The version-bump script does not fetch this catalog. The release preflight
+   checks that the snapshot is a valid provider catalog, and the tagged tree
+   determines what artifacts ship. A no-op refresh (already current) still
+   counts. Do not treat a minified one-line JSON diff as absent.
 2. Edit `packages/shared/src/changelog-en.ts` **before**
    `node scripts/release.mjs <version>` / `git tag`:
    - Add a **newest-first** entry under `en` and every shipped product locale
@@ -165,8 +166,8 @@ Blocking steps:
    checked even though `scripts/release.mjs` skips that preflight for
    `x.y.z-beta.*` / `x.y.z-rc.*`. The preflight compiles the TypeScript
    changelog in a temporary directory, so it does not require a prior
-   workspace build. `scripts/release.mjs` still refreshes models.dev for
-   prereleases; `--skip-docs-check` exists only for a deliberate
+   workspace build. Refresh the models.dev snapshot explicitly for stable and
+   prerelease builds; `--skip-docs-check` exists only for a deliberate
    non-release bump.
 7. Commit the documentation updates so the tagged commit contains notes and
    accurate version claims for that version (alone or adjacent to the bump).
@@ -246,6 +247,15 @@ then checks the identity, code-signing integrity (including
 tickets before any artifact upload. The per-architecture `latest-mac.yml` files
 are renamed before upload; the publish job merges them into one feed after
 downloading both artifacts.
+
+For the app ticket, the signing watchdog injects a temporary `xcrun` shim when
+`PI_STAPLER_MAX_ATTEMPTS` is set. It retries only the exact `stapler staple`
+operation, at most six total attempts with a 10-second delay; `notarytool` and
+all other `xcrun` commands pass through unchanged. electron-notarize reaches
+that command only after Apple accepts the app submission. The DMG script has
+its own bounded retry after its separate submission is accepted. Both retry
+paths fail the job if their limit is exhausted, and artifact verification
+still requires valid stapled tickets on the app and DMG.
 
 The shared electron-builder configuration applies the architecture-labelled
 pattern at the macOS platform level for ZIPs and overrides it at the DMG target
@@ -351,6 +361,7 @@ hide in that gap, and the macOS lanes now expose all three:
 | Per-file signing | `codesign --force --sign <identity> --timestamp --entitlements ... <file>` runs serially, deepest file first, the app bundle last | `DEBUG=electron-osx-sign*` prints `Signing... <file>` and `Executing... <file> codesign ...`; the codesign shim times every invocation. If a keychain ever refuses to hand the key to a wrapped `codesign`, `PI_SIGNING_NO_CODESIGN_SHIM=1` runs the phase without the shim |
 | Silent retry | A failing pass is retried up to three more times with a 5s/10s/15s backoff and no log line | The watchdog's `codesign-calls` and `failures` lines expose repeated passes |
 | App notarization | `@electron/notarize` zips the app, uploads it, and waits for Apple's queue (`mac.notarize=true`) | `DEBUG=electron-notarize*` prints `zipping application to`, `attempting to upload file to Apple`, `notarization success`, then electron-builder prints `notarization successful` |
+| App ticket stapling | `xcrun stapler staple` attaches the accepted app ticket; the watchdog retries only this exact command up to six attempts with a 10-second delay | `stapler-shim=on` appears in the watchdog header and each failed attempt is reported |
 | DMG notarization | The DMG carries its own signature, so the next step submits it again with `xcrun notarytool submit --wait` | The same watchdog keeps that wait observable and bounded |
 
 `scripts/macos-signing-watchdog.mjs` wraps both long phases. It forwards every
@@ -370,6 +381,8 @@ block. The knobs:
 | `PI_SIGNING_TIMEOUT_SECONDS` | 2400 (CI: 1800 packaging, 1200 DMG) | Hard limit for the wrapped phase: diagnostics are dumped, the process group is killed, and the step exits 124 instead of hanging |
 | `PI_SIGNING_STALL_SECONDS` | 300 | Silence with no codesign activity for this long triggers one diagnostics dump; the phase keeps running, because Apple's notarization queue is a legitimate wait |
 | `PI_SIGNING_HEARTBEAT_SECONDS` | 60 | Heartbeat interval while the child produces no output |
+| `PI_STAPLER_MAX_ATTEMPTS` | unset (no stapler shim) | When set for signed app packaging, enables at most six attempts for `xcrun stapler staple` |
+| `PI_STAPLER_RETRY_DELAY_SECONDS` | 10 | Delay between failed app stapler attempts (maximum 60 seconds) |
 | `DEBUG` | `electron-osx-sign*,electron-notarize*` | Namespaces that expose walking, per-file signing, and notarization progress |
 
 `DEBUG` lists only the two namespaces that sanitize their own command lines,
@@ -420,7 +433,7 @@ artifact per submission and electron-builder only covers the app:
 
 | Artifact | Submitted by | Ticket |
 |---|---|---|
-| `PI-Desktop.app` (inside the ZIP) | electron-builder `-c.mac.notarize=true` | stapled by electron-builder |
+| `PI-Desktop.app` (inside the ZIP) | electron-builder `-c.mac.notarize=true` | stapled by electron-builder through the watchdog's bounded `xcrun stapler staple` retry shim |
 | `PI-Desktop-<version>-<arch>.dmg` | `scripts/notarize-and-staple-macos-release-dmg.sh` (`notarytool submit --wait`) | stapled by the same script after `status: Accepted` |
 
 A DMG that was never submitted has no ticket, so stapling it fails with
@@ -605,16 +618,11 @@ Native-runner output matrix:
   `PI-Desktop-<version>-x64-mac.zip`
 - Windows x64: NSIS installer `PI-Desktop-Setup-<version>.exe` and portable
   ZIP `PI-Desktop-Portable-<version>.zip`
-<<<<<<< HEAD
-- Linux x64: AppImage, deb, and rpm
-- Linux x64 system Electron asset: `PI-Desktop-<version>-linux-x64.asar`
-- Linux x64 and arm64 Remote SSH runtime:
-  `pi-host-<version>-linux-<arch>.tar.gz` and `.sha256`
-=======
 - Linux x64 and arm64: AppImage, deb, and rpm
 - Linux system Electron assets: `PI-Desktop-<version>-linux-x64.asar` and
   `PI-Desktop-<version>-linux-arm64.asar`
->>>>>>> origin/main
+- Linux x64 and arm64 Remote SSH runtime:
+  `pi-host-<version>-linux-<arch>.tar.gz` and `.sha256`
 
 The portable Windows ZIP target does not write `latest.yml`. The Windows
 release helper builds NSIS and ZIP separately and stamps the ZIP app metadata

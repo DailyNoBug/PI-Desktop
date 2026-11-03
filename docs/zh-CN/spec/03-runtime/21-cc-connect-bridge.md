@@ -1,7 +1,7 @@
 # 21. CC Connect 桥接
 
 - 状态: 当前有效
-- 决策: D658 / ADR 0330
+- 决策: D688 / ADR 0347
 - 依赖: `19-remote-agent-control-protocol.md`（RACP 1.0、RACP-WS）、
   `07-process-model.md`、`03-tools-and-permissions.md`
 - 英文源规格: [英文源规格](/spec/03-runtime/21-cc-connect-bridge)

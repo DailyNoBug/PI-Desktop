@@ -30,7 +30,11 @@ Live 与 Dictation 共用 Main 进程的麦克风租约。本地 mute 会在 IPC
 
 通话状态为 `preparing → acquiring-mic → negotiating/connecting → connected → closing → ended|failed`。request ID 让 prepare 幂等，并可在 call ID 返回前取消。启动、握手、heartbeat、中断确认和释放等待均有时限。每个 Desktop 实例同时只能有一个通话；后续通话需要用户明确发起，不会自动切换 Provider、模型或计费路径。
 
-Codex Live 使用专用 Codex OAuth endpoint 和 WebRTC answer exchange；浏览器 data channel 只处理规范化协议事件和不支持 delegation 的响应。它不使用公共 GPT-Live session 事件。Gemini Live 在发送 16 kHz 单声道 PCM16 前会等待 `setupComplete`。Realtime 会等待 `session.updated`，使用 24 kHz 单声道 PCM16，并明确选择 GA 或 compat-v1 wire profile。用户可分别编辑每项绑定的模型和音色；默认值只是候选项，不代表账号有访问权限或服务可用。
+Codex Live 使用专用 Codex OAuth endpoint 和 WebRTC answer exchange；浏览器 data channel 只处理规范化协议事件和不支持 delegation 的响应。它不使用公共 GPT-Live session 事件。Gemini Live 在发送 16 kHz 单声道 PCM16 前会等待 `setupComplete`。
+Gemini 工作工具使用不含 `additionalProperties` 的 OpenAPI Schema 子集，OpenAI 保留严格 JSON Schema；两者的 Host 参数校验仍严格执行。
+Gemini 以 1002/1003/1007/1008/1009 关闭时报告协议失败，而非网络失败。关闭或传输错误立即拒绝待完成 setup，只报告首个根因。
+关闭码和 UTF-8 reason 仅进入脱敏后的 provider 日志；连接异常、通话视图和 Renderer 控制只携带公开错误码，不含原始提供商内容。
+Realtime 会等待 `session.updated`，使用 24 kHz 单声道 PCM16，并明确选择 GA 或 compat-v1 wire profile。用户可分别编辑每项绑定的模型和音色；默认值只是候选项，不代表账号有访问权限或服务可用。
 
 PCM 采集使用 AudioWorklet，依据实际 `AudioContext.sampleRate` 进行有状态抗混叠重采样，并产生有界的 20 ms worklet 帧。PCM 输出由独立播放通路排队，记录每个 item 实际播放位置；中断会推进 playback epoch 并丢弃过期队列。如果浏览器阻止播放，通话面板会提供用户手势来恢复声音。输入音频不会回环到本地扬声器。
 
@@ -38,7 +42,7 @@ PCM 采集使用 AudioWorklet，依据实际 `AudioContext.sampleRate` 进行有
 
 ## 设置与兼容性
 
-Voice 在开发构建和打包构建中均向普通用户开放，不再要求开发者模式。实验标记用于提示可用性限制，不是访问门槛。实时语音仍默认关闭，开启设置不会开始采集麦克风。需要配置或恢复账号时，Composer 提供“打开设置”操作。云同步和 Remote Hosts 保留各自的开发构建限制。
+Voice 在开发构建和打包构建中均向普通用户开放，不再要求开发者模式。实验标记用于提示可用性限制，不是访问门槛。实时语音仍默认关闭，开启设置不会开始采集麦克风。需要配置或恢复账号时，Composer 提供“打开设置”操作。云同步和远程主机在开发版与打包版中均可用，且均标注为实验性功能。
 
 账号列表明确区分加载中、可重试的加载失败和无兼容账号。加载失败不会清除已保存的绑定。设置页提供现有模型配置入口，用于登录和管理账号。通话错误区分缺少认证、账号访问被拒、协议不支持、网络/限流及麦克风故障，不显示服务响应内容或凭证。通话条会在本地化文案旁同时显示对应的 `LIVE_*` 错误码本身，因此没有专属文案的失败也能从截图或工单中定位；该错误码背后的原始原因不进入任何视图，只写入脱敏后的 `provider` 日志。通话条本身是该应用的一个独立、无边框、始终置顶的桌面窗口，不拥有通话：它的每次按键都转发给持有麦克风、媒体和按通话隔离工作的主窗口，且只显示主窗口推送的权威状态与错误码。
 

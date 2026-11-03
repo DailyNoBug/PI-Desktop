@@ -18,7 +18,9 @@
  * rows stay transcript-only, tool rows attach to the assistant above them, an
  * orphan tool row gets a synthesized carrier) but is parameterized by the
  * delegate's own provider: a pinned delegation model is not the session model,
- * and api/replay details depend on the binding.
+ * and api/replay details depend on the binding. Tool-result content blocks
+ * come from `restoredToolResultContent`, shared with the parent's
+ * `toolResultFromUi`.
  */
 
 import { estimateTokens } from "./pi-runtime-estimates.js";
@@ -35,9 +37,11 @@ import {
   MAX_RESUMABLE_LISTED_FILES,
   MAX_RESUMABLE_READ_LINES,
   normalizeSubagentName,
+  withoutReasoningReplayPlaceholder,
   type UiMessage,
 } from "@pi-desktop/shared";
 import { isRecord, timestampMs, toJsonObject, toJsonValue, usageToPi } from "./agent-messages.js";
+import { restoredToolResultContent } from "./tool-result-content.js";
 import type { ContextBudgetLimits } from "./context-budget.js";
 import {
   apiBindingForProviderModel,
@@ -217,6 +221,12 @@ export function taskObjectiveFromArgs(args: unknown): string {
  * result. An orphan tool row (its assistant lost to a truncated branch) gets a
  * synthesized carrier so the pair stays well-formed — providers reject an
  * unpaired `toolUse`.
+ *
+ * Assistant transport identity is `model.provider` / `model.id` (the same
+ * values live requests use), not the account row id. A vendorKey-bound model
+ * has `model.provider !== provider.id`; tagging history with the account id
+ * makes pi-ai treat same-model reasoning as foreign and empty
+ * `reasoning_content` on Task(resume).
  */
 export function chainRowsToMessages(
   rows: readonly UiMessage[],
@@ -252,10 +262,13 @@ export function chainRowsToMessages(
       // hand the model a stopReason the provider never agreed to.
       if (row.status === "error" || row.isError || row.error) continue;
       const content: AssistantMessage["content"] = [];
-      if (row.thinking?.trim()) {
+      // Same rule as session history: an echoed replay placeholder is not
+      // reasoning to hand back (#1945).
+      const thinking = withoutReasoningReplayPlaceholder(row.thinking ?? "");
+      if (thinking.trim()) {
         content.push({
           type: "thinking",
-          thinking: row.thinking,
+          thinking,
           ...(deepSeekCompletionsReplay
             ? { thinkingSignature: "reasoning_content" as const }
             : {}),
@@ -268,8 +281,8 @@ export function chainRowsToMessages(
         role: "assistant",
         content,
         api,
-        provider: provider.id,
-        model: provider.modelId,
+        provider: model.provider,
+        model: model.id,
         usage: usageToPi(row.usage),
         stopReason: "stop",
         timestamp,
@@ -283,8 +296,8 @@ export function chainRowsToMessages(
           role: "assistant",
           content: [],
           api,
-          provider: provider.id,
-          model: provider.modelId,
+          provider: model.provider,
+          model: model.id,
           usage: usageToPi(undefined),
           stopReason: "toolUse",
           timestamp,
@@ -422,31 +435,7 @@ function truncateSeededMessages(
 
 function toolResultFromUi(m: UiMessage, timestamp: number): ToolResultMessage {
   const raw = m.toolResult;
-  const blocks: ToolResultMessage["content"] = [];
-  const rawBlocks =
-    isRecord(raw) && Array.isArray(raw.content) ? raw.content : undefined;
-  if (rawBlocks) {
-    for (const block of rawBlocks) {
-      if (!isRecord(block)) continue;
-      if (block.type === "text" && typeof block.text === "string") {
-        blocks.push({ type: "text", text: block.text });
-      } else if (
-        block.type === "image" &&
-        typeof block.data === "string" &&
-        typeof block.mimeType === "string"
-      ) {
-        blocks.push({
-          type: "image",
-          data: block.data,
-          mimeType: block.mimeType,
-        });
-      }
-    }
-  } else if (typeof raw === "string" && raw.trim()) {
-    blocks.push({ type: "text", text: raw });
-  } else if (raw !== undefined && raw !== null) {
-    blocks.push({ type: "text", text: safeJson(raw) });
-  }
+  const blocks = restoredToolResultContent(raw);
   if (blocks.length === 0) {
     blocks.push({
       type: "text",
@@ -492,14 +481,6 @@ function toolResultFromUi(m: UiMessage, timestamp: number): ToolResultMessage {
       m.isError === true,
     timestamp,
   };
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
 }
 
 export type RebuiltTaskCall = {
@@ -669,6 +650,13 @@ export function listedReadFiles(
   return { files: files.slice(0, limit), omitted: files.length - limit };
 }
 
+/**
+ * Render the resumable chains for a tool result.
+ *
+ * This text used to ride in the parent's system prompt, which made every
+ * settlement rewrite the request prefix providers cache on (ADR 0337). It is
+ * now carried by `TaskList`, so the parent reads it when it needs the ids.
+ */
 export function formatResumableList(chains: readonly ResumableChain[]): string {
   if (chains.length === 0) return "";
   const lines = [

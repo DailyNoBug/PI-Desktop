@@ -133,7 +133,14 @@ Codex Live uses its dedicated Codex OAuth endpoint and WebRTC answer exchange;
 its browser data channel only handles normalized protocol events and the
 unsupported-delegation response. It does not use public GPT-Live session
 events. Gemini Live waits for `setupComplete` before sending 16 kHz mono
-PCM16. Realtime waits for `session.updated`, sends 24 kHz mono PCM16, and
+PCM16. Gemini work tools use its OpenAPI Schema subset, excluding
+`additionalProperties`; OpenAI retains its strict JSON Schema and Host argument
+validation stays strict for both. Gemini closes with codes 1002/1003/1007/1008/1009
+are protocol failures rather than network failures. A close or transport error
+rejects pending setup immediately and reports one root cause. Its code and UTF-8
+reason go only to the redacted provider log; connection rejections, call views
+and Renderer controls carry the public error code without raw provider content.
+Realtime waits for `session.updated`, sends 24 kHz mono PCM16, and
 selects an explicit GA or compat-v1 wire profile. The supported models and
 voices are editable per binding; defaults are candidates, not claims of
 account access or service availability.
@@ -180,6 +187,13 @@ settings and its Composer entry are hidden; existing `voice` values and the
 underlying Dictation capability remain unchanged and are not deleted or rewritten
 by the UI. Old settings with no `liveVoice` value read as disabled with no
 bindings.
+
+When the hidden local Dictation capability loads an STT model, it releases the
+model after ten minutes in a terminal phase without a new recording. Starting a
+recording cancels a pending unload; a later recording lazily reloads the model
+from its on-disk cache. This changes idle memory use and the first-recording
+latency after a long idle period, but does not alter Dictation settings or the
+downloaded model files.
 
 Live DTOs and IPC contracts live in `packages/shared`. Pure wire parsing and
 PCM math are exported only from `@pi-desktop/voice-runtime/live`; they do not

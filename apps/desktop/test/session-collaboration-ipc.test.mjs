@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import i18n from "i18next";
 import test from "node:test";
 import ts from "typescript";
 import { ErrorCodes } from "../../../packages/shared/src/errors.ts";
@@ -34,6 +35,7 @@ const { registerSessionIpc } = load("../electron/main/ipc/session-ipc.ts", {
   "@pi-desktop/shared": shared,
   "../importers": {},
   "../services/session-collaboration": collaboration,
+  "../bootstrap/remote-hosts.js": { getActiveRemoteHostsBoot: () => null },
   "../services/session-search": { searchSessionsAcrossSources: async () => ({ hits: [], nextOffset: null }) },
 });
 const summary = {
@@ -85,10 +87,20 @@ function rendererApi(invoke) {
     },
     "@pi-desktop/shared": shared,
     "@pi-desktop/shared/protocol": shared,
+    // The preload reads the boot-animation descriptor from its own argv
+    // (D679); with no such argument there is nothing to decode.
+    "@pi-desktop/shared/startup-animation": {
+      decodeStartupAnimationArgument: () => null,
+    },
   });
   const { api } = load("../src/lib/api.ts", {
     "@pi-desktop/shared": shared,
     "./plan-history": load("../src/lib/plan-history.ts", {}),
+    "./remote-ipc-safety": load("../src/lib/remote-ipc-safety.ts", {
+      "@pi-desktop/shared": shared,
+      i18next: { default: i18n },
+    }),
+    "./remote-session-safety": load("../src/lib/remote-session-safety.ts", {}),
   }, {
     window: { piDesktop: bridge },
   });

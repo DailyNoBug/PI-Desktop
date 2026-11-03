@@ -14,6 +14,7 @@ import {
   NAMED_ENDPOINT_PRESETS,
   OPENCODE_GO_API_STYLE,
   normalizeApiStyle,
+  type PluginProviderCatalogMeta,
   type CatalogApiStyle,
   type ModelBinding,
   type OAuthVendor,
@@ -22,14 +23,21 @@ import {
 import { api } from "../../lib/api";
 import { useAppStore } from "../../stores/app-store";
 import { pairsToRecord, recordToPairs } from "../extensions/KeyValueRows";
-import { Button, Field, HelpIcon, Input, portalOverlay } from "../ui";
+import { OverlayBackdrop, Button, Field, HelpIcon, Input, portalOverlay } from "../ui";
 import { ProviderHeadersEditor } from "./ProviderHeadersEditor";
 import { useProviderModels } from "./useProviderModels";
 import { ModelSelectionPanes, useModelSelection } from "./ModelSelectionPanes";
 import { ProviderConnectionFields } from "./ProviderConnectionFields";
 import { useProbeFeedback } from "./useProbeFeedback";
 import { ServiceChooser } from "./ServiceChooser";
-import { CUSTOM_SERVICE } from "./service-catalog";
+import { PluginProviderKeySetupForm } from "./PluginProviderKeySetupForm";
+import {
+  CUSTOM_SERVICE,
+  JEV_SERVICE,
+  pluginProviderServiceOptions,
+  type PluginProviderServiceOption,
+} from "./service-catalog";
+import { JevServiceForm } from "./JevServiceForm";
 import { useRecommendedModelSelection } from "./useRecommendedModelSelection";
 import type { ProviderCopyDraft } from "./provider-copy";
 import {
@@ -60,6 +68,23 @@ function initialBaseUrl(provider?: ProviderPublic | null): string {
   return providerSetupPreset(provider)?.baseUrl ?? provider?.baseUrl ?? "";
 }
 
+/**
+ * Which service the dialog opens on: the caller's own choice first (Jev has no
+ * preset and no row), then a copied draft's format, then the edited row's.
+ */
+function initialServiceId(
+  initialService: string | null | undefined,
+  initialDraft: ProviderCopyDraft | null | undefined,
+  provider: ProviderPublic | null | undefined,
+): string {
+  if (initialService) return initialService;
+  if (!initialDraft) return serviceIdFor(provider);
+  return initialDraft.apiStyle === OPENCODE_GO_API_STYLE
+    ? NAMED_ENDPOINT_PRESETS.find((preset) => preset.apiStyle === OPENCODE_GO_API_STYLE)?.id ??
+        CUSTOM_SERVICE
+    : CUSTOM_SERVICE;
+}
+
 export type ProviderSetupDialogProps = {
   provider?: ProviderPublic | null;
   initialDraft?: ProviderCopyDraft | null;
@@ -70,6 +95,15 @@ export type ProviderSetupDialogProps = {
   vendors?: OAuthVendor[] | null;
   /** Leaves this dialog for the vendor's browser sign-in. */
   onPickSubscription?: (vendor: OAuthVendor) => void;
+  /** Opens straight on this service; Jev has no preset tile to land on. */
+  initialService?: string | null;
+  /** Jev was configured from inside this dialog. */
+  onJevConfigured?: () => void;
+  /** Chooses an existing API-key provider contributed by a plugin. */
+  onPickPluginProvider?: (providerId: string, pluginName: string) => void;
+  /** The dialog is configuring a row selected from the plugin catalog. */
+  pluginCatalogSetup?: boolean;
+  pluginCatalogPluginName?: string;
 };
 
 export function ProviderSetupDialog({
@@ -80,19 +114,23 @@ export function ProviderSetupDialog({
   imageModelIds,
   vendors,
   onPickSubscription,
+  initialService,
+  onJevConfigured,
+  onPickPluginProvider,
+  pluginCatalogSetup = false,
+  pluginCatalogPluginName,
 }: ProviderSetupDialogProps) {
   const { t } = useTranslation();
   const [imageModelDraft, setImageModelDraft] = useState<string[] | undefined>();
   const editing = !!provider;
   const apiKeyRef = useRef<HTMLInputElement>(null);
-  const [service, setService] = useState(() => initialDraft
-    ? initialDraft.apiStyle === OPENCODE_GO_API_STYLE
-      ? NAMED_ENDPOINT_PRESETS.find((preset) => preset.apiStyle === OPENCODE_GO_API_STYLE)?.id ?? CUSTOM_SERVICE
-      : CUSTOM_SERVICE
-    : serviceIdFor(provider));
+  const [service, setService] = useState(() =>
+    initialServiceId(initialService, initialDraft, provider),
+  );
   const [name, setName] = useState(() => initialDraft?.name ?? initialName(provider));
   const [baseUrl, setBaseUrl] = useState(() => initialDraft?.baseUrl ?? initialBaseUrl(provider));
   const [apiKey, setApiKey] = useState("");
+  const [clearSavedApiKey, setClearSavedApiKey] = useState(false);
   const [apiStyle, setApiStyle] = useState<CatalogApiStyle>(() =>
     initialDraft?.apiStyle ?? normalizeApiStyle(provider?.apiStyle),
   );
@@ -102,15 +140,43 @@ export function ProviderSetupDialog({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const showToast = useAppStore((state) => state.showToast);
+  const providerRows = useAppStore((state) => state.providers);
+  const [pluginProviderCatalog, setPluginProviderCatalog] = useState<PluginProviderCatalogMeta[]>([]);
   const [baseUrlTouched, setBaseUrlTouched] = useState(false);
   // A format the user picked by hand outranks every inference about this row.
   const [apiStyleTouched, setApiStyleTouched] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const chooserOpen = choosing || !service;
 
+  useEffect(() => {
+    if (editing || !chooserOpen) return;
+    let current = true;
+    void api.listPluginProviderCatalog().then((entries) => {
+      if (current) setPluginProviderCatalog(entries);
+    }).catch((error) => {
+      if (current) {
+        showToast(error instanceof Error ? error.message : String(error), {
+          variant: "error",
+        });
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [chooserOpen, editing, showToast]);
+
+  const pluginProviderOptions: PluginProviderServiceOption[] = pluginProviderServiceOptions(
+    pluginProviderCatalog,
+    providerRows,
+  );
+
   const namedPreset = NAMED_ENDPOINT_PRESETS.find((preset) => preset.id === service);
   const named = Boolean(namedPreset);
   const custom = service === CUSTOM_SERVICE;
+  const hasSavedApiKey = Boolean(provider?.hasSecret && provider.authKind !== "none" && !clearSavedApiKey);
+  const noApiKeyRequired = custom && !apiKey.trim() && !hasSavedApiKey;
+  /** Jev never becomes a provider row, so it is a view of its own. */
+  const jevService = service === JEV_SERVICE;
   const resolvedName = namedPreset ? name.trim() || namedPreset.name : name;
   const resolvedBaseUrl = namedPreset?.baseUrl ?? baseUrl;
   /*
@@ -142,6 +208,7 @@ export function ProviderSetupDialog({
   // Named add-path waits for a key so picking a vendor does not 401-probe.
   // Editing reuses the stored secret. Custom still probes a valid URL alone.
   const discoveryActive =
+    !pluginCatalogSetup &&
     Boolean(service) &&
     !requiresApiStyleChoice &&
     !baseUrlIssue &&
@@ -151,11 +218,11 @@ export function ProviderSetupDialog({
     discoveryActive,
     {
       baseUrl: requestBaseUrl,
-      apiKey,
+      apiKey: custom ? apiKey.trim() : apiKey,
       apiStyle: resolvedApiStyle,
       headers,
     },
-    provider,
+    custom && clearSavedApiKey ? null : provider,
   );
   // The probe's own answer is reported once as a toast instead of a status row
   // under the key, which held a line of the dialog open for as long as it stood.
@@ -288,6 +355,7 @@ export function ProviderSetupDialog({
   const save = async () => {
     const providerName = resolvedName.trim();
     const providerBaseUrl = normalizeBaseUrlInput(resolvedBaseUrl, resolvedApiStyle);
+    const secretValue = custom ? apiKey.trim() : apiKey;
     if (
       requiresApiStyleChoice ||
       !providerName ||
@@ -324,7 +392,10 @@ export function ProviderSetupDialog({
           models: persisted,
           apiStyle: resolvedApiStyle,
           headers,
-          ...(apiKey ? { secretValue: apiKey } : {}),
+          ...(custom && noApiKeyRequired !== (provider.authKind === "none")
+            ? { authKind: noApiKeyRequired ? "none" : "api_key_and_base_url" }
+            : {}),
+          ...(secretValue ? { secretValue } : {}),
         });
         await onSaved(result.provider ?? provider, persisted, imageModelIdsToSave);
       } else {
@@ -334,10 +405,10 @@ export function ProviderSetupDialog({
           type: "openai_compatible",
           protocol: "openai_compatible",
           baseUrl: providerBaseUrl,
-          authKind: "api_key_and_base_url",
+          authKind: custom && noApiKeyRequired ? "none" : "api_key_and_base_url",
           defaultModelId: persisted[0]?.id,
           models: persisted,
-          secretValue: apiKey || undefined,
+          ...(noApiKeyRequired ? {} : { secretValue: secretValue || undefined }),
           apiStyle: resolvedApiStyle,
           headers,
         });
@@ -443,6 +514,12 @@ export function ProviderSetupDialog({
             nameRef={nameRef}
             apiKey={apiKey}
             onApiKeyChange={setApiKey}
+            hasSavedApiKey={hasSavedApiKey}
+            onClearApiKey={() => {
+              setClearSavedApiKey(true);
+              setApiKey("");
+              apiKeyRef.current?.focus();
+            }}
             name={name}
             onNameChange={setName}
             baseUrl={baseUrl}
@@ -504,12 +581,24 @@ export function ProviderSetupDialog({
         current={service}
         onPickService={pickService}
         onPickSubscription={editing ? undefined : onPickSubscription}
+        showClassifiers={!editing}
+        pluginProviders={editing ? [] : pluginProviderOptions}
+        onPickPluginProvider={editing ? undefined : onPickPluginProvider}
       />
     </>
   );
 
+  /*
+    Jev is the one entry here that is not a provider row: a key and no models,
+    so it renders its own half of the dialog instead of the connection form and
+    the model panes.
+  */
+  const jevView = (
+    <JevServiceForm onClose={onClose} onConfigured={() => onJevConfigured?.()} />
+  );
+
   return portalOverlay(
-    <div
+    <OverlayBackdrop
       className="overlay provider-setup-overlay"
       role="presentation"
       onClick={() => {
@@ -524,11 +613,27 @@ export function ProviderSetupDialog({
         aria-labelledby="provider-setup-title"
         onClick={(event) => event.stopPropagation()}
       >
-        {chooserOpen ? chooserView : formView}
+        {chooserOpen ? chooserView : pluginCatalogSetup ? (
+          provider ? (
+            <PluginProviderKeySetupForm
+              provider={provider}
+              pluginName={pluginCatalogPluginName ?? provider.ownerPluginId ?? ""}
+              onClose={onClose}
+              onSaved={(saved) => onSaved(saved, saved.models)}
+            />
+          ) : (
+            <div className="provider-setup-body">
+              <p role="alert">{t("settings.providerUnavailable")}</p>
+              <Button variant="ghost" size="sm" onClick={onClose}>
+                {t("settings.cancel")}
+              </Button>
+            </div>
+          )
+        ) : jevService ? jevView : formView}
       </div>
 
       {advancedOpen && (named || custom) ? (
-        <div
+        <OverlayBackdrop
           className="overlay provider-advanced-overlay"
           role="presentation"
           onClick={(event) => {
@@ -565,8 +670,8 @@ export function ProviderSetupDialog({
               </div>
             </div>
           </div>
-        </div>
+        </OverlayBackdrop>
       ) : null}
-    </div>
+    </OverlayBackdrop>
   );
 }

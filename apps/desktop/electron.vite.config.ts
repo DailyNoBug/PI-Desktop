@@ -86,6 +86,7 @@ export default defineConfig({
         // (D387); Electron main never calls it, and its transpiled dist
         // breaks the main bundle's esbuild transform.
         external: [
+          "original-fs",
           "electron-updater",
           "jiti",
           "jiti/static",

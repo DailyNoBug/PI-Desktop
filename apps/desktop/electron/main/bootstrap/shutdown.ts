@@ -9,11 +9,13 @@ import type { PersistenceOutbox } from "../persistence-outbox";
 import type { PluginPanelHost } from "../plugin-panel-host";
 import type { PluginRuntime } from "../plugin-runtime";
 import type { PluginViewHost } from "../plugin-view-host";
+import type { ComposerSuggestionRelay } from "../services/composer-suggestion";
 import type { AppUpdaterController } from "../updater";
 import type { UserMcpRuntime } from "../user-mcp";
 import type { McpControlServer } from "../mcp-control";
 import type { McpOAuthManager } from "../mcp-oauth";
 import { getActiveRemoteHostsBoot, setActiveRemoteHostsBoot } from "./remote-hosts";
+import { runConfirmedQuitTeardown } from "./confirmed-quit";
 import type { LiveCallService } from "../live-voice/call-service";
 
 const QUIT_TURN_SETTLE_BUDGET_MS = 2_000;
@@ -40,14 +42,17 @@ export type ShutdownDependencies = {
   activeTurns: Map<string, string>;
   persistenceOutbox: PersistenceOutbox;
   inflightCheckpointer: InflightCheckpointer;
+  flushEventPersistence: () => Promise<void>;
   pluginPanels: Pick<PluginPanelHost, "closeAll">;
   plugins: Pick<PluginRuntime, "disposeAll">;
   userMcp: Pick<UserMcpRuntime, "disposeAll">;
   mcpOAuth?: Pick<McpOAuthManager, "disposeAll">;
   browserHost: Pick<BrowserHost, "dispose">;
   pluginViews: Pick<PluginViewHost, "dispose">;
+  /** Composer suggestions still waiting for an answer at quit (ADR 0333). */
+  composerSuggestion?: Pick<ComposerSuggestionRelay, "dispose">;
   updater: Pick<AppUpdaterController, "dispose" | "isInstallingUpdate">;
-  getRemoteManager: () => { dispose(): Promise<void> | void } | null;
+  getRemoteManager?: () => { dispose(): Promise<void> | void } | null;
   logger: Pick<Logger, "app">;
   confirmQuitDialog: () => Promise<boolean>;
   disposePowerSaveBlockers: () => void;
@@ -67,12 +72,14 @@ export function registerShutdownHandlers({
   activeTurns,
   persistenceOutbox,
   inflightCheckpointer,
+  flushEventPersistence,
   pluginPanels,
   plugins,
   userMcp,
   mcpOAuth,
   browserHost,
   pluginViews,
+  composerSuggestion,
   updater,
   logger,
   confirmQuitDialog,
@@ -80,6 +87,7 @@ export function registerShutdownHandlers({
   liveCallService,
   disposeSystemProxyRelay,
 }: ShutdownDependencies): void {
+  let quitConfirmationPending = false;
   app.on("window-all-closed", () => {
     // The D216 tray is resident on every platform, so its presence says nothing
     // about whether the app should survive a closed window — the user's close
@@ -98,7 +106,7 @@ export function registerShutdownHandlers({
     if (!hasSingleInstanceLock) return;
     if (state.shutdownComplete) return;
     event.preventDefault();
-    if (state.shutdownPromise) return;
+    if (state.shutdownPromise || quitConfirmationPending) return;
 
     // Show a confirmation dialog on the first explicit quit (Cmd+Q, tray quit,
     // application-menu Quit). The data-saving shutdown runs after confirmation.
@@ -116,18 +124,35 @@ export function registerShutdownHandlers({
     const isUpdateRestart = updater.isInstallingUpdate();
     if (!state.quitConfirmed && !isAutomatedMode && !isUpdateRestart) {
       state.quitConfirmed = true;
-      void confirmQuitDialog().then((confirmed) => {
-        if (confirmed) {
+      quitConfirmationPending = true;
+      void confirmQuitDialog().then(
+        (confirmed) => {
+          quitConfirmationPending = false;
+          if (confirmed) {
+            app.quit();
+          } else {
+            // User cancelled: allow future quit requests to prompt again.
+            state.quitConfirmed = false;
+          }
+        },
+        (error: unknown) => {
+          quitConfirmationPending = false;
+          logger.app("lifecycle", "warn", "quit confirmation failed; allowing shutdown", {
+            data: String(error),
+          });
           app.quit();
-        } else {
-          // User cancelled: allow future quit requests to prompt again.
-          state.quitConfirmed = false;
-        }
-      });
+        },
+      );
       return;
     }
 
     state.quitting = true;
+    // Persist the confirmed shutdown before any awaited cleanup so a forced
+    // process termination still leaves an observable lifecycle boundary.
+    logger.app("lifecycle", "info", "app shutdown");
+    // The quit can no longer be cancelled; services that must survive a
+    // cancelled confirmation stop only from here (issue #2048).
+    runConfirmedQuitTeardown(logger);
     disposePowerSaveBlockers();
     state.tray?.destroy();
     state.tray = null;
@@ -169,8 +194,28 @@ export function registerShutdownHandlers({
         pluginPanels.closeAll(),
         pluginViews.dispose(),
       ]);
-      logger.app("lifecycle", "info", "app shutdown");
       await pluginSurfacesShutdown;
+      // Stop event production before draining the terminal writes. A finished
+      // turn can already have left activeTurns while its branch archive is
+      // still awaiting the host; closing host-core first loses that archive.
+      const sidecarShutdown = getSidecar()?.dispose();
+      await Promise.allSettled([sidecarShutdown]);
+      await inflightCheckpointer.flushAll();
+      let persistenceTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const settled = await Promise.race([
+          flushEventPersistence().then(() => true),
+          new Promise<boolean>((resolve) => {
+            persistenceTimer = setTimeout(() => resolve(false), QUIT_TURN_SETTLE_BUDGET_MS);
+          }),
+        ]);
+        if (!settled) {
+          logger.app("lifecycle", "warn", "quit before event persistence settled");
+        }
+      } finally {
+        if (persistenceTimer) clearTimeout(persistenceTimer);
+      }
+      await persistenceOutbox.flush(getHost);
       const hostShutdown = getHost()?.dispose();
       const mcpShutdown = getMcpControl()?.stop();
       const ccConnectShutdown = getCcConnect?.()?.dispose();
@@ -182,9 +227,9 @@ export function registerShutdownHandlers({
       userMcp.disposeAll();
       mcpOAuth?.disposeAll();
       browserHost.dispose();
+      composerSuggestion?.dispose();
       inflightCheckpointer.dispose();
-      const remoteShutdown = getRemoteManager()?.dispose();
-      const sidecarShutdown = getSidecar()?.dispose();
+      const remoteShutdown = getRemoteManager?.()?.dispose();
 
       try {
         await hostShutdown;

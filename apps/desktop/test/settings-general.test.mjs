@@ -31,13 +31,6 @@ const scheduledFormatSource = await readFile(
   "utf8",
 );
 const pluginsPageSource = await readPluginsSource();
-const marketplaceSettingsSource = await readFile(
-  new URL(
-    "../src/components/plugins/MarketplaceSourceSettings.tsx",
-    import.meta.url,
-  ),
-  "utf8",
-);
 // API services and vendor accounts share one list (D625).
 const serviceListSource = await readFile(
   new URL("../src/components/settings/ServiceList.tsx", import.meta.url),
@@ -150,7 +143,7 @@ test("Basics and AI tabs expose their respective app and AI controls", () => {
   assert.match(aiSource, /infiniteProviderRetry: settings\.infiniteProviderRetry !== true/);
   assert.match(aiSource, /LargePasteThresholdRow/);
   assert.match(aiSource, /ContextUsageDisplayRow/);
-  assert.match(aiSource, /PromptEnhancementCard/);
+  assert.doesNotMatch(aiSource, /PromptEnhancementCard|promptEnhancement/);
   assert.doesNotMatch(aiSource, /EnhancementModelCard/);
   assert.match(
     settingsPageSource,
@@ -195,7 +188,7 @@ test("Basics and AI tabs expose their respective app and AI controls", () => {
   assert.match(settingsSearchSource, /settings\.voiceModelSetActive/);
   assert.match(settingsSearchSource, /liveVoice\.enable/);
   // Fork: local plugin dictation settings render under the agent tab as the
-  // aliased DictationSettingsSection (ADR 0329); the legacy fork
+  // aliased DictationSettingsSection (ADR 0346); the legacy fork
   // VoiceSettingsCard component never returns.
   assert.doesNotMatch(settingsPageSource, /VoiceSettingsCard/);
   assert.match(settingsPageSource, /<DictationSettingsSection settings=\{settings\} saveSettings=\{saveSettings\} \/>/);
@@ -220,6 +213,17 @@ test("language persists as part of shared app settings", () => {
 test("General Network card persists a custom HTTP or SOCKS5 proxy and the relaxed network mode", () => {
   assert.match(settingsPageSource, /<NetworkProxySection /);
   assert.match(networkProxySource, /settings\.networkRelaxedMode/);
+  // A mode switch saves the current drafts, even when the input blur save has
+  // not refreshed `saved` yet, so Custom restores the user's latest values.
+  assert.match(
+    networkProxySource,
+    /settingsForInactiveProxyMode\(mode, saved, urlDraft, bypassDraft\)/,
+  );
+  assert.match(
+    networkProxySource,
+    /resolveCustomProxyUrl\(urlDraft, saved\.url\)/,
+  );
+  assert.match(networkProxySource, /url: resolved\.url/);
   // Fake-IP tolerance belongs to the network mode now, not to the proxy payload.
   assert.doesNotMatch(networkProxySource, /allowFakeIp/);
   assert.match(settingsSearchSource, /settings\.proxy/);
@@ -459,7 +463,7 @@ test("settings nav keeps a flat searchable index with titled visual groups", () 
   assert.doesNotMatch(generalEntry, /settings\.defaultsTitle/);
   assert.match(aiEntry, /settings\.defaultsTitle/);
   assert.match(aiEntry, /settings\.commandShell/);
-  assert.match(aiEntry, /settings\.promptEnhancementModelTitle/);
+  assert.doesNotMatch(aiEntry, /settings\.promptEnhancementModelTitle/);
   assert.match(settingsSearchSource, /keywordKeys/);
   assert.match(settingsSearchSource, /settings\.projectArchive/);
   assert.doesNotMatch(stylesSource, /\.token-usage-page/);
@@ -499,12 +503,13 @@ test("settings rail uses short parallel labels and descriptive page titles", () 
   assert.match(settingsPageSource, /titleKey: entry\.titleKey/);
 });
 
-test("marketplace source settings live inside the Plugins marketplace surface", () => {
-  assert.match(pluginsPageSource, /<MarketplaceSourceSettings/);
-  assert.match(marketplaceSettingsSource, /api\.marketRefresh\(true\)/);
-  assert.match(marketplaceSettingsSource, /settings\.marketProvider/);
-  assert.match(marketplaceSettingsSource, /<SettingsMenuSelect/);
-  assert.doesNotMatch(marketplaceSettingsSource, /<Select/);
+test("Plugins marketplace keeps official refresh without source settings", () => {
+  assert.doesNotMatch(
+    pluginsPageSource,
+    /MarketplaceSourceSettings|pluginMarketSource|pluginMarketCustomUrl|marketProvider|marketCustomUrl|marketSource/,
+  );
+  assert.match(pluginsPageSource, /api\.marketRefresh\(true\)/);
+  assert.match(pluginsPageSource, /refreshMarket\(query, \{ refreshRemote: true \}\)/);
   assert.doesNotMatch(settingsPageSource, /ExtensionMarketSection/);
   assert.doesNotMatch(settingsPageSource, /tab === "extensions"/);
 });

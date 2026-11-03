@@ -52,7 +52,10 @@ type PluginManifestV1 = {
  };
  repository?: string;
  icon?: string; // relative path
- main?: string; // plugin runtime entry
+ main: string; // required plugin runtime entry
+ renderer?: string; // module the host evaluates to mount UI slots (§3.2)
+ rendererActions?: string[]; // actions a renderer component may dispatch, at most 16
+ rendererCallMethods?: string[]; // onRendererCall methods plugin.call may reach, at most 32
  ui?: PluginUiConfig;
  contributes?: PluginContributes;
  permissions?: PluginPermission[];
@@ -60,14 +63,6 @@ type PluginManifestV1 = {
  net?: { domains?: string[] }; // egress allowlist (§5.3)
  engines?: {
  piDesktop?: string; // semver range
- };
- entrypoints?: {
- onInstall?: string;
- onLoad?: string;
- onEnable?: string;
- onDisable?: string;
- onUnload?: string;
- onUninstall?: string;
  };
  activationEvents?: string[]; // e.g. onCommand:xxx / onStartup
  /**
@@ -79,6 +74,13 @@ type PluginManifestV1 = {
 };
 ```
 
+The SDK author type accepts a string or contact object, but the current Rust
+installer deserializes `author` as a string. Use a display string for installable
+packages. SDK validation is not an exact mirror of host installation: `main`
+is mandatory in both, while schema-version/metadata checks differ. Write
+`schemaVersion: 1` and use `check` plus actual artifact installation; do not
+interpret a permissive low-level parser as a supported compatibility contract.
+
 ## 3. UI config
 
 ```ts
@@ -86,6 +88,8 @@ type PluginUiConfig = {
  panel?: string; // html entry
  width?: number;
  height?: number;
+ shape?: "panel" | "widget";
+ alwaysOnTop?: boolean;
  resizable?: boolean;
  title?: string | {
    en: string;
@@ -137,6 +141,47 @@ Rules:
    (`pi.app.getLocale`, `appearance:changed`); the plugin localizes itself
    (ADR 0280).
 
+### 3.2 Renderer module (`renderer`)
+
+`renderer` names an ES module inside the package that the host evaluates in its
+own window to mount UI slot components:
+
+- `composerControl` — additive controls in the composer toolbar
+- `composerTrigger` — the item list behind one of the composer's trigger
+  symbols (data, not a component: the host draws the list)
+- `userAction` / `assistantAction` — additive items on a message's action bar
+- `entryExtra` — an additive block below an assistant reply
+- `toolCard` — the card for calls of one of the plugin's own Agent tools
+- `blockRenderer` — the renderer for a fenced block tagged `<pluginId>:<lang>`
+
+`pi.slots.register` returns a disposer, and every registration is withdrawn when
+the plugin unloads. A self-drawn dialog is not a slot: the plugin opens a layer
+with `pi.ui.openLayer` and draws into it (`docs/plugin-plan/ui/`).
+
+The module runs in the host's own realm, so this is a contract and not a sandbox
+boundary; the two whitelists are what keeps a component inside its own plugin.
+`rendererActions` lists the actions a component may dispatch, capped at 16, from
+the fixed vocabulary `plugin.call`, `composer.insertText`, `composer.readDraft`,
+`composer.replaceDraft`, `attachments.add`, `attachments.list`,
+`attachments.remove` — a word outside it is refused as `PLUGIN_ACTION_UNKNOWN`,
+and a word the manifest does not list as `PLUGIN_ACTION_UNDECLARED`.
+`rendererCallMethods` lists the method names the plugin's `onRendererCall`
+answers for `plugin.call`, capped at 32; the host adds the calling plugin's id,
+so a component only ever reaches its own plugin.
+
+```json
+{
+  "permissions": ["renderer.extension"],
+  "renderer": "renderer/index.mjs",
+  "rendererActions": ["plugin.call", "composer.insertText"],
+  "rendererCallMethods": ["openWorkspace"]
+}
+```
+
+Slot names, props and the caps are in `packages/plugin-sdk/src/renderer.ts`
+(`PLUGIN_RENDERER_SLOTS`, `PLUGIN_RENDERER_ACTIONS`, `PLUGIN_SLOT_POSITIONS`),
+and a worked example is `examples/plugins/ui-slots-lab`.
+
 ## 4. contributes
 
 ```ts
@@ -149,7 +194,8 @@ providers?: PluginProviderContrib[]; // Host-owned provider rows; needs `provide
  settings?: PluginSettingContrib[];
  themes?: PluginThemeContrib[];
  scenicThemes?: PluginScenicThemesContrib;
- windowAppearance?: PluginWindowAppearanceContrib; // native window background and Windows corner radius; needs `ui.window.appearance`
+ windowAppearance?: PluginWindowAppearanceContrib; // native window background and Windows corner request; needs `ui.window.appearance`
+ composerTransforms?: PluginComposerTransformContrib[]; // explicit Composer text actions; needs `composer.transform`
  mcpServers?: PluginMcpServerContrib[];
   services?: PluginServiceContrib[];
   bus?: PluginBusContrib;
@@ -163,17 +209,20 @@ type PluginCommandContrib = {
  title: string;
  keywords?: string[];
  category?: string;
- icon?: string;
- requires?: PluginPermission[]; // extra per-command perms
 };
 
 type PluginAgentToolContrib = {
  name: string; // tool name exposed to agent
  description: string;
- risk: "low" | "medium" | "high";
- schema: Record<string, unknown>; // JSON schema object
- timeoutMs?: number;
- permissions?: PluginPermission[];
+ risk?: "low" | "medium" | "high";
+ schema?: unknown; // JSON schema object
+ planSafeActions?: readonly string[]; // read-only action names for Plan/Goal
+};
+
+type PluginComposerTransformContrib = {
+ id: string; // plugin-local; [A-Za-z][A-Za-z0-9_-]{0,63}
+ title: string | { en: string; "zh-CN": string };
+ undoTitle?: string | { en: string; "zh-CN": string };
 };
 
 type PluginSettingContrib = {
@@ -185,7 +234,7 @@ type PluginSettingContrib = {
  enum?: Array<{ label: string; value: string | number | boolean }>;
  /** Required for shortcut settings; invokes a declared plugin command. */
  command?: string;
- /** Fixed to plugin for now; global shortcut registration is not supported. */
+ /** App-local setting scope; OS-global shortcuts use globalShortcuts instead. */
  scope?: "plugin";
  secret?: boolean;
 };
@@ -218,6 +267,7 @@ type PluginThemeContrib = {
  assets?: string[]; // package-relative or absolute png/jpg/jpeg/webp/avif/svg/woff2, 4 MB summed;
                     // relative paths resolve inside plugin root; traversal/node_modules are rejected;
                     // each matching `url()` is rewritten to `plugin-asset://`
+ variables?: PluginThemeVariableContrib[]; // typed values for `pi.themes.setVariables` (see Appearance extensions)
 };
 
 type PluginScenicThemesContrib = {
@@ -236,14 +286,21 @@ type PluginScenicThemesContrib = {
 
 type PluginWindowAppearanceContrib = {
  backgroundColor?: { light?: string; dark?: string }; // #rrggbb | #rrggbbaa
- cornerRadius?: number; // integer 0..24 DIP, Windows main window only; default 4
+ cornerRadius?: number; // integer 0..24 DIP, Windows main window only; default 12
 };
+```
 
 `cornerRadius` belongs to the contributing plugin and applies while any of its
 declared themes is selected. It does not change macOS/Linux native corners.
 Removing the theme or its `ui.window.appearance` grant restores the Windows
-main-window default of 4 DIP. Invalid or fractional values reject the manifest.
+main-window default of 12 DIP (`--radius-md`). Invalid or fractional values
+reject the manifest. On Windows build 22000 and later, 0 requests square
+corners and every positive value requests the same native DWM rounded
+preference; Windows chooses the exact radius. Earlier Windows builds retain the
+requested DIP radius. On Windows 11, an 8-digit background is composited over
+the resolved built-in theme color so the top-level window remains opaque.
 
+```ts
 type PluginSkillContrib = {
  id?: string; // defaults to the file name without its extension
  path: string; // relative path to the skill document
@@ -278,6 +335,8 @@ type PluginBusContrib = {
 type PluginProviderContrib = {
  id: string; // ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$, unique within the plugin
  name: string; // display name in the native provider list
+ category?: string | { en: string; "zh-CN": string }; // Add Service group; defaults to plugin name
+ description?: string | { en: string; "zh-CN": string }; // Add Service hover/focus introduction, ≤280 chars
  vendorKey?: string; // models.dev vendor key, default `custom`
  baseUrl?: string; // absolute http(s) URL
  apiStyle?: PluginProviderApiStyle; // wire style, default `chat_completions`
@@ -323,6 +382,7 @@ type PluginPermission =
  | "ui.panel"
  | "ui.view"
  | "ui.theme"
+ | "ui.settings"
  | "ui.window.appearance"
  | "clipboard.read"
  | "clipboard.write"
@@ -332,8 +392,14 @@ type PluginPermission =
  | "fs.delete"
  | "agent.tool.register"
  | "agent.prompt.inject"
+ | "agent.complete"
+ | "agent.extension"
+ | "composer.transform"
+ | "composer.suggest"
+ | "renderer.extension"
  | "provider.register"
  | "provider.oauth"
+ | "models.list"
  | "net.fetch"
  | "net.anyHost"
  | "shell.openExternal"
@@ -348,10 +414,12 @@ type PluginPermission =
  | "desktop.control"
  | "ui.microphone"
  | "project.create"
+ | "session.read"
  | "session.import"
  | "session.read.own"
  | "session.update.own"
  | "session.delete.own"
+ | "session.autoTitle"
  | "usage.read"
  | "audio.capture.background"
  | "audio.playback.background"
@@ -360,7 +428,18 @@ type PluginPermission =
  | "net.websocket";
 ```
 
-Unknown permission = validation failure.
+The authoritative list is `PLUGIN_PERMISSIONS` in `@pi-desktop/plugin-sdk`.
+An unknown permission name is an error in `pi-plugin check`
+(`permission.unknown`). `validateManifest()` and the host installer do not
+reject it; the string matches no capability check, so it grants nothing.
+
+`pi.workspace.get()` reports the visible workspace; `pi.projects.list()` lists
+all durable project rows without selecting one. Both are read-only metadata
+and require no manifest permission. The list includes ungrouped projects with
+stable base-10 `projects.id` strings, display names, primary paths, and non-empty
+primary-first roots. Unavailable project lookup returns `[]`. See the
+[projects / workspace API](03-plugin-api.md#projects-workspace-fs) for ordering,
+group-root enrichment, and the distinction between project and group ids.
 
 `fs.read.workspace`, `fs.write.workspace` and `fs.delete.workspace` are the
 pre-scope names. They still validate, and the host rewrites them on load to the
@@ -452,12 +531,18 @@ and `**` matches one or more trailing segments (final segment only).
 
 ## 5.4 providers — provider rows the plugin declares
 
-`contributes.providers` declares at most 8 providers that the Host materializes
-as rows in the native provider list, owned by the plugin ([ADR 0259](../../adr/0259-plugin-declared-providers.md)):
+`contributes.providers` declares provider rows that the Host materializes in
+the native provider list, owned by the plugin ([ADR 0259](../../adr/0259-plugin-declared-providers.md)). There is no per-plugin provider-count cap; the existing 50 MiB plugin package limit remains the outer size bound:
 
 - the declaration `id` matches `[a-zA-Z][a-zA-Z0-9_-]{0,63}` and is unique
   within the plugin; the row id is `plugin:<pluginId>:<declaredId>`
 - `name` is required and is what Settings shows
+- `category` is optional Add Service group metadata. It accepts a non-empty
+  plain string or both localized labels (`en` and `zh-CN`); each label is at
+  most 128 characters. When omitted, the plugin name is the group label.
+- `description` is an optional short introduction shown in an Add Service
+  tooltip on hover or keyboard focus. It accepts a non-empty string or both
+  localized labels (`en` and `zh-CN`), each at most 280 characters.
 - `baseUrl` is optional, but must be an absolute `http(s)` URL
 - `apiStyle` is optional and defaults to `chat_completions`; the accepted values
   are the provider-config styles except `auto`
@@ -466,7 +551,10 @@ as rows in the native provider list, owned by the plugin ([ADR 0259](../../adr/0
   `onProviderOAuth` module export. Optional `oauth.loginLabel` is a
   non-empty string of at most 128 characters; `oauth.isSubscription` is a
   boolean. The host stores one encrypted credential per provider contribution.
-- `models` requires 1..64 entries with unique ids of 1..256 characters
+- `models` accepts up to 64 entries with unique ids of 1..256 characters. An
+  empty list is valid only for an API-key provider with `baseUrl`; after the
+  user saves a key, the Host discovers and caches that endpoint's models and
+  exposes the cached models for the plugin-owned row.
 
 `thinkingLevels` is optional. The Host trims entries, drops unknown canonical
 names, removes duplicates, and preserves the remaining declaration order. An
@@ -481,6 +569,16 @@ fields; disabling the plugin keeps the rows and turns them off, while dropping a
 declaration or uninstalling the plugin deletes the row with its stored
 credentials.
 
+An API-key provider with a `baseUrl` appears in the Host's **Add Service**
+chooser while its plugin is loaded with `provider.register` and the provider has
+no saved key. Entries are grouped by `category`, or by plugin name when it is
+omitted. Selecting an entry opens the Host-owned key form and saves through the
+existing provider secret path. Once configured, the provider stays in the
+provider list and is omitted from Add Service so the same row is not offered as
+a second add action. OAuth and no-auth contributions do not appear in this
+chooser. Existing plugin-owned row reconciliation and credential retention are
+unchanged; category is display metadata only and does not grant a capability.
+
 OAuth contributions use the host-owned vendor-account UI. `onProviderOAuth`
 handles `login` and `refresh`; `pi.providers.oauth.prompt` and `.notify` provide
 host-rendered interaction. The callback can read only the credential for its
@@ -493,29 +591,39 @@ grant the permission only to code you trust. See
 [03-plugin-api.md](03-plugin-api.md) and
 [13-plugin-permissions-matrix.md](13-plugin-permissions-matrix.md).
 
-## 6. activationEvents (optional)
+## 6. activationEvents (optional metadata)
 
-Examples:
+`activationEvents` may document intent such as `onStartup` or
+`onCommand:demo.hello.say`. The current runtime eagerly loads enabled plugins
+at restore/enable/development-load time; it does not implement an activation-event
+scheduler. Do not rely on this field to defer initialization or constrain scope.
+Use the host's activation-scope control for project eligibility.
 
-- `onStartup`
-- `onCommand:demo.hello.say`
-- `onAgentMode`
-- `onWorkspaceOpen`
-
-MVP may implement only:
-- `onStartup`
-- `onCommand:*`
+`engines.piDesktop` is author compatibility metadata; the marketplace catalog
+also carries host-version constraints. A local directory passing `check` does
+not prove runtime API availability. Feature-detect additive methods and test on
+the oldest host you claim. Export `onLoad` / `onUnload` from `main`; there is no
+`entrypoints` manifest contract.
 
 ## 7. Validation rules
 
-1. `schemaVersion` must be `1`
-2. `id` / `name` / `version` are required
-3. Whether a manifest that declares `ui.panel` needs the `ui.panel` permission implicitly (auto-filled) or by explicit declaration is an **open question** (tracked in [08-meta/open-questions.md](../08-meta/open-questions.md))
-4. If `agentTools` are present, `agent.tool.register` must be declared
+1. `schemaVersion` is required and must be a number. The current format is `1`;
+   the value itself is not checked
+2. `id` / `name` / `version` / `main` are required
+3. Opening `ui.panel` requires the explicit declared and granted `ui.panel`
+   permission; a panel path does not implicitly grant it
+4. If `agentTools` are present, `agent.tool.register` must be declared.
+   `pi-plugin check` reports a missing permission as an error
+   (`permission.tools-missing`); the installer does not, and
+   `pi.agent.registerTool` fails at runtime without the grant
 5. Path fields must not use absolute paths or `..`
 6. `main` / `ui.panel` / skills / `views[].entry` paths must exist
-7. tool `name` allows only `[a-zA-Z][a-zA-Z0-9_]*`
-8. Contribution ids (`themes`, `mcpServers`, `services`, `views`) must match
+7. tool `name` should use only `[a-zA-Z][a-zA-Z0-9_]*`. This is not validated:
+   the host replaces every other character with `_` in the agent-facing tool
+   name (`plugin_<pluginId>_<name>`), so two names that differ only in such
+   characters collide
+8. Contribution ids (`themes`, `mcpServers`, `services`, `views`,
+   `composerTransforms`) must match
    `[a-zA-Z][a-zA-Z0-9_-]{0,63}` and be unique within their own list;
    `sessionSources` uses the same rule with `.` additionally allowed
 9. `themes[].path` must exist and end in `.css`; `themes[].base` may only be
@@ -529,9 +637,14 @@ MVP may implement only:
    valid patterns (§5.1)
 12. A contribution that needs a permission fails validation when the permission
    is missing: `themes` → `ui.theme`, `views` → `ui.view`, `providers` →
-   `provider.register`, OAuth providers → `provider.oauth`, stdio servers → `mcp.server.local`, remote
-   servers → `mcp.server.remote`, `services` → `background.service`,
-   `bus.publish` → `bus.publish`, `bus.subscribe` → `bus.subscribe`.
+   `provider.register`, OAuth providers → `provider.oauth`, `composerTransforms` →
+   `composer.transform`, `agentExtensions` → `agent.extension`,
+   `windowAppearance` → `ui.window.appearance`, stdio servers →
+   `mcp.server.local`, remote servers → `mcp.server.remote`, `services` →
+   `background.service`, `bus.publish` → `bus.publish`, `bus.subscribe` →
+   `bus.subscribe`.
+   `scenicThemes` is not checked at validation: without both `ui.settings` and
+   `ui.theme` the host simply does not show the Settings entry.
    `skills` is the exception — it predates the permission gate, so a manifest
    without `agent.prompt.inject` still validates and the runtime simply skips
    the skills
@@ -557,6 +670,11 @@ MVP may implement only:
    `[a-zA-Z][a-zA-Z0-9._-]{0,63}` and is unique; `command` must be declared in
    `contributes.commands`; `default`, when present, uses the same
    modifier-plus-key / F-key grammar as `shortcut` settings
+
+19. `renderer` must be a `.js` or `.mjs` file inside the package;
+    `rendererActions` (at most 16) and `rendererCallMethods` (at most 32) are
+    lists of non-empty names and require `renderer`. Declaring any of the three
+    needs the `renderer.extension` permission (§3.2)
 
 ## 8. Example: minimal plugin
 
@@ -662,5 +780,7 @@ never passed through (D018).
 ## 10. Compatibility strategy
 
 - A future `schemaVersion: 2` needs a migrator
-- The host should reject a too-high major version
-- Unknown optional fields may be ignored; unknown required permissions must fail
+- The host should reject a too-high major version; today neither the SDK nor
+  the host compares `schemaVersion` against `1` (§7 rule 1)
+- Unknown optional fields may be ignored. Unknown permissions fail
+  `pi-plugin check` but are not rejected at install (§5)

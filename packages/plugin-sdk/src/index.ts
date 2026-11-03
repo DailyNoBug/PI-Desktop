@@ -17,6 +17,23 @@ import {
   type PluginThemeVariableContrib,
 } from "./theme-variables.js";
 
+/** Host-mediated HTTP request; redirect defaults to the legacy follow policy. */
+export type PluginNetFetchInput = {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+  /** Defaults to follow. error refuses any 3xx; manual returns it unchanged. */
+  redirect?: "follow" | "error" | "manual";
+};
+
+export type PluginNetFetchResult = {
+  status: number;
+  headers: Record<string, string>;
+  bodyText: string;
+};
+
 /**
  * Manifest id shape frozen by docs/spec/07-plugins/02-plugin-manifest-schema.md:
  * a lowercase dotted namespace such as `demo.hello` or `pi.browser`.
@@ -141,7 +158,10 @@ export type PluginManifest = {
     /**
      * Providers this plugin adds to Settings' provider list. Requires the
      * `provider.register` permission; each row is read-only for the user and
-     * refreshed from this manifest on every load.
+     * refreshed from this manifest on every load. API-key providers are also
+     * offered in the Add Service chooser until the user stores a key. An
+     * optional category groups those chooser entries; it is display metadata
+     * and may be localized.
      */
     providers?: PluginProviderContrib[];
     settings?: PluginSettingContrib[];
@@ -163,6 +183,8 @@ export type PluginManifest = {
      * host registers, conflict-checks, and releases it with the plugin.
      */
     globalShortcuts?: PluginGlobalShortcutContrib[];
+    /** User-invoked text actions beside the Composer controls. */
+    composerTransforms?: PluginComposerTransformContrib[];
   };
   permissions?: string[];
   /**
@@ -196,6 +218,90 @@ export type PluginSessionSourceContrib = {
   id: string;
   label?: string | PluginLocalizedString;
 };
+
+/** A user-invoked transformation of the current Composer text. */
+export type PluginComposerTransformContrib = {
+  id: string;
+  title: string | PluginLocalizedString;
+  undoTitle?: string | PluginLocalizedString;
+};
+
+/** Input excludes conversation history, attachments, and file paths. */
+export type PluginComposerTransformInput = {
+  id: string;
+  text: string;
+  modelKey?: string;
+};
+
+/**
+ * Longest suggestion text the host keeps, in characters. Longer text is cut;
+ * the composer draws it in one line with an ellipsis either way.
+ */
+export const PLUGIN_COMPOSER_SUGGESTION_MAX_CHARS = 200;
+/** Lifetime of one suggestion when `ttlMs` is omitted, in milliseconds. */
+export const PLUGIN_COMPOSER_SUGGESTION_TTL_MS = 120_000;
+/** Shortest and longest lifetime a caller may ask for, in milliseconds. */
+export const PLUGIN_COMPOSER_SUGGESTION_TTL_MIN_MS = 1_000;
+export const PLUGIN_COMPOSER_SUGGESTION_TTL_MAX_MS = 600_000;
+
+/**
+ * `pi.composer.suggest`: one dismissible line the composer shows in its
+ * placeholder layer while the draft is empty (`composer.suggest`).
+ *
+ * `sessionId` and `turnId` are the ones the plugin learned from
+ * `session:turnEnded`. The host shows the text only while that session is
+ * still the one on screen, no newer turn has started, and the draft is empty,
+ * so an answer that took a model request to produce cannot surface in a place
+ * the user already left. `text` is one line: the host folds line breaks and
+ * runs of whitespace into single spaces and cuts the result at
+ * `PLUGIN_COMPOSER_SUGGESTION_MAX_CHARS`. `ttlMs` defaults to
+ * `PLUGIN_COMPOSER_SUGGESTION_TTL_MS` and is clamped into
+ * `PLUGIN_COMPOSER_SUGGESTION_TTL_MIN_MS`..`PLUGIN_COMPOSER_SUGGESTION_TTL_MAX_MS`.
+ */
+export type PluginComposerSuggestInput = {
+  readonly sessionId: string;
+  /** The turn the suggestion belongs to; a older turn that already ran is stale. */
+  readonly turnId?: string;
+  readonly text: string;
+  readonly ttlMs?: number;
+};
+
+/**
+ * Why a suggestion is not on screen.
+ * - `session-not-visible`: that session is not the one the user is looking at.
+ * - `draft-not-empty`: the composer already holds text or an attachment.
+ * - `stale-turn`: the session has run a newer turn since `turnId`, so the
+ *   suggestion would arrive about a moment that is already over.
+ * - `replaced`: a newer suggestion took the slot before this one was answered.
+ * - `unsupported`: nothing could take it — no window, no composer mounted, or
+ *   the shell did not answer in time.
+ */
+export const PLUGIN_COMPOSER_SUGGESTION_REFUSALS = [
+  "session-not-visible",
+  "draft-not-empty",
+  "stale-turn",
+  "replaced",
+  "unsupported",
+] as const;
+
+export type PluginComposerSuggestionRefusal =
+  (typeof PLUGIN_COMPOSER_SUGGESTION_REFUSALS)[number];
+
+/**
+ * `pi.composer.suggest` answer. A place that will not show the text is not an
+ * error: `shown: false` and a `reason` let a plugin log the miss and decide
+ * whether to spend another completion. Only malformed input throws —
+ * `INVALID_PARAMS`, like every other host API.
+ */
+export type PluginComposerSuggestResult =
+  | { readonly shown: true }
+  | { readonly shown: false; readonly reason: PluginComposerSuggestionRefusal };
+
+/**
+ * `pi.composer.clearSuggestion`: drop this plugin's suggestion. `sessionId`
+ * defaults to the session the user is looking at.
+ */
+export type PluginComposerClearSuggestionInput = { readonly sessionId?: string };
 
 export type PluginSessionMessage =
   | { role: "user"; content: string; createdAt: string }
@@ -262,6 +368,25 @@ export type PluginProjectRecord = {
   name: string;
 };
 
+/** One registered folder; paths are metadata and do not grant filesystem access. */
+export type PluginWorkspaceRoot = {
+  path: string;
+  name: string;
+  primary: boolean;
+};
+
+/** One durable row in the host's projects table, including ungrouped projects. */
+export type PluginProjectInfo = {
+  /** Base-10 projects.id, without a prefix. Stable for the lifetime of the row;
+   * distinct from workspace.get().projectId, which identifies a project group. */
+  projectId: string;
+  name: string;
+  /** This row's workspace identity; remote-project: identities remain opaque. */
+  primaryPath: string;
+  /** Non-empty, primary first, followed by this primary's registered group roots. */
+  roots: PluginWorkspaceRoot[];
+};
+
 export type PluginSessionListItem = {
   sessionId: string;
   title: string;
@@ -298,6 +423,15 @@ export type PluginSessionGetResult = {
   messageCount: number;
   createdAt: string;
   updatedAt: string;
+};
+
+/** Bounded first-turn data for an eligible default-titled session, never a full transcript. */
+export type PluginAutoTitleContext = {
+  sessionId: string;
+  expectedTitle: string;
+  userPrompt: string;
+  assistantReply?: string;
+  modelKey?: string;
 };
 
 /**
@@ -524,9 +658,6 @@ export type PluginProviderOAuthContext = {
   signal: AbortSignal;
 };
 
-/** Upper bound on `contributes.providers` entries one plugin may declare. */
-export const MAX_PLUGIN_PROVIDERS_PER_PLUGIN = 8;
-
 /** Upper bound on the model list of one contributed provider. */
 export const MAX_PLUGIN_PROVIDER_MODELS = 64;
 
@@ -566,6 +697,10 @@ export type PluginProviderContrib = {
   id: string;
   /** Display name for the provider row; required and non-empty. */
   name: string;
+  /** Optional Add Service chooser group; defaults to the plugin name. */
+  category?: string | PluginLocalizedString;
+  /** Optional short introduction shown on hover/focus in Add Service. */
+  description?: string | PluginLocalizedString;
   /** Vendor the row is attributed to; `custom` when omitted. */
   vendorKey?: string;
   /** Endpoint the runtime reaches; must be an absolute http(s) URL. */
@@ -574,7 +709,7 @@ export type PluginProviderContrib = {
   authKind?: PluginProviderAuthKind;
   /** OAuth sign-in metadata; valid only when `authKind` is `oauth`. */
   oauth?: PluginProviderOAuthContrib;
-  /** 1..64 models with unique ids. */
+  /** Up to 64 models with unique ids. An empty list enables endpoint discovery after key setup. */
   models: PluginProviderModelContrib[];
 };
 
@@ -584,9 +719,9 @@ export type PluginProviderContrib = {
  * `ui.window.appearance` grant.
  */
 export type PluginWindowAppearanceContrib = {
-  /** `#rrggbb` or `#rrggbbaa`, applied per resolved palette. */
+  /** `#rrggbb` or `#rrggbbaa`, applied per resolved palette; Windows 11 flattens alpha over the built-in palette. */
   backgroundColor?: { light?: string; dark?: string };
-  /** Windows main-window radius in DIP. Applies while a contributed theme is selected. */
+  /** Windows main-window radius request in DIP; Windows 11 uses the system radius for positive values. */
   cornerRadius?: number;
 };
 
@@ -827,6 +962,49 @@ export type PluginLlmContext = {
   truncated: boolean;
 };
 
+/**
+ * The host turn one session is running right now (spec 07-plugins/03 §session).
+ *
+ * `turnId` is the durable identity the host opened for that turn, so a plugin
+ * can scope its own work by turn instead of guessing from the previous turn's
+ * end event or from draft changes. `startedAt` is the host's clock in epoch ms.
+ */
+export type PluginActiveTurn = {
+  readonly turnId: string;
+  readonly startedAt: number;
+};
+
+/**
+ * The session the user is looking at, as the host shows it.
+ *
+ * `projectPath` is the working directory of the session's project (`null` for a
+ * session without one). `activeTurn` is `null` while the session is idle. The
+ * snapshot is a value, not a handle: the session can change or stop between two
+ * calls, so a plugin must compare `sessionId` instead of assuming it held.
+ */
+export type PluginActiveSession = {
+  readonly sessionId: string;
+  readonly projectPath: string | null;
+  readonly activeTurn: PluginActiveTurn | null;
+};
+
+/** What `pi.ui.revealView` accepts: which of the plugin's views, showing what. */
+export type PluginRevealViewInput = {
+  /**
+   * One of the plugin's own `contributes.views`. Omitting it names the view only
+   * when the plugin contributes exactly one.
+   */
+  readonly viewId?: string;
+  /** Opaque subject for the view, the same value `piViewOpen` carries. */
+  readonly location?: string;
+  /**
+   * The session whose work panel should show the view. Omitting it means the
+   * session the user is looking at right now; naming a session that is no
+   * longer active is refused instead of opening a view on a stale panel.
+   */
+  readonly sessionId?: string;
+};
+
 export type PluginCompleteInput = {
   modelKey: string;
   thinkingLevel?: string;
@@ -1038,6 +1216,8 @@ export type PluginFsPreview = {
   /** Base64 data URL when kind is `"image"`. */
   dataUrl?: string;
   size: number;
+  /** Available for brokered remote previews. */
+  mtimeMs?: number;
 };
 
 export type PluginGitFileStatus =
@@ -1102,6 +1282,9 @@ export type PluginGitOperation = {
   status: PluginGitStatus;
   commitHash?: string;
 };
+
+/** Reject a file response if the workspace changed while a view was loading it. */
+export type PluginFsReadOptions = { workspacePath: string };
 
 /**
  * The appearance the host is currently showing. Mirrors `PluginAppearance` in
@@ -1177,6 +1360,25 @@ export type PluginHostApi = {
     register: (handler: PluginRpcHandler) => Promise<void>;
     unregister: () => Promise<void>;
   };
+
+  /**
+   * The session's input box (`composer.suggest`). A plugin gets one
+   * dismissible line into the placeholder layer of a session whose draft is
+   * empty; the user takes it with Tab, drops it with Esc, and typing anything
+   * drops it too. Never a message, never a bubble, never a send.
+   */
+  composer: {
+    /**
+     * Offer one line for the composer of `sessionId`. Resolves
+     * `{ shown: false, reason }` instead of throwing when nothing will show
+     * it, so the answer is safe to log. The whole suggestion is cleared by
+     * the shell on: typing, pasting, an attachment, a send, a session switch,
+     * a new turn, this plugin unloading, a renderer reload, or a window close.
+     */
+    suggest: (input: PluginComposerSuggestInput) => Promise<PluginComposerSuggestResult>;
+    /** Drop this plugin's suggestion; nothing is shown when it is already gone. */
+    clearSuggestion: (input?: PluginComposerClearSuggestionInput) => Promise<{ ok: true }>;
+  };
   ui: {
     openPanel: (opts?: { title?: string }) => Promise<void>;
     closePanel: () => Promise<void>;
@@ -1187,6 +1389,17 @@ export type PluginHostApi = {
     showNativeNotification: (
       input: PluginNativeNotificationInput,
     ) => Promise<PluginNativeNotificationResult>;
+    /**
+     * Show one of this plugin's own `contributes.views` in the work panel of a
+     * session (`ui.view`). The view travels through the same `location` channel
+     * the tool launcher and chat file references use, and a live view receives
+     * it as a `view:open` push instead of a reload.
+     *
+     * Rejects with `INVALID_ARGUMENT` when no session is active, when the named
+     * `sessionId` is no longer the one the user is looking at, or when `viewId`
+     * does not name exactly one of the plugin's views.
+     */
+    revealView: (input?: PluginRevealViewInput) => Promise<void>;
   };
   project: {
     create: (input: { path: string }) => Promise<PluginProjectRecord>;
@@ -1199,7 +1412,12 @@ export type PluginHostApi = {
     };
   };
   workspace: {
-    get: () => Promise<{ path: string; name: string } | null>;
+    get: () => Promise<{ path: string; name: string; remote?: { path: string; readOnly: true } } | null>;
+  };
+  projects: {
+    /** Read-only durable projects, most recently opened first. No permission
+     * required; unavailable hosts return []. Never opens or switches a project. */
+    list: () => Promise<PluginProjectInfo[]>;
   };
   /** Reviewed host operations shared with the local MCP control plane. */
   desktop: {
@@ -1258,9 +1476,11 @@ export type PluginHostApi = {
      * a data URL; text is capped; binary and oversized files are reported
      * without dumping their bytes.
      */
-    readPreview: (pathFromRoot: string) => Promise<PluginFsPreview>;
+    readPreview: (pathFromRoot: string, options?: PluginFsReadOptions) => Promise<PluginFsPreview>;
     /** Open an existing readable file with the operating system's default app. */
     openDefault: (pathFromRoot: string) => Promise<void>;
+    /** Open an existing readable HTML file in the bundled work-panel Browser. */
+    openInBrowser: (pathFromRoot: string) => Promise<void>;
     /** Reveal an existing readable file in the operating system's file manager. */
     reveal: (pathFromRoot: string) => Promise<void>;
     writeText: (pathFromRoot: string, content: string) => Promise<void>;
@@ -1271,7 +1491,7 @@ export type PluginHostApi = {
      * are always listed so the tree stays navigable; files are filtered by the
      * declared read scope, and heavy or protected directories are skipped.
      */
-    list: (pathFromRoot: string) => Promise<PluginFsEntry[]>;
+    list: (pathFromRoot: string, options?: PluginFsReadOptions) => Promise<PluginFsEntry[]>;
     remove: (pathFromRoot: string) => Promise<void>;
     /**
      * Ask the user to point at a directory, which becomes the root for this
@@ -1290,6 +1510,21 @@ export type PluginHostApi = {
   };
   session: {
     getLlmContext: () => Promise<PluginLlmContext>;
+    /**
+     * The session the user is looking at, or `null` at home and while no chat
+     * session is selected. This is the snapshot the `session:activated` event
+     * carries, so a plugin that subscribes does not need to poll.
+     *
+     * It takes no session id: the host reports the selection instead of letting
+     * a plugin address a session the user is not looking at.
+     */
+    getActive: () => Promise<PluginActiveSession | null>;
+    getAutoTitleContext: (input: { sessionId: string }) => Promise<PluginAutoTitleContext | null>;
+    setAutoTitle: (input: {
+      sessionId: string;
+      expectedTitle: string;
+      title: string;
+    }) => Promise<{ updated: boolean }>;
     list: (input?: {
       limit?: number;
       cursor?: string;
@@ -1360,6 +1595,8 @@ export type PluginHostApi = {
     openExternal: (url: string) => Promise<void>;
   };
   browser: {
+    /** Reveal the Browser view for the calling session and wait until it is ready. */
+    reveal: () => Promise<void>;
     navigate: (input: { url?: string; path?: string }) => Promise<unknown>;
     action: (input: { action: "back" | "forward" | "reload" | "stop" }) => Promise<void>;
     setBounds: (hole: { x: number; y: number; width: number; height: number }) => Promise<unknown>;
@@ -1379,13 +1616,9 @@ export type PluginHostApi = {
     cdp: (input: { method: string; params?: unknown }) => Promise<unknown>;
   };
   net: {
-    fetch: (input: {
-      url: string;
-      method?: string;
-      headers?: Record<string, string>;
-      body?: string;
-      timeoutMs?: number;
-    }) => Promise<{ status: number; headers: Record<string, string>; bodyText: string }>;
+    /** Query before using redirect on hosts that may predate this API. */
+    getCapabilities: () => Promise<{ fetchRedirectModes: ("follow" | "error" | "manual")[] }>;
+    fetch: (input: PluginNetFetchInput) => Promise<PluginNetFetchResult>;
     /**
      * Real-time bidirectional sockets (`net.websocket`). A connect is confined
      * to `manifest.net.domains` exactly like `fetch`, and the host closes every
@@ -1432,6 +1665,10 @@ export type PluginModule = {
    * be JSON. Throw an `Error` with a `code` to hand that code to the caller.
    */
   onRendererCall?: (method: string, args: unknown) => Promise<unknown> | unknown;
+  /** Handle one explicitly invoked Composer text action. */
+  onComposerTransform?: (
+    input: PluginComposerTransformInput,
+  ) => Promise<string> | string;
 };
 
 /** Upper bound on ExtensionAPI modules one plugin may contribute. */
@@ -1455,6 +1692,11 @@ export const PLUGIN_PERMISSIONS = [
   "agent.tool.register",
   "agent.prompt.inject",
   "agent.complete",
+  "composer.transform",
+  // One dismissible line in the composer's placeholder layer. A grant here can
+  // put text into a draft the user may send, so it sits with the draft writer
+  // (`composer.transform`) rather than with the display-only grants.
+  "composer.suggest",
   "agent.extension",
   // Renderer slots (`docs/plugin-plan/ui/`): the entry module loads into the
   // host renderer's own document, so the surface it can touch is the
@@ -1471,6 +1713,7 @@ export const PLUGIN_PERMISSIONS = [
   "session.read.own",
   "session.update.own",
   "session.delete.own",
+  "session.autoTitle",
   // Read-only usage facts (pi.usage.listTurns):
   // completed-turn counters and session titles, never message bodies.
   "usage.read",
@@ -1618,6 +1861,16 @@ export function validateManifest(raw: unknown): {
       error: "contributes.globalShortcuts requires the keyboard.globalShortcut permission",
     };
   }
+  if (
+    !contributesError &&
+    (m.contributes?.composerTransforms?.length ?? 0) > 0 &&
+    !(m.permissions ?? []).includes("composer.transform")
+  ) {
+    return {
+      ok: false,
+      error: "contributes.composerTransforms requires the composer.transform permission",
+    };
+  }
   if (contributesError) {
     return { ok: false, error: contributesError };
   }
@@ -1711,6 +1964,45 @@ export function validateContributions(
       return `global shortcut "${shortcut.id}" has an invalid default`;
     }
   }
+  const composerTransforms = contributes.composerTransforms ?? [];
+  if (!Array.isArray(composerTransforms)) {
+    return "contributes.composerTransforms must be an array";
+  }
+  const transformIds = new Set<string>();
+  for (const transform of composerTransforms) {
+    if (!transform || typeof transform !== "object" || Array.isArray(transform)) {
+      return "contributes.composerTransforms entries must be objects";
+    }
+    if (
+      typeof transform.id !== "string" ||
+      !/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(transform.id)
+    ) {
+      return "composer transform id is missing or invalid";
+    }
+    if (transformIds.has(transform.id)) {
+      return `duplicate composer transform id "${transform.id}"`;
+    }
+    transformIds.add(transform.id);
+    if (transform.title === undefined) {
+      return `composer transform "${transform.id}" requires a title`;
+    }
+    const titleError = localizedStringError(
+      transform.title,
+      `composer transform "${transform.id}" title`,
+    );
+    if (titleError) return titleError;
+    if (typeof transform.title === "string" && !transform.title.trim()) {
+      return `composer transform "${transform.id}" title must not be empty`;
+    }
+    const undoTitleError = localizedStringError(
+      transform.undoTitle,
+      `composer transform "${transform.id}" undoTitle`,
+    );
+    if (undoTitleError) return undoTitleError;
+    if (typeof transform.undoTitle === "string" && !transform.undoTitle.trim()) {
+      return `composer transform "${transform.id}" undoTitle must not be empty`;
+    }
+  }
   for (const setting of settings) {
     if (!setting || typeof setting !== "object") {
       return "contributes.settings entries must be objects";
@@ -1799,9 +2091,6 @@ export function validateContributions(
 
   const declaredProviders = contributes.providers ?? [];
   if (!Array.isArray(declaredProviders)) return "contributes.providers must be an array";
-  if (declaredProviders.length > MAX_PLUGIN_PROVIDERS_PER_PLUGIN) {
-    return `contributes.providers allows at most ${MAX_PLUGIN_PROVIDERS_PER_PLUGIN} entries`;
-  }
   const providerIds = new Set<string>();
   for (const provider of declaredProviders) {
     if (!provider || typeof provider !== "object" || Array.isArray(provider)) {
@@ -1816,6 +2105,44 @@ export function validateContributions(
     providerIds.add(provider.id);
     if (typeof provider.name !== "string" || !provider.name.trim()) {
       return `provider "${provider.id}" requires a name`;
+    }
+    const categoryError = localizedStringError(
+      provider.category,
+      `provider "${provider.id}" category`,
+    );
+    if (categoryError) return categoryError;
+    if (typeof provider.category === "string") {
+      if (!provider.category.trim()) {
+        return `provider "${provider.id}" category must not be empty`;
+      }
+      if (provider.category.length > 128) {
+        return `provider "${provider.id}" category must be at most 128 characters`;
+      }
+    } else if (provider.category) {
+      for (const locale of ["en", "zh-CN"] as const) {
+        if (provider.category[locale].length > 128) {
+          return `provider "${provider.id}" category.${locale} must be at most 128 characters`;
+        }
+      }
+    }
+    const descriptionError = localizedStringError(
+      provider.description,
+      `provider "${provider.id}" description`,
+    );
+    if (descriptionError) return descriptionError;
+    if (typeof provider.description === "string") {
+      if (!provider.description.trim()) {
+        return `provider "${provider.id}" description must not be empty`;
+      }
+      if (provider.description.length > 280) {
+        return `provider "${provider.id}" description must be at most 280 characters`;
+      }
+    } else if (provider.description) {
+      for (const locale of ["en", "zh-CN"] as const) {
+        if (provider.description[locale].length > 280) {
+          return `provider "${provider.id}" description.${locale} must be at most 280 characters`;
+        }
+      }
     }
     if (
       provider.vendorKey !== undefined &&
@@ -1885,8 +2212,14 @@ export function validateContributions(
     if (!Array.isArray(provider.models)) {
       return `provider "${provider.id}" requires models`;
     }
-    if (provider.models.length === 0 || provider.models.length > MAX_PLUGIN_PROVIDER_MODELS) {
-      return `provider "${provider.id}" declares 1 to ${MAX_PLUGIN_PROVIDER_MODELS} models`;
+    if (provider.models.length > MAX_PLUGIN_PROVIDER_MODELS) {
+      return `provider "${provider.id}" declares at most ${MAX_PLUGIN_PROVIDER_MODELS} models`;
+    }
+    if (
+      provider.models.length === 0 &&
+      ((provider.authKind ?? "api_key") !== "api_key" || !provider.baseUrl)
+    ) {
+      return `provider "${provider.id}" may omit models only for an API-key provider with a baseUrl`;
     }
     const modelIds = new Set<string>();
     for (const model of provider.models) {
@@ -2350,6 +2683,7 @@ export {
   FS_DENY_DIR_SEGMENTS,
   FS_DENY_FILE_PATTERNS,
   LEGACY_FS_PERMISSIONS,
+  PLUGIN_FS_LIST_MAX_ENTRIES,
   PLUGIN_FS_MODES,
   type MatchFsGlobOptions,
   type PluginFsMode,

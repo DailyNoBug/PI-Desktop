@@ -5,7 +5,10 @@ const {
   FILE_MANAGER_PLUGIN_TAB,
   activateWorkPanelTabState,
   browserPluginTab,
+  browserPluginTabForReveal,
   closeWorkPanelTabState,
+  closeAllWorkPanelTabsState,
+  closeOtherWorkPanelTabsState,
   createWorkPanelFileRequest,
   emptyWorkPanelContext,
   fileWorkPanelTab,
@@ -73,6 +76,16 @@ test("selecting an already-open tool removes only the source launcher tab", () =
   assert.equal(replaced.activeTabId, browser.id);
 });
 
+test("Browser reveal reuses the originating session's browser tab", () => {
+  const first = browserPluginTab("https://example.com/first");
+  const latest = browserPluginTab("https://example.com/latest");
+  const tabs = [first, toolWorkPanelTab("review"), latest];
+
+  assert.equal(browserPluginTabForReveal(tabs, "review", first.id), first);
+  assert.equal(browserPluginTabForReveal(tabs, latest.id), latest);
+  assert.equal(browserPluginTabForReveal([], null).id, browserPluginTab().id);
+});
+
 test("file tabs normalize lexical paths and remain distinct by resource", () => {
   const first = fileWorkPanelTab("src\\App.tsx");
   const equivalent = fileWorkPanelTab("./src//components/../App.tsx");
@@ -127,6 +140,25 @@ test("closing an inactive tab preserves selection and the last close empties sta
 
   assert.equal(inactiveClosed.activeTabId, "review");
   assert.deepEqual(empty, { tabs: [], activeTabId: null });
+});
+
+test("closing other tabs retains and activates the requested tab", () => {
+  const review = toolWorkPanelTab("review");
+  const file = fileWorkPanelTab("src/App.tsx");
+  const browser = browserPluginTab("https://example.com");
+  const state = { tabs: [review, file, browser], activeTabId: review.id };
+
+  const retained = closeOtherWorkPanelTabsState(state, browser.id);
+  assert.deepEqual(retained, { tabs: [browser], activeTabId: browser.id });
+  assert.equal(closeOtherWorkPanelTabsState(state, "missing"), state);
+});
+
+test("closing all tabs clears selection and is idempotent", () => {
+  const state = { tabs: [toolWorkPanelTab("review")], activeTabId: "review" };
+  const empty = closeAllWorkPanelTabsState(state);
+
+  assert.deepEqual(empty, { tabs: [], activeTabId: null });
+  assert.equal(closeAllWorkPanelTabsState(empty), empty);
 });
 
 test("activation ignores stale tab ids", () => {

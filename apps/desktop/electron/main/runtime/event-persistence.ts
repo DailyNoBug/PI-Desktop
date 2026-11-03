@@ -5,10 +5,13 @@ import type { RuntimeState } from "./context";
 import type { InflightCheckpointer } from "@pi-desktop/host-runtime";
 import type { Logger } from "../logger";
 import type { PersistenceOutbox } from "../persistence-outbox";
+import type { SessionCoordination } from "./session-coordination";
 
 export type EventPersistenceDependencies = {
   runtimeState: RuntimeState;
   steeringReplies: Set<string>;
+  /** Host-verified completion notice turns awaiting their first settled reply. */
+  completionNoticeTurns: Set<string>;
   activeTurns: Map<string, string>;
   activeToolCalls: Map<string, any>;
   activeToolCallKey: (sessionId: string, toolCallId: string) => string;
@@ -28,6 +31,11 @@ export type EventPersistenceDependencies = {
    * returning early does not stop this function from running.
    */
   isStaleTerminalEvent: (envelope: AgentEventEnvelope) => boolean;
+  /** Per-session turn history and rewrite fence shared with transcript IPC. */
+  transcriptRewrite: Pick<
+    SessionCoordination,
+    "beginTranscriptRewrite" | "deferTranscriptEvent" | "isStaleTranscriptEvent"
+  >;
   finishApprovedExecution: (...args: any[]) => Promise<void>;
   emitAgentEvent: (envelope: AgentEventEnvelope) => void;
 };
@@ -35,6 +43,7 @@ export type EventPersistenceDependencies = {
 export function createEventPersistence({
   runtimeState,
   steeringReplies,
+  completionNoticeTurns,
   activeTurns,
   activeToolCalls,
   activeToolCallKey,
@@ -49,13 +58,58 @@ export function createEventPersistence({
   logger,
   finishTurn,
   isStaleTerminalEvent,
+  transcriptRewrite,
   finishApprovedExecution,
   emitAgentEvent,
 }: EventPersistenceDependencies): {
   subagentTagged: (message: UiMessage, envelope: AgentEventEnvelope) => UiMessage;
   persistAgentEvent: (envelope: AgentEventEnvelope) => UiMessage | undefined;
+  beginTranscriptRewrite: (sessionId: string) => {
+    commit: () => void;
+    rollback: () => void;
+  };
+  flush: () => Promise<void>;
 } {
   const inflightSnapshots = new Map<string, UiMessage>();
+  const pendingWrites = new Set<Promise<void>>();
+  function trackWrite(write: Promise<void>): void {
+    pendingWrites.add(write);
+    void write.then(
+      () => pendingWrites.delete(write),
+      () => pendingWrites.delete(write),
+    );
+  }
+  async function flush(): Promise<void> {
+    while (pendingWrites.size > 0) {
+      await Promise.allSettled([...pendingWrites]);
+    }
+  }
+
+  function beginTranscriptRewrite(sessionId: string) {
+    const lease = transcriptRewrite.beginTranscriptRewrite(sessionId);
+    let settled = false;
+    return {
+      commit(): void {
+        if (settled) return;
+        settled = true;
+        lease.commit();
+      },
+      rollback(): void {
+        if (settled) return;
+        settled = true;
+        for (const envelope of lease.rollback()) {
+          try {
+            persistAgentEvent(envelope);
+          } catch (error) {
+            logger.app("persistence", "warn", "transcript rewrite event replay failed", {
+              sessionId,
+              data: String(error),
+            });
+          }
+        }
+      },
+    };
+  }
 function subagentTagged(message: UiMessage, envelope: AgentEventEnvelope): UiMessage {
   return tagMessageToolLineage(message, envelope);
 }
@@ -63,7 +117,13 @@ function subagentTagged(message: UiMessage, envelope: AgentEventEnvelope): UiMes
 
 function persistAgentEvent(envelope: AgentEventEnvelope): UiMessage | undefined {
   const event = envelope.event;
-  const turnId = activeTurns.get(envelope.sessionId);
+  if (transcriptRewrite.deferTranscriptEvent(envelope)) return;
+  const activeTurnId = activeTurns.get(envelope.sessionId);
+  if (transcriptRewrite.isStaleTranscriptEvent(envelope, activeTurnId)) {
+    if (envelope.turnId) completionNoticeTurns.delete(envelope.turnId);
+    return;
+  }
+  const turnId = activeTurnId;
   const usage = usageForEvent(envelope);
   if (usage) {
     if (ownsUsageTurn(envelope, turnId)) addActiveTurnUsage(envelope.sessionId, usage);
@@ -156,13 +216,14 @@ function persistAgentEvent(envelope: AgentEventEnvelope): UiMessage | undefined 
     // renderer, but persistence is a separate call: without this check the
     // finalizer below would still settle a turn this event does not own.
     if (isStaleTerminalEvent(envelope)) return;
+    completionNoticeTurns.delete(envelope.turnId ?? turnId ?? "");
     const turnFinalization = finishTurn(
       envelope.sessionId,
       event.error.code === "TURN_ABORTED" ? "aborted" : "error",
       event.error.code,
       { turnId: envelope.turnId ?? "" },
     );
-    void turnFinalization
+    trackWrite(turnFinalization
       .then(() =>
         executionId
           ? finishApprovedExecution(executionId, "interrupted", event.error.code)
@@ -173,20 +234,21 @@ function persistAgentEvent(envelope: AgentEventEnvelope): UiMessage | undefined 
           sessionId: envelope.sessionId,
           data: String(error),
         });
-      });
+      }));
     return;
   }
   if (event.type === "agent_end") {
     // A late terminal event must not close a newer turn, nor restate the
     // regenerate branch archive below on its behalf.
     if (isStaleTerminalEvent(envelope)) return;
+    completionNoticeTurns.delete(envelope.turnId ?? turnId ?? "");
     const turnFinalization = finishTurn(envelope.sessionId, "completed", undefined, {
       turnId: envelope.turnId ?? "",
     });
     // The finalizer's promise can reject — its body attempts the durable end and
     // its release handler no longer swallows a throwing body — so the chain is
     // observed even when no approved execution follows this turn.
-    void turnFinalization
+    trackWrite(turnFinalization
       .then(() =>
         executionId ? finishApprovedExecution(executionId, "completed") : undefined,
       )
@@ -195,10 +257,10 @@ function persistAgentEvent(envelope: AgentEventEnvelope): UiMessage | undefined 
           sessionId: envelope.sessionId,
           data: String(error),
         });
-      });
+      }));
     // Persist the completed branch as the active regenerate revision when the
     // latest user turn carries revision metadata (ChatGPT-style history).
-    void (async () => {
+    trackWrite((async () => {
       try {
         if (!runtimeState.host) return;
         // The turn's final assistant message may still be in the outbox. Archive
@@ -221,14 +283,16 @@ function persistAgentEvent(envelope: AgentEventEnvelope): UiMessage | undefined 
         // RPC lock. The read-modify-write this replaced raced the append above
         // and wrote a stale transcript back over the final message.
         const saved = await runtimeState.host.call<{
-          saved?: { root?: any } | null
+          saved?: { root?: UiMessage } | null
         }>("session.saveActiveRevision", { sessionId: envelope.sessionId });
         const root = saved.saved?.root;
         if (!root) return;
+        // This acknowledges a pager stamp on an existing user row. A terminal
+        // message event would append an older root outside the loaded window.
         emitAgentEvent({
           sessionId: envelope.sessionId,
           ts: Date.now(),
-          event: { type: "message_end", message: root },
+          event: { type: "user_message_persisted", optimisticMessageId: root.id, message: root },
         } satisfies AgentEventEnvelope);
       } catch (error) {
         logger.app("persistence", "warn", "save active regenerate branch failed", {
@@ -236,10 +300,13 @@ function persistAgentEvent(envelope: AgentEventEnvelope): UiMessage | undefined 
           data: String(error),
         });
       }
-    })();
+    })());
     return;
   }
   if (event.type === "message_end" && event.message.role === "user" && !envelope.parentToolCallId) {
+    // Accepted user steering revokes the silent completion-notice exception.
+    const messageTurnId = envelope.turnId ?? turnId;
+    if (event.message.steering && messageTurnId) completionNoticeTurns.delete(messageTurnId);
     // Reserve the current reply before persisting input accepted during its stream.
     const preceding = event.precedingAssistant?.role === "assistant"
       ? event.precedingAssistant : undefined;
@@ -273,16 +340,30 @@ function persistAgentEvent(envelope: AgentEventEnvelope): UiMessage | undefined 
         inflightCheckpointer.settleIf(sessionId, finalId);
       });
     }
-    // Empty aborted bubbles are not useful transcript rows. Structured
-    // provider failures remain durable assistant messages so their details
-    // stay attached to the failed turn after reload.
-    const failed =
-      event.message.status === "error" || event.message.status === "aborted";
+    // Empty assistant bubbles are dropped by default so provider retries do
+    // not grow the transcript. Keep structured failures and tool-call rows
+    // durable, plus rows reserved by accepted steering, the first completed
+    // reply to a Host-verified completion notice (D446), tracked by turn ID,
+    // and call-only replies whose function calls carry provider signatures
+    // that a rebuilt runtime must replay (#1972).
     const empty =
       !(event.message.content || "").trim() &&
       !(event.message.thinking || "").trim();
+    const carriesTool =
+      Boolean(event.message.toolName) || Boolean(event.message.toolCallId);
     const reservedForSteering = steeringReplies.delete(event.message.id);
-    if (failed && empty && !event.message.error && !reservedForSteering) return;
+    const messageTurnId = envelope.turnId ?? turnId;
+    const isCompletionNoticeReply =
+      !envelope.parentToolCallId &&
+      event.message.status === "complete" &&
+      messageTurnId !== undefined &&
+      completionNoticeTurns.delete(messageTurnId);
+    if (
+      empty && !carriesTool && !event.message.error && !reservedForSteering &&
+      !isCompletionNoticeReply && !event.message.providerReplay
+    ) {
+      return;
+    }
     void persistenceOutbox
       .enqueue(
         {
@@ -368,5 +449,5 @@ function persistAgentEvent(envelope: AgentEventEnvelope): UiMessage | undefined 
     return message;
   }
 }
-  return { subagentTagged, persistAgentEvent };
+  return { subagentTagged, persistAgentEvent, beginTranscriptRewrite, flush };
 }

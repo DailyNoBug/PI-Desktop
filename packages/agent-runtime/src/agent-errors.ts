@@ -8,6 +8,7 @@
  * "error") and the rejected-promise paths.
  */
 
+import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
 import { ErrorCodes, isCertificateVerificationError } from "@pi-desktop/shared";
 import { readLocalRequestErrorDetails } from "./local-request-errors.js";
 
@@ -25,13 +26,78 @@ export type ClassifiedAgentError = {
 const MAX_ERROR_MESSAGE_CHARS = 600;
 
 const NETWORK_PATTERN =
-  /ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|ENETUNREACH|EHOSTUNREACH|UND_ERR|fetch failed|socket hang up|network error|connection error|connection refused|dns/i;
+  /ECONNREFUSED|ECONNRESET|ECONNABORTED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|ENETUNREACH|EHOSTUNREACH|UND_ERR|fetch failed|socket hang up|network error|connection error|connection refused|connection abort|dns/i;
 
 const CONTEXT_PATTERN =
   /context[ _-]?length|maximum context|context window|too many tokens|prompt is too long|input token count|exceeds the (?:maximum|model)|token limit/i;
 
+/**
+ * Rate limiting worded without a 429. Probed before overflow wording: Bedrock
+ * reports its tokens-per-minute throttle as "Throttling error: Too many tokens,
+ * please wait before trying again.", which `CONTEXT_PATTERN` would otherwise
+ * read as an overflow (pi-ai's `isContextOverflow` excludes it the same way).
+ *
+ * A bare `quota` must not be included. It also matches account and filesystem
+ * exhaustion ("monthly spending quota", "credit quota is exhausted", "Billing
+ * quota exceeded", "disk quota exceeded"). Explicit exhaustion codes and
+ * phrases are checked before this matcher, while generic `quota exceeded`
+ * wording remains eligible for throughput-rate-limit retries.
+ */
+const RATE_LIMIT_PATTERN =
+  /rate.?limit|too many requests|quota.?exceeded|overloaded|throttl/i;
+
+/**
+ * Billing, spending, credit, and disk exhaustion are terminal, including
+ * OpenAI's `insufficient_quota` type, OpenRouter-style "insufficient credits"
+ * / "requires more credits" / "Payment Required" wording, and explicit 429
+ * error codes. Checked before the status table because those conditions do
+ * not recover by backing off. Generic "quota exceeded" wording remains
+ * eligible for rate-limit classification below. A bare "credits" is not
+ * exhaustion, and "insufficient credentials" must not match it either.
+ * HTTP 402 is terminal in the status table even when the body omits these
+ * phrases.
+ */
+const EXHAUSTED_QUOTA_CODE_PATTERN =
+  /\b(?:insufficient_quota|credit_balance_exhausted|organization_spend_limit_exceeded|project_spend_limit_exceeded|organization_usage_limit_exceeded)\b/i;
+
+const EXHAUSTED_QUOTA_MESSAGE_PATTERN =
+  /\b(?:billing|spending|credit|disk)\s+quotas?\b|\b(?:organization|project)\s+spend\s+limit\s+(?:reached|exceeded)\b|\bquota\b.{0,100}\b(?:plan|billing)\b|\binsufficient\s+credits\b|\brequires\s+more\s+credits\b|\bpayment\s+required\b/i;
+
+/**
+ * Whether a provider message reports a context overflow.
+ *
+ * The runtime decides overflow *recovery* with pi-ai's `isContextOverflow`, so
+ * the classifier asks the same question first; otherwise a provider whose
+ * wording only pi-ai knows (DashScope/Qwen "Range of input length", z.ai
+ * "Prompt exceeds max length", xAI "maximum prompt length", Groq, llama.cpp,
+ * Bedrock "Input is too long for requested model") is recovered as an overflow
+ * but reported, and retried by delegates, as a generic provider error.
+ * `CONTEXT_PATTERN` keeps the wording this classifier already accepted. Only
+ * the message text is consulted: no provider id, usage, or context window, so
+ * pi-ai's silent-overflow and provider-specific bodyless checks stay with the
+ * runtime, which has those facts.
+ */
+function isContextOverflowMessage(message: string): boolean {
+  const probe = {
+    role: "assistant",
+    stopReason: "error",
+    errorMessage: message,
+  } as AssistantMessage;
+  return isContextOverflow(probe) || CONTEXT_PATTERN.test(message);
+}
+
 const STREAM_TERMINATION_PATTERN =
-  /\bterminated\b|stream ended without finish_reason|premature(?:ly)?\s+(?:closed|ended)|(?:stream|response).*(?:closed|interrupted)/i;
+  /\bterminated\b|stream ended without finish_reason|premature(?:ly)?\s+(?:closed|ended)|(?:stream|response).*(?:closed|interrupted)|\bstream aborted\b|aborted the stream/i;
+
+/**
+ * User-Stop wording the runtime and AbortError actually emit (`Request
+ * aborted`, `The operation was aborted`, `Turn aborted …`). Do not widen this
+ * to `\babort`: socket and stream failures ("software caused connection
+ * abort", "connection aborted", "stream aborted") contain the same stem and
+ * must stay retriable network or stream errors instead of `TURN_ABORTED`.
+ */
+const TURN_ABORTED_MESSAGE_PATTERN =
+  /\b(?:request aborted|the operation was aborted|turn aborted)\b/i;
 
 /** An adapter refusing a request option, e.g. "Custom fetch is not supported
  * by the Google Generative AI adapter" (issue #1072). */
@@ -53,7 +119,9 @@ function redactSensitiveErrorText(message: string): string {
 /**
  * Probe the HTTP status across SDK error shapes: `status`/`statusCode`
  * fields (walking the `cause` chain), then a leading "<status>:" or a
- * "(status)" / "status code NNN" marker in the message.
+ * "(status)" / "status code NNN" marker in the message. Gemini's
+ * `@google/genai` ApiError.message is the JSON body with no prefix, so the
+ * last probe reads a 400-599 `code` from that object.
  */
 function extractStatus(err: unknown, message: string): number | undefined {
   let current: any = err;
@@ -74,6 +142,50 @@ function extractStatus(err: unknown, message: string): number | undefined {
       const status = Number(match[1]);
       if (status >= 400 && status < 600) return status;
     }
+  }
+  return httpStatusFromJsonErrorBody(message);
+}
+
+/** Integer HTTP error status. Numeric strings and out-of-range codes are not. */
+function isHttpErrorStatus(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 400 &&
+    value <= 599
+  );
+}
+
+/** Google RPC status enums are UPPER_SNAKE, e.g. INVALID_ARGUMENT. */
+function isGoogleRpcStatus(value: unknown): boolean {
+  return typeof value === "string" && /^[A-Z][A-Z0-9_]*$/.test(value);
+}
+
+/**
+ * Read an HTTP status from a JSON error body when the message itself is that
+ * body. A 400-599 numeric `code` counts only when it sits on an `error`
+ * object, or beside a Google RPC `status`. A bare `"code": 123` is not one.
+ */
+function httpStatusFromJsonErrorBody(message: string): number | undefined {
+  const trimmed = message.trim();
+  if (!trimmed.startsWith("{")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const record = parsed as Record<string, unknown>;
+  const nested = record.error;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const error = nested as Record<string, unknown>;
+    if (isHttpErrorStatus(error.code)) return error.code;
+  }
+  if (isHttpErrorStatus(record.code) && isGoogleRpcStatus(record.status)) {
+    return record.code;
   }
   return undefined;
 }
@@ -212,6 +324,17 @@ function pickNetworkCode(codes: readonly string[]): {
 }
 
 /**
+ * TLS handshake / certificate wording. Not an API-key rejection: stacks say
+ * "mutual TLS authentication failed" and "authentication handshake timed out"
+ * for the transport itself.
+ */
+function isTlsTransportText(text: string): boolean {
+  return /certificate|self[- ]signed|(?:^|[^a-z])(?:tls|ssl)(?:[^a-z]|$)|handshake/i.test(
+    text,
+  );
+}
+
+/**
  * Last resort when no errno survived: classify by wording. Order matters —
  * "proxy" outranks the transport wording it usually wraps.
  */
@@ -220,11 +343,7 @@ function networkCategoryFromText(text: string): NetworkFailureCategory {
   if (/getaddrinfo|ENOTFOUND|EAI_AGAIN|dns|name resolution/i.test(text)) {
     return "dns";
   }
-  if (
-    /certificate|self[- ]signed|(?:^|[^a-z])(?:tls|ssl)(?:[^a-z]|$)|EPROTO|handshake/i.test(
-      text,
-    )
-  ) {
+  if (isTlsTransportText(text) || /EPROTO/i.test(text)) {
     return "tls";
   }
   if (/timed?\s?out|timeout/i.test(text)) return "timeout";
@@ -233,7 +352,7 @@ function networkCategoryFromText(text: string): NetworkFailureCategory {
     return "unreachable";
   }
   if (
-    /ECONNRESET|ECONNABORTED|EPIPE|socket hang up|premature close|reset by peer|connection (?:was )?(?:closed|lost|reset)/i.test(
+    /ECONNRESET|ECONNABORTED|EPIPE|socket hang up|premature close|reset by peer|connection (?:was )?(?:closed|lost|reset|abort)/i.test(
       text,
     )
   ) {
@@ -351,6 +470,50 @@ export function networkFailureDiagnostics(
   return { category: network.category, fields: networkDetailFields(network) };
 }
 
+/**
+ * Explicit API-key rejection. Safe on HTTP 400/422 as well as on a
+ * statusless message: Gemini's `@google/genai` ApiError reports a bad key
+ * as 400 `API key not valid` / `API_KEY_INVALID`, and some OpenAI-compatible
+ * gateways do the same.
+ *
+ * Broader words such as "unauthorized" and "permission denied" stay out of
+ * this pattern. On a 400 they can describe a bad parameter or a tool
+ * argument rather than a rejected credential, so only the statusless path
+ * below treats them as an auth failure.
+ */
+const API_KEY_REJECTION_PATTERN =
+  /invalid[ _]api[ _]key|api key not valid|API_KEY_INVALID/i;
+
+/**
+ * Credential rejection worded without an HTTP status.
+ *
+ * Bare "authentication" is not enough. Explicit API-key phrases live in
+ * `API_KEY_REJECTION_PATTERN`. This pattern keeps the broader
+ * "unauthorized" / "permission denied" words, which are only trusted when
+ * no status is present. "authentication" counts only beside an API key,
+ * bearer token, or credentials — or as a short provider phrase such as
+ * "authentication failed". Handshake, TLS/SSL, and certificate text is
+ * transport, so it never counts.
+ */
+const STATUSLESS_CREDENTIAL_PATTERN =
+  /unauthorized|permission denied/i;
+
+const AUTHENTICATION_WITH_CREDENTIAL_PATTERN =
+  /(?:api[-_ ]?key|credentials|bearer).{0,48}\bauthentication\b|\bauthentication\b.{0,48}(?:api[-_ ]?key|credentials|bearer)/i;
+
+const AUTHENTICATION_FAILURE_PATTERN =
+  /\bauthentication[_ ](?:failed|failure|error)\b/i;
+
+function isStatuslessCredentialFailure(message: string): boolean {
+  if (API_KEY_REJECTION_PATTERN.test(message)) return true;
+  if (STATUSLESS_CREDENTIAL_PATTERN.test(message)) return true;
+  if (isTlsTransportText(message)) return false;
+  return (
+    AUTHENTICATION_WITH_CREDENTIAL_PATTERN.test(message) ||
+    AUTHENTICATION_FAILURE_PATTERN.test(message)
+  );
+}
+
 export function classifyAgentError(err: unknown): ClassifiedAgentError {
   const envelope = err !== null && typeof err === "object"
     ? err as Record<string, unknown> : undefined;
@@ -430,7 +593,7 @@ export function classifyAgentError(err: unknown): ClassifiedAgentError {
   // cause, and that turn must read as stopped, not as a compaction failure.
   if (
     explicitlyAborted ||
-    /\babort/i.test(rawMessage)
+    TURN_ABORTED_MESSAGE_PATTERN.test(rawMessage)
   ) {
     return result("TURN_ABORTED", false);
   }
@@ -441,9 +604,15 @@ export function classifyAgentError(err: unknown): ClassifiedAgentError {
   // "fetch failed" causes don't fall through to the generic bucket. The cause
   // chain is summarized as a coarse category plus the transport errno, so the
   // failing layer is identifiable without a user-visible code per layer.
+  // Handshake and certificate wording is the same kind of failure when no
+  // status is present, even if the text says "authentication".
   const network = describeNetworkFailure(err, rawMessage);
   const certificateFailure = isCertificateVerificationError(network.code);
-  if (hasNetworkCause(err, rawMessage) || (status === undefined && certificateFailure)) {
+  if (
+    hasNetworkCause(err, rawMessage) ||
+    (status === undefined &&
+      (certificateFailure || isTlsTransportText(rawMessage)))
+  ) {
     return result(
       "NETWORK_ERROR",
       !certificateFailure,
@@ -471,28 +640,65 @@ export function classifyAgentError(err: unknown): ClassifiedAgentError {
     return result("PROVIDER_ERROR", false);
   }
 
+  // These terminal billing/account exhaustion errors can also be HTTP 429.
+  // Inspect both the message and structured provider code before the generic
+  // 429 retry branch so the rate-limit budget cannot replay them.
+  if (
+    EXHAUSTED_QUOTA_CODE_PATTERN.test(rawMessage) ||
+    EXHAUSTED_QUOTA_MESSAGE_PATTERN.test(rawMessage) ||
+    (typeof providerCode === "string" &&
+      EXHAUSTED_QUOTA_CODE_PATTERN.test(providerCode))
+  ) {
+    return result("PROVIDER_ERROR", false);
+  }
+
   if (status !== undefined) {
     if (status === 401 || status === 403) return result("PROVIDER_UNAUTHORIZED", false);
+    // Payment Required. Credit exhaustion does not recover by re-sending.
+    if (status === 402) return result("PROVIDER_ERROR", false);
     if (status === 408) return result("TIMEOUT", true);
     if (status === 413) return result("CONTEXT_TOO_LARGE", false);
     if (status === 429) return result("PROVIDER_RATE_LIMITED", true);
     if (status === 404) return result("MODEL_NOT_CONFIGURED", false);
-    if (status >= 500) return result("PROVIDER_ERROR", true);
+    // Gateways wrap an upstream context overflow as 500/502/503. Ollama's MLX
+    // runner returns HTTP 500 for "input length (N tokens) exceeds the model's
+    // maximum context length (M tokens)", which pi-ai's LiteLLM rule does not
+    // match ("(M)" or " of M tokens", not "(M tokens)"). Re-sending that prompt
+    // fails the same way, so it is terminal. A throttle that also says "too
+    // many tokens" stays retryable: `CONTEXT_PATTERN` would undo the rate-limit
+    // exclusion inside `isContextOverflow`, and the statusless branch already
+    // probes `RATE_LIMIT_PATTERN` first. 400/422 skip that probe because both
+    // of their outcomes are terminal.
+    if (status >= 500) {
+      if (
+        !RATE_LIMIT_PATTERN.test(rawMessage) &&
+        isContextOverflowMessage(rawMessage)
+      ) {
+        return result("CONTEXT_TOO_LARGE", false);
+      }
+      return result("PROVIDER_ERROR", true);
+    }
     if (status === 400 || status === 422) {
-      if (CONTEXT_PATTERN.test(rawMessage)) return result("CONTEXT_TOO_LARGE", false);
+      if (isContextOverflowMessage(rawMessage)) return result("CONTEXT_TOO_LARGE", false);
+      // Only an explicit API-key rejection is a credential failure here.
+      // "unauthorized" / "permission denied" stay PROVIDER_ERROR: a 400 often
+      // uses those words for a parameter or tool problem, not the key.
+      if (API_KEY_REJECTION_PATTERN.test(rawMessage)) {
+        return result("PROVIDER_UNAUTHORIZED", false);
+      }
       // Malformed request (wrong apiStyle, bad params) — retrying won't help.
       return result("PROVIDER_ERROR", false);
     }
     return result("PROVIDER_ERROR", true);
   }
 
-  if (/invalid[ _]api[ _]key|api key not valid|unauthorized|authentication|permission denied/i.test(rawMessage)) {
+  if (isStatuslessCredentialFailure(rawMessage)) {
     return result("PROVIDER_UNAUTHORIZED", false);
   }
-  if (/rate.?limit|too many requests|quota|overloaded/i.test(rawMessage)) {
+  if (RATE_LIMIT_PATTERN.test(rawMessage)) {
     return result("PROVIDER_RATE_LIMITED", true);
   }
-  if (CONTEXT_PATTERN.test(rawMessage)) {
+  if (isContextOverflowMessage(rawMessage)) {
     return result("CONTEXT_TOO_LARGE", false);
   }
   if (/model.{0,20}(not found|does not exist|unknown)|unknown model/i.test(rawMessage)) {

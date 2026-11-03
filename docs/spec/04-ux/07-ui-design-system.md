@@ -547,7 +547,8 @@ pixel remains clickable. Termination is geometric: a region ends where the
 element's border box ends, so an element that only pads its content clear of
 the band still covers the controls with its rectangle. The open work-panel
 header uses a horizontally scrollable tab strip with a fixed `+` add trigger;
-each tab owns its close action and the header does not add a second `×` beside
+each tab owns its close action, and activating a tab scrolls its tab and close
+action into the visible strip. The header does not add a second `×` beside
 the native Windows close control. The band
 floats over the destination pages, so on Windows/Linux a page frame and any
 right-edge detail sheet start below it instead of placing their own header
@@ -723,6 +724,18 @@ CSS custom properties on `:root` (D146):
 Interactive surfaces should reference these variables instead of hard-coded
 millisecond literals when practical.
 
+One duration sits outside this scale, and only one:
+
+| Token | CSS variable | Duration | Usage |
+|---|---|---|---|
+| `startup-reveal` | `--motion-startup-reveal` | 1000ms | Boot-animation reveal only (§8.3.1, D679) |
+
+The scale above is sized for in-flow UI feedback — a control answering a
+click. The reveal is the end of a cinematic the user supplied, so it is sized
+in that register instead. It is used by `.startup-animation` and nothing else,
+and it must stay matched to `STARTUP_ANIMATION_REVEAL_MS` in
+`@pi-desktop/shared`. New surfaces do not reference it.
+
 ### 8.2 Easing
 
 CSS custom properties on `:root` (D146):
@@ -751,14 +764,42 @@ plain status text:
 - Exit: 280ms opacity fade (`startup-splash-out`) once `ready` is true, revealing
   the already-mounted shell underneath
 - Reduced motion: near-zero enter/exit and a static full-width bar
-- macOS: the splash is the same glass as the sidebar (D304 / D348) — the
-  `--ds-sidebar-glass-tint` fill plus top/bottom sheen over the native
-  `sidebar` vibrancy, so the boot surface never flashes an opaque panel
-  ahead of the translucent sidebar. The mounted shell stays hidden under
-  the glass until the exit fade, then cross-fades in. Other platforms keep
-  the opaque `--ds-bg-primary` fill
+- macOS: the splash uses the same sidebar treatment as the app shell (D304 /
+  D348) — the `--ds-sidebar-glass-tint` fill plus top/bottom sheen over the
+  native `sidebar` vibrancy material, so the boot surface never flashes a
+  mismatched panel ahead of the sidebar. Turning off the macOS `Translucent
+  window` switch paints an opaque native surface (ADR 0332) under the same tint
+  and sheen, and the splash keeps following whichever surface the window has. The
+  mounted shell stays hidden under the splash until the exit fade, then
+  cross-fades in. Other platforms keep the opaque `--ds-bg-primary` fill
 
 This is boot-state feedback, not decorative chrome.
+
+#### 8.3.1 User-supplied startup animation (D679 / ADR 0338)
+
+A video in `<dataDir>/startup/` replaces the splash above for that launch
+(`StartupAnimation`, `data-testid="startup-animation"`). Without such a file
+the splash is unchanged, which is what every existing installation gets.
+
+- One layer, opaque `#000` for its whole life: the video sits on it, and once
+  the video is gone the same black is the mask the shell fades in from, so there
+  is no seam between the last frame and the mask. Literal black rather than
+  `--ds-bg-primary` so a video's own letterboxing and fades meet the same colour
+  under either theme.
+- `object-fit: cover`; the frame is filled and the edges are cropped, so the
+  settings copy tells the user to keep the subject centred.
+- The element is inert and silent: `muted`, `playsInline`, no controls, no
+  picture-in-picture, not focusable, `aria-hidden`. Accessible status copy comes
+  from `app.starting`, as the splash's does.
+- Sequence: play → opaque black hold until `ready` → `--motion-startup-reveal`
+  (1000ms) opacity fade with `pointer-events: none`, so the shell takes input
+  for the whole fade rather than after it.
+- A hold longer than 3s adds the splash's indeterminate bar, so an opaque mask
+  is not mistaken for a hang.
+- Reduced motion does not play it at all — a shorter cinematic is still a
+  cinematic, and the OS request is the opt-out.
+- Unlike the glass splash, this surface is opaque, so it needs no macOS rule
+  hiding the mounted shell beneath it.
 
 ### 8.4 Overlay / floating surface enter
 
@@ -796,7 +837,7 @@ are also explicitly suppressed or collapsed to a static state.
 - No parallax
 - No continuous background animations (particles, waves); the bounded
   foreground mascot loop is the explicit empty-home exception
-- No shimmer/skeleton animations longer than 1s loop — use simple fade-in for loading states
+- No shimmer/skeleton animations longer than 1s loop — use simple fade-in for loading states. Exception: the transcript Thinking indicator's whole-run TextShimmer runs 1.2s with a 220ms fade (ADR turn-process-and-thinking-display); it is not a per-glyph loop and becomes static under reduced motion.
 - No bounce effects
 - No multi-second boot theatrical sequences; splash exits as soon as ready (+ min dwell)
 
@@ -938,9 +979,10 @@ The composer renders only controls connected to the active pi session:
 - The model trigger shows only the active model ID. Its menu selects a
   configured provider/default-model pair for the active session and links to
   Agent.
-- The right toolbar exposes one combined model × reasoning trigger immediately
-  before the standalone prompt-enhancement Sparkles action and Send/Abort. The
-  trigger shows a Bot icon, the current model, and reasoning level; `off` omits
+- The right toolbar exposes one combined model × reasoning trigger. Explicitly
+  installed plugins may contribute user-invoked text actions after it; prompt
+  enhancement is not built in. The trigger shows a Bot icon, the current model,
+  and reasoning level; `off` omits
   the level text. Its single `role="menu"`
   popover opens above the trigger at `bottom: calc(100% + 8px)` and starts with
   exactly two current-value entries. When the menu lists more than one
@@ -968,7 +1010,7 @@ The composer renders only controls connected to the active pi session:
   Unknown models do not gain reasoning automatically. Changing provider clamps
   or resets the durable session value before the next turn.
 - The left-of-input Composer Agent/Plan/Goal chip is the sole active-session mode
-  control and cycles Agent → Plan → Goal → Agent. The Composer-right combined
+  control and opens a menu listing Agent, Plan, and Goal. The Composer-right combined
   chip owns model and reasoning changes; the top bar has no duplicate mode or
   model control. The combined Composer picker closes and is disabled while an active
   `pending` Plan or Goal approval exists;
@@ -1121,13 +1163,19 @@ header-height background behind the excluded lane without covering its controls.
 - All platforms retain native edge/corner resizing. On Windows the main window
   disables the frameless `WS_THICKFRAME` rim while Electron 43.6's frameless
   hit test continues to own edge and corner resizing; no border is painted on
-  the left, right, or bottom. The Windows main window uses a 4 DIP rounded
-  hit/draw shape by
-  default: pixels outside its corners have no fill or mouse target. A selected
+  the left, right, or bottom. The Windows main window uses the global
+  `--radius-md` token (12 DIP) as its default corner request. Windows 11 and
+  later use the DWM system-rounded preference for any positive radius and a
+  square preference for radius 0; DWM chooses the actual radius and may decline
+  to round based on window style or environment. Windows builds before 22000
+  retain the existing `contentView` clip and native shape. The Windows 11 path
+  uses an opaque top-level surface, so contributed alpha colors are composited
+  over the resolved built-in theme background. A selected
   plugin theme with `ui.window.appearance` may set `cornerRadius` to an integer
-  from 0 through 24 DIP; removing that theme restores 4 DIP. The shape becomes
-  rectangular while maximized or fullscreen and follows every resize. Native
-  window background colors remain theme-owned inside the shape. Electron's borderless
+  from 0 through 24 DIP; removing that theme restores the 12 DIP global
+  default. Corners become rectangular while maximized or fullscreen; positive
+  values on Windows 11 do not guarantee an exact DIP radius. Native window
+  background colors remain theme-owned. Electron's borderless
   fullscreen fallback fills the display without reporting `isFullScreen()`;
   Main tracks its state so toggling back restores the previous bounds and
   fullscreen geometry is never persisted. Frameless titlebar drag
@@ -1192,6 +1240,15 @@ padding that under the global `border-box` would leave a 12px content box for a
 | Backdrop | rgba(0,0,0,0.5) with `z-dialog` |
 | Close | Escape key + X button top-right |
 
+**Shared dismissal primitive:** `OverlayBackdrop`, exported from
+`components/ui.tsx`, renders the existing backdrop `div` and accepts its normal
+HTML attributes and close callback. It forwards a backdrop click only after a
+primary pointer press and release both target that backdrop; capture-phase
+origin tracking protects text selection across content boundaries and nested
+layers. It does not prevent selection or capture the pointer. Callers retain
+busy/saving guards and their existing Escape/close controls. Presses cancelled
+by pointer cancellation or window blur cannot dismiss the surface.
+
 ### 11.5 Tabs
 
 | Variant | Indicator |
@@ -1228,7 +1285,7 @@ Full component contract and usage rules: [08-component-spec.md §17](08-componen
 
 | Property | Value |
 |---|---|
-| Position | top-center viewport, 16px from the top edge, `width: min(360px, 100vw − 32px)` |
+| Position | 16px from the top edge; centered in the main-content safe area when the in-flow shell is visible, falling back to the viewport when no main-content anchor exists; `width: min(360px, safe area − 32px)` |
 | Surface | `bg-elevated-opaque` + 1px `border-subtle` + `shadow-dialog` (same family as floating menus) |
 | Radius | radius-md-plus |
 | Font | text-md, leading-compact-plus |
@@ -1282,12 +1339,26 @@ Implementation: `components/ui.tsx → Checkbox`.
 
 | Property | Value |
 |---|---|
-| CSS class | `.ui-checkbox` |
+| CSS classes | `.ui-checkbox` (label), `.ds-checkbox` (native input) |
 | Anatomy | `<label> → <input type="checkbox"> + <span>{label}</span>` |
-| Props | Extends `InputHTMLAttributes` (minus `type`) + `label: ReactNode` |
+| Props | Extends `InputHTMLAttributes` (minus `type` and `ref`) + `label: ReactNode`, `indeterminate?: boolean` |
+| Paint | 18px rounded square, 8px label gap, token-based checked fill and checkmark; mixed state uses a dash |
+| Interaction | Native label activation and Space toggling, visible keyboard focus, whole-label disabled treatment; native paint in forced-colors mode |
 
 Every standalone labeled checkbox **must** use `Checkbox`. Inline
 `<label><input type="checkbox"/>…</label>` is prohibited.
+
+### 11.11a SettingsDisclosure
+
+Implementation: `components/settings/SettingsDisclosure.tsx`.
+
+Use native `<details>` / `<summary>` for low-frequency settings, with one
+localized title and a decorative chevron. It accepts native details attributes,
+children and `className`; `open` can seed or update the native state. Collapsed
+content stays mounted to retain drafts but is not keyboard-reachable. The
+shared summary has a minimum 44px row, token-based hover/focus treatment and
+reduced-motion-compatible chevron feedback. Errors, progress and approvals
+must remain outside optional disclosures.
 
 ### 11.11b CheckboxGroup
 
@@ -1317,6 +1388,10 @@ Implementation: `components/settings/SettingsMenuSelect.tsx`.
 Every dropdown / option-list in Settings **must** use `SettingsMenuSelect`
 instead of the native `Select` (`<select>`) component. Native `Select`
 is reserved for non-Settings contexts where OS-level rendering is acceptable.
+
+Appearance pickers use the scaled `--ds-settings-picker-height` metric.
+`SettingsMenuSelect` triggers keep `--ds-field-height` so they align with
+adjacent form inputs; dense surfaces may override that metric locally.
 
 
 ## 12. State patterns
@@ -1422,7 +1497,7 @@ is reserved for non-Settings contexts where OS-level rendering is acceptable.
 - Floating composer plate: Codex elevated-primary (`#212121f5` / `color-mix(gray-800 96%, transparent)`) with standard elevation-prominent (`0 0 0 .5px` stroke + `0 3px 7.5px #0000000a` + `0 0 20px #0000000d`); no heavier night-only lift
 - Light workspace chips capsule: elevated gray `#f4f4f4` (not pure white-on-white)
 - Combined workspace chips: elevated translucent plate over main, not flat main gray
-- Stage Manager (macOS only): host re-asserts min bounds while collapsed (permanent watchdog). The watchdog does not run on Windows/Linux, so no platform re-layers its own window unprompted (D447)
+- Stage Manager (macOS only): host re-asserts min bounds while collapsed (permanent watchdog). The watchdog and temporary recovery pin are macOS-only; Windows/Linux bounds recovery stays at the normal window layer so switching to another app never leaves PI-Desktop above it (D447).
 
 ## Destination pages
 

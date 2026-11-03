@@ -21,3 +21,6 @@ export * from "./live-work/result-summary.js";
 export * from "./racp-host-operations.js";
 export * from "./racp-credentials.js";
 export * from "./prompt-attachment-forwarding.js";
+export * from "./fs-index.js";
+export * from "./chat-ref-resolve.js";
+export * from "./binary-storage.js";

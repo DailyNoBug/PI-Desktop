@@ -6,6 +6,8 @@ import type {
   FsReadResult,
   RacpProjectSummary,
   WorkspaceDiff,
+  WorkspaceToolExecute, WorkspaceToolAbort, WorkspaceToolResult, CommandShellOption, WorkspaceFilesRequest,
+  WorkspacePluginFilesRequest, WorkspacePluginFilesResult,
 } from "@pi-desktop/shared";
 
 /**
@@ -39,6 +41,8 @@ export interface RacpSessionCatalog {
   configure(sessionId: string, input: SessionConfigureInput): Promise<SessionSummary>;
   fork(sessionId: string, input: { title?: string; throughMessageId?: string }): Promise<SessionSummary>;
   rename(sessionId: string, title: string): Promise<void>;
+  /** Apply the Host's first-prompt fallback title; false when it was refused. */
+  deriveTitle(sessionId: string, title: string): Promise<boolean>;
   delete(sessionId: string): Promise<void>;
   compact(sessionId: string): Promise<{ accepted: boolean }>;
 }
@@ -88,6 +92,14 @@ export type RacpHostOperations = {
   terminal?: RacpTerminalAccess;
   /** Staged prompt attachments (spec §6.4); enables the `attachment/*` operations. */
   attachments?: RacpAttachmentStaging;
+  workspaceFiles?: { read(input: WorkspaceFilesRequest): Promise<unknown> };
+  workspacePluginFiles?: { read(input: WorkspacePluginFilesRequest): Promise<WorkspacePluginFilesResult> };
+  workspaceTools?: {
+    execute(input: WorkspaceToolExecute, owner: { deviceId: string; connectionId: string }): Promise<WorkspaceToolResult>;
+    abort(input: WorkspaceToolAbort, owner: { deviceId: string; connectionId: string }): Promise<void>;
+    shell(): Promise<CommandShellOption>;
+    disconnect(connectionId: string): Promise<void>;
+  };
   /** Owner-only: revoke a paired device (spec `session/revoke`). */
   revokeDevice?: (deviceId: string) => Promise<boolean>;
 };

@@ -75,8 +75,56 @@ pub fn list_providers(
     let mut stmt = db.conn().prepare_cached(&sql)?;
     let rows = stmt.query_map([], |row| provider_from_row(row, secrets))?;
     let mut providers = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    for provider in &mut providers {
+        hydrate_dynamic_plugin_models(db, provider)?;
+    }
     super::order::apply_saved_order(db, &mut providers)?;
     Ok(providers)
+}
+
+/// An empty model declaration opts an API-key plugin provider into using the
+/// endpoint's cached discovery results. Static manifest models stay authoritative
+/// whenever the plugin declares at least one.
+fn hydrate_dynamic_plugin_models(db: &Database, provider: &mut ProviderPublic) -> Result<()> {
+    if provider.owner_plugin_id.is_none() || !provider.models.is_empty() {
+        return Ok(());
+    }
+    provider.models = list_models(db, Some(&provider.id))?
+        .into_iter()
+        .map(|model| {
+            let alias = (model.display_name != model.model_id).then_some(model.display_name);
+            ModelBinding {
+                id: model.model_id,
+                alias,
+                context_window_source: None,
+                max_tokens_source: None,
+                context_window: model.context_window.unwrap_or(DEFAULT_CONTEXT_WINDOW),
+                max_tokens: DEFAULT_MAX_TOKENS,
+                thinking_levels: Vec::new(),
+                default_thinking_level: None,
+                thinking_protocol: None,
+                supports_reasoning_effort: None,
+                supports_images: model
+                    .capabilities
+                    .iter()
+                    .any(|value| value == "vision")
+                    .then_some(true),
+                supports_documents: None,
+                available_for_subagents: None,
+                native_web_search: None,
+                fast_mode_allowed: None,
+            }
+        })
+        .collect();
+    if provider
+        .default_model_id
+        .as_deref()
+        .map(|value| value.is_empty())
+        .unwrap_or(true)
+    {
+        provider.default_model_id = provider.models.first().map(|model| model.id.clone());
+    }
+    Ok(())
 }
 
 pub fn create_provider(
@@ -300,12 +348,19 @@ pub fn update_provider(
     // OAuth credential, so reusing it here would stamp an api_key ref onto a
     // provider that only ever signed in with a vendor account.
     let api_key_ref = secret_ref_for_provider(&input.id);
-    let mut secret_ref = secrets.has(&api_key_ref).then(|| api_key_ref.clone());
+    let effective_auth_kind = input
+        .auth_kind
+        .as_deref()
+        .unwrap_or(current.auth_kind.as_str());
+    let clear_api_key = effective_auth_kind == "none";
+    let mut secret_ref = (!clear_api_key && secrets.has(&api_key_ref)).then(|| api_key_ref.clone());
 
-    if let Some(secret) = input.secret_value.as_ref().filter(|s| !s.is_empty()) {
-        let backend = secrets.set(&api_key_ref, secret)?;
-        upsert_secret_meta(db, &api_key_ref, &input.id, &backend)?;
-        secret_ref = Some(api_key_ref);
+    if !clear_api_key {
+        if let Some(secret) = input.secret_value.as_ref().filter(|s| !s.is_empty()) {
+            let backend = secrets.set(&api_key_ref, secret)?;
+            upsert_secret_meta(db, &api_key_ref, &input.id, &backend)?;
+            secret_ref = Some(api_key_ref.clone());
+        }
     }
     // `Some(None)` clears an explicit levels override; plain `None` leaves it.
     let levels_update = if input.supported_thinking_levels.is_some() {
@@ -342,6 +397,13 @@ pub fn update_provider(
         None => config_json,
     };
 
+    if clear_api_key {
+        secrets.delete(&api_key_ref)?;
+        db.conn()
+            .prepare_cached("DELETE FROM secrets_meta WHERE secret_ref = ?1")?
+            .execute(params![api_key_ref])?;
+    }
+
     db.conn()
         .prepare_cached(
             "UPDATE providers SET
@@ -354,7 +416,7 @@ pub fn update_provider(
                 default_model_id = COALESCE(?7, default_model_id),
                 api_style = COALESCE(?8, api_style),
                 enabled = COALESCE(?9, enabled),
-                secret_ref = COALESCE(?10, secret_ref),
+                secret_ref = CASE WHEN ?14 THEN NULL ELSE COALESCE(?10, secret_ref) END,
                 config_json = COALESCE(?11, config_json),
                 updated_at = ?12
              WHERE id = ?13",
@@ -377,7 +439,8 @@ pub fn update_provider(
             secret_ref,
             config_json,
             now_ms(),
-            input.id
+            input.id,
+            clear_api_key
         ])?;
     // A save that drops bindings also forgets their cached rows. The cache is
     // the service's answer, and a model the user removed is no longer part of
@@ -410,6 +473,10 @@ pub fn update_provider(
                 .collect(),
         };
         forget_missing_discovered_models(db, &input.id, &configured)?;
+        db.conn().execute(
+            "UPDATE models SET discovery_state = NULL WHERE provider_id = ?1",
+            params![input.id],
+        )?;
     }
     get_provider(db, secrets, &input.id)
 }
@@ -513,11 +580,15 @@ pub fn get_provider(
     id: &str,
 ) -> Result<Option<ProviderPublic>> {
     let sql = format!("{PROVIDER_SELECT} WHERE id = ?1");
-    db.conn()
+    let mut provider = db
+        .conn()
         .prepare_cached(&sql)?
         .query_row(params![id], |row| provider_from_row(row, secrets))
-        .optional()
-        .map_err(Into::into)
+        .optional()?;
+    if let Some(provider) = provider.as_mut() {
+        hydrate_dynamic_plugin_models(db, provider)?;
+    }
+    Ok(provider)
 }
 
 /// Whether `id` names a row, whoever owns it.

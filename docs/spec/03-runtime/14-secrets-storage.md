@@ -51,6 +51,7 @@ type SecretMeta = {
 ```text
 secret:provider:<providerId>:api_key
 secret:provider:<providerId>:oauth
+secret:app:typesafe-jev
 ```
 
 The two refs are independent, so one provider row may hold an API key, a vendor
@@ -58,9 +59,13 @@ account, or both. The OAuth ref stores the serialized pi-ai `OAuthCredential`
 (access token, refresh token, expiry) written through the generic `secrets.set`
 path, so it is encrypted by the same backend but is not indexed in
 `secrets_meta`; provider delete clears both refs and any metadata row for them.
+The Jev API key uses the fixed `secret:app:typesafe-jev` reference through the
+same encrypted Host store. Renderer access is limited to set/delete/has; Electron
+main reads it only for an explicitly enabled Agent launch and passes it
+ephemerally to the sidecar.
 
-The removed `voice/stt` ref (D656 / ADR 0328) held the cloud-STT API key; it
-was deleted with the fork's cloud speech path (ADR 0329) and local dictation now
+The removed `voice/stt` ref (D686 / ADR 0345) held the cloud-STT API key; it
+was deleted with the fork's cloud speech path (ADR 0346) and local dictation now
 reads no secret at all. A stored value in an existing profile is an orphan
 nothing reads.
 
@@ -99,7 +104,7 @@ Renderer uses provider methods that accept optional `secretValue` on create/upda
 8. Portable configuration sync exports provider API keys or MCP
    environment/header values only after explicit credential opt-in. Values
    remain inside host-owned encrypted staging and are restored through the
-   receiving device's local secret store. WebDAV credentials, machine
+   receiving device's local secret store. S3 connection credentials, machine
    encryption keys, OAuth sessions, and cookies are never portable.
 
 ## 7. Redaction policy

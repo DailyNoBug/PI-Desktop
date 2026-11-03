@@ -50,11 +50,11 @@ Examples:
 - `pi-desktop/agent/prompt`
 - `pi-desktop/agent/steer`
 - `pi-desktop/agent/stop`
+- `pi-desktop/agent/stop-subagents`
 - `pi-desktop/agent/abort`
 - `pi-desktop/agent/event/message`
 - `pi-desktop/agent/askTool/resolve`
 - `pi-desktop/session/list`
-- `pi-desktop/session/summarizeTitle`
 - `pi-desktop/project/open`
 - `pi-desktop/project/pickFolders`
 - `pi-desktop/project/clone`
@@ -94,8 +94,13 @@ type ProjectGroupRecord = {
 `project-group/create` is additive and does not change the active workspace.
 `project-group/list` returns one row per logical group; old path projects are
 returned as `legacy` single-root groups. Group memory and instructions are
-shared by all sessions whose primary path belongs to the group. The primary
-path is the default builtin-tool workspace. The runtime advertises all registered
+shared by all sessions whose primary path belongs to the group. The first
+selected root is primary at creation; `project-group/update` may promote any
+other selected root by naming it as `primary`, and the host then stores that
+root first. The primary path is the default builtin-tool workspace. The runtime
+advertises all registered roots; an absolute path under an additional root is
+canonicalized and executed against that root, while arbitrary external paths
+still require the ordinary permission flow.
 roots; an absolute path under an additional root is canonicalized and executed
 against that root, while arbitrary external paths still require the ordinary
 permission flow.
@@ -138,6 +143,8 @@ type AgentPromptAttachment = {
  kind: "image" | "file";
  mimeType?: string;
  size?: number;
+ /** `@path` text this attachment occupies inline in `content`; main-filled. */
+ inlinePath?: string;
 };
 
 type AgentPromptResponse = {
@@ -182,6 +189,8 @@ type SessionConfigureRequest = {
   providerId?: string;
   modelId?: string;
   thinkingLevel: SessionThinkingLevel;
+  /** Session `/fast` switch (ADR 0334); omitted keeps the stored value. */
+  fastMode?: boolean;
 };
 ```
 
@@ -211,7 +220,12 @@ older images use the existing safe `@path` fallback. Unknown/custom models
 without an explicit image override, non-vision models, oversized images, and
 unavailable refs also use the safe fallback. Main uses streamed hashing and file
 copying for oversized images. The durable user message stores `content` plus
-attachment metadata/ref, never base64.
+attachment metadata/ref, never base64. An image the draft named inline also
+carries that `@path` text as `inlinePath` on the durable message and on the
+sidecar attachment: the runtime keeps the prompt content blocks in the user's
+order instead of appending every image after the text, and the transcript
+renders the image at that position. An attachment without it keeps the trailing
+position.
 Invalid attachment paths fail with `PATH_OUTSIDE_WORKSPACE`.
 
 Regenerate history (D109) also uses session channels:
@@ -295,9 +309,23 @@ finalized as `completed`; the request does not abort the provider stream,
 cancel running tools, or open a second concurrent turn. An idle session returns
 `requested: false`.
 
-The renderer owns the removable, in-memory queued-prompt list per session. It
-calls this channel only for a queued item's **Send now** action and releases
-that item through the ordinary `agent/prompt` flow after the terminal event.
+The Host owns the persisted prompt queue. **Send now** uses queue promotion and
+steering into the active turn; it does not call this graceful-stop channel.
+
+### 5.2a stop-subagents
+
+`pi-desktop/agent/stop-subagents` accepts `{ sessionId, delegationIds? }` and
+returns `{ pending: string[] }`. Omitting IDs selects all currently running
+delegates in that session; an explicitly empty or malformed selection is
+rejected. The local Desktop route forwards to `agent.stopSubagents` on the
+existing sidecar runtime and never starts a runtime or prompts the model.
+Native/remote session controls are not exposed by this local route.
+
+It reuses `TaskStop` cancellation, waiting up to five seconds for termination.
+Unconfirmed IDs are returned in `pending`; their durable status stays running
+until settlement. The parent and unselected delegates remain active. Existing
+terminal Task snapshots carry settlement through the normal persistence and
+renderer event path; no synthetic tool call is added to model history.
 
 ### 5.3 abort
 
@@ -567,10 +595,14 @@ entries and `IDEMPOTENCY_CONFLICT` when a key is reused with other input.
 `entries` arrive in delivery order: promoted entries first in ascending
 `priority` (the order they were promoted), then every remaining entry by
 `position`. `prioritize` appends an entry to the end of that priority block
-without touching the running turn, refuses an entry that already carries a
-priority with `CONFLICT`, and refuses a turn that is no longer queued. The
-renderer's "send now" then requests a graceful stop so the entry starts at
-the next boundary. `reorder` swaps one non-promoted entry with its adjacent
+and attempts steering delivery into the active runtime turn, refuses an entry
+that already carries a priority with `CONFLICT`, and refuses a turn that is no
+longer queued. Delivery runs outside the session admission lock, reserves only
+the input being delivered, and never requests stop or abort. A queued input
+with a different effective permission mode stays queued so its own grants are
+preserved. Immediate promotion delivers only the paired caller's own input;
+other principals retain the existing turn-boundary delivery and queue policy.
+`reorder` swaps one non-promoted entry with its adjacent
 non-promoted neighbour and reports `moved: false` for a promoted entry, a
 missing entry, or a block/queue edge; a promoted entry is never a neighbour.
 `remove` cancels an entry that has not started. A restored queue stays held
@@ -578,10 +610,11 @@ until the desktop attaches as the owner, so a reboot never starts work
 unattended.
 
 The promoted block is delivered as adjacent messages rather than as separate
-turns: the first promoted entry starts the turn at the boundary and every later
-promoted entry is injected into that same turn through the steering channel
+turns: promoted entries join the active turn through the steering channel
+when it accepts input. With no active turn, the first promoted entry starts
+the turn and every later promoted entry is injected into that same turn
 (`pi-desktop/agent/steer` with the running turn's id), so the transcript shows
-the user rows one after another and the model answers once. An injected entry
+the user rows in click order within one turn. An injected entry
 leaves the queue and its own turn is canceled because it never runs on its own.
 An entry the runtime refuses to accept stays queued and leaves at the next
 boundary as its own turn.
@@ -693,7 +726,7 @@ type AgentEvent =
      willRetry: boolean; fallback?: "retained_tail";
      mark?: { id: string; throughMessageId: string;
               generation: number; summaryTokens: number;
-              summarized: boolean;
+              contextTokens?: number; summarized: boolean;
               fallback?: "retained_tail" };
      error?: { code: string; message: string } }
  | { type: "error"; error: AppError }
@@ -746,7 +779,10 @@ distinguish (D203).
 `compaction_end.mark` is present whenever a checkpoint was installed. It is the
 renderer's whole view of that compaction: `id`, the `throughMessageId` anchor the
 transcript row sits after, `generation` (how many checkpoints this session has
-installed), `summaryTokens` (the summary's estimated context cost), and
+installed), `summaryTokens` (the summary's estimated context cost),
+`contextTokens` (the estimated size of the next request right after the
+checkpoint; the composer context ring shows it until a later request reports
+provider usage, and it is absent on checkpoints written before it existed), and
 `summarized` (`false` when the window rolled over without asking the model for a
 summary), and `fallback` (`"retained_tail"` when summary generation failed and
 the checkpoint carries only a recovery notice plus a retained tail; the row
@@ -917,6 +953,12 @@ type SessionSummary = {
  supportedThinkingLevels?: ThinkingLevel[];
  updatedAt: string;
  createdAt: string;
+ /** Isolated sessions only (ADR 0329); never carries a filesystem path. */
+ worktree?: {
+  branch: string;
+  status: "creating" | "active" | "conflict" | "merged" | "missing";
+  setupStatus?: "none" | "running" | "ok" | "failed" | null;
+ };
 };
 
 type SessionMessageOrigin = {
@@ -936,7 +978,9 @@ type UiMessage = {
  sessionMessage?: SessionMessageOrigin;
  thinking?: string; // assistant reasoning, never folded into content
  usage?: MessageUsage; // provider-reported assistant usage
- responseDurationMs?: number; // model stream duration for throughput
+ responseDurationMs?: number; // elapsed assistant response duration for throughput
+ providerWaitMs?: number; // request start to first model response event
+ modelStreamDurationMs?: number; // streamed thinking and answer duration
  responseOutputTokens?: number; // estimated partial output when stop has no final usage
  toolName?: string;
  toolCallId?: string;
@@ -1030,7 +1074,9 @@ through one Electron-only allowlisted channel:
 Minimal interface:
 
 - `session/list`
-- `session/create`
+- `session/create` — optional `isolated: true` with a `projectPath` creates
+  the session in its own git worktree (ADR 0329); a refusal surfaces the host's
+  `WORKTREE_*` code
 - `session/open(sessionId)` — validate and select an existing durable session
   through the reviewed desktop-control path; it does not create or mutate the
   session
@@ -1060,13 +1106,15 @@ Minimal interface:
 - `session/rename({ id, title }) -> { ok: boolean }` trims the title and
   accepts 1–80 Unicode code points. Blank or overlong titles are rejected as
   `INVALID_PARAMS`; a successful rename changes only session metadata and does
-  not alter transcript content, message count, or activity timestamps.
-- `session/summarizeTitle({ sessionId, userPrompt, assistantReply? }) ->
-  { title }` validates the session and prompt in Electron main, resolves that
-  session's provider/model, and runs one `thinkingLevel: "off"` one-shot
-  completion. It never writes the title itself; the renderer applies the
-  result through `session/rename` only while the session still has a default or
-  first-prompt fallback title. A one-shot failure leaves that fallback intact.
+  not alter transcript content, message count, or activity timestamps. It marks
+  the title source as manual so an installed title plugin cannot replace it.
+- `session/deriveTitle({ id, title }) -> { updated: boolean }` applies the
+  deterministic first-prompt fallback. Host-core accepts it only while the
+  stored title is still a recognized placeholder with the `default` title
+  source, and it is applied only to metadata: `updated_at`, transcript content,
+  and message count are unchanged. The derived title keeps that source, so an
+  installed title plugin may still replace it; `session/rename` remains the
+  user-owned path.
 - `session/getScratchPath({ sessionId }) -> { path }` returns the session
   scratch directory `<data_dir>/scratch/<sessionId>/` without creating it.
 - `session/openScratchPath({ sessionId }) -> { ok, path }` resolves that same
@@ -1156,13 +1204,24 @@ same normalized `AppError` carried by the lifecycle `error` event to the
 assistant message before `message_end`. Error messages persist with the
 transcript but are excluded from restored model context.
 
-The context inspector consumes two additive usage signals. `MessageUsage` is
-the provider-reported assistant usage and `responseDurationMs` is the elapsed
-sidecar stream time used to display output tokens per second. `ToolTokenUsage`
-is a runtime estimate from the tool call arguments and result; providers do not
-report per-tool allocation, so the renderer labels these rows as estimates and
-never merges them into the exact provider total. Older peers may omit all of
-these optional fields without breaking the v6 handshake.
+The context inspector consumes additive usage and timing signals. `MessageUsage`
+is the provider-reported assistant usage and `responseDurationMs` is the
+elapsed request duration used to display output tokens per second. Completed
+responses use pi-ai 1.1.0's monotonic `AssistantMessage.durationMs`; when
+that value is unavailable, the sidecar stopwatch remains the fallback.
+`providerWaitMs` measures from the model request start to the first response
+event, including transport and provider-side first-response wait;
+`modelStreamDurationMs` measures streamed thinking and answer content after
+that event. Both are persisted as optional assistant-message metadata. Older
+messages without split timing keep their prior `responseDurationMs` as the
+model-duration fallback; their request-wait duration cannot be recovered. The
+inspector sums top-level model timing and tool duration against elapsed session
+time; nested delegate timings are excluded, and overlapping top-level tool
+calls count once. `ToolTokenUsage` is a runtime estimate from the tool call
+arguments and result; providers do not report per-tool allocation, so the
+renderer labels these rows as estimates and never merges them into the exact
+provider total. Older peers may omit all of these optional fields without
+breaking the v6 handshake.
 
 `turn_end.subagentUsage` is the settled subagent total since the previous
 emitted `turn_end` of the same durable turn. Parent `message.usage` stays the
@@ -1376,6 +1435,25 @@ type ProjectMemoryEntry = {
 };
 ```
 
+## 9a. Session worktree API (ADR 0329)
+
+Thin forwards to the host `worktree.*` methods
+(06-host-rpc-protocol §4); errors keep the host's `WORKTREE_*` code.
+
+- `worktree/probe({ projectPath })` → whether the project can host isolated
+  sessions, with the refusal code, or whether it has uncommitted changes
+- `worktree/preview({ sessionId })` / `worktree/merge({ sessionId, previewToken })`
+- `worktree/behind({ sessionId })` → commit count, and
+  `worktree/sync({ sessionId })` — "Sync from project"; `worktree/behindAll()`
+  → `{ counts: { [sessionId]: count }, statusesChanged }` for the sidebar marker
+- `worktree/pendingWork({ sessionId })` — unmerged work a delete discards
+- `worktree/setupLog({ sessionId })`
+- `worktree/reveal({ sessionId })` — Electron Main resolves the folder with
+  `worktree.location` and opens it in the OS file manager; the path is never
+  returned to the renderer
+- `worktree/setupCommand/get({ projectPath })` /
+  `worktree/setupCommand/set({ projectPath, command })`
+
 ## 10. Tool Permission API
 
 When a tool requires confirmation:
@@ -1457,7 +1535,7 @@ Minimal interface:
 - `plugin/getPermissions(id)`
 - `plugin/setPermission(id, permission, allowed)` (optional fine-grained)
 - `plugin/setScope(id, scope)` (D192)
-- `plugin/rpc(pluginId, method, params?)` (D657 / ADR 0329) — deliver a
+- `plugin/rpc(pluginId, method, params?)` (D687 / ADR 0346) — deliver a
   renderer management call to a plugin's registered `pi.rpc` handler; the
   plugin must hold `plugin.rpc` and the result must be JSON-serializable
 
@@ -1513,7 +1591,8 @@ Stopping a session aborts its in-flight user MCP tool calls. The client sends
 `notifications/cancelled` for each active request without closing a connection
 used by other sessions; a completed or canceled tool call is never replayed.
 Cancellation stops the local wait, while a server may ignore the notification
-and finish an already started side effect.
+and finish an already started side effect. A request that times out is
+cancelled the same way, with reason `timeout`; `initialize` is never cancelled.
 
 Desktop-only channels scan configuration written by other agent tools on the
 same machine — Claude Desktop (`claude_desktop_config.json` on macOS, Windows
@@ -1575,6 +1654,15 @@ one-liner.
 - `skills.read({ id, level?, projectPath? })` → `{ skill, body }`
 - `skills.remove({ id, level?, projectPath? })`
 - `skills.setEnabled({ id, enabled, level, projectPath? })`
+- `skills.disabledBuiltins()` → `{ disabled: string[] }`
+- `skills.setBuiltinEnabled({ id, enabled })` → `{ id, enabled }`
+
+Built-in skill activation is global and defaults to enabled. Host stores only
+disabled IDs in `<data>/agent-capabilities/skill-builtins.json`, separately
+from the scanned user-skill state. Renderer IPC lists bundled entries with
+their effective enabled state and sets one entry's global state. The
+corresponding Desktop channels are `pi-desktop/skill/builtin/list` and
+`pi-desktop/skill/builtin/setEnabled`.
 
 The list contains frontmatter-derived `name` and `description`, not the body.
 Only the description enters the prompt, and the body is fetched when the model
@@ -1680,10 +1768,12 @@ type McpOAuthLoginEvent = {
   | { kind: "authUrl"; url: string; instructions?: string; opened: boolean }
   | { kind: "progress"; message: string }
   | { kind: "done"; status: McpServerStatus }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; errorCode?: "MCP_OAUTH_DCR_UNAVAILABLE" }
   | { kind: "cancelled" }
 );
 ```
+
+When authorization-server metadata has no `registration_endpoint` and no reusable client is available, login fails before opening the external browser. The error event carries `MCP_OAUTH_DCR_UNAVAILABLE`; the renderer shows localized recovery guidance. The main-process message remains diagnostic and must not include discovered authorization endpoint URLs.
 
 #### Status and Token Storage
 - `McpServerStatus` includes:
@@ -1772,9 +1862,16 @@ Command sources:
 
 Work panel channels are Electron-main implementations. User-driven workspace
 operations resolve the visible root from `workspace.get` and fail closed
-without one. Agent-driven BrowserPreview routing resolves the originating
-conversation through `session.get`, so a background preview never inherits the
-visible session's workspace.
+without one. Agent-driven BrowserPreview resolves the owning conversation
+through `session.get`, allowing its project-group folders (or its isolated
+worktree) and its own `<data_dir>/scratch/<sessionId>` directory. A temporary
+conversation needs no workspace to preview its generated HTML. A missing
+session fails explicitly; a background preview never inherits the visible
+session's roots. BrowserPreview validates realpath containment before creating
+its host-owned page and emitting the corresponding resource-tab identity.
+sessions' scratch files and attachments retain the read-only file surface.
+This does not restrict the Browser's explicit absolute-path / `file:` address
+entry or local-page navigation, which follow its existing local-file policy.
 
 ### workspace
 
@@ -1801,12 +1898,20 @@ Renderer IPC kept for the Plan-safe preview facade and URL fallback:
   tab id is supplied). The shared plugin chrome is not closed with a sibling page.
 - event: `browser/event/state {url, title, isLoading, canGoBack, canGoForward, loadError?, sessionId?, tabId?}`
   (also pushed to plugin views as `browser:state`)
-- agent preview event: `browser/event/preview {sessionId, path?, url?}`.
-  Electron Main validates a workspace `path` inside that session's project,
-  asks the renderer to create a Browser resource tab before navigation, with
-  `location` in the matching
-  runtime panel context. Navigation of a background session does not steal the
-  visible guest.
+- `browser/getPages({sessionId})` → `BrowserState[]`. Returns only that session's
+  retained page metadata for shell-reload recovery, including blank/loading tabs.
+  It never returns DOM, credentials, another session's pages or shared plugin state.
+- agent preview event: `browser/event/preview {sessionId, tabId?, path?, url?, revealOnly?}`.
+  Electron Main validates a workspace `path`, starts its own resource page and
+  requests the corresponding renderer tab. Page execution does not wait for UI
+  mounting. Continuing operations use a trusted session connection rather than
+  visible selection. Explicit reveal remains presentation-only; background work
+  never steals focus. Shell reload hides presentation without destroying pages.
+- plugin file action: `browser/event/openFile {path}`. Electron Main emits this
+  only after the plugin's `fs.openInBrowser` request passes its declared
+  `fs.read` scope and HTML-file checks. The renderer opens the absolute path in a
+  new Browser resource tab for the active local session; the Browser plugin
+  must be enabled. This route grants no `browser.cdp` access.
 
 ### fs (read-only)
 
@@ -1834,9 +1939,16 @@ Renderer IPC kept for the Plan-safe preview facade and URL fallback:
   `.mp4` symlink inside its private app-data directory before the OS handoff,
   so the extensionless blob has a media association without copying its bytes.
 - `fs/resolveRef({ref, sessionId?})` → `FsChatRefResolveResult`
+  (for isolated sessions, lookup and file reads use `worktree.location` rather
+  than the parent project checkout; an absolute reference under the parent
+  checkout is rebased onto the same relative path in the worktree when that
+  file exists, so the branch copy opens instead of reporting
+  `outside-allowed-roots`)
   (`{ match: FsChatRefMatch | null, reason?: "outside-allowed-roots" }`, the match naming the answering `root`
   (`workspace` / `scratch` / `attachments`), the `relativePath` relative to that
-  root, the absolute `absolutePath`, `matchedBy` (`exact-relative` /
+  root, optional `sessionScratch: true` for the current session's own scratch
+  (not the wider read-only scratch containment store), the absolute
+  `absolutePath`, `matchedBy` (`exact-relative` /
   `exact-absolute` / `path-suffix` / `basename`), and — for a `workspace` match
   — `projectRoot` (`{ path, name, primary }`), which names the project folder
   that answered); `sessionId` selects the
@@ -1852,9 +1964,10 @@ Renderer IPC kept for the Plan-safe preview facade and URL fallback:
   other folders, which are then searched in the group's own order (ADR 0263),
   so a shorthand resolves in a sibling folder as readily as in the primary one,
   and the match names the folder that answered. Inside one root an exact path
-  beats a shorthand; among shorthands the longest matching tail wins, then the
-  shallowest path. Relative and indexed candidates must resolve to regular files
-  whose real paths remain inside their answering root; an exact path through an
+  beats a shorthand; a shorthand matches only when its complete supplied suffix
+  identifies one safe file. It never degrades to a shorter suffix, and an
+  ambiguous match returns `match: null`. Relative and indexed candidates must
+  resolve to regular files whose real paths remain inside their answering root; an exact path through an
   escaping or dangling link cannot fall back to a same-name indexed file. The
   files-panel ignore set applies. An absolute reference may also name a store
   the app reads without searching it: the whole scratch store
@@ -1910,6 +2023,33 @@ menu/nativeAction({ action: NativeMenuAction })
   -> { maximized: boolean; fullScreen: boolean }
 ```
 
+When a plugin-contributed `WebContentsView` is active, the renderer sends tab
+context-menu labels and its pointer anchor through one bounded Main-owned
+channel. Main validates the payload, scales CSS coordinates by the sender's
+current zoom factor, clamps them to the window content area, and builds only
+the fixed close actions. The result is the selected action or `null` on cancel
+or window close; the renderer rechecks the session and target tab after this
+async boundary:
+
+```ts
+type WorkPanelTabMenuAction = "closeTab" | "closeOtherTabs" | "closeAllTabs";
+type WorkPanelTabMenuRequest = {
+  closeTabLabel: string;
+  closeOtherTabsLabel: string;
+  closeAllTabsLabel: string;
+  canCloseOthers: boolean;
+  x: number; // renderer CSS pixels
+  y: number; // renderer CSS pixels
+};
+
+workPanel/tabMenu(request: WorkPanelTabMenuRequest)
+  -> WorkPanelTabMenuAction | null
+```
+
+Labels are presentation-only; they cannot select an arbitrary Main action.
+The OS-native menu appearance is a z-order requirement so the menu stays
+above the native view.
+
 Developer tools use a dedicated Main-owned gate rather than a generic native
 menu action:
 
@@ -1960,9 +2100,19 @@ macOS, where there is no close behavior to configure. Setting a behavior does
 not touch the tray icon: D216 (ADR 0078) creates one at startup on every
 platform, and minimize-to-tray needs it whichever close behavior is stored.
 
+Lifecycle close/quit prompts use additive main-window-only Electron IPC. Main sends
+`pi-desktop/window/event/lifecycleDialogRequest` with `{ requestId, kind }` after the
+renderer acknowledges `pi-desktop/window/lifecycleDialog/ready`; the renderer returns
+`{ requestId, choice }` through `pi-desktop/window/lifecycleDialog/respond`. If Main
+falls back, it sends `pi-desktop/window/event/lifecycleDialogDismiss` with the
+request ID so the renderer removes any stale overlay. Main validates the sender and
+pending request ID. A missing/unresponsive renderer falls back to the native dialog
+after a bounded timeout; if that fallback also fails, shutdown proceeds rather than
+remaining blocked. Tray Quit restores a hidden main
+window before showing its in-app confirmation. This does not change host RPC or storage.
 Maximize/unmaximize changes also emit
-`window/event/maximized`. Unknown actions fail. These Electron-only channels
-do not cross into host-core and do not change the host RPC protocol version.
+`window/event/maximized`. Unknown actions fail. These window-control channels
+remain Electron-only and do not change the host RPC protocol version.
 The preload exposes no arbitrary BrowserWindow bounds or resize channel.
 Windows retains Electron's native frameless edge/corner hit testing with
 `thickFrame: false`; the renderer does not submit window geometry.
@@ -1971,8 +2121,18 @@ reports `isFullScreen() === false` while it uses display bounds for that mode;
 the window-control state and fullscreen event use the tracked value.
 `window/setBackgroundColor` remains Electron-local and main-renderer-only. Its
 optional `cornerRadius` is an integer from 0 to 24 DIP; omission restores the
-Windows main-window default of 4. Main applies the native shape on theme
-selection and resize, and clears the corner cutouts during maximize/fullscreen.
+Windows main-window default of 12 DIP, matching the global `--radius-md` token.
+On Windows build 22000 and later, Main maps radius 0 to the native square
+preference and every positive radius to the DWM system-rounded preference;
+maximized/fullscreen states request square corners. Windows chooses the actual
+positive radius. The top-level surface stays opaque, and an alpha background is
+flattened over the built-in background for the resolved theme. Earlier Windows
+builds retain the existing `contentView` clip and native shape behavior. Linux
+keeps the native window background, and macOS keeps its existing vibrancy
+behavior. The internal Main-to-Host Core DWM call checks that the HWND belongs
+to the Electron process; it is not exposed through preload, renderer IPC, or the
+plugin API. This does not alter the `window/setBackgroundColor` request or
+response and remains pending Windows native qualification.
 Malformed values fail with `INVALID_ARGUMENT` before changing the background.
 Plugin panel chrome uses a separate Electron-local
 `pi-plugin-panel-window-control` channel with the same four semantic actions,
@@ -2038,7 +2198,7 @@ reservation, and background artifacts cannot change visible window geometry.
 ## 13c. Composer input APIs (D123/D124/D197, ADR 0024/0059)
 
 Electron-only channels backing composer autocomplete and file references.
-`composer/commands` and `fs/index` are read-only and fail soft;
+`composer/commands`, `fs/index`, and `fs/search` are read-only and fail soft;
 `composer/pickFiles` opens the unified native picker used by the Composer and
 returns a one-shot token; the legacy `composer/pickPhotos` channel remains
 available for compatibility but is not exposed by the Composer UI.
@@ -2082,6 +2242,10 @@ through a source blip.
 
 ### fs/index
 
+Git listings are decoded as a continuous UTF-8 stream. File names, including
+non-ASCII characters split across process output chunks, retain their exact
+spelling in both the index and `fs/search` results.
+
 ```ts
 fs/index() -> { entries: FsIndexEntry[]; truncated: boolean }
 
@@ -2092,7 +2256,28 @@ Workspace-rooted relative paths for the `@` menu: `git ls-files -co
 --exclude-standard` fast path, ignore-set recursive walk fallback,
 directories derived from file paths, 8000-entry cap with `truncated: true`,
 short TTL cache per root. Fails closed to an empty list without a
-workspace. Fuzzy filtering happens renderer-side.
+workspace. Fuzzy filtering happens renderer-side; a truncated index keeps
+only the shallowest entries, so a query against it is also sent to
+`fs/search`.
+
+### fs/search
+
+```ts
+fs/search({ sessionId?, query }) -> { entries: FsIndexEntry[]; truncated: boolean }
+```
+
+The `@` menu calls this only while its `fs/index` snapshot is truncated and
+the query is non-empty, after a short typing pause, then merges the answer
+with its own matches (D669). Main ranks the query with the renderer's fuzzy
+scorer over the root's full listing and returns the best 50 entries. The
+listing is the `git ls-files` list behind the index, or — when the index came
+from the walk — a deeper ignore-set walk of at most 200,000 entries or two
+seconds. It shares the index's TTL cache and is released when that expires.
+`truncated: true` means the search itself was capped. The query is trimmed and
+bounded to 256 characters; an empty query returns no entries. A remote session
+returns `{ entries: [], truncated: true }` without contacting its host — the
+remote file protocol has no search operation — so the menu keeps filtering
+the remote snapshot alone.
 
 ### composer/pickFiles and composer/pickPhotos
 
@@ -2335,7 +2520,7 @@ event, so an external Agent can create a session, open a project, or submit a
 prompt while the visible desktop follows the same state. A control-server
 startup failure is logged and does not prevent the desktop from launching.
 
-## 13e. Voice dictation API (D657 / ADR 0329)
+## 13e. Voice dictation API (D687 / ADR 0346)
 
 Three invoke channels under `pi-desktop/voice/*` carry batch speech-to-text
 from the composer to the bundled local-voice plugin. All three are accepted
@@ -2397,6 +2582,13 @@ runtime, and no transcript is auto-sent through `agent/prompt`.
 
 ## Native Pi session routing (ADR 0254)
 
+The Electron `pi-desktop/session/list` response also includes
+`runningSessionIds`, a snapshot of the Desktop turns still owned by Main after
+the list reads settle. A recreated renderer restores these running flags during
+bootstrap; start/end events already received by that renderer take precedence.
+An older response without this field remains valid. Historical completion
+notifications are not evidence that a currently active turn has finished.
+
 `pi-desktop/session/list` returns both Desktop and native summaries. Each summary
 may carry `source: "desktop" | "pi-native"`, capability flags, and a stable
 `readOnlyReason`; clients normalize omitted source to `desktop` for backward
@@ -2445,20 +2637,23 @@ unchanged. See [provider configuration](12-provider-config-schema.md).
 ## 15. Cloud configuration sync
 
 The Settings → Cloud sync page uses the following renderer-to-Main channels;
-all are forwarded to the Host-owned `configSync.*` RPC methods:
+all are forwarded to the Host-owned `configSync.*` RPC methods. The page is
+available in all builds and carries an Experimental badge. Channel names stay
+stable; connection inputs
+and results use the S3-only contract in `types/config-sync.ts`:
 
 | IPC channel | Host method | contract |
 |---|---|---|
 | `pi-desktop/configSync/getState` | `configSync.getState` | redacted status, category selections, preview counts, and pending approval summaries |
-| `pi-desktop/configSync/test` | `configSync.test` | WebDAV capability probe using a temporary object; no configuration is persisted |
+| `pi-desktop/configSync/test` | `configSync.test` | S3 conditional-write probe and verified cleanup; returns `{ ok: true, conditionalWrites: true }` without persisting configuration |
 | `pi-desktop/configSync/configure` | `configSync.configure` | validates the endpoint, stores encrypted local sync metadata, and enables the vault |
-| `pi-desktop/configSync/syncNow` | `configSync.syncNow` | runs one Host-owned reconciliation cycle |
+| `pi-desktop/configSync/syncNow` | `configSync.syncNow` | runs one Host-owned two-way sync or local-snapshot backup, according to the saved mode |
 | `pi-desktop/configSync/pause` | `configSync.pause` | pauses or resumes this device only |
 | `pi-desktop/configSync/unlock` | `configSync.unlock` | unlocks the local vault for the current process/device |
 | `pi-desktop/configSync/approve` / `reject` | `configSync.approve` / `configSync.reject` | records a digest-bound local activation decision |
 | `pi-desktop/configSync/mapProject` | `configSync.mapProject` | binds one opaque project/group identity to one or more explicitly selected local folders, preserving primary-root order |
-| `pi-desktop/configSync/listHistory` | `configSync.listHistory` | lists redacted reachable revision metadata only |
-| `pi-desktop/configSync/restore` | `configSync.restore` | creates a new propagated revision from an explicitly acknowledged historical revision and stages local approvals/recovery |
+| `pi-desktop/configSync/listHistory` | `configSync.listHistory` | lists the saved mode's latest 30 indexed revisions; never emitted as a state-change event |
+| `pi-desktop/configSync/restore` | `configSync.restore` | sync publishes a new shared revision with propagation acknowledgment; backup restores locally without changing cloud history; both retain recovery/approvals |
 | `pi-desktop/configSync/changePassword` | `configSync.changePassword` | CAS-rewraps the vault key header without returning keys or secret values |
 | `pi-desktop/configSync/disconnect` | `configSync.disconnect` | removes local sync metadata and keys; it does not delete remote vault data |
 
@@ -2470,7 +2665,7 @@ transport/lifecycle coordinator and does not schedule, merge, encrypt, or
 apply configuration.
 
 A manual sync reports `configSync.progress` while it runs: the phase
-(`capture`, `download`, `merge`, `upload`, `apply`, or `cleanup`), the units
+(`capture`, `download`, `merge`, `upload`, or `apply`), the units
 done and total for that phase, and the bytes when they are known. A long upload
 of many resource objects is therefore not an interface with nothing to show.
 Background polls report nothing, since only the manual path has a caller

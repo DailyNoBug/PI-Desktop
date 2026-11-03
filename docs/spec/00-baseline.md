@@ -1,8 +1,8 @@
 # PI-Desktop Baseline Freeze
 
-- Baseline Version: `0.4.21`
-- Date: `2026-10-04`
-- Status: `Frozen for implementation details (indefinite local permission approvals + Plan checkpoint artifact + approval/execution startup fence + protocol v11 + schema v16 + host-owned plugin session import/read/update/delete P0/P1 + selectable shell catalog + icon-free composer prompt row + turn-boundary context checkpoint compaction + session-scoped work panel + edge-specific work-panel/chat resize ownership + models.dev chat model catalog + provider/runtime safety + M5 hardening + settings IA + project archive + sidebar organization + app update delivery + three-platform release + Extensions page density and theme-readable actions + custom global UI font + ChatGPT-style logical project groups)`
+- Baseline Version: `0.4.22`
+- Date: `2026-10-08`
+- Status: `Frozen for implementation details (indefinite local permission approvals + Plan checkpoint artifact + approval/execution startup fence + protocol v11 + schema v16 + host-owned plugin session import/read/update/delete P0/P1 + selectable shell catalog + icon-free composer prompt row + turn-boundary context checkpoint compaction + session-scoped work panel + edge-specific work-panel/chat resize ownership + models.dev chat model catalog + provider/runtime safety + M5 hardening + settings IA + project archive + sidebar organization + app update delivery + three-platform release + Extensions page density and theme-readable actions + custom global UI font + ChatGPT-style logical project groups + categorized plugin providers in Add Service)`
 - Language policy: **English-first**
 - Backend policy: **Rust host core + pi agent sidecar**
 
@@ -41,6 +41,11 @@
 > and MCP scans live inside their owning settings pages, while session import
 > remains available to plugins through the existing plugin API (D645 / ADR
 > 0319).
+> `0.4.22` adds plugin-declared providers to Settings → Models → Add Service
+> (D650 / ADR 0322). The chooser shows names under their custom categories and
+> reveals one-sentence introductions on hover or keyboard focus. Provider count
+> is not capped per plugin. Empty model declarations discover models only after
+> the user saves a key; the Host reuses existing rows and secret storage.
 > `0.4.10` replaces destructive work-panel clearing on conversation switches
 > with runtime session-scoped contexts through D142 / ADR 0028.
 > `0.4.11` adopts turn-boundary model-context checkpoint compaction through
@@ -118,8 +123,8 @@
 > WebSocket binding, a headless Agent Host module, and the full local
 > approval vocabulary, and D375 schedules the SSH-tunnel remote Host first
 > while Gateway and browser access stay unscheduled. None of them changes the
-> current exclusion. Voice dictation (D656 / ADR 0328, superseded by D657 /
-> ADR 0329) runs through the frozen `pi-desktop/dictation/*` IPC domain on the
+> current exclusion. Voice dictation (D686 / ADR 0345, superseded by D687 /
+> ADR 0346) runs through the frozen `pi-desktop/dictation/*` IPC domain on the
 > bundled local voice plugin `pi.local-voice`: local Whisper transcription,
 > no cloud STT/TTS bindings, no secret ref — with no protocol or
 > storage-schema version change.

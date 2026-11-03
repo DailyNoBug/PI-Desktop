@@ -5,9 +5,11 @@ import { copyFile, mkdir, open, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import {
   formatFileInsert,
+  imageExceedsInlineDimensions,
   isSvgAttachment,
   MAX_INLINE_IMAGE_BYTES,
   MAX_INLINED_IMAGE_HISTORY_BYTES,
+  probeImageDimensions,
   SVG_MIME_TYPE,
   type MessageAttachment,
   type UiMessage,
@@ -204,6 +206,9 @@ export async function hydrateAttachmentHistory(
       try {
         const bytes = await readFileAtRecordedSize(item.canonicalPath!, item.size!);
         if (!bytes) return;
+        // An image past the provider's pixel limit keeps the path fallback, as
+        // a fresh prompt does, instead of failing every replay (#1913).
+        if (imageExceedsInlineDimensions(probeImageDimensions(bytes))) return;
         item.attachment = {
           ...item.attachment,
           data: bytes.toString("base64"),
@@ -241,9 +246,14 @@ export async function hydrateAttachmentHistory(
     const resolved = resolvedHistory[index];
     if (!resolved) return message;
     const fallbackPaths = resolved
-      .map((item) => item.fallbackPath)
-      .filter((path): path is string => Boolean(path))
-      .map((path) => formatFileInsert(path, "file"))
+      .filter(
+        (item) =>
+          Boolean(item.fallbackPath) &&
+          // A path the message already names at the user's own position needs no
+          // second copy at the end; a rewritten replay copy still travels.
+          formatFileInsert(item.fallbackPath!, "file").trim() !== item.attachment.inlinePath,
+      )
+      .map((item) => formatFileInsert(item.fallbackPath!, "file"))
       .join("")
       .trim();
     const content = message.content.trim()

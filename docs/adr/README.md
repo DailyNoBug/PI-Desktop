@@ -20,6 +20,20 @@ Each ADR includes:
 
 | ID | Title | Status |
 |---|---|---|
+| plugin-projects-list | [Read-only durable project enumeration for plugins](plugin-projects-list.md) | Accepted |
+| append-only-review-state | [Append-only review state](append-only-review-state.md) | Implemented candidate |
+| lossless-tool-image-storage | [Lossless tool-image storage and bounded history mutations](lossless-tool-image-storage.md) | Implemented candidate |
+| plugin-remote-workspace-reads | [Plugin reads in remote workspaces](plugin-remote-workspace-reads.md) | Implemented candidate |
+| browser-background-lifecycle | [Browser page execution outlives side-panel presentation](browser-background-lifecycle.md) | Accepted |
+| asktool-draft-survives-session-switch | [AskTool drafts survive a card remount](asktool-draft-survives-session-switch.md) | Accepted |
+| tool-abort-abandons-host-call | [A user stop ends the turn even when the running tool cannot be cancelled](tool-abort-abandons-host-call.md) | Accepted for implementation |
+| provider-metadata-client-certificate-retry | [Provider metadata recovery from optional client certificates](provider-metadata-client-certificate-retry.md) | Implemented candidate |
+| device-local-project-lists-in-config-sync | [Device-local project lists in configuration sync](device-local-project-lists-in-config-sync.md) | Accepted |
+| s3-only-configuration-backup-sync | [S3-only encrypted configuration backup and synchronization](s3-only-configuration-backup-sync.md) | Accepted; supersedes WebDAV decisions in 0300 / 0301 |
+| remote-provider-import | [Explicit provider import into a running remote Host](remote-provider-import.md) | Accepted for the experimental SSH MVP |
+| remote-project-home-workflow | [Remote projects in the shared Chat home workflow](remote-project-home-workflow.md) | Accepted |
+| parallel-read-batches | [Ordered preparation and parallel file batches](parallel-read-batches.md) | Proposed |
+| host-file-batch-admission | [Host file identities and ordered batch admission](host-file-batch-admission.md) | Proposed |
 | composer-mcp-invocations | [Composer MCP Invocations](composer-mcp-invocations.md) | Accepted |
 | chronological-system-transcript | [Preserve chronological model system state](chronological-system-transcript.md) | Accepted |
 | mcp-tool-approval-risk | [User MCP tools keep the normal approval path](mcp-tool-approval-risk.md) | Accepted |
@@ -151,7 +165,7 @@ Each ADR includes:
 | 0118 | Keep queued prompts renderer-owned and stop runs at turn boundaries | Accepted |
 | 0119 | Event-Driven Subagent Timeouts | Accepted for implementation (killing policy amended by 0166; `maxTurns` clauses withdrawn by 0253) |
 | 0120 | Bounded Session History Windows | Accepted |
-| 0121 | Keep Composer prompt enhancement one-shot and main-owned | Accepted (D447; issue #14 / #562) |
+| 0121 | Keep Composer prompt enhancement one-shot and main-owned | Superseded by 0324 |
 | 0122 | Reserve native width while the work panel is visible | Superseded by 0151 |
 | 0123 | Use native taskbar minimize for Windows/Linux window controls | Accepted |
 | 0124 | Bind Temporary Sessions to Their Own Scratch Workspace | Accepted |
@@ -215,7 +229,7 @@ Each ADR includes:
 | 0183 | P0 international shell locales | Accepted (amends 0160 / 0182) |
 | 0184 | Dock the context usage inspector in the composer toolbar | Accepted (amends 0047 / 0103) |
 | 0185 | Korean shell locale | Accepted (amends 0160 / 0183) |
-| 0186 | Summarize First-Turn Session Titles with a Main-Owned One-Shot | Accepted |
+| 0186 | Summarize First-Turn Session Titles with a Main-Owned One-Shot | Superseded by 0323 |
 | 0187 | Focus-Aware Native Task Notifications | Accepted (amends 0107 / D117) |
 | 0188 | Preserve distinct credentials during model configuration import | Accepted (amends 0179 / D342) |
 | 0189 | Parent fatal error aborts leftover delegates | Accepted (amends 0166 / D328) |
@@ -336,8 +350,8 @@ Each ADR includes:
 | 0297 | [Provider-hosted web search as an adapter capability](0297-provider-hosted-web-search-adapter-capability.md) | Accepted |
 | 0298 | [The app ships no fonts](0298-remove-bundled-fonts.md) | Accepted (D598; amends ADR 0083 / D232) |
 | 0299 | [Subagent context budget and delegate compaction](0299-subagent-context-budget.md) | Accepted for implementation (amends ADR 0064; extends ADR 0062 / ADR 0279) |
-| 0300 | [Host-owned encrypted portable configuration sync](0300-host-owned-encrypted-portable-configuration-sync.md) | Accepted for implementation |
-| 0301 | [Explicit append-only WebDAV compatibility mode](0301-explicit-append-only-webdav-compatibility-mode.md) | Accepted for implementation |
+| 0300 | [Host-owned encrypted portable configuration sync](0300-host-owned-encrypted-portable-configuration-sync.md) | Partially superseded by S3-only configuration backup/sync |
+| 0301 | [Explicit append-only WebDAV compatibility mode](0301-explicit-append-only-webdav-compatibility-mode.md) | Superseded by S3-only configuration backup/sync |
 | 0302 | [A failed compaction keeps the recent window, and an oversized summary is chunked](0302-compaction-fallback-recent-window-and-chunked-summary.md) | Accepted for implementation (issue #827; amends ADR 0049 / ADR 0282) |
 | 0303 | [A skill package carries resources far above the document cap](0303-skill-package-resource-limits.md) | Accepted for implementation (amends ADR 0300) |
 | 0304 | [Trust the network endpoints the user enters themselves](0304-user-supplied-endpoint-trust.md) | Accepted for implementation (amends ADR 0243 / 0245 / 0247; follows ADR 0142 / 0257 / 0300) |
@@ -363,15 +377,37 @@ Each ADR includes:
 | 0319 | [Inline external imports in owning Settings destinations](0319-settings-inline-imports.md) | Accepted (D645) |
 | 0320 | [Host-owned OAuth lifecycle for plugin providers](0320-plugin-oauth-provider-callbacks.md) | Accepted for implementation (D647; amends ADR 0259) |
 | 0321 | [Pin an acceptable address for mixed direct DNS answers](0321-skill-market-direct-dns-pinning.md) | Accepted (D648; amends ADR 0272) |
-| 0322 | [Sidebar token usage summary](0322-sidebar-token-usage-summary.md) | Accepted (amends 0173; D650) |
-| 0323 | [Bundled Git work panel](0323-bundled-git-work-panel.md) | Accepted (D651; amended by 0324 / D652) |
-| 0324 | [Tree review and AI commit messages in Git](0324-git-ai-commit-messages.md) | Accepted (D652) |
-| 0325 | [Window-sized plugin view modals](0325-window-sized-plugin-view-modals.md) | Accepted (D653) |
-| 0326 | [Remote SSH Agent Runtime](0326-remote-ssh-agent-runtime.md) | Accepted for implementation (D654) |
-| 0327 | [Managed SSH password authentication](0327-managed-ssh-password-auth.md) | Accepted (D655) |
-| 0328 | [Voice dictation, phase 1](0328-voice-dictation-phase-1.md) | Accepted for implementation (D656) |
-| 0329 | [Local voice plugin replaces cloud speech](0329-local-voice-plugin.md) | Accepted for implementation (D657) |
-| 0330 | [CC Connect loopback bridge](0330-cc-connect-loopback-bridge.md) | Accepted for implementation (D658) |
+| 0322 | [Plugin providers appear in Add Service](0322-plugin-providers-in-add-service.md) | Accepted for implementation (D650; amends ADR 0259) |
+| 0323 | [Make Session Title Generation a Standalone Plugin](0323-plugin-owned-session-titles.md) | Accepted (D652, amended by D654; supersedes ADR 0186) |
+| 0324 | [Make Composer Prompt Enhancement an Optional Plugin](0324-plugin-owned-composer-prompt-enhancement.md) | Accepted (D653; supersedes ADR 0121) |
+| 0325 | [Smooth Windows main-window corner compositing](0325-windows-window-corner-compositing.md) | Proposed (implementation candidate; Windows E2E pending) |
+| 0326 | [Verified SSH Host installation and daily startup](0326-verified-ssh-host-installation.md) | Accepted for experimental implementation (amends ADR 0292; Linux SSH qualification and publication pending) |
+| 0327 | [Automatic remote Host version realignment](0327-remote-host-version-realignment.md) | Accepted for experimental implementation (amends ADR 0326 item 6; Linux SSH qualification pending) |
+| 0328 | [Open arbitrary local files in the embedded Browser](0328-browser-arbitrary-local-files.md) | Accepted (D657; amends ADR 0170; issue #1627) |
+| 0329 | [Isolate parallel sessions of one project in git worktrees](0329-session-worktree-isolation.md) | Accepted (Windows E2E pending) |
+| 0330 | [Open scoped HTML files in the work-panel Browser from plugins](0330-open-html-files-in-work-panel-browser-from-plugins.md) | Accepted |
+| 0331 | [Plugin session follow and host-owned work-panel reveal](0331-plugin-session-follow-and-work-panel-reveal.md) | Accepted |
+| 0333 | [A plugin-owned suggestion in the Composer placeholder](0333-plugin-composer-suggestion.md) | Accepted |
+| 0334 | [OpenAI Fast mode as a per-session switch gated by model settings](0334-openai-fast-mode.md) | Accepted |
+| plugin-fetch-redirect-policy | [Host-enforced plugin fetch redirect policy](plugin-fetch-redirect-policy.md) | Accepted (implementation candidate for #1475) |
+
+| local-agent-remote-workspace-tools | [Local Agent and model requests for remote workspaces](local-agent-remote-workspace-tools.md) | Accepted for implementation |
+| 0332 | [macOS keeps its translucent window surface with an opaque opt-out](0332-macos-opaque-window-surface.md) | Accepted (D665, amended by D666 and D667; supersedes the macOS vibrancy window backing from D348; issue #1064) |
+| gen-ui-inline-visualization | [Inline generative UI visualizations](gen-ui-inline-visualization.md) | Accepted (D671) |
+| 0337 | [Keep the request prefix stable across delegation settlements](0337-stable-prompt-prefix-across-delegation.md) | Accepted (supersedes ADR 0279 §9) |
+| 0338 | [A user-supplied video owns the boot surface, served over a host-owned scheme](0338-user-supplied-startup-animation.md) | Accepted (D679) |
+
+| model-reasoning-effort-override | [Model reasoning effort override](model-reasoning-effort-override.md) | Proposed |
+
+| 0339 | [Sidebar token usage summary](0339-sidebar-token-usage-summary.md) | Accepted (amends 0173; D680) |
+| 0340 | [Bundled Git work panel](0340-bundled-git-work-panel.md) | Accepted (D681; amended by 0341 / D682) |
+| 0341 | [Tree review and AI commit messages in Git](0341-git-ai-commit-messages.md) | Accepted (D682) |
+| 0342 | [Window-sized plugin view modals](0342-window-sized-plugin-view-modals.md) | Accepted (D683) |
+| 0343 | [Remote SSH Agent Runtime](0343-remote-ssh-agent-runtime.md) | Accepted for implementation (D684) |
+| 0344 | [Managed SSH password authentication](0344-managed-ssh-password-auth.md) | Accepted (D685) |
+| 0345 | [Voice dictation, phase 1](0345-voice-dictation-phase-1.md) | Accepted for implementation (D686) |
+| 0346 | [Local voice plugin replaces cloud speech](0346-local-voice-plugin.md) | Accepted for implementation (D687) |
+| 0347 | [CC Connect loopback bridge](0347-cc-connect-loopback-bridge.md) | Accepted for implementation (D688) |
 
 > The fork's own decisions originally took the 0230 - 0235 range that merged main
 > had already assigned, so they were renumbered to D430 - D435 and ADR 0266 - 0271
@@ -381,6 +417,9 @@ Each ADR includes:
 > ADRs 0290 - 0305 and also claimed the fork's D430 - D435, D439, and D451 ids
 > upstream, so they moved to ADR 0306 - 0313 and D622 - D629. The 2026-10 sync
 > then brought upstream ADRs 0306 - 0321 and decision ids up to D648, so the
-> fork's records moved once more, to ADR 0322 - 0329 and D650 - D657. Note
-> upstream independently reused decision id D439 for its window-toggle and
-> chat-content-width records; the fork's voice-dictation record is D656.
+> fork's records moved once more, to ADR 0322 - 0329 and D650 - D657. The
+> 2026-11 sync then brought upstream ADRs 0322 - 0338 and decision ids up to
+> D679, claiming the fork's 0322 - 0330 and D650 - D658, so the fork's records
+> moved to ADR 0339 - 0347 and D680 - D688. Note upstream independently reused
+> decision id D439 for its window-toggle and chat-content-width records; the
+> fork's voice-dictation record is D686.

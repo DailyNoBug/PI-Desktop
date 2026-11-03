@@ -1,4 +1,5 @@
 import i18n from "i18next";
+import { isRemoteSession, sessionAllows } from "../../lib/remote-session-safety";
 import type {
   UiMessage,
 } from "@pi-desktop/shared";
@@ -52,6 +53,14 @@ export function createTranscriptSlice({
   | "rollbackWorkspaceChange"
   | "abort"
 > {
+  // Keep each delete's read/optimistic update/Host result together. Main's
+  // mutation lock alone cannot prevent a second renderer read of old history.
+  const pendingMessageDeletes = new Map<string, Promise<void>>();
+  const canEdit = () => {
+    const state = get();
+    return sessionAllows(state.sessions.find((session) => session.id === state.activeSessionId)
+      ?? { id: state.activeSessionId ?? "" }, "canEditMessages");
+  };
   return {
     compactContext: async () => {
       const state = get();
@@ -87,6 +96,7 @@ export function createTranscriptSlice({
     },
 
     retryAssistantMessage: async (messageId) => {
+      if (!canEdit()) return;
       const prepared = await prepareTranscriptAction({ get, set }, runtime, messageId);
       const state = get();
       if (!prepared || state.activeSessionId !== prepared.activeSessionId || state.isRunning) return;
@@ -111,6 +121,7 @@ export function createTranscriptSlice({
     },
 
     prepareUserMessageEdit: async (messageId, signal) => {
+      if (!canEdit()) return null;
       const prepared = await prepareTranscriptAction({ get, set }, runtime, messageId, signal);
       const state = get();
       if (!prepared || state.activeSessionId !== prepared.activeSessionId || state.isRunning) return null;
@@ -119,6 +130,7 @@ export function createTranscriptSlice({
     },
 
     editUserMessage: async (messageId, content, attachments) => {
+      if (!canEdit()) return false;
       const prepared = await prepareTranscriptAction({ get, set }, runtime, messageId);
       const state = get();
       if (!prepared || state.activeSessionId !== prepared.activeSessionId || state.isRunning) return false;
@@ -225,6 +237,7 @@ export function createTranscriptSlice({
     },
 
     retryLastPrompt: async () => {
+      if (!canEdit()) return;
       const state = get();
       if (state.isRunning) return;
       const sessionId = state.activeSessionId;
@@ -291,6 +304,7 @@ export function createTranscriptSlice({
     clearError: () => set({ error: null, errorCode: null, errorRetriable: null }),
 
     activateMessageRevision: async (rootUserId, revisionIndex) => {
+      if (!canEdit()) return;
       let state = get();
       if (state.isRunning) return;
       const sessionId = state.activeSessionId;
@@ -299,7 +313,7 @@ export function createTranscriptSlice({
         const fullMessages = await runtime.loadFullSessionMessages(sessionId);
         if (!fullMessages || get().activeSessionId !== sessionId) return;
         set((current) =>
-          current.activeSessionId === sessionId
+          current.activeSessionId === sessionId && !current.isRunning
             ? {
                 messages: fullMessages,
                 sessionHistory: {
@@ -315,21 +329,20 @@ export function createTranscriptSlice({
       if (rootIndex < 0) return;
       const root = state.messages[rootIndex];
       const revisionFamilyId = root.revisionRootId || root.id;
-      const prefix = state.messages.slice(0, rootIndex);
       try {
         const result = await api.activateSessionRevision({
           sessionId,
           rootUserId: revisionFamilyId,
           revisionIndex,
-          prefix,
+          requireCanonicalPrefix: true,
         });
         set((current) => ({
           messages:
-            current.activeSessionId === sessionId
-              ? result.messages ?? prefix
+            current.activeSessionId === sessionId && !current.isRunning
+              ? result.messages
               : current.messages,
           sessionHistory:
-            current.activeSessionId === sessionId
+            current.activeSessionId === sessionId && !current.isRunning
               ? {
                   ...current.sessionHistory,
                   [sessionId]: { messageStart: 0, hasMoreBefore: false },
@@ -347,58 +360,86 @@ export function createTranscriptSlice({
     },
 
     deleteMessage: async (messageId) => {
+      if (!canEdit()) return;
       const sessionId = get().activeSessionId;
       if (!sessionId || get().isRunning) return;
-      const fullMessages = await runtime.loadFullSessionMessages(sessionId);
-      if (!fullMessages || get().activeSessionId !== sessionId) return;
-      set((current) =>
-        current.activeSessionId === sessionId
-          ? {
-              messages: fullMessages,
-              sessionHistory: {
-                ...current.sessionHistory,
-                [sessionId]: { messageStart: 0, hasMoreBefore: false },
-              },
-            }
-          : {},
-      );
-      const state = get();
-      const index = state.messages.findIndex((message) => message.id === messageId);
-      if (index < 0) return;
-      const target = state.messages[index];
-      let end = index + 1;
-      if (target.role === "user") {
-        while (
-          end < state.messages.length &&
-          state.messages[end].role !== "user"
-        ) {
-          end += 1;
-        }
-      }
-      const previous = state.messages;
-      const next = [...previous.slice(0, index), ...previous.slice(end)];
-      const fullWindow = { messageStart: 0, hasMoreBefore: false };
-      runtime.cacheSessionTranscript(sessionId, next, fullWindow);
-      set((current) => ({
-        messages: next,
-        sessionHistory: { ...current.sessionHistory, [sessionId]: fullWindow },
-        error: null,
-        errorCode: null,
-      }));
+      const previousDelete = pendingMessageDeletes.get(sessionId);
+      let releaseDelete!: () => void;
+      const completion = new Promise<void>((resolve) => { releaseDelete = resolve; });
+      pendingMessageDeletes.set(sessionId, completion);
       try {
-        await api.replaceSessionMessages(sessionId, next);
-      } catch (error) {
-        runtime.cacheSessionTranscript(sessionId, previous, fullWindow);
-        set((current) => ({
-          messages:
-            current.activeSessionId === sessionId ? previous : current.messages,
-          error: error instanceof Error ? error.message : String(error),
-          errorCode: (error as { code?: string })?.code ?? null,
-        }));
+        await previousDelete;
+        if (get().activeSessionId !== sessionId || get().isRunning || !canEdit()) return;
+        const fullMessages = await runtime.loadFullSessionMessages(sessionId);
+        // Re-read the store after the reload: writes that landed during the
+        // await (an aborted turn's final message_end, a late tool_end) exist
+        // only here, so merging the pre-await snapshot would erase them
+        // (#1614) — the same post-await read abort() below relies on. A turn
+        // that started during the reload also bails: no rewrite under a live
+        // stream.
+        if (
+          !fullMessages ||
+          get().activeSessionId !== sessionId ||
+          get().isRunning
+        ) {
+          return;
+        }
+        const merged = mergeLiveSessionMessages(fullMessages, get().messages);
+        set((current) =>
+          current.activeSessionId === sessionId
+            ? {
+                messages: merged,
+                sessionHistory: {
+                  ...current.sessionHistory,
+                  [sessionId]: { messageStart: 0, hasMoreBefore: false },
+                },
+              }
+            : {},
+        );
+        if (!get().messages.some((message) => message.id === messageId)) return;
+        const fullWindow = { messageStart: 0, hasMoreBefore: false };
+        runtime.cacheSessionTranscript(sessionId, get().messages, fullWindow);
+        set({ error: null, errorCode: null });
+        try {
+          const result = await api.deleteSessionMessage({ sessionId, messageId });
+          if (!result.deleted) return;
+          // Keep the projection intact until Host confirms the mutation. Late
+          // terminal events can replace provisional IDs while this RPC waits;
+          // restoring an earlier snapshot would resurrect those replaced rows.
+          const current = get();
+          const live = current.activeSessionId === sessionId
+            ? current.messages
+            : runtime.sessionTranscriptCache.get(sessionId) ?? current.retainedTranscripts[sessionId] ?? [];
+          const index = live.findIndex((message) => message.id === messageId);
+          if (index < 0) return;
+          let end = index + 1;
+          if (live[index].role === "user") {
+            while (end < live.length && live[end].role !== "user") end += 1;
+          }
+          const next = [...live.slice(0, index), ...live.slice(end)];
+          runtime.cacheSessionTranscript(sessionId, next, fullWindow);
+          set((state) => ({
+            messages: state.activeSessionId === sessionId ? next : state.messages,
+            retainedTranscripts: state.retainedTranscripts[sessionId]
+              ? { ...state.retainedTranscripts, [sessionId]: next }
+              : state.retainedTranscripts,
+          }));
+        } catch (error) {
+          set({
+            error: error instanceof Error ? error.message : String(error),
+            errorCode: (error as { code?: string })?.code ?? null,
+          });
+        }
+      } finally {
+        releaseDelete();
+        if (pendingMessageDeletes.get(sessionId) === completion) {
+          pendingMessageDeletes.delete(sessionId);
+        }
       }
     },
 
     rollbackWorkspaceChange: async (messageId, snapshotId) => {
+      if (!canEdit()) return null;
       const state = get();
       const sessionId = state.activeSessionId;
       if (!sessionId || state.isRunning) return null;
@@ -442,7 +483,9 @@ export function createTranscriptSlice({
       const stateBeforeAbort = get();
       const sessionId = stateBeforeAbort.activeSessionId;
       if (!sessionId) return;
-      if (stateBeforeAbort.sessions.find((session) => session.id === sessionId)?.source === "pi-native") {
+      const target = stateBeforeAbort.sessions.find((session) => session.id === sessionId);
+      if (!sessionAllows(target, "canStop")) return;
+      if (target?.source === "pi-native" || isRemoteSession(target)) {
         await api.abort(sessionId);
         runtime.submittedComposerDrafts.delete(sessionId);
         // Bypass in-flight pre-abort detail reads; request settled source state.
@@ -457,6 +500,9 @@ export function createTranscriptSlice({
         return;
       }
       const submittedDraft = runtime.submittedComposerDrafts.get(sessionId);
+      const pendingUserMessageId = stateBeforeAbort.messages
+        .slice(submittedDraft?.messageCountBeforeSend ?? 0)
+        .findLast((message) => message.role === "user")?.id;
       const preserveSteering = stateBeforeAbort.messages
         .slice(submittedDraft?.messageCountBeforeSend ?? 0)
         .findLast((message) => message.role === "user")?.steering;
@@ -497,41 +543,77 @@ export function createTranscriptSlice({
       const smartStop = preserveSteering
         ? { kind: "settle" as const }
         : resolveComposerSmartStop(state.messages, submittedDraft);
+      let retainSubmittedDraft = false;
       if (smartStop.kind === "restore") {
         const fullMessages = await runtime.loadFullSessionMessages(sessionId);
         if (!fullMessages || get().activeSessionId !== sessionId) {
           submittedDraft?.resolveAbort?.(false);
-          runtime.submittedComposerDrafts.delete(sessionId);
           return;
         }
         const merged = mergeLiveSessionMessages(fullMessages, get().messages);
         const fullStop = resolveComposerSmartStop(merged, submittedDraft);
         if (fullStop.kind === "restore") {
-          runtime.submittedComposerDrafts.delete(sessionId);
-          submittedDraft?.resolveAbort?.(true);
-          const fullWindow = { messageStart: 0, hasMoreBefore: false };
-          runtime.cacheSessionTranscript(sessionId, fullStop.kept, fullWindow);
-          set((current) => ({
-            messages: fullStop.kept,
-            sessionHistory: { ...current.sessionHistory, [sessionId]: fullWindow },
-            composerPrefill: { ...fullStop.draft, sessionId },
-            isRunning: false,
-            runningSessions: { ...current.runningSessions, [sessionId]: false },
-          }));
-          if (fullStop.kept.length < merged.length) {
-            try {
-              await api.replaceSessionMessages(sessionId, fullStop.kept);
-            } catch {
-              // Best effort — the local transcript already reflects the undo.
+          const pendingUser = merged[fullStop.kept.length];
+          try {
+            if (!pendingUserMessageId || pendingUser?.id !== pendingUserMessageId) {
+              throw new Error(i18n.t("chat.promptRetractionFailed"));
+            }
+            const result = await api.retractPendingSessionPrompt({
+              sessionId,
+              userMessageId: pendingUserMessageId,
+            });
+            if (!result.retracted) {
+              throw new Error(i18n.t("chat.promptRetractionFailed"));
+            }
+            submittedDraft?.resolveAbort?.(true);
+            if (runtime.submittedComposerDrafts.get(sessionId) === submittedDraft) {
+              runtime.submittedComposerDrafts.delete(sessionId);
+            }
+            // A subsequent prompt can start after the host releases its mutation
+            // lock. Never replace that prompt or its composer with this draft.
+            const current = get();
+            const latestMessages = current.activeSessionId === sessionId
+              ? current.messages
+              : runtime.sessionTranscriptCache.get(sessionId) ?? merged;
+            const latestUser = latestMessages.findLast((message) => message.role === "user");
+            if (latestUser?.id === pendingUserMessageId) {
+              const fullWindow = { messageStart: 0, hasMoreBefore: false };
+              runtime.cacheSessionTranscript(sessionId, fullStop.kept, fullWindow);
+              set((current) => ({
+                messages: current.activeSessionId === sessionId ? fullStop.kept : current.messages,
+                sessionHistory: { ...current.sessionHistory, [sessionId]: fullWindow },
+                composerPrefill: { ...fullStop.draft, sessionId },
+                isRunning: current.activeSessionId === sessionId ? false : current.isRunning,
+                runningSessions: { ...current.runningSessions, [sessionId]: false },
+              }));
+            }
+            void flushPendingSessionConfiguration(sessionId);
+            return;
+          } catch (error) {
+            retainSubmittedDraft = true;
+            // agent_end may have removed the old submission while abort waited.
+            // Preserve it for recovery without replacing a newer submission.
+            if (submittedDraft && !runtime.submittedComposerDrafts.has(sessionId)) {
+              runtime.submittedComposerDrafts.set(sessionId, submittedDraft);
+            }
+            set({
+              error: error instanceof Error ? error.message : String(error),
+              errorCode: (error as { code?: string })?.code ?? null,
+            });
+            const current = get();
+            if (
+              current.activeSessionId !== sessionId ||
+              current.messages.findLast((message) => message.role === "user")?.id !== pendingUserMessageId
+            ) {
+              submittedDraft?.resolveAbort?.(false);
+              return;
             }
           }
-          void flushPendingSessionConfiguration(sessionId);
-          return;
         }
         set((current) =>
           current.activeSessionId === sessionId
             ? {
-                messages: merged,
+                messages: mergeLiveSessionMessages(merged, current.messages),
                 sessionHistory: {
                   ...current.sessionHistory,
                   [sessionId]: { messageStart: 0, hasMoreBefore: false },
@@ -541,7 +623,9 @@ export function createTranscriptSlice({
         );
       }
       submittedDraft?.resolveAbort?.(false);
-      runtime.submittedComposerDrafts.delete(sessionId);
+      if (!retainSubmittedDraft && runtime.submittedComposerDrafts.get(sessionId) === submittedDraft) {
+        runtime.submittedComposerDrafts.delete(sessionId);
+      }
       const stoppedRows = (rows: UiMessage[]) =>
         rows.map((message) => {
           if (message.role === "assistant" && message.status === "streaming") {

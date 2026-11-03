@@ -520,7 +520,13 @@ mod tests {
     fn mcp_risk_never_trusts_server_self_declarations() {
         // 2026-10 upstream sync: MCP tools are opaque to the host, so a
         // server-declared annotation never lowers the approval path.
-        for declared in [Some("low"), Some("medium"), Some("high"), Some("invalid"), None] {
+        for declared in [
+            Some("low"),
+            Some("medium"),
+            Some("high"),
+            Some("invalid"),
+            None,
+        ] {
             assert!(matches!(
                 PermissionManager::tool_risk_with_declared("mcp_corp_search", declared),
                 Risk::Medium

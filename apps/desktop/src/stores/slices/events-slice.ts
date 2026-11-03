@@ -25,6 +25,8 @@ import {
 import { createFrameBatcher } from "../../lib/frame-batcher";
 import {
   clearSessionAsks,
+  dropSessionAskDrafts,
+  dropToolCallAskDrafts,
   enqueueAsk,
   removeAskForToolCall,
 } from "../../lib/pending-asks";
@@ -60,7 +62,6 @@ export type EventsSliceDependencies = StoreAccess & {
     kind: "ask" | "permission" | "plan",
     payload?: { question?: string; toolName?: string },
   ) => void;
-  triggerAutoTitleSummarization: (sessionId: string) => Promise<void>;
   flushPendingSessionConfiguration: (sessionId: string) => Promise<void>;
   assistantErrorMessage: (error: {
     code: string;
@@ -104,7 +105,6 @@ export function createEventsSlice({
   sessionModeForPlanningState,
   openPlanArtifact,
   notifyInteractivePrompt,
-  triggerAutoTitleSummarization,
   flushPendingSessionConfiguration,
   assistantErrorMessage,
   withCompactionMark,
@@ -259,12 +259,13 @@ export function createEventsSlice({
         const sessionId = envelope.sessionId;
         const reconcile = (messages: UiMessage[]) =>
           reconcilePersistedUserMessage(messages, event.optimisticMessageId, event.message);
+        const state = get();
+        const current = runtime.sessionTranscriptCache.get(sessionId) ??
+          state.retainedTranscripts[sessionId] ??
+          (state.activeSessionId === sessionId ? state.messages : undefined);
+        if (!current) return;
         runtime.liveSessionTranscripts.add(sessionId);
-        runtime.cacheSessionTranscript(sessionId, reconcile(
-          runtime.sessionTranscriptCache.get(sessionId) ??
-          get().retainedTranscripts[sessionId] ??
-          (get().activeSessionId === sessionId ? get().messages : []),
-        ));
+        runtime.cacheSessionTranscript(sessionId, reconcile(current));
         set((state) => ({
           ...(state.activeSessionId === sessionId ? { messages: reconcile(state.messages) } : {}),
           retainedTranscripts: state.retainedTranscripts[sessionId]
@@ -362,6 +363,11 @@ export function createEventsSlice({
             state.pendingAsks,
             envelope.sessionId,
           ),
+          askDrafts: dropSessionAskDrafts(
+            state.askDrafts,
+            state.pendingAsks,
+            envelope.sessionId,
+          ),
           latestTurnResults:
             event.type === "error" && event.error.code === "TURN_ABORTED"
               ? withoutRecordKey(state.latestTurnResults, envelope.sessionId)
@@ -454,10 +460,17 @@ export function createEventsSlice({
             envelope.sessionId,
             event.toolCallId,
           );
+          const askDrafts = dropToolCallAskDrafts(
+            state.askDrafts,
+            state.pendingAsks,
+            envelope.sessionId,
+            event.toolCallId,
+          );
           return pendingPermissions === state.pendingPermissions &&
-            pendingAsks === state.pendingAsks
+            pendingAsks === state.pendingAsks &&
+            askDrafts === state.askDrafts
             ? {}
-            : { pendingPermissions, pendingAsks };
+            : { pendingPermissions, pendingAsks, askDrafts };
         });
       }
 
@@ -498,7 +511,6 @@ export function createEventsSlice({
           });
         } else if (event.type === "agent_end") {
           void get().refreshSessions();
-          void triggerAutoTitleSummarization(envelope.sessionId);
         } else if (event.type === "planning_state") {
           void get().refreshSessions();
         }
@@ -540,7 +552,6 @@ export function createEventsSlice({
         case "agent_end":
           set({ isRunning: false });
           void get().refreshSessions();
-          void triggerAutoTitleSummarization(envelope.sessionId);
           break;
         case "turn_end":
           break;

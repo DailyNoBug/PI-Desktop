@@ -14,11 +14,12 @@ import {
   type UiMessage,
 } from "@pi-desktop/shared";
 import { useAppStore } from "../stores/app-store";
+import { formatToolDuration } from "../lib/tool-display";
 import { TooltipButton } from "./ui";
 import {
   aggregateToolTokenUsage,
   calculateCacheRate,
-  calculateContextUsage,
+  composerContextUsage,
   calculateTokenRate,
   contextOccupancyTokens,
   contextUsageView,
@@ -28,6 +29,7 @@ import {
   placeContextInspector,
   type ContextInspectorPlacement,
 } from "../lib/context-inspector-position";
+import { useSessionTiming } from "../features/chat/context-usage/useSessionTiming";
 
 const CONTEXT_RING_RADIUS = 9;
 const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS;
@@ -40,6 +42,7 @@ export function ContextUsageInspector({
   responseDurationMs,
   responseOutputTokens,
   responseOutputEstimated = false,
+  compactedContextTokens,
 }: {
   usage: MessageUsage;
   turnUsage: MessageUsage;
@@ -48,6 +51,7 @@ export function ContextUsageInspector({
   responseDurationMs?: number;
   responseOutputTokens?: number;
   responseOutputEstimated?: boolean;
+  compactedContextTokens?: number;
 }) {
   const { t } = useTranslation();
   const panelId = useId();
@@ -63,7 +67,40 @@ export function ContextUsageInspector({
   const [open, setOpen] = useState(false);
   const [popoverPosition, setPopoverPosition] =
     useState<ContextInspectorPlacement | null>(null);
-  const context = calculateContextUsage(usage, contextWindow);
+  const sessionId = useAppStore((state) => state.activeSessionId);
+  const session = useAppStore((state) =>
+    state.sessions.find((candidate) => candidate.id === state.activeSessionId),
+  );
+  const sessionMessages = useAppStore((state) => state.messages);
+  const sessionHistory = useAppStore((state) =>
+    state.activeSessionId
+      ? state.sessionHistory[state.activeSessionId]
+      : undefined,
+  );
+  const isSessionRunning = useAppStore((state) =>
+    state.activeSessionId
+      ? state.runningSessions[state.activeSessionId] ?? state.isRunning
+      : false,
+  );
+  const modelRequestActivity = useAppStore((state) =>
+    state.activeSessionId
+      ? state.agentStatuses[state.activeSessionId]?.activity
+      : undefined,
+  );
+  const sessionTiming = useSessionTiming({
+    enabled: open,
+    session,
+    sessionId,
+    messages: sessionMessages,
+    history: sessionHistory,
+    isRunning: isSessionRunning,
+    modelRequestActivity,
+  });
+  const context = composerContextUsage({
+    usage,
+    contextWindow,
+    compactedContextTokens,
+  });
   // The display preference flips the leading figure only; capacity colors
   // still follow remaining space so the warning state keeps one meaning.
   const usageDisplay = useAppStore((state) =>
@@ -81,6 +118,28 @@ export function ContextUsageInspector({
   const cacheRate = calculateCacheRate(
     usage.inputTokens,
     usage.cacheReadTokens,
+  );
+  const formatTimingValue = (durationMs?: number, percent?: number) => {
+    if (sessionTiming.historyStatus === "loading") return "…";
+    if (sessionTiming.historyStatus === "error" || durationMs === undefined) {
+      return t("chat.usageTimingUnavailable");
+    }
+    return `${formatToolDuration(durationMs / 1_000)}${
+      percent === undefined ? "" : ` · ${percent}%`
+    }`;
+  };
+  const timingBreakdown = sessionTiming.breakdown;
+  const networkRequestValue = formatTimingValue(
+    timingBreakdown?.networkRequestMs,
+    timingBreakdown?.networkRequestPercent,
+  );
+  const modelResponseValue = formatTimingValue(
+    timingBreakdown?.modelResponseMs,
+    timingBreakdown?.modelResponsePercent,
+  );
+  const toolCallValue = formatTimingValue(
+    timingBreakdown?.toolCallMs,
+    timingBreakdown?.toolCallPercent,
   );
   const toolRows = aggregateToolTokenUsage(tools);
   const toolTotal = toolRows.reduce(
@@ -304,6 +363,47 @@ export function ContextUsageInspector({
           </strong>
         </div>
       </div>
+      {sessionTiming.timing ? (
+        <div className="context-inspector-kpis">
+          <div>
+            <span>{t("chat.usageSessionTime")}</span>
+            <strong>
+              {formatToolDuration(sessionTiming.timing.elapsedMs / 1_000)}
+            </strong>
+          </div>
+        </div>
+      ) : null}
+      {sessionTiming.timing ? (
+        <div
+          className="context-inspector-summary"
+          aria-busy={sessionTiming.historyStatus === "loading"}
+        >
+          <div className="context-inspector-summary-row">
+            <strong title={t("chat.usageNetworkRequestHelp")}>
+              {t("chat.usageNetworkRequest")}
+            </strong>
+            <span className="context-inspector-summary-values">
+              {networkRequestValue}
+            </span>
+          </div>
+          <div className="context-inspector-summary-row">
+            <strong title={t("chat.usageModelResponseHelp")}>
+              {t("chat.usageModelResponse")}
+            </strong>
+            <span className="context-inspector-summary-values">
+              {modelResponseValue}
+            </span>
+          </div>
+          <div className="context-inspector-summary-row">
+            <strong title={t("chat.usageToolCallsHelp")}>
+              {t("chat.usageToolCalls")}
+            </strong>
+            <span className="context-inspector-summary-values">
+              {toolCallValue}
+            </span>
+          </div>
+        </div>
+      ) : null}
       <div className="context-inspector-summary">
         <div className="context-inspector-summary-row">
           <strong>{t("chat.usageProviderUsage")}</strong>

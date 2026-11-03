@@ -86,6 +86,17 @@ cannot carry userinfo (issue #490). host-core marketplace `curl` gets explicit
 proxy arguments and does **not** inherit proxy env, so workspace Bash cannot
 see proxy credentials. Direct mode bypasses the System relay. TLS certificate
 verification remains enabled on every route.
+
+Provider model-list and connection probes recover from Electron 43's exact
+`net::ERR_SSL_CLIENT_AUTH_CERT_NEEDED` failure with one Node HTTPS metadata
+attempt through the same authenticated relay and active Chromium proxy route.
+The retry supplies no client certificate, retains the original cancellation
+budget and manual redirect/origin checks, and validates the server certificate
+and hostname with default plus OS CA roots. Mandatory client authentication
+continues to fail. Other TLS errors, HTTP responses and cancelled requests do
+not trigger this retry; agent turns and plugin requests are unaffected. See
+[the metadata transport decision](../../adr/provider-metadata-client-certificate-retry.md).
+
 Marketplace curl diagnostics prefer UTF-8 and fall back to the active Windows
 ANSI code page before crossing the UTF-8 RPC boundary, so localized Schannel
 errors remain readable instead of becoming replacement characters.
@@ -183,6 +194,12 @@ renderer-facing status):
   missing sessions row is restored from the live transcript (or created as a
   stub) before those appends apply; deleting a session drops its outbox
   entries (D318).
+- Before replacing or activating a session transcript, Electron main fences
+  persistence callbacks for that session and drains appends already queued for
+  the old transcript. If the rewrite succeeds, events from turns that existed
+  before the fence are discarded, including callbacks delivered while the
+  rewrite was running. If the rewrite fails, callbacks buffered by the fence
+  are replayed against the unchanged transcript.
 - Host-core's stdin/stdout control path uses one dedicated OS thread per
   direction rather than Tokio's dynamic blocking pool. Transient pipe resource
   errors are retried; control-thread creation failures are surfaced as a boot
@@ -216,6 +233,10 @@ renderer-facing status):
 
 ## 5. Shutdown order
 
+After a confirmed quit, Electron Main synchronously records `app shutdown`
+before the first awaited teardown step. A force-terminated process therefore
+retains the lifecycle boundary whenever the local log write succeeds.
+
 1. Reject new prompts
 2. Flush the in-flight reply checkpoints, then abort active turns through the
    sidecar and wait, bounded (2 s total), for their aborted final rows to
@@ -225,7 +246,10 @@ renderer-facing status):
 3. Interrupt pending/queued/running Plan and Goal work and reject late responses
 4. Unload plugins
 5. Stop Node agent sidecar
-6. Flush/close Rust host DB
+6. Drain terminal event writes (turn finalization and regenerate archival),
+   checkpoints and the outbox while Rust host-core remains available, then
+   flush/close its DB. Terminal writes use a bounded wait of 2 s; a timeout logs
+   `quit before event persistence settled` and allows quit to proceed.
 7. Stop Rust host
 8. Dispose update polling
 9. Close windows / exit
@@ -247,6 +271,15 @@ windows and an explicit Quit action. Quit from the tray, the existing close
 path, or an update install still enters the normal shutdown sequence above;
 destroying the tray happens during `before-quit` so shutdown cannot be
 intercepted by a stale shell affordance.
+
+`before-quit` alone is not a shutdown signal: the first explicit quit is held
+for the D363 confirmation, and Cancel keeps the app running. Only the shutdown
+handler listens to `before-quit`. Long-lived main-process services that must
+survive a cancelled quit — the scheduled-task runner and the voice service —
+register through `onConfirmedQuit` (`electron/main/bootstrap/confirmed-quit.ts`)
+and stop only once the quit is committed. A service that stopped from its own
+`before-quit` listener stayed stopped after Cancel until the next restart
+(issue #2048).
 
 On macOS the app runs under the regular (foreground) activation policy for its
 whole lifetime, so it is always listed in the Dock and Cmd+Tab: Main never

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, crashReporter, Menu, safeStorage } from "electron";
 import { createScheduledRunner } from "../runtime/scheduled-runner";
+import { onConfirmedQuit } from "./confirmed-quit";
 import {
   APP_NAME,
   APP_VERSION,
@@ -11,9 +12,15 @@ import {
   type NativeMenuAction,
 } from "@pi-desktop/shared";
 import { installApplicationMenu } from "../application-menu";
+import { installGenUiProtocol } from "../gen-ui-protocol";
 import { installPluginAssetProtocol } from "../plugin-asset-protocol";
 import { installPluginRendererProtocol } from "../plugin-renderer-protocol";
 import { registerPluginSchemes } from "../plugin-schemes";
+import {
+  resolveStartupAnimation,
+  type ResolvedStartupAnimation,
+} from "../startup-animation";
+import { installStartupAnimationProtocol } from "../startup-animation-protocol";
 import { applyNetworkProxyFromAppSettings } from "../network-proxy";
 import { readCloseBehavior } from "../window-preferences";
 import { createAgentHostBridge, type AgentHostBridge } from "../agent-host-bridge";
@@ -65,6 +72,11 @@ function formatRemoteLogData(data: unknown): string | undefined {
 export type StartupState = {
   applicationBooted: boolean;
   closeBehavior: CloseBehavior;
+  /**
+   * Boot animation this launch resolved, which the `pi-startup:` handler reads
+   * per request. Null — the default and every failure — keeps the brand splash.
+   */
+  startupAnimation: ResolvedStartupAnimation | null;
   agentHostBridge: AgentHostBridge | null;
   backendRouter: BackendRouter | null;
   desktopControl: McpControlController | null;
@@ -113,8 +125,12 @@ export type StartupDependencies = {
     theme?: unknown;
     keybindings?: unknown;
     developerMode?: unknown;
+    fontScale?: unknown;
   } | null) => void;
   applyDeveloperMode: (settings?: { developerMode?: unknown } | null) => void;
+  applyMacosWindowTranslucency: (
+    settings?: { macosWindowTranslucency?: unknown } | null,
+  ) => void;
   applyPreventScreenSleep: (settings?: { preventScreenSleep?: unknown } | null) => void;
   applyKeepAwakeWhileRunning: (settings?: { keepAwakeWhileRunning?: unknown } | null) => void;
   applyPluginLauncherShortcut: (keybindings?: KeybindingOverrides) => void;
@@ -178,6 +194,7 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
       planUiProbe,
       applyApplicationMenuSettings,
       applyDeveloperMode,
+      applyMacosWindowTranslucency,
       applyPreventScreenSleep,
       applyKeepAwakeWhileRunning,
       applyPluginLauncherShortcut,
@@ -217,6 +234,11 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
     installPluginRendererProtocol((pluginId, generation, requestPath) =>
       plugins.resolveRendererSource(pluginId, generation, requestPath),
     );
+    installGenUiProtocol({ getHost });
+    // The animation itself is resolved later, once settings are readable; the
+    // handler is installed here so it is already in place when the first
+    // window's `<video>` asks for the bytes.
+    installStartupAnimationProtocol(() => state.startupAnimation);
     // Load the close-behavior preference before the first window exists: the
     // close handler reads `closeBehavior` synchronously, and a window created
     // while it still held the "ask" default would prompt a user who already
@@ -265,6 +287,7 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
       },
       router: state.backendRouter,
       emit: sendToRenderer,
+      getLocalHost: getHost,
       clientInfo: { name: APP_NAME, version: APP_VERSION },
       log: (level, message, data) =>
         logger.app("runtime", level, message, { data: formatRemoteLogData(data) }),
@@ -276,6 +299,8 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
       if (opened > 0) {
         logger.app("runtime", "info", "remote hosts connected", { data: String(opened) });
       }
+    }).catch((error: unknown) => {
+      logger.app("runtime", "warn", "remote host boot failed", { data: String(error) });
     });
     state.agentHostBridge = createAgentHostBridge({
       invoke: invokeIpc,
@@ -299,7 +324,7 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
     });
     state.desktopControl = control;
     plugins.setServices({ desktopControl: control });
-    // CC Connect integration (ADR 0330): loopback RACP bridge over the same
+    // CC Connect integration (ADR 0347): loopback RACP bridge over the same
     // Agent Host plus local cc-connect daemon lifecycle, exposed to the
     // pi.cc-connect plugin behind the `ccconnect.control` permission. Both
     // stay off until the user enables them; `autoStart` restores the bridge
@@ -344,7 +369,14 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
       report: (error) => logger.app("runtime", "warn", "scheduled task dispatch failed", { data: String(error) }),
     });
     scheduledRunner.start();
-    app.once("before-quit", () => scheduledRunner.stop());
+    logger.app("runtime", "info", "scheduled runner started");
+    // Stop only on a committed quit: a cancelled quit confirmation keeps the
+    // app running, and a runner stopped from `before-quit` would stay silent
+    // until restart (issue #2048).
+    onConfirmedQuit(() => {
+      scheduledRunner.stop();
+      logger.app("runtime", "info", "scheduled runner stopped", { data: "app-quit" });
+    });
     if (!bootError && state.agentHostBridge) {
       // Restore the persisted turn queue now that host-core answers. Restored
       // entries stay held until a controller attaches (D375).
@@ -355,6 +387,10 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
       });
     }
     const host = getHost();
+    // Preferences for the boot animation, when settings were readable. An
+    // unreadable backend leaves this null and discovery falls back to the
+    // defaults, so a launch with no host still plays what the user dropped in.
+    let storedStartupAnimationSettings: { startupAnimation?: unknown } | null = null;
     if (host) {
       try {
         const stored = (await host.call("settings.get")) as {
@@ -362,13 +398,18 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
           theme?: unknown;
           keybindings?: unknown;
           developerMode?: unknown;
+          fontScale?: unknown;
+          macosWindowTranslucency?: unknown;
+          startupAnimation?: unknown;
           preventScreenSleep?: unknown;
           keepAwakeWhileRunning?: unknown;
         } | null;
         applyApplicationMenuSettings(stored);
         applyDeveloperMode(stored);
+        applyMacosWindowTranslucency(stored);
         applyPreventScreenSleep(stored);
         applyKeepAwakeWhileRunning(stored);
+        storedStartupAnimationSettings = stored;
         await applyNetworkProxyFromAppSettings(stored);
       } catch {
         // Keep the OS-locale menu until settings can be read again, while
@@ -381,6 +422,26 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
       // If the backend never started, retain the default focused/global path.
       applyPluginLauncherShortcut();
       applyToggleWindowShortcut();
+    }
+    // Resolve the boot animation before the window exists: the descriptor is a
+    // renderer creation argument, so it has to be known by `new BrowserWindow`.
+    // The capture rig compares deterministic frames, so a user's animation in
+    // front of them would break every scene; it is skipped outright. The E2E
+    // harnesses need no guard — each runs against a throwaway
+    // `PI_DESKTOP_DATA_DIR`, which has no `startup/` directory to find.
+    if (process.env.PI_DESKTOP_CAPTURE !== "1") {
+      state.startupAnimation = await resolveStartupAnimation({
+        dataDir,
+        settings: storedStartupAnimationSettings,
+      });
+      if (state.startupAnimation) {
+        logger.app("lifecycle", "info", "startup animation resolved", {
+          data: JSON.stringify({
+            fileName: state.startupAnimation.descriptor.fileName,
+            byteLength: state.startupAnimation.descriptor.byteLength,
+          }),
+        });
+      }
     }
     await ensureWindow();
     // pi-desktop:// links queued before boot (argv on launch, OS events) run

@@ -55,10 +55,6 @@
   .plugins-search-wrap {
     flex: 1 1 auto;
   }
-
-  .plugins-row-controls {
-    align-self: flex-start;
-  }
 }
 
 /*
@@ -87,7 +83,6 @@
 }
 
 @container composer-stack (max-width: 560px) {
-  .composer-model-thinking-dot,
   .composer-model-thinking-level {
     display: none;
   }
@@ -113,6 +108,11 @@
     padding: 0 !important;
   }
 
+  /* Collapsed to a glyph: the labels are gone, so the icon carries the trigger. */
+  .composer-model-thinking-icon {
+    display: inline-flex;
+  }
+
   .composer-model-thinking-model,
   .composer-model-thinking-chevron {
     display: none;
@@ -127,21 +127,14 @@
     display: none;
   }
 
-  .composer-enhance-btn.is-loading {
-    width: 28px;
-    max-width: 28px;
-    padding-inline: 0;
-  }
-
-  .composer-enhance-btn.is-loading > span:not(.tool-spinner) {
-    display: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .plugins-menu,
   .plugins-sheet,
   .plugins-sheet-scrim,
+  .plugins-reviews,
+  .plugins-reviews-scrim,
   .plugins-modal,
   .plugins-modal-backdrop,
   .plugins-skeleton-line {

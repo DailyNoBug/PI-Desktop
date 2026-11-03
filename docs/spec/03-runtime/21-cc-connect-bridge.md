@@ -1,7 +1,7 @@
 # 21. CC Connect Bridge
 
 - Status: Current
-- Decision: D658 / ADR 0330
+- Decision: D688 / ADR 0347
 - Depends on: `19-remote-agent-control-protocol.md` (RACP 1.0, RACP-WS),
   `07-process-model.md`, `03-tools-and-permissions.md`
 

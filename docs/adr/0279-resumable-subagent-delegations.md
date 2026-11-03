@@ -70,7 +70,12 @@ A new module (`packages/agent-runtime/src/delegation-history.ts`) owns:
 - synthesizing the original `task` as the first user message from the first
   `Task` tool row's persisted arguments,
 - converting to `AgentMessage[]` with the delegate's own provider/model binding
-  (a pinned delegation model is not the session model),
+  (a pinned delegation model is not the session model). Assistant transport
+  identity is `model.provider` / `model.id` — the same values live requests
+  use — not the account row id. When `vendorKey` is set, `model.provider`
+  differs from `provider.id`; tagging restored history with the account id
+  makes pi-ai treat same-model reasoning as foreign and empty
+  `reasoning_content` on resume,
 - a read-file / line-count budget gate.
 
 `SubagentRun` gains `initialMessages?: AgentMessage[]`; when present it seeds
@@ -156,12 +161,19 @@ Reads are counted from the delegate's read-only tool rows (`Read`, `Glob`,
 `Grep`, `BrowserPreview`), accumulated per chain; write-tool targets are not
 counted and not listed.
 
-### 9. The parent sees a resumable list in its system prompt
+### 9. The parent discovers a resumable list through `TaskList`
 
-Each prompt composes the current resumable chains into the parent's system
-prompt: agent name, delegation id, the one-line objective, and the files the
-chain has read (capped at 8, truncated). Only settled, in-budget chains appear —
-a running chain is never listed, so the parent is not lured into resuming one.
+`TaskList` reports the current resumable chains: agent name, delegation id, the
+one-line objective, and the files the chain has read (capped at 8, truncated).
+Only settled, in-budget chains appear — a running chain is never listed, so the
+parent is not lured into resuming one.
+
+The list deliberately stays out of the system prompt. It changes on every
+settlement, and rewriting instructions mid-session invalidates the request
+prefix providers cache on; ADR 0337 records that trade-off and supersedes the
+earlier "compose the list into the prompt" decision. A failed resume still names
+the reusable ids in its own tool error, so discovery never depends on the parent
+having listed first.
 
 The `resume` parameter's own schema description carries the rule that reuse
 requires the id; prose alone does not resume anything.

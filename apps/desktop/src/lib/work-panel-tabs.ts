@@ -152,6 +152,21 @@ export function browserPluginTab(location?: string): WorkPanelTab {
   return { ...base, id: `${base.id}:${Date.now().toString(36)}-${++newWorkPanelTabSequence}`, location: target, label: browserTabLabel(target) };
 }
 
+export function browserPluginTabForReveal(
+  tabs: WorkPanelTab[],
+  activeTabId: string | null,
+  preferredTabId?: string,
+): WorkPanelTab {
+  const isBrowserTab = (tab: WorkPanelTab) =>
+    tab.kind === "plugin" && tab.resource === `${BROWSER_PLUGIN_TAB.pluginId}/${BROWSER_PLUGIN_TAB.viewId}`;
+  const preferred = preferredTabId
+    ? tabs.find((tab) => tab.id === preferredTabId && isBrowserTab(tab))
+    : undefined;
+  const active = tabs.find((tab) => tab.id === activeTabId && isBrowserTab(tab));
+  const latest = [...tabs].reverse().find(isBrowserTab);
+  return preferred ?? active ?? latest ?? browserPluginTab();
+}
+
 export function browserTabLabel(location: string): string {
   try { return new URL(location).host || location; } catch { return location.split(/[\\/]/).at(-1) || location; }
 }
@@ -393,6 +408,24 @@ export function closeWorkPanelTabState(
     tabs,
     activeTabId: tabs[Math.min(index, tabs.length - 1)]?.id ?? null,
   };
+}
+
+export function closeOtherWorkPanelTabsState(
+  state: WorkPanelTabsState,
+  tabId: string,
+): WorkPanelTabsState {
+  const tab = state.tabs.find((item) => item.id === tabId);
+  if (!tab) return state;
+  if (state.tabs.length === 1 && state.activeTabId === tabId) return state;
+  return { tabs: [tab], activeTabId: tab.id };
+}
+
+export function closeAllWorkPanelTabsState(
+  state: WorkPanelTabsState,
+): WorkPanelTabsState {
+  return state.tabs.length === 0 && state.activeTabId === null
+    ? state
+    : { tabs: [], activeTabId: null };
 }
 
 /**

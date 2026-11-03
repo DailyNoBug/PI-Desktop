@@ -482,8 +482,9 @@ WebKit 与 Chromium 会忽略伪元素，该表面退回为常显的原生滚动
 Windows/Linux 将身份和侧边栏操作保留在第一位置
 行并为三个无框窗口控件保留最右边的 112px。每个
 control 拥有 46px 高保留带的全部份额。展开的工作面板标题使用可横向滚动的
-标签条和固定 `+` 入口，每个标签拥有自己的关闭操作，避免在 Windows 原生
-关闭控件旁重复第二个 `×`。头部的 `+`、最大化与视口固定的折叠开关共用同一
+标签条和固定 `+` 入口，每个标签拥有自己的关闭操作；激活标签时，标签及其关闭
+操作都会滚动到可见区域，避免在 Windows 原生关闭控件旁重复第二个 `×`。头部的
+`+`、最大化与视口固定的折叠开关共用同一
 个控制间距（`--ds-work-panel-control-gap`，4px）：标签条到动作组、`+` 到
 最大化，以及动作组到开关的车道预留（`calc(size + inset + gap)`，44px）。
 动作组不再有自己的分隔线、内缩或外边距，因此这三个按钮读作一组。三者都是共享的
@@ -637,6 +638,16 @@ D419。主题专属取值应写在 `styles/tokens.css` 的标记块里，两套�
 交互式表面应该引用这些变量而不是硬编码
 实用时为毫秒文字。
 
+有且只有一个时长在该梯度之外：
+
+| 令牌 | CSS 变量 | 时长 | 用途 |
+|---|---|---|---|
+| `startup-reveal` | `--motion-startup-reveal` | 1000毫秒 | 仅用于启动动画的渐显（第 8.3.1 节，D679） |
+
+上面的梯度是按「控件回应一次点击」这种界面内反馈来定尺的。渐显是用户自备影片的收尾，
+因此按另一种语境定尺。它只被 `.startup-animation` 使用，且必须与
+`@pi-desktop/shared` 中的 `STARTUP_ANIMATION_REVEAL_MS` 保持一致。新界面不引用它。
+
 ### 8. 2 宽松
 
 `:root` (D146) 上的 CSS 自定义属性：
@@ -671,6 +682,25 @@ D419。主题专属取值应写在 `styles/tokens.css` 的标记块里，两套�
   淡出，再交叉淡入。其他平台仍为不透明的 `--ds-bg-primary`
 
 这是启动状态反馈，而不是装饰性镀铬。
+
+#### 8.3.1 用户自备启动动画（D679 / ADR 0338）
+
+`<dataDir>/startup/` 中的视频会替代上面的启动画面（`StartupAnimation`、
+`data-testid="startup-animation"`）。没有该文件时启动画面完全不变，这也是每个既有
+安装得到的结果。
+
+- 只有一层，全程不透明 `#000`：视频叠在它上面，视频消失后同一层黑色就是外壳渐显所
+  依托的遮罩，因此最后一帧与遮罩之间没有缝。用字面黑而不是 `--ds-bg-primary`，这样
+  视频自带的黑边与淡入淡出在两种主题下都能对上同一个颜色。
+- `object-fit: cover`；画面铺满、边缘被裁，因此设置文案提示用户让主体居中。
+- 元素是惰性且静音的：`muted`、`playsInline`、无控件、无画中画、不可聚焦、
+  `aria-hidden`。可访问状态文案与启动画面一样来自 `app.starting`。
+- 时序：播放 → 不透明黑幕直到 `ready` → `--motion-startup-reveal`（1000毫秒）
+  不透明度淡出，期间 `pointer-events: none`，所以外壳在整段淡出中都能接收输入，而不是
+  等淡出结束。
+- 黑幕超过 3 秒会加上启动画面那条不确定进度条，避免把不透明遮罩误读成卡死。
+- 减少运动下完全不播放——缩短的影片仍然是影片，而操作系统的这项请求本身就是退出口。
+- 与玻璃态启动画面不同，这一层是不透明的，因此不需要 macOS 上那条隐藏其下外壳的规则。
 
 ### 8. 4 覆盖/浮动表面输入
 
@@ -708,7 +738,7 @@ Toast enter/exit 保留现有移除合同（`animationend` 于
 - 无视差
 - 没有连续的背景动画（粒子、波浪）；有界的
   前台吉祥物循环是显式的空主异常
-- shimmer/skeleton 动画的循环时间不超过 1 秒 — 使用简单的淡入来显示加载状态
+- shimmer/skeleton 动画的循环时间不超过 1 秒 — 使用简单的淡入来显示加载状态。例外：transcript 的 Thinking 指示器使用整段 TextShimmer，周期 1.2s、停止 220ms 淡回（ADR turn-process-and-thinking-display）；它不是逐字循环，减少动态效果时静态显示。
 - 无反弹效果
 - 没有多秒的开机戏剧序列；准备好后立即退出（+最小停留时间）
 
@@ -835,7 +865,7 @@ UTF-8 写入活动会话的临时 `pasted/` 目录，并在粘贴位置显示一
 - 模型触发器仅显示活动模型 ID。它的菜单选择一个
   为活动会话配置 provider/default-model 对并链接到
   Agent。
-- 右侧工具栏在独立的提示词增强 Sparkles 动作和发送/中止之前暴露一个组合的模型 × 推理触发器。触发器显示 Bot 图标、当前模型和推理等级；`off` 省略等级文本。其单个 `role="menu"` 弹出层在触发器上方 `bottom: calc(100% + 8px)` 打开，根层正好两条当前值条目。当菜单列出一个以上等级（`omit` 加上绑定已启用的规范档位）时，推理等级条目正下方放一条拖动滑杆；滑杆和刻度提交不离开根层。刻度标签不是 Tab 停靠点——可访问控件是 range 输入。每条条目把菜单内容原地替换成返回行和子菜单。模型子菜单包含搜索和粘性提供商分组。每个模型行从提供商标题下的一个 Tab 停靠点开始。推理子菜单把 `omit` 然后已启用档位列为带勾选的单选行；从列表选择后返回根层且不关闭弹出层。
+- 右侧工具栏提供组合的模型 × 推理触发器。用户主动安装的插件可在其后贡献文本操作；宿主不内置提示词增强操作。触发器显示 Bot 图标、当前模型和推理等级；`off` 省略等级文本。其单个 `role="menu"` 弹出层在触发器上方 `bottom: calc(100% + 8px)` 打开，根层正好两条当前值条目。当菜单列出一个以上等级（`omit` 加上绑定已启用的规范档位）时，推理等级条目正下方放一条拖动滑杆；滑杆和刻度提交不离开根层。刻度标签不是 Tab 停靠点——可访问控件是 range 输入。每条条目把菜单内容原地替换成返回行和子菜单。模型子菜单包含搜索和粘性提供商分组。每个模型行从提供商标题下的一个 Tab 停靠点开始。推理子菜单把 `omit` 然后已启用档位列为带勾选的单选行；从列表选择后返回根层且不关闭弹出层。
 - 当活动会话运行时，草稿和运行时控件保持不变
   可编辑为下一轮选择；仅发送被禁用。主机配置
 仍然固定在飞行中的回合处，最新的排队选择是
@@ -848,7 +878,7 @@ UTF-8 写入活动会话的临时 `pasted/` 目录，并在粘贴位置显示一
   行动或分级阶梯。更换供应商钳位或重置耐用性
   下一轮之前的会话值。
 - 左侧输入 Composer Agent/Plan/Goal 芯片是唯一的活动会话模式
-  控制和循环 Agent → Plan → Goal → Agent。顶部栏没有重复的模式或模型控件。
+  控制，点击打开列出 Agent、Plan、Goal 的菜单。顶部栏没有重复的模式或模型控件。
   Composer 组合选择器当存在有效的 `pending` Plan 或 Goal 批准时将关闭并被禁用；
   终端提案快照不会禁用它。批准选择器记住
   该设备上最后选择的模式并将其用于下一个待处理的提案。
@@ -969,7 +999,10 @@ Linux 保留淡入淡出和滑动退出。
   collapsed lane uses two controls, 4px spacing and an 8px gap.
   Right native-control exclusion is unchanged. Header-height background
   paint fills the excluded lane without covering panel controls.
-- 外层外壳在每个平台上都保留原生边缘/角落调整大小。无边框标题栏的
+- 外层外壳在每个平台上都保留原生边缘/角落调整大小。Windows 主窗口默认
+  使用全局 `--radius-md`（12 DIP）原生圆角，与界面的中型半径令牌一致；
+  获得 `ui.window.appearance` 授权的插件主题可选择 0 至 24 DIP，退出主题后
+  恢复为 12 DIP。最大化和全屏时窗口保持矩形。无边框标题栏的
   拖动区域不会替代操作系统的调整大小所有权。300ms 的稳定边界等待窗口
   可避免恢复逻辑与慢速指针手势竞争，原生调整大小/移动事件停止 600ms 后
   才保存正常基础边界。Electron 强制 800×560 最小尺寸，并按当前显示器
@@ -1063,7 +1096,7 @@ Linux 保留淡入淡出和滑动退出。
 
 | 财产 | 价值 |
 |---|---|
-| 职位 | 顶部中心视口，距顶部边缘 16 像素，`width: min(360px, 100vw − 32px)` |
+| 位置 | 距顶部边缘 16px；流式 shell 可见时在主内容安全区内居中，没有主内容锚点时回退到整个视口；`width: min(360px, 安全区 − 32px)` |
 | 表面 | `bg-elevated-opaque` + 1px `border-subtle` + `shadow-dialog`（与浮动菜单同族） |
 | 半径 | 半径 md 加 |
 | 字体 | 文本 md、前导紧凑加 |
@@ -1110,12 +1143,26 @@ Linux 保留淡入淡出和滑动退出。
 
 | 属性 | 值 |
 |---|---|
-| CSS 类 | `.ui-checkbox` |
-| 结构 | `<label> → <input type="checkbox"> + <span>{label}</span>` |
-| 属性 | 扩展 `InputHTMLAttributes`（排除 `type`），并提供 `label: ReactNode` |
+| CSS classes | `.ui-checkbox` (label), `.ds-checkbox` (native input) |
+| Anatomy | `<label> → <input type="checkbox"> + <span>{label}</span>` |
+| Props | Extends `InputHTMLAttributes` (minus `type` and `ref`) + `label: ReactNode`, `indeterminate?: boolean` |
+| Paint | 18px rounded square, 8px label gap, token-based checked fill and checkmark; mixed state uses a dash |
+| Interaction | Native label activation and Space toggling, visible keyboard focus, whole-label disabled treatment; native paint in forced-colors mode |
 
 独立的带标签复选框必须使用 `Checkbox`；不得手写
 `<label><input type="checkbox"/>…</label>`。
+
+### 11.11a SettingsDisclosure
+
+Implementation: `components/settings/SettingsDisclosure.tsx`.
+
+Use native `<details>` / `<summary>` for low-frequency settings, with one
+localized title and a decorative chevron. It accepts native details attributes,
+children and `className`; `open` can seed or update the native state. Collapsed
+content stays mounted to retain drafts but is not keyboard-reachable. The
+shared summary has a minimum 44px row, token-based hover/focus treatment and
+reduced-motion-compatible chevron feedback. Errors, progress and approvals
+must remain outside optional disclosures.
 
 ### 11.11b CheckboxGroup
 

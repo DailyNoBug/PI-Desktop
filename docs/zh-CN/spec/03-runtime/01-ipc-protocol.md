@@ -21,7 +21,7 @@
 | `app` | 应用程序信息、健康检查 |
 | `agent` | 对话、中止、状态和交互式 Asktool 解决方案 |
 | `plan` | Plan 提案列出、决议和变更事件 |
-| `session` | 会话 CRUD/历史记录 |
+| `session` | 会话 CRUD/历史记录/标题元数据 |
 | `session collaboration` | 侧边栏投影使用的有界只读协作状态；变更仍通过已审查的插件网关完成 |
 | `settings` | 配置 read/write |
 | `secrets` | 秘密 write/delete/exists（绝不将明文返回到 UI 日志） |
@@ -159,6 +159,8 @@ type SessionConfigureRequest = {
   providerId?: string;
   modelId?: string;
   thinkingLevel: SessionThinkingLevel;
+  /** Session `/fast` switch (ADR 0334); omitted keeps the stored value. */
+  fastMode?: boolean;
 };
 ```
 
@@ -187,6 +189,8 @@ Root 用户轮次可能包括 `revisionRootId`、`revisionCount` 和
  输入框
 附件可供性保持隐藏，直到 main、sidecar、pi 模型
 功能和持久性都会消耗有效负载。
+草稿内联命名过位置的图片会带上 `inlinePath`，运行时按它把图片块放回原位置，
+而不是统一追加在提示文本之后。
 
 ### 5.1a 向当前回合补充指令
 
@@ -587,6 +591,7 @@ type AgentEvent =
      willRetry: boolean; fallback?: "retained_tail";
      mark?: { id: string; throughMessageId: string;
               generation: number; summaryTokens: number;
+              contextTokens?: number;
               summarized: boolean;
               fallback?: "retained_tail" };
      error?: { code: string; message: string } }
@@ -617,7 +622,9 @@ type AgentEvent =
 只要安装了检查点，`compaction_end.mark` 就会出现。它是
 渲染器对该压缩的整体视图：`id`，`throughMessageId` 锚定
 转录本行位于 `generation` 之后（此会话有多少个检查点
-已安装）、`summaryTokens`（摘要的估计上下文成本）以及
+已安装）、`summaryTokens`（摘要的估计上下文成本）、`contextTokens`（检查点安装后
+下一次请求的估计大小；在之后的请求报告供应商用量前，输入框的上下文圆环显示它；
+此字段出现之前写入的检查点没有它）以及
 `summarized`（当窗口滚动且未向模型询问时，`false`
 总结）以及 `fallback`（摘要生成失败、检查点只带恢复说明和保留尾部时为
 `"retained_tail"`；转录行将其标为摘要生成失败，而不是 N tokens 的摘要）。记录本身不被携带——它的摘要和保留尾部被携带
@@ -769,6 +776,12 @@ type SessionSummary = {
  supportedThinkingLevels?: ThinkingLevel[];
  updatedAt: string;
  createdAt: string;
+ /** Isolated sessions only (ADR 0329); never carries a filesystem path. */
+ worktree?: {
+  branch: string;
+  status: "creating" | "active" | "conflict" | "merged" | "missing";
+  setupStatus?: "none" | "running" | "ok" | "failed" | null;
+ };
 };
 
 type UiMessage = {
@@ -862,13 +875,22 @@ ID、或会话无法解析出默认目标时，得到 `supportsReasoning: false`
 最小接口：
 
 - `session/list`
-- `session/create`
+- `session/create` — 可选的 `isolated: true` 配合 `projectPath` 会在专属 git worktree 中创建
+  会话（ADR 0329）；拒绝时返回主机的 `WORKTREE_*` 代码
 - `session/fork({ sessionId, title?, throughMessageId? }) -> { session: SessionDetail }`
 - `session/get`
 - `session/delete`
 - `session/rename`
+- `session/deriveTitle({ id, title }) -> { updated: boolean }` 应用确定性的首条提示兜底标题。
+  只有当存储标题仍是可识别的占位标题且标题来源为 `default` 时，host-core 才接受它；该写入
+  只改元数据，`updated_at`、转录内容与消息数都不变。派生标题会保留该来源，因此已安装的
+  标题插件仍可替换它；`session/rename` 仍是用户拥有的路径。
 - `session/importScan`
 - `session/importRun(candidates) -> { imported, skipped, failed }`
+
+`session/rename({ id, title })` 会裁剪标题并接受 1–80 个 Unicode 码点；空标题或
+超长标题返回 `INVALID_PARAMS`。成功重命名只更新会话元数据、不改活动时间，并将标题来源
+标为 `manual`，因此标题插件不能覆盖它。
 
 导入候选者携带 `projectPath: string | null` 与
 `messageCount: number | null`。扫描对每个源文件全量读取的上限为导入器的
@@ -926,8 +948,9 @@ Electron拥有本地化并提供面向用户的分支名称；主机
 转录本，但被排除在恢复的模型上下文之外。
 
 上下文检查器消耗两个附加使用信号。 `MessageUsage` 是
-提供商报告的助理使用情况，`responseDurationMs` 是已用时间
-sidecar 用于显示每秒输出令牌的流时间。 `ToolTokenUsage`
+提供商报告的助理使用情况，`responseDurationMs` 是用于显示每秒输出令牌的
+请求耗时。完整响应优先使用 pi-ai 1.1.0 的单调时钟
+`AssistantMessage.durationMs`；没有该值时仍使用 sidecar 秒表。 `ToolTokenUsage`
 是根据工具调用参数和结果估计的运行时间；提供商不
 报告每个工具的分配，因此渲染器将这些行标记为估计值并
 永远不会将它们合并到确切的提供商总数中。年长的同行可能会忽略所有
@@ -1097,6 +1120,23 @@ type ProjectRecord = {
 };
 ```
 
+## 9a. 会话 worktree API（ADR 0329）
+
+对主机 `worktree.*` 方法的薄转发（06-host-rpc-protocol §4）；错误保留主机的
+`WORKTREE_*` 代码。
+
+- `worktree/probe({ projectPath })` → 项目能否承载隔离会话（不能时给出拒绝代码），以及是否
+  有未提交改动
+- `worktree/preview({ sessionId })` / `worktree/merge({ sessionId, previewToken })`
+- `worktree/behind({ sessionId })` → 提交数，以及 `worktree/sync({ sessionId })` — “从项目同步”；`worktree/behindAll()`
+  → `{ counts: { [sessionId]: count }, statusesChanged }`，用于侧边栏标记
+- `worktree/pendingWork({ sessionId })` — 删除时会丢弃的未合并工作
+- `worktree/setupLog({ sessionId })`
+- `worktree/reveal({ sessionId })` — Electron Main 通过 `worktree.location` 解析文件夹并在
+  系统文件管理器中打开；路径绝不返回给渲染器
+- `worktree/setupCommand/get({ projectPath })` /
+  `worktree/setupCommand/set({ projectPath, command })`
+
 ## 10. 工具权限 API
 
 当工具需要确认时：
@@ -1217,7 +1257,7 @@ type PluginSummary = {
 遮蔽全局项。仅桌面的 `mcp/test` IPC 操作用于强制连接测试，并把状态返回
 MCP 编辑器。设置页的 `mcp.list` 在返回状态前会探测此前就绪的远程连接；服务器失联时，列表显示 `failed`，而不是保留过时的 `ready`。服务器恢复后，“测试连接”会重试。探测失败不会中断正在执行的工具调用；“测试连接”会先关闭旧客户端再重试。
 MCP 编辑器。
-停止会话会中止该会话正在执行的用户 MCP 工具调用，并向服务器发送 `notifications/cancelled`。其他会话共用的连接保持可用；已取消的调用不会重放。取消会结束本地等待，但服务器可能忽略通知并完成已经开始的副作用。
+停止会话会中止该会话正在执行的用户 MCP 工具调用，并向服务器发送 `notifications/cancelled`。其他会话共用的连接保持可用；已取消的调用不会重放。取消会结束本地等待，但服务器可能忽略通知并完成已经开始的副作用。请求超时后同样发送 `notifications/cancelled`（reason 为 `timeout`）；`initialize` 请求从不取消。
 
 ```ts
 type McpServerStatus = {
@@ -1290,10 +1330,12 @@ type McpOAuthLoginEvent = {
   | { kind: "authUrl"; url: string; instructions?: string; opened: boolean }
   | { kind: "progress"; message: string }
   | { kind: "done"; status: McpServerStatus }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; errorCode?: "MCP_OAUTH_DCR_UNAVAILABLE" }
   | { kind: "cancelled" }
 );
 ```
+
+如果授权服务器元数据没有 `registration_endpoint`，且没有可复用的客户端，登录会在打开外部浏览器前失败。错误事件携带 `MCP_OAUTH_DCR_UNAVAILABLE`，渲染层显示本地化的恢复指引。主进程错误消息用于诊断，不应包含发现到的授权端点 URL。
 
 #### 状态与凭证存储
 - `McpServerStatus` 包含：
@@ -1408,7 +1450,7 @@ Chrome 和代理 CDP 位于随应用打包的 `pi.browser` 插件中，通过 `p
 - `fs/readImageDataUrl({ref, mimeType?})` → `FsImageDataUrlResult`（`image` 带 `dataUrl`，或 `missing` / `notImage` / `tooLarge`）。包含范围与 `fs/read` 相同。从不返回非图片字节。仅渲染器使用，不是插件宿主 API。
 - `fs/reveal({path})` → 在 Finder 中显示。包含范围与 `fs/read` 相同。
 - `fs/open({path, mimeType?})` → 用系统默认应用打开已有的普通文件。与 `fs/read` 一样校验真实路径包含范围，拒绝通过符号链接逃逸。对于声明为 `video/mp4` 的无后缀 `attachments/<sha256>` blob，宿主在私有应用数据目录建立 `.mp4` 符号链接后再交给系统，不复制视频字节。
-- `fs/resolveRef({ref, sessionId?})` → `FsChatRefResolveResult`（`{ match: FsChatRefMatch | null }`，match 指出应答的 `root`（`workspace` / `scratch` / `attachments`）、相对该应答根的 `relativePath`、绝对路径 `absolutePath` 与 `matchedBy`（`exact-relative` / `exact-absolute` / `path-suffix` / `basename`），以及在 `workspace` 命中时给出的 `projectRoot`（`{ path, name, primary }`，指出是哪个文件夹应答的））；`sessionId` 决定查哪个会话的临时目录。它补全智能体在聊天里打印的文件引用，因为渲染器看不到会话自己的临时目录：已经在某个已知根内指向真实文件的绝对引用直接胜出，`attachments/<sha256>` blob 直接对附件库解析；否则按优先级顺序搜索各根——整个打开的项目、再会话自己的临时目录（`<data_dir>/scratch/<sessionId>/`，ADR 0124）、最后附件库——第一个给出结果的根胜出。项目指的是打开的工作区背后的文件夹组（ADR 0249）：主文件夹先应答，其余文件夹随后按项目组自身顺序搜索（ADR 0263），因此简写落在同级文件夹里和落在主文件夹里一样自然，命中结果也指出是哪个文件夹应答的。同一个根内精确路径优先于简写；简写之间最长匹配尾优先，其次路径更浅者。文件面板的忽略集合同样生效。什么都没匹配到时返回 `match: null`；解析本身不打开任何东西（ADR 0262）。
+- `fs/resolveRef({ref, sessionId?})` → `FsChatRefResolveResult`（`{ match: FsChatRefMatch | null }`，match 指出应答的 `root`（`workspace` / `scratch` / `attachments`）、相对该应答根的 `relativePath`、绝对路径 `absolutePath` 与 `matchedBy`（`exact-relative` / `exact-absolute` / `path-suffix` / `basename`），以及在 `workspace` 命中时给出的 `projectRoot`（`{ path, name, primary }`，指出是哪个文件夹应答的））；`sessionId` 决定查哪个会话的临时目录。隔离会话以 `worktree.location` 而不是父项目 checkout 作为查找与读取的根；落在父 checkout 内的绝对引用会先映射到 worktree 中的同一相对路径（该文件存在时），从而打开分支上的副本，而不是报 `outside-allowed-roots`。它补全智能体在聊天里打印的文件引用，因为渲染器看不到会话自己的临时目录：已经在某个已知根内指向真实文件的绝对引用直接胜出，`attachments/<sha256>` blob 直接对附件库解析；否则按优先级顺序搜索各根——整个打开的项目、再会话自己的临时目录（`<data_dir>/scratch/<sessionId>/`，ADR 0124）、最后附件库——第一个给出结果的根胜出。项目指的是打开的工作区背后的文件夹组（ADR 0249）：主文件夹先应答，其余文件夹随后按项目组自身顺序搜索（ADR 0263），因此简写落在同级文件夹里和落在主文件夹里一样自然，命中结果也指出是哪个文件夹应答的。同一个根内精确路径优先于简写；简写之间最长匹配尾优先，其次路径更浅者。文件面板的忽略集合同样生效。什么都没匹配到时返回 `match: null`；解析本身不打开任何东西（ADR 0262）。
 - `fs/list` 仍只限工作区；外面的遍历被拒绝（`INVALID_ARGUMENT`）。
 
 ## 13b. 桌面菜单和窗口 API
@@ -1451,6 +1493,29 @@ type NativeMenuAction =
 menu/nativeAction({ action: NativeMenuAction })
   -> { maximized: boolean; fullScreen: boolean }
 ```
+
+活动插件 `WebContentsView` 时，渲染器通过一个受限的 Main 通道发送标签菜单文案
+和指针锚点。Main 校验请求，按发送方当前缩放比例把 CSS 坐标换算成 DIP，限制在
+窗口内容区域内，并且只生成固定的关闭操作。取消菜单或窗口关闭时返回 `null`；
+跨越异步边界后，渲染器会重新检查会话和目标标签：
+
+```ts
+type WorkPanelTabMenuAction = "closeTab" | "closeOtherTabs" | "closeAllTabs";
+type WorkPanelTabMenuRequest = {
+  closeTabLabel: string;
+  closeOtherTabsLabel: string;
+  closeAllTabsLabel: string;
+  canCloseOthers: boolean;
+  x: number; // 渲染器 CSS 像素
+  y: number; // 渲染器 CSS 像素
+};
+
+workPanel/tabMenu(request: WorkPanelTabMenuRequest)
+  -> WorkPanelTabMenuAction | null
+```
+
+标签只用于显示文案，不能指定任意 Main 操作。使用操作系统原生菜单样式是为了
+保证菜单显示在原生视图上方。
 
 开发人员工具使用专用的 Main 拥有的门，而不是通用的本机
 菜单操作：
@@ -1495,6 +1560,14 @@ window/closeBehavior/set({ behavior: "tray" | "quit" })
 在每个平台上启动时都会创建一个，而无论存的是哪种关闭行为，最小化到托盘都
 需要它。
 
+关闭行为与退出确认通过新增的、仅限主窗口的 Electron IPC 在应用内呈现。主进程
+在 renderer 确认 `pi-desktop/window/lifecycleDialog/ready` 后发送
+`pi-desktop/window/event/lifecycleDialogRequest`（`{ requestId, kind }`）；renderer
+通过 `pi-desktop/window/lifecycleDialog/respond` 返回 `{ requestId, choice }`。主进程
+回退时会通过 `pi-desktop/window/event/lifecycleDialogDismiss` 发送 request ID，令 renderer
+移除残留遮罩。主进程校验发送方和待处理的 request ID。renderer 缺失或无响应时，超时后
+回退到原生弹窗；原生弹窗也失败时允许关机继续，不会卡住。托盘退出会先恢复隐藏的主窗口再显示应用内
+确认框。此改动不影响 host RPC 或存储协议。
 Maximize/unmaximize 变化也会发出
 `window/event/maximized`。未知的操作失败。这些仅限电子的通道
 不要跨入 host-core，也不要更改主机 RPC 协议版本。
@@ -1579,7 +1652,7 @@ Electron 报告的右侧角）改变的是面板目标。Main 通过
 ## 13c. Composer 输入 API（D123/D124/D197、ADR 0024/0059）
 
 仅电子通道支持输入框自动完成和剪贴板文件
-参考。 `composer/commands` 和 `fs/index` 是只读且软故障；
+参考。 `composer/commands`、`fs/index` 和 `fs/search` 是只读且软故障；
 `composer/pasteFiles` 仅写入原始会话的 Electron 拥有的
 暂存目录。 None 添加主机 RPC 方法或更改主机协议
 版本。
@@ -1625,7 +1698,23 @@ type FsIndexEntry = { path: string; kind: "file" | "dir" };
 --exclude-standard`快速路径，忽略设置递归行走回退，
 从文件路径派生的目录，8000 个条目上限，`truncated: true`，
 每个根的短 TTL 缓存。无法关闭到空列表而没有
-工作区。模糊过滤发生在渲染器端。
+工作区。模糊过滤发生在渲染器端；被截断的索引只保留最浅的条目，因此针对它的
+查询还会发给 `fs/search`。
+
+### fs/search
+
+```ts
+fs/search({ sessionId?, query }) -> { entries: FsIndexEntry[]; truncated: boolean }
+```
+
+只有当 `fs/index` 快照被截断且查询非空时，`@` 菜单才会在输入短暂停顿后调用它，
+并把结果与自己的匹配合并（D669）。主进程用与渲染器相同的模糊打分，在该根目录的
+完整清单上排序，返回最好的 50 个条目。清单就是索引背后的 `git ls-files` 列表；
+若索引来自目录遍历，则改为一次更深的遍历（遵守同一忽略集，最多 200,000 个条目或
+2 秒）。清单与索引共用 TTL 缓存，过期即释放。`truncated: true` 表示搜索本身被截断。
+查询会去掉首尾空白并限制在 256 个字符内；空查询不返回条目。远程会话直接返回
+`{ entries: [], truncated: true }`，不联系远程主机——远程文件协议没有搜索操作——
+菜单继续只在远程快照里过滤。
 
 ### composer/pickFiles 和 composer/pickPhotos
 
@@ -1895,26 +1984,29 @@ unchanged. See [provider configuration](12-provider-config-schema.md).
 
 ## 15. 云配置同步
 
-设置 → 云同步页面使用以下 Renderer-to-Main 通道；所有通道都会转发到 Host 所有的 `configSync.*` RPC 方法：
+The page is available in all builds and carries an Experimental badge. Channel
+names stay stable. Inputs and results use the S3-only contract in
+`types/config-sync.ts` and the current source spec.
 
 | IPC 通道 | Host 方法 | 契约 |
 |---|---|---|
 | `pi-desktop/configSync/getState` | `configSync.getState` | 脱敏状态、类别选择、预览计数和待审批摘要 |
-| `pi-desktop/configSync/test` | `configSync.test` | 使用临时对象进行 WebDAV 能力探测；不持久化配置 |
+| `pi-desktop/configSync/test` | `configSync.test` | S3 conditional-write probe with verified cleanup; returns `{ ok: true, conditionalWrites: true }` without persisting configuration |
 | `pi-desktop/configSync/configure` | `configSync.configure` | 校验 endpoint、保存加密的本地同步元数据并启用 vault |
-| `pi-desktop/configSync/syncNow` | `configSync.syncNow` | 执行一次由 Host 所有的协调周期 |
+| `pi-desktop/configSync/syncNow` | `configSync.syncNow` | runs the saved sync or backup mode |
 | `pi-desktop/configSync/pause` | `configSync.pause` | 仅暂停或恢复本设备 |
 | `pi-desktop/configSync/unlock` | `configSync.unlock` | 为当前进程/设备解锁本地 vault |
 | `pi-desktop/configSync/approve` / `reject` | `configSync.approve` / `configSync.reject` | 记录绑定 digest 的本地激活决定 |
 | `pi-desktop/configSync/mapProject` | `configSync.mapProject` | 将一个不透明项目/组身份绑定到一个或多个明确选择的本地文件夹，并保留 primary-root 顺序 |
-| `pi-desktop/configSync/listHistory` | `configSync.listHistory` | 只列出脱敏的可达 revision 元数据 |
-| `pi-desktop/configSync/restore` | `configSync.restore` | 根据明确确认的历史 revision 创建新的传播 revision，并暂存本地审批/恢复信息 |
+| `pi-desktop/configSync/listHistory` | `configSync.listHistory` | latest 30 indexed revisions for the saved mode; never broadcast as state |
+| `pi-desktop/configSync/restore` | `configSync.restore` | sync publishes with propagation acknowledgment; backup restores locally; both retain recovery and approvals |
 | `pi-desktop/configSync/changePassword` | `configSync.changePassword` | CAS 重新包裹 vault key header，不返回 key 或秘密值 |
 | `pi-desktop/configSync/disconnect` | `configSync.disconnect` | 移除本地同步元数据和 key；不会删除远端 vault 数据 |
 
 输入密码只会被传给需要它的操作。原始秘密、vault key、解密资源或远端 archive 不会返回到 Renderer。`configSync.changed` 事件携带相同的脱敏状态，并由 Host 发起的变更（包括 Host scheduler）触发。Main 只是传输/生命周期协调器，不负责调度、合并、加密或应用配置。
 
-手动同步会在运行期间报告 `configSync.progress`：当前阶段（`capture`、`download`、`merge`、`upload`、`apply` 或 `cleanup`）、该阶段已完成与总量，以及已知时的字节数。因此上传大量资源对象时，界面不会无内容可显示。后台轮询不报告进度，因为只有手动路径有调用方在等待。
+Manual progress uses `capture`, `download`, `merge`, `upload`, and `apply` with
+unit and byte counts. There is no cleanup phase. Background polls stay silent.
 
 ## 16. 实时语音 API
 

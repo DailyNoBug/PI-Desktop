@@ -1,7 +1,7 @@
 import { Button, cx } from "../../components/ui";
 import { IconCheck, IconSearch, IconShield } from "../../components/icons";
-import { MarketplaceSourceSettings } from "../../components/plugins/MarketplaceSourceSettings";
-import { PermissionChips } from "./presentation";
+import { PermissionChips, RatingChip } from "./presentation";
+import { ReviewTicker } from "./ReviewTicker";
 import {
   formatDate,
   monogram,
@@ -12,11 +12,9 @@ import type { PluginsPageModel } from "./usePluginsPage";
 export function MarketplacePanel({
   t,
   locale,
-  settings,
   query,
   setQuery,
   refreshMarket,
-  setMarketSource,
   categories,
   category,
   setCategory,
@@ -26,8 +24,10 @@ export function MarketplacePanel({
   installedById,
   selectedId,
   openDetail,
-  busyId,
+  isPluginBusy,
   queueInstall,
+  reviewSummaries,
+  reviewTickers,
 }: PluginsPageModel) {
   return (
           <div
@@ -36,16 +36,6 @@ export function MarketplacePanel({
             aria-labelledby="plugins-tab-market"
             className="plugins-panel"
           >
-            {settings ? (
-              <MarketplaceSourceSettings
-                settings={settings}
-                onSourceRefreshed={(source) => {
-                  setMarketSource(source);
-                  void refreshMarket(query);
-                }}
-              />
-            ) : null}
-
             {categories.length > 1 ? (
               <div
                 className="plugins-filters"
@@ -163,6 +153,16 @@ export function MarketplacePanel({
                                   </span>
                                 </>
                               ) : null}
+                              <span className="plugins-dot" aria-hidden>
+                                ·
+                              </span>
+                              <span>
+                                {installed
+                                  ? t("plugins.installedVersion", { version: installed.version })
+                                  : t("plugins.updatedOn", {
+                                      date: formatDate(item.updatedAt, locale),
+                                    })}
+                              </span>
                             </span>
                           </span>
                         </span>
@@ -170,13 +170,12 @@ export function MarketplacePanel({
                         <PermissionChips permissions={item.permissionSummary} />
                       </button>
                       <div className="plugins-card-foot">
-                        <span className="plugins-card-state">
-                          {installed
-                            ? t("plugins.installedVersion", { version: installed.version })
-                            : t("plugins.updatedOn", {
-                                date: formatDate(item.updatedAt, locale),
-                              })}
-                        </span>
+                        <RatingChip
+                          summary={reviewSummaries[item.id]}
+                          locale={locale}
+                          showDot={false}
+                        />
+                        <ReviewTicker ticker={reviewTickers[item.id]} />
                         {installed && !upgradable ? (
                           <span className="plugins-installed-mark">
                             <IconCheck size={13} />
@@ -186,7 +185,7 @@ export function MarketplacePanel({
                           <Button
                             variant="primary"
                             size="sm"
-                            disabled={busyId === item.id || packagePending}
+                            disabled={isPluginBusy(item.id) || packagePending}
                             title={
                               packagePending
                                 ? t("plugins.packagePendingHint", {
@@ -205,7 +204,7 @@ export function MarketplacePanel({
                           >
                             {packagePending
                               ? t("plugins.packagePending")
-                              : busyId === item.id
+                              : isPluginBusy(item.id)
                                 ? t("plugins.installing")
                                 : upgradable
                                   ? t("plugins.updateNow")

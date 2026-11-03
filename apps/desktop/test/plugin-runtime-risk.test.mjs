@@ -39,11 +39,13 @@ test("plugin runtime exposes gated high-risk host APIs", () => {
     "fs.write",
     "fs.delete",
     "fs.openDefault",
+    "fs.openInBrowser",
     "fs.reveal",
     "net.fetch",
     "agent.complete",
     "desktop.control",
     "session.read",
+    "session.autoTitle",
     "models.list",
     "shell.openExternal",
     "clipboard.read",
@@ -97,6 +99,7 @@ test("the plugins page shows the file scope behind a file permission", () => {
   // so the row has to carry it or the user is approving a blank cheque.
   assert.match(pageSrc, /"fs\.write": "high"/);
   assert.match(pageSrc, /"fs\.read": "medium"/);
+  assert.match(pageSrc, /"background\.service": "medium"/);
   assert.match(pageSrc, /function FsScopeChips\(/);
   assert.match(pageSrc, /t\("plugins\.fsAsksEachTime"\)/);
   assert.match(pageSrc, /t\("plugins\.legacyFsDowngraded"\)/);
@@ -110,6 +113,8 @@ test("the plugins page shows the file scope behind a file permission", () => {
     assert.equal(typeof catalog.plugins.permissionHelp["fs.delete"], "string");
     assert.equal(typeof catalog.plugins.permissions["agent.complete"], "string");
     assert.equal(typeof catalog.plugins.permissionHelp["session.read"], "string");
+    assert.equal(typeof catalog.plugins.permissions["session.autoTitle"], "string");
+    assert.equal(typeof catalog.plugins.permissionHelp["session.autoTitle"], "string");
     assert.equal(typeof catalog.plugins.permissions["models.list"], "string");
     assert.equal(typeof catalog.plugins.permissions["ui.microphone"], "string");
     assert.equal(typeof catalog.plugins.permissionHelp["ui.microphone"], "string");
@@ -166,7 +171,7 @@ test("shared protocol declares marketplace and package install IPC", () => {
 
 test("plugins page can refresh the official marketplace repository", () => {
   assert.match(pageSrc, /marketRefresh|refreshMarket|refreshRemote/);
-  assert.match(pageSrc, /pi-desktop-plugins|marketSource/);
+  assert.doesNotMatch(pageSrc, /MarketplaceSourceSettings|marketSource/);
 });
 
 
@@ -182,8 +187,8 @@ test("marketplace detail pane renders readme changelog and versions", () => {
 test("marketplace blocks install for a version with no published package", () => {
   assert.match(pageSrc, /function versionInstallable\(/);
   assert.match(pageSrc, /const packagePending = item\.installable === false/);
-  assert.match(pageSrc, /disabled=\{busyId === item\.id \|\| packagePending\}/);
-  assert.match(pageSrc, /disabled=\{busyId === detail\.id \|\| detailPackagePending\}/);
+  assert.match(pageSrc, /disabled=\{isPluginBusy\(item\.id\) \|\| packagePending\}/);
+  assert.match(pageSrc, /disabled=\{isPluginBusy\(detail\.id\) \|\| detailPackagePending\}/);
   assert.match(pageSrc, /t\("plugins\.packagePending"\)/);
   assert.match(pageSrc, /t\("plugins\.packagePendingHint", \{/);
 
@@ -258,4 +263,36 @@ test("verified trust is not something a catalog entry can grant itself", () => {
   assert.match(pageSrc, /function showsVerifiedBadge\(/);
   assert.match(pageSrc, /\{showsVerifiedBadge\(item\) \?/);
   assert.match(pageSrc, /\{showsVerifiedBadge\(detail\) \?/);
+});
+
+test("PERMISSION_RISK mirrors every permission tier in the permissions matrix (#1480)", () => {
+  const matrixPath = join(repoRoot, "docs/spec/07-plugins/13-plugin-permissions-matrix.md");
+  const matrixContent = readFileSync(matrixPath, "utf8");
+  const matrixEntries = [...matrixContent.matchAll(/^\| `([A-Za-z0-9.]+)` \| (low|medium|high) \|/gm)].map((m) => ({
+    permission: m[1],
+    risk: m[2],
+  }));
+
+  assert.ok(matrixEntries.length > 0, "permissions matrix must contain permission rows");
+
+  const matrixMap = Object.fromEntries(matrixEntries.map((e) => [e.permission, e.risk]));
+  const modelEntries = [...pageSrc.matchAll(/"([a-zA-Z0-9.]+)":\s*"(low|medium|high)"/g)].map((m) => ({
+    permission: m[1],
+    risk: m[2],
+  }));
+  const modelMap = Object.fromEntries(modelEntries.map((e) => [e.permission, e.risk]));
+
+  for (const [permission, expectedRisk] of Object.entries(matrixMap)) {
+    assert.equal(
+      modelMap[permission],
+      expectedRisk,
+      `PERMISSION_RISK["${permission}"] should be "${expectedRisk}" as defined in permissions matrix`,
+    );
+  }
+
+  assert.deepEqual(
+    Object.keys(modelMap).sort(),
+    Object.keys(matrixMap).sort(),
+    "PERMISSION_RISK must define exactly the set of permissions from the permissions matrix",
+  );
 });

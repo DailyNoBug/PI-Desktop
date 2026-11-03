@@ -3,7 +3,7 @@
 > **翻译说明：** 本页是与 [英文源规格](/spec/03-runtime/README) 一一对应的机器辅助翻译。代码、协议字段和标识符保持原文；如翻译与英文源事实有歧义，以英文版本为准。
 
 
-| 医生 | 描述 |
+| 文档 | 描述 |
 |---|---|
 | [01-ipc-protocol.md](/zh-CN/spec/03-runtime/01-ipc-protocol) | Electron IPC 协议 |
 | [02-agent-runtime.md](/zh-CN/spec/03-runtime/02-agent-runtime) | pi 代理运行时 |
@@ -27,5 +27,7 @@
 | [20-remote-ssh-desktop.md](/zh-CN/spec/03-runtime/20-remote-ssh-desktop) | Remote SSH 桌面客户端 |
 | [20-speech.md](/zh-CN/spec/03-runtime/20-speech) | 本地语音插件（听写）+ 宿主语音（转写/朗读） |
 | [live-voice.md](/zh-CN/spec/03-runtime/live-voice) | 应用托管的实时语音通话 |
+| [21-image-generation.md](/zh-CN/spec/03-runtime/21-image-generation) | 图像生成 |
+| [22-config-sync.md](/zh-CN/spec/03-runtime/22-config-sync) | 便携配置同步 |
 
 - [图片生成与编辑](/zh-CN/spec/03-runtime/21-image-generation)

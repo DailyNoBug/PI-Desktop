@@ -3,6 +3,34 @@
 > **翻译说明：** 本页是与 [英文源规格](/spec/03-runtime/06-host-rpc-protocol) 一一对应的机器辅助翻译。代码、协议字段和标识符保持原文；如翻译与英文源事实有歧义，以英文版本为准。
 
 
+
+### Bounded existing-history operations (#1868)
+
+The Desktop uses additive Host methods for existing history: `session.deleteMessage`
+takes `sessionId/messageId` and returns `ok/deleted/deletedCount`;
+`session.retractPendingPrompt` takes `sessionId/userMessageId` and optional
+`turnId`, returning `ok/retracted/removedCount` and a refusal `reason` when needed.
+Host verifies canonical message/turn ownership and meaningful reply activity;
+a refused retract leaves history intact. Repeating an already completed deletion
+or retraction does not delete another prompt. No history array is required.
+
+`session.activateRevision` accepts optional `requireCanonicalPrefix: true` to
+require a durable Host prefix; a missing family/anchor fails explicitly. Existing
+explicit-prefix activation, `session.replaceMessages`, `session.saveRevision`
+and their original request/response forms remain supported. Existing edit and
+regenerate continue using `session.truncateFrom`; branch archival and fork
+remain Host-owned. Oversized local requests report the method and UTF-8 byte count without payload
+content; the caller sees a local-transport explanation and the existing session
+Fork recovery path. No identical oversized payload is retried.
+The unchanged 64 MiB limit still applies to arbitrary incoming
+requests, including a genuinely oversized single tool result.
+
+ID mutations use the same session operation lock, rewrite fence and runtime
+disposal boundary. Their outbox drain must confirm all target-session entries
+were written; failure preserves the queue and rejects the mutation. Smart-stop
+restores a draft only after Host confirmation, and exposes failures.
+
+
 ## 1. Goal
 
 定义以下之间的本地协议：
@@ -154,8 +182,9 @@ type HandshakeResult = {
 9. 版本 11 撤回 A2A 协议栈（ADR 0165 / D326）。`a2a.*` 方法和通知
    已移除，握手不再声明 `a2a`；v10 主机或客户端必须在 UI 交互前拒绝。
 
-协议 v11 与 host-core 存储架构 v14 配对。v14 增加插件会话来源 sidecar
-和软删除字段；架构版本是内部持久性不变量，而不是额外的 JSON-RPC 字段，
+协议 v11 与 host-core 存储架构 v23 配对。v14 增加插件会话来源 sidecar
+和软删除字段；v23 增加 `sessions.title_source`，持久记录默认、手动和插件生成标题的归属。
+架构版本是内部持久性不变量，而不是额外的 JSON-RPC 字段，
 检查点架构仍然由主机拥有。
 
 ## 4. 方法目录(MVP)
@@ -225,7 +254,9 @@ type ToolBudgetHealth = {
 ### 会议
 - `session.list`
 - `session.create` — 接受可选的 `thinkingLevel`； missing/null 默认值
-至 `off`
+至 `off`。可选布尔值 `fastMode`（ADR 0334）保存会话的 `/fast` 开关；缺省/null 表示
+`false`，非布尔值返回 `INVALID_PARAMS`。可选的 `isolated: true`（ADR 0329）同时要求 `projectPath`，并在返回前为新会话
+创建专属 git worktree；无法创建时会话会被删除，调用以 `WORKTREE_*` 错误（§7）失败。
 - `session.fork` — accepts `sessionId`, an optional caller-provided display
   `title`, and optional `throughMessageId`; creates
   one independent session from the source's current active canonical
@@ -240,12 +271,18 @@ type ToolBudgetHealth = {
   `CONFLICT`, normalized by Electron to `AGENT_BUSY`. The source turn continues
   without sharing runtime state with the child.
 - `session.get`
-- `session.delete`
+- `session.delete` — 对隔离会话还会删除其 worktree 和分支（丢弃未合并的工作）
 - `session.getScratchPath` — 会话的 scratch 目录（D114），按需创建
-- `session.rename`
+- `session.rename` — 在主机边界裁剪并校验标题，接受 1–80 个 Unicode 码点；成功后将标题来源
+  标记为 `manual`，但不更新 `updated_at`、转录内容、消息数或历史通知标题快照。
+- `session.deriveTitle` — `{ id, title }`：应用确定性的首条提示兜底标题，返回
+  `{ updated: boolean }`。标题按同样的 1–80 码点规则校验，且只在存储标题仍是可识别占位
+  标题、标题来源为 `default` 时写入；写入后仍保留该来源，因此标题插件还能替换派生文本，
+  并且不更新 `updated_at`、转录内容或消息数。
 - `session.configure` — 以原子方式持久保存 `mode`、`providerId`、`modelId`，
   以及可选的 `thinkingLevel` 用于下一个 pi 回合； omitting/null
-  `thinkingLevel` 保留当前值；返回无效模式或级别
+  `thinkingLevel` 保留当前值；可选布尔值 `fastMode`（ADR 0334）遵循同一规则，
+  非布尔值返回 `INVALID_PARAMS`；返回无效模式或级别
   `INVALID_PARAMS`；模式为 `plan | goal | agent` 并更改任何会话
   仅在空闲且没有 pending/queued/running 时才允许配置
   Plan 或 Goal 记录
@@ -324,6 +361,9 @@ ids 和非负 `tokensBefore`；它不会插入 message/search 行
 - `plugin.session.importBatch` — 有界的 `skip` 或全有或全无 `fail` 批量导入
 - `plugin.session.list` / `plugin.session.get` / `plugin.session.listMessages` —
   只读取调用插件自己导入且仍处于活动状态的会话
+- `plugin.session.autoTitleContext` — 通过 Electron 的 `session.autoTitle` 权限校验后，
+  仅返回活动且标题来源为 `default` 的会话首条用户提示（≤1,000 字符）和首条助手回复（≤500 字符）
+- `plugin.session.setAutoTitle` — 仅在预期标题和 `default` 来源仍匹配时更新标题；返回 `{ updated }`
 - `plugin.session.rename` — 重命名自己拥有的活动导入会话
 - `plugin.session.delete` — `trash` 隐藏并保留转录本；`purge` 删除并允许重新导入
 - `plugin.usage.listTurns` — 未删除会话的已完成 turn 事实页（标识符与 token
@@ -400,11 +440,63 @@ off | minimal | low | medium | high | xhigh | max
 可能会返回 `thinking`；主机存储将其映射到规范内容块，而不是
 而不是将其附加到答案 `content` 中。
 
+### 会话 worktree（ADR 0329）
+
+新增的 `worktree.*` 方法为增量 RPC，不升协议版本。失败使用代码 1025 及 `WORKTREE_*`
+字符串代码。
+
+- `worktree.probe({ projectPath })` → `{ available, uncommittedChanges }`；项目无法承载
+  隔离会话时（非 git、无提交、分离 `HEAD`、缺少 git 或低于 2.29、远程主机项目——
+  `WORKTREE_REMOTE_UNSUPPORTED` 等）返回
+  `{ available: false, errorCode, message }`。`session.create` 对远程主机项目的 `isolated: true` 以同一代码拒绝，
+  不会创建任何会话。
+- `worktree.preview({ sessionId })` → `{ preview }`，包含将要合入的提交、文件及
+  `previewToken`。令牌覆盖会话 `HEAD`、项目分支最新提交、冲突状态，以及所有未提交和未跟踪文件的完整内容。
+- `worktree.merge({ sessionId, previewToken })` → `{ outcome }`。令牌不再匹配（会话或项目分支有变化）为
+  `WORKTREE_CHANGED_SINCE_PREVIEW`；项目有未提交改动为 `WORKTREE_PROJECT_DIRTY`；冲突为
+  `WORKTREE_CONFLICT`，worktree 保持冲突状态，项目不受影响。项目检出必须仍在会话的所属分支上、worktree
+  必须仍在自己的分支上，每次写入前都会重新检查（`WORKTREE_OWNER_BRANCH_CHANGED`、
+  `WORKTREE_SESSION_BRANCH_CHANGED`）；快进绑定到检查过的那个提交，完成后再核对。执行期间宿主持有会话的工具：
+  最多等待正在运行的工具五秒，超时返回 `WORKTREE_BUSY`，新的工具调用排队等到结束。
+- `worktree.behind({ sessionId })` → `{ commits }`，即会话尚未包含的项目分支提交数。
+- `worktree.behindAll()` → `{ counts, statusesChanged }`：以会话 id 为键给出每个隔离会话的同一计数
+  （读不到的会话省略），每次并发检查少量会话。处于冲突状态的会话会先检查是否已解决；
+  `statusesChanged` 提示渲染层刷新会话列表。渲染层在后台读取，用于侧边栏标记。
+- `worktree.sync({ sessionId })` → `{ outcome }`（`synced` 及 `commits`，或 `upToDate`）：
+  “从项目同步”先提交会话中待提交的工作，再把项目分支合入会话 worktree，与合并一样持有会话工具并检查自身分支。
+  不改动项目检出；冲突为 `WORKTREE_CONFLICT`，留在 worktree 中，并像合并冲突一样标记会话。
+- `worktree.pendingWork({ sessionId })` → `{ pending }`，即删除会丢弃的未合并工作。
+- `worktree.setupLog({ sessionId })` → `{ setupStatus, log }`。
+- `worktree.location({ sessionId })` → `{ path }`；仅供 Electron Main 的“在文件夹中显示”
+  使用，绝不转发给渲染器。
+- `worktree.setupCommand.get({ projectPath })` → `{ command }`；
+  `worktree.setupCommand.set({ projectPath, command })` → `{ ok }`（未知项目为
+  `NOT_FOUND`）。该命令在每个新 worktree 中运行一次。
+- `worktree.delegate.create({ sessionId, delegationId })` → `{ worktree }` 和
+  `worktree.delegate.settle({ sessionId, delegationId, merge })` → `{ settlement }`——仅供
+  agent-runtime 为隔离会话中的 `Write`/`Edit` 子代理使用（03-tools-and-permissions §10.2）。两者使用
+  10 分钟的传输期限（`WORKTREE_DELEGATE_RPC_TIMEOUT_MS`），因为提交和合并前可能要等待会话的工具。
+
 ### 工具
 - `tools.list`
 - `tools.execute`
 - `tools.abort`
 - 有序 `stdout`/`stderr` 块的 `tools.output` 通知
+
+### 后台任务
+- `backgroundTasks.list`
+- `backgroundTasks.output`
+- `backgroundTasks.stop`
+- `backgroundTasks.changed` 通知，携带 `{ version }`；任务启动、退出或被停止时发出
+
+`tools.execute` 带 `runInBackground: true` 时启动的是归宿主所有的 `Bash` 命令，
+而不是本轮的命令：调用立即以 `backgroundTaskId` 返回，任务不进入按工具调用注册的
+取消表，因此 `tools.abort` / `agent.abort` 都无法触及它，输出按流保存在有界环形缓冲
+中。注册表位于宿主进程内，宿主关闭时会停止全部任务，因此应用退出不会残留孤儿进程。
+
+输出块不会触发 `backgroundTasks.changed`；该事件仍用于生命周期状态失效通知，
+不承担高频日志传输。客户端只读取当前展开的输出。最终状态包含排空后的尾部输出，
+即使并发读取占用输出锁，关闭宿主仍会向每个任务发送停止信号。
 
 ### 贝壳
 - `commandShells.list`
@@ -417,7 +509,7 @@ off | minimal | low | medium | high | xhigh | max
 在命令启动后重试命令，并在之前获取超时的子命令
 释放执行槽。
 
-`session.appendMessage` 通过消息 ID 是幂等的。若该 id 已属于另一会话，则在写 JSONL 之前改写为 `{sessionId}:{id}`，之后重放原始 id 为无操作（D444）。Electron 主进程可以在 host-core 重启时把消息留在应用自有 outbox 里；握手成功后按顺序冲洗，并把 `UNIQUE constraint failed: messages.id` 当作确认而不是停整队。带 `PERMISSION_DENIED:` 前缀的追加同样丢弃以免毒消息卡住 FIFO（D597）。进行中检查点从不经过发件箱：检查点只对存活的主机有意义，在最终行之后重放它是错误的。
+`session.appendMessage` 通过消息 ID 是幂等的。若该 id 已属于另一会话，则在写 JSONL 之前改写为 `{sessionId}:{id}`，之后重放原始 id 为无操作（D444）。Electron 主进程可以在 host-core 重启时把消息留在应用自有 outbox 里；握手成功后按顺序冲洗，并把 `UNIQUE constraint failed: messages.id` 当作确认而不是停整队。带 `PERMISSION_DENIED:` 前缀的追加同样丢弃以免毒消息卡住 FIFO（D597）。无法归类的追加会在同一 Host 代内按有界退避重试，连续失败后隔离到应用自有的死信文件而不是长期占用队头，因此单条被拒追加不会拖垮所有会话的写入（D656）。进行中检查点从不经过发件箱：检查点只对存活的主机有意义，在最终行之后重放它是错误的。
 
 ### 权限
 - `permissions.evaluate`
@@ -567,6 +659,9 @@ type ToolsExecuteParams = {
   expectedCommandShellDialect?: "powershell" | "cmd" | "posix"
   /** Bash only: host default 60000; accepted override 1000..21600000. */
   timeoutMs?: number
+  /** Isolated `Write`/`Edit` delegate chain id; re-roots the call to that
+   * delegate's worktree (ADR 0329). Omitted for every other call. */
+  delegationId?: string
 }
 ```
 
@@ -914,6 +1009,7 @@ JSON-RPC 错误携带一个数字 `code` 以及 `data.errorCode`，后者是来�
 | 1022 | PLUGIN_MARKET_NOT_FOUND | 平台没有该插件或该版本 |
 | 1023 | PLUGIN_MARKET_RATE_LIMITED | 下载接口要求客户端等待后重试 |
 | 1024 | PLUGIN_MARKET_NO_SOURCE | 没有任何分发目标能提供该包 |
+| 1025 | WORKTREE_* | 所有隔离会话 worktree 失败（`WORKTREE_NOT_GIT`、`WORKTREE_CONFLICT`、`WORKTREE_PROJECT_DIRTY`、`WORKTREE_MISSING` 等）共用此槽位，以字符串代码区分 |
 | -32029 | HOST_OVERLOADED | RPC 调度程序容量已耗尽 |
 | -32601 | — | 未知方法 |
 | -32700 | — | 无法解析的请求行 |
@@ -1047,3 +1143,21 @@ schedule，Manual 转 Hourly 继续使用现有默认间隔行为。
 保存和读取工作区绑定时统一使用现有项目路径规范化规则。在 Windows 上，
 斜杠方向、大小写、末尾分隔符和扩展路径前缀的差异不会再让同项目会话看不到任务。
 缺失的旧版绑定与显式 null 仍保持不同语义；其他项目的工具不能查询或修改绑定任务。
+
+
+## Host 文件批次准入（版本 1）
+
+sidecar 代理明确允许 tools.fileBatchCapabilities、tools.fileBatchRegister、
+tools.fileBatchSeal、tools.fileBatchAbandon、tools.fileBatchClose，不添加通配权限。
+Capabilities 接收 sessionId，返回 {version:1,supported:boolean}；远程工作区返回 false。
+Register 接收 sessionId、可选 delegationId、batchId、ordinal、toolCallId、toolName、args，
+返回 {ticket}，只接受内建文件工具名。Seal/Close 接收 sessionId/batchId，Abandon 接收
+sessionId/ticket，返回 {ok:true}。登记为进程内有界元数据：全局 512 调用、每批 128 调用、
+参数总计 32 MiB，不授予文件权限。
+
+tools.execute 增加可选 fileBatchTicket，绑定封存后的单次调用。会话/委派、调用/工具名、
+参数必须匹配；重放、改参、封存前执行均失败。无 ticket 的旧调用仍获得 Host 资源互斥，
+但不具有批内源序信息。runtime 只在能力握手成功后开放写并行。权限、根、租约、文件身份
+由 Host 决定，客户端不提供权威身份。工作区绑定变化返回 TOOL_CONTEXT_CHANGED；文件身份
+或地址变化在写入前失败。Close/过期不能释放运行中的磁盘任务，不自动重放失败或结果不明
+的写。生命周期和限制见 Host 文件准入 ADR。

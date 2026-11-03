@@ -92,7 +92,7 @@ export function ProjectArchiveIndex({
                   <button
                     type="button"
                     className="projects-row"
-                    title={project.path}
+                    title={project.remote?.path ?? project.path}
                     aria-label={t("project.selectProject", { name: project.name })}
                     aria-expanded={open}
                     aria-current={open ? "true" : undefined}
@@ -123,7 +123,7 @@ export function ProjectArchiveIndex({
                         ) : null}
                       </span>
                       <span className="projects-name-path">
-                        {shortenPath(project.path)}
+                        {shortenPath(project.remote?.path ?? project.path)}
                       </span>
                     </span>
                     <span className="projects-row-meta">

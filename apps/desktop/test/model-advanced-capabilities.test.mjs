@@ -97,7 +97,10 @@ test("image generation selection hides the summary when nothing can be chosen", 
   );
   assert.match(pickerSource, /imageModelIds\?\.some\([\s\S]*?modelId\.toLowerCase\(\) === binding\.id\.toLowerCase\(\)/);
   assert.match(pickerSource, /onImageModelChange\(binding\.id, event\.target\.checked\)/);
-  assert.match(imageModelRowSource, /imageGenerationBindings\(settings\.imageGenerationModels, null\)/);
+  // The row's own rule — the stored candidate list, the legacy single binding
+  // only while no list was ever saved, plus a signed-in vendor account's image
+  // model — now lives in the shared helper, pinned by image-generation-default.test.mjs.
+  assert.ok(imageModelRowSource.includes("imageGenerationPickerCandidates("));
   assert.match(imageModelRowSource, /if \(!options\.some\(\(option\) => !option\.disabled\)\) return null;/);
   assert.match(imageModelRowSource, /if \(candidates\.length === 0\) return null;/);
   assert.match(imageModelRowSource, /imageModelUnavailable/);
@@ -171,7 +174,7 @@ test("a configured model keeps its published record when discovery omits it", ()
   // Discovery stays the authority on what the service offers: only the rows it
   // returned are cached as discovered.
   const liveReturn = mainSource.slice(
-    mainSource.indexOf("await cacheForCurrentProvider(models);"),
+    mainSource.indexOf("await cacheForCurrentProvider(models, outcome.complete);"),
   );
   assert.match(liveReturn.slice(0, 260), /models: withConfiguredBindings\(models\)/);
 });
@@ -281,4 +284,16 @@ test("the offered default and the saved default use one order", () => {
     pickerSource,
     /resolveBindingDefaultThinkingLevel\(\s*binding\.defaultThinkingLevel,\s*sortThinkingLevels\(next\),/,
   );
+});
+
+test("model settings let the user allow Fast mode per model on Responses wires", () => {
+  // ADR 0334: the opt-in lives on the binding; `/fast` is the per-session switch.
+  assert.match(pickerSource, /const fastModeBilling = fastModeBillingOn\(apiStyle\);/);
+  assert.match(pickerSource, /checked=\{binding\.fastModeAllowed === true\}/);
+  assert.match(pickerSource, /disabled=\{!fastModeBilling\}/);
+  assert.match(pickerSource, /fastModeAllowed: event\.target\.checked \|\| undefined/);
+  // Plan limits and per-token billing are different costs, so the hint differs.
+  assert.match(pickerSource, /"settings\.fastModeAllowedSubscriptionHint"/);
+  assert.match(pickerSource, /"settings\.fastModeAllowedUsageHint"/);
+  assert.match(pickerSource, /"settings\.fastModeAllowedUnsupported"/);
 });

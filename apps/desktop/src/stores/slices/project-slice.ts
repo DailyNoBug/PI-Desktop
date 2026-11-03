@@ -1,3 +1,4 @@
+import { forgetTranscriptReadingState } from "../../lib/transcript-reading-position";
 import i18n from "i18next";
 import type { ProjectWorkspace } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
@@ -13,6 +14,7 @@ import {
 } from "../../lib/session-panes";
 import {
   clearSessionAsks,
+  dropSessionAskDrafts,
 } from "../../lib/pending-asks";
 import {
   clearSessionPermissions,
@@ -38,7 +40,6 @@ import type { StoreAccess } from "./types";
 
 export type ProjectSliceDependencies = StoreAccess & {
   runtime: SessionRuntime;
-  manualSessionTitles: Set<string>;
   withoutRecordKey: <T>(record: Record<string, T>, key: string) => Record<string, T>;
   withProjectDisplayName: (
     workspace: ProjectWorkspace,
@@ -114,7 +115,7 @@ async function createNamedProjectGroup(
       if (!workspace || !runtime.navigationIntentIsCurrent(intent)) return;
       const onboarding = await api.getOnboarding();
       if (!runtime.navigationIntentIsCurrent(intent)) return;
-      set({ createProjectDialogOpen: false, onboarding, page: "chat" });
+      set({ createProjectDialogOpen: false, createProjectDialogRemoteHostKey: undefined, onboarding, page: "chat" });
       return;
     }
   }
@@ -131,7 +132,7 @@ async function createNamedProjectGroup(
   get().renameProject(groupPrimary, normalizedName);
   const onboarding = await api.getOnboarding();
   if (!runtime.navigationIntentIsCurrent(intent)) return;
-  set({ createProjectDialogOpen: false, onboarding, page: "chat" });
+  set({ createProjectDialogOpen: false, createProjectDialogRemoteHostKey: undefined, onboarding, page: "chat" });
 }
 
 /**
@@ -144,15 +145,14 @@ function clearLocalSessionState(
     get,
     set,
     runtime,
-    manualSessionTitles,
     withoutRecordKey,
   }: Pick<
     ProjectSliceDependencies,
-    "get" | "set" | "runtime" | "manualSessionTitles" | "withoutRecordKey"
+    "get" | "set" | "runtime" | "withoutRecordKey"
   >,
   id: string,
 ): void {
-  manualSessionTitles.delete(id);
+  forgetTranscriptReadingState(id);
   runtime.pendingSessionConfigurations.delete(id);
   runtime.sessionTranscriptCache.delete(id);
   runtime.sessionHistoryCache.delete(id);
@@ -175,6 +175,7 @@ function clearLocalSessionState(
       id,
     );
     const pendingAsks = clearSessionAsks(state.pendingAsks, id);
+    const askDrafts = dropSessionAskDrafts(state.askDrafts, state.pendingAsks, id);
     const latestTurnResults = withoutRecordKey(state.latestTurnResults, id);
     const planningStates = withoutRecordKey(state.planningStates, id);
     const pendingPlans = withoutRecordKey(state.pendingPlans, id);
@@ -203,6 +204,7 @@ function clearLocalSessionState(
       isRunning: state.activeSessionId === id ? false : state.isRunning,
       pendingPermissions,
       pendingAsks,
+      askDrafts,
       latestTurnResults,
       planningStates,
       pendingPlans,
@@ -219,7 +221,6 @@ export function createProjectSlice({
   get,
   set,
   runtime,
-  manualSessionTitles,
   withoutRecordKey,
   withProjectDisplayName,
   promoteProjectPath,
@@ -238,6 +239,7 @@ export function createProjectSlice({
   | "openProject"
   | "closeProjectDialog"
   | "createProjectFromFolders"
+  | "createProjectFromRemote"
   | "createProjectFromGit"
   | "clearProject"
   | "deleteProject"
@@ -311,11 +313,16 @@ export function createProjectSlice({
         };
       });
       rememberProject({
+        ...(workspace.remote ? { remote: workspace.remote } : {}),
         path: workspace.path,
         name: workspace.name || workspace.path,
         branch: workspace.branch,
       });
-      persistCurrentSidebar(get);
+      if (projectIsArchived(workspace.path, get().projectMeta)) {
+        get().restoreProject(workspace.path);
+      } else {
+        persistCurrentSidebar(get);
+      }
       return workspace;
     },
 
@@ -387,17 +394,30 @@ export function createProjectSlice({
       });
     },
 
-    openProject: async () => {
-      set({ createProjectDialogOpen: true });
+    openProject: async (options) => {
+      set({ createProjectDialogOpen: true, createProjectDialogRemoteHostKey: options?.remoteHostKey });
     },
     closeProjectDialog: () => {
-      set({ createProjectDialogOpen: false });
+      set({ createProjectDialogOpen: false, createProjectDialogRemoteHostKey: undefined });
     },
     createProjectFromFolders: async ({ name, folders, primaryPath }) =>
       createNamedProjectGroup(
         { get, set, runtime },
         { name, folders, primaryPath },
       ),
+    createProjectFromRemote: async ({ name, hostKey, path }) => {
+      const normalizedName = normalizeProjectName(name);
+      if (!normalizedName) throw new Error(i18n.t("errors.projectNameLength"));
+      const intent = runtime.beginNavigationIntent();
+      const { group } = await api.createRemoteProjectGroup(normalizedName, hostKey, path);
+      if (!runtime.navigationIntentIsCurrent(intent)) return;
+      const workspace = await get().activateProject(group.primaryPath, { navigationIntent: intent });
+      if (!workspace || !runtime.navigationIntentIsCurrent(intent)) return;
+      get().renameProject(group.primaryPath, normalizedName);
+      const onboarding = await api.getOnboarding();
+      if (!runtime.navigationIntentIsCurrent(intent)) return;
+      set({ createProjectDialogOpen: false, createProjectDialogRemoteHostKey: undefined, onboarding, page: "chat" });
+    },
     createProjectFromGit: async ({ name, url, parentPath }) => {
       // Clone first, then create the project through the same group path, so a
       // checkout and a folder pick produce identical project semantics.
@@ -446,7 +466,7 @@ export function createProjectSlice({
       await api.removeProject(path);
       for (const id of removedSessionIds) {
         clearLocalSessionState(
-          { get, set, runtime, manualSessionTitles, withoutRecordKey },
+          { get, set, runtime, withoutRecordKey },
           id,
         );
       }
@@ -534,14 +554,9 @@ export function createProjectSlice({
       if (!id) return;
       const nextTitle = title.trim();
       if (!nextTitle) throw new Error(i18n.t("errors.sessionTitleEmpty"));
-      manualSessionTitles.add(id);
       const result = await api.renameSession(id, nextTitle);
       if (!result.ok) throw new Error(i18n.t("errors.sessionNotFound"));
       set((state) => ({
-        sessionMeta: {
-          ...state.sessionMeta,
-          [id]: { ...(state.sessionMeta[id] || {}), manualTitle: true },
-        },
         sessions: state.sessions.map((session) =>
           session.id === id ? { ...session, title: nextTitle } : session,
         ),
@@ -577,10 +592,7 @@ export function createProjectSlice({
       await api.deleteSession(id);
       void api.pluginViewClose("pi.browser", "browser", { sessionId: id })
         .catch((error) => get().showToast(String(error), { variant: "error" }));
-      clearLocalSessionState(
-        { get, set, runtime, manualSessionTitles, withoutRecordKey },
-        id,
-      );
+      clearLocalSessionState({ get, set, runtime, withoutRecordKey }, id);
       persistCurrentSidebar(get);
       await get().refreshSessions();
     },

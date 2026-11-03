@@ -1,3 +1,4 @@
+import { isRemoteSession, sessionAllows } from "../lib/remote-session-safety";
 import { inheritedSessionModelBinding } from "../lib/session-model";
 import {
    useEffect,
@@ -18,7 +19,6 @@ import {
   imageGenerationBindings,
   isImageGenerationModel,
   normalizeLargePasteThreshold,
-  stripInlineComposerFileReferenceTokens,
 } from "@pi-desktop/shared";
 import { useAppStore } from "../stores/app-store";
 import { latestTurnContextInspector } from "../lib/latest-turn-context";
@@ -26,13 +26,14 @@ import { isActivePlanExecution } from "../lib/plan-mode-state";
 import { headAsk, queuedAskCount } from "../lib/pending-asks";
 import type { QueuedPrompt } from "../lib/queued-prompts";
 import { composerModelDisplayName, sameComposerModelId } from "../lib/composer-models";
+import { sessionFastModeActive } from "../lib/fast-mode-command";
 import {
   resolveComposerThinkingProvider,
 } from "../lib/session-thinking";
 import { ComposerAutocomplete } from "./ComposerAutocomplete";
 import { AskToolCard } from "./AskToolCard";
 import { PlanApprovalBar } from "./PlanApprovalBar";
-import { TodoDock } from "./TodoDock";
+import { TaskDock } from "./TaskDock";
 import {
   COMPOSER_MAX_VISIBLE_ROWS,
   COMPOSER_MIN_HEIGHT_PX,
@@ -50,7 +51,9 @@ import { useComposerCompletions } from "../features/chat/composer/hooks/useCompo
 import { useComposerDraft } from "../features/chat/composer/hooks/useComposerDraft";
 import { useComposerInputHistory } from "../features/chat/composer/hooks/useComposerInputHistory";
 import { usePluginComposerBridge } from "../features/chat/composer/hooks/usePluginComposerBridge";
+import { useComposerSuggestion } from "../features/chat/composer/hooks/useComposerSuggestion";
 import { useComposerSubmit } from "../features/chat/composer/hooks/useComposerSubmit";
+import { useComposerTransforms } from "../features/chat/composer/hooks/useComposerTransforms";
 import { ComposerInput } from "../features/chat/composer/ComposerInput";
 import { useComposerModelMenu } from "../features/chat/composer/hooks/useComposerModelMenu";
 import { useVoiceInput } from "../features/voice/useVoiceInput";
@@ -90,6 +93,7 @@ export function Composer({
     s.activeSessionId ? s.planningStates[s.activeSessionId] : undefined,
   );
   const settings = useAppStore((s) => s.settings);
+  const plugins = useAppStore((s) => s.plugins);
   const imageGenerationCandidates = useMemo(
     () => imageGenerationBindings(settings?.imageGenerationModels, settings?.imageGeneration),
     [settings?.imageGenerationModels, settings?.imageGeneration],
@@ -99,11 +103,24 @@ export function Composer({
   const activeSessionSummary = sessions.find(
     (session) => session.id === activeSessionId,
   );
+  const capabilitySession = activeSessionSummary ?? (activeSessionId?.startsWith("remote:") ? { id: activeSessionId } : undefined);
+  const composerTransforms = useMemo(
+    () =>
+      (sessionAllows(capabilitySession, "canUseLocalTools") ? plugins : [])
+        .filter((plugin) => plugin.enabled && plugin.status === "ready")
+        .flatMap((plugin) => plugin.composerTransforms ?? []),
+    [plugins, activeSessionSummary, activeSessionId],
+  );
+  const remoteSession = isRemoteSession(capabilitySession);
+  const localToolsAllowed = sessionAllows(capabilitySession, "canUseLocalTools");
+  const attachmentsAllowed = sessionAllows(capabilitySession, "canAttach");
+  const promptAllowed = sessionAllows(capabilitySession, "canPrompt");
   const nativeSession = activeSessionSummary?.source === "pi-native";
   const nativeReadOnly =
     nativeSession && activeSessionSummary.capabilities?.canPrompt !== true;
-  const nativeInputBlocked = nativeReadOnly || (nativeSession && isRunning);
-  const workspacePath = useAppStore((s) => s.workspace?.path ?? "");
+  const nativeInputBlocked = nativeReadOnly || !promptAllowed || ((nativeSession || remoteSession) && isRunning);
+  const localWorkspacePath = useAppStore((s) => s.workspace?.path ?? "");
+  const workspacePath = remoteSession ? "" : localWorkspacePath;
   const providers = useAppStore((s) => s.providers);
   const providerModels = useAppStore((s) => s.providerModels);
   const liveMessages = useAppStore((s) => s.messages);
@@ -140,14 +157,15 @@ export function Composer({
       : EMPTY_QUEUED_PROMPTS,
   );
 
+  const [modeOpen, setModeOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
-  const enhancementInvalidateRef = useRef<() => void>(() => {});
+  const composerTransformInvalidateRef = useRef<() => void>(() => {});
   const composerShellRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
   const publishedDockHeightRef = useRef(-1);
 
-  const invalidatePromptEnhancement = () => {
-    enhancementInvalidateRef.current();
+  const invalidateComposerTransforms = () => {
+    composerTransformInvalidateRef.current();
   };
 
   const draft = useComposerDraft({
@@ -159,7 +177,7 @@ export function Composer({
     clearComposerPrefill,
     prefill,
     t,
-    invalidatePromptEnhancement,
+    invalidateComposerTransforms,
     inputBlocked: planCheckpoint?.status === "pending" || nativeInputBlocked,
   });
   const {
@@ -202,6 +220,7 @@ export function Composer({
   );
   const attachments = useComposerAttachments({
     inputBlocked: approvalPending || nativeSession,
+    attachmentsAllowed,
     activeSessionId,
     draftKey,
     largePasteThreshold,
@@ -232,12 +251,8 @@ export function Composer({
   const executionActive = isActivePlanExecution(planCheckpoint);
   const runActive = isRunning || executionActive;
   const inputBlocked = approvalPending || pasting || nativeInputBlocked;
-  const controlsBlocked = approvalPending || nativeSession;
+  const controlsBlocked = approvalPending || nativeSession || !sessionAllows(capabilitySession, "canConfigureModel");
   const sendBlocked = approvalPending || pasting || nativeInputBlocked;
-  const enhancementDraft = stripInlineComposerFileReferenceTokens(
-    value,
-    activeFileReferences,
-  );
   // Edit returns one queued row to the composer. The row is removed and its
   // captured draft becomes the input, so the input must be empty first: the
   // live read is the only current source (the draft cache is not per keystroke).
@@ -333,7 +348,7 @@ export function Composer({
   const composerPermissionMode: Exclude<PermissionMode, "inherit"> =
     mode === "goal" ? "auto" : effectivePermissionMode;
   const recentModels = useAppStore((s) => s.recentModels);
-  const selectedModel = inheritedSessionModelBinding({
+  const selectedModel = remoteSession ? { providerId: activeSession?.providerId, modelId: activeSession?.modelId } : inheritedSessionModelBinding({
     draft: activeSession ?? draftConfiguration,
     settings,
     providers,
@@ -395,7 +410,7 @@ export function Composer({
     thinkingLevel,
     controlsBlocked,
   });
-  const modelReady = nativeSession
+  const modelReady = remoteSession ? promptAllowed : nativeSession
     ? activeSessionSummary.capabilities?.canPrompt === true
     : !!provider &&
       provider.enabled &&
@@ -407,23 +422,40 @@ export function Composer({
 
   useEffect(() => {
     if (!controlsBlocked) return;
+    setModeOpen(false);
     setPermissionOpen(false);
   }, [controlsBlocked]);
 
-  const submitController = useComposerSubmit({
+  const composerTransformController = useComposerTransforms({
+    transforms: composerTransforms,
     value,
     draftKey,
     activeSessionId,
     providerId: provider?.id,
     modelId,
-    thinkingLevel,
-    modelReady,
     sendBlocked,
+    activeFileReferences,
+    draft: { ref, setValue, setCursor },
+    showToast,
+  });
+  composerTransformInvalidateRef.current = composerTransformController.invalidate;
+
+  const submitController = useComposerSubmit({
+    value,
+    draftKey,
+    activeSessionId,
+    modelReady,
+    invalidateComposerTransforms,
+    sendBlocked,
+    localCommandsAllowed: localToolsAllowed,
+    steeringAllowed: sessionAllows(capabilitySession, "canSteer"),
     pasting,
     activeFileReferences,
     t,
     sendPrompt,
     steerPrompt,
+    sendQueuedNow,
+    queuedPrompts,
     showToast,
     recordHistory: inputHistory.record,
     draft: {
@@ -432,20 +464,9 @@ export function Composer({
       draftRevision,
       clearDraftForKey,
       restoreDraftForKey,
-      setValue,
-      setCursor,
     },
   });
-  enhancementInvalidateRef.current = submitController.invalidatePromptEnhancement;
-  const {
-    enhancingPrompt,
-    enhancementUndoText,
-    enhancementError,
-    clearEnhancementError,
-    enhancePrompt,
-    undoPromptEnhancement,
-    submit,
-  } = submitController;
+  const { submit } = submitController;
 
   // Both submit entry points (the composer's Enter and the toolbar's Send)
   // leave history browsing before the draft is cleared.
@@ -457,7 +478,7 @@ export function Composer({
   // Keep the legacy listener for already-started or IPC-owned Dictation, but
   // the Composer no longer exposes a Dictation control or overlay.
   useVoiceInput({
-    enabled: import.meta.env.DEV && !!settings?.voice?.enabled,
+    enabled: localToolsAllowed && import.meta.env.DEV && !!settings?.voice?.enabled,
     onTranscriptionComplete: (text) => {
       const current = readLiveDraft();
       if (!current.trim()) {
@@ -472,12 +493,12 @@ export function Composer({
     value,
     cursor,
     composing,
-    enabled: !inputBlocked,
+    enabled: !inputBlocked && localToolsAllowed,
     referenceSessionId,
     fileReferencesRef,
     applyEditorDraft,
     handleInput,
-    invalidatePromptEnhancement,
+    invalidateComposerTransforms,
   });
 
   // Voice dictation: the state machine lives in features/voice; the composer
@@ -511,7 +532,10 @@ export function Composer({
 
 
   // Plugin draft and attachment actions reach this composer while it takes input.
-  usePluginComposerBridge({ ...draft, inputBlocked });
+  usePluginComposerBridge({ ...draft, inputBlocked, enabled: localToolsAllowed });
+  // A plugin may have offered one line for this empty draft; it shows in the
+  // placeholder layer and `Tab` takes it (ADR 0333).
+  const suggestion = useComposerSuggestion();
 
   // Keep the transcript's bottom reserve in sync with the composer's real
   // height (it grows with multi-line input) so the last message sits just
@@ -544,7 +568,10 @@ export function Composer({
       data-composer-dock={variant}
     >
       <div className="composer-stack">
-        {activeSessionId ? <TodoDock sessionId={activeSessionId} /> : null}
+        {/* One container for todo and background tasks: the tabs live in the
+            header, so the gate now covers both the way it already covered the
+            todo dock. */}
+        {activeSessionId && localToolsAllowed ? <TaskDock sessionId={activeSessionId} /> : null}
         {planCheckpoint?.status === "pending" ? (
           <PlanApprovalBar proposal={planCheckpoint} />
         ) : null}
@@ -564,8 +591,6 @@ export function Composer({
           editQueuedPrompt={handleEditQueuedPrompt}
           sendQueuedNow={sendQueuedNow}
           approvalPending={approvalPending}
-          enhancementError={enhancementError}
-          clearEnhancementError={clearEnhancementError}
           droppedDirectories={droppedDirectories}
           openDroppedFolderAsProject={openDroppedFolderAsProject}
           insertDroppedDirectoryPaths={insertDroppedDirectoryPaths}
@@ -604,13 +629,14 @@ export function Composer({
             enterToSend={enterToSend}
             runActive={runActive}
             composerAc={completions.ac}
+            suggestion={suggestion}
             onPaste={pasteClipboardFiles}
             onAcceptCompletion={completions.acceptCompletion}
             onSubmit={(steering) => void submitFromComposer(steering)}
             onInsertNewline={insertNewlineInEditor}
-            onInput={(source, caret) => {
+            onInput={(source, caret, composing) => {
               inputHistory.exitBrowsing();
-              completions.handleInput(source, caret);
+              completions.handleInput(source, caret, composing);
             }}
             onHistoryNavigate={inputHistory.navigate}
             onCompositionStart={() => setComposing(true)}
@@ -643,9 +669,14 @@ export function Composer({
             modelId={modelId}
             thinkingLevel={thinkingLevel}
             composerPermissionMode={composerPermissionMode}
+            modeOpen={modeOpen}
+            setModeOpen={setModeOpen}
             permissionOpen={permissionOpen}
             setPermissionOpen={setPermissionOpen}
             controlsBlocked={controlsBlocked}
+            localToolsAllowed={localToolsAllowed}
+            attachmentsAllowed={attachmentsAllowed}
+            stopAllowed={sessionAllows(capabilitySession, "canStop")}
             pasting={pasting}
             pickAndAttach={pickAndAttach}
             configureActiveSession={configureActiveSession}
@@ -653,15 +684,16 @@ export function Composer({
             modelMenu={modelMenu}
             modelLabel={modelLabel}
             thinkingLabel={thinkingLabel}
+            modelFastMode={sessionFastModeActive(provider, modelId, activeSession ?? draftConfiguration)}
             contextUsage={composerContextUsage ?? null}
-            enhancementDraft={enhancementDraft}
             value={value}
             modelReady={modelReady}
             sendBlocked={sendBlocked}
-            enhancingPrompt={enhancingPrompt}
-            enhancementUndoText={enhancementUndoText}
-            enhancePrompt={enhancePrompt}
-            undoPromptEnhancement={undoPromptEnhancement}
+            composerTransforms={composerTransforms}
+            activeTransformKey={composerTransformController.activeTransformKey}
+            undoTransform={composerTransformController.undo?.transform ?? null}
+            runComposerTransform={composerTransformController.run}
+            undoComposerTransform={composerTransformController.undoLast}
             runActive={runActive}
             hasDraftContent={hasDraftContent}
             abort={abort}

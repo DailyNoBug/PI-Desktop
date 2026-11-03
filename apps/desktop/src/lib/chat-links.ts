@@ -39,7 +39,7 @@ const KNOWN_EXTS = new Set([
 ]);
 
 const FILE_TOKEN_RE =
-  /^(?:(?:[A-Za-z]:[\\/]|~[\\/]|\\\\|\/\/|[\\/])|(?:\.{1,2}[\\/])?)[\p{L}\p{N}_@+. -]+(?:[\\/][\p{L}\p{N}_@+. -]+)*(?::\d+(?::\d+)?)?$/u;
+  /^(?:(?:[A-Za-z]:[\\/]|~[\\/]|\\\\|\/\/|[\\/])|(?:\.{1,2}[\\/])?)[\p{L}\p{N}_@+. -]+(?:[\\/][\p{L}\p{N}_@+. -]+)*(?::\d+(?::\d+|-\d+)?|#[lL]\d+(?:-[lL]?\d+)?)?$/u;
 
 const AT_QUOTED_RE = /^@"([^"\n]+)"$/;
 const AT_UNQUOTED_RE = /^@(\/?[^\s]+)$/;
@@ -53,22 +53,23 @@ export function isHtmlFilePath(path: string): boolean {
 }
 
 function stripLineRef(path: string): string {
-  return path.replace(/:\d+(?::\d+)?$/, "");
+  return path.replace(/(?::\d+(?::\d+|-\d+)?|#[lL]\d+(?:-[lL]?\d+)?)$/u, "");
 }
 
-/** Trailing `:line[:col]` on a file token, if any. */
+/** Trailing line, column, range, or GitHub line anchor on a file token. */
 export function parseFileRefPosition(
   text: string,
 ): { line: number; column?: number } | null {
   const token = text.trim().replace(/[.,!?;:，。！？；：]+$/u, "");
-  const match = token.match(/:(\d+)(?::(\d+))?$/);
+  const match = token.match(/(?::(\d+)(?::(\d+)|-(\d+))?|#L(\d+)(?:-L?(\d+))?)$/iu);
   if (!match) return null;
-  const line = Number(match[1]);
+  const line = Number(match[1] ?? match[4]);
   if (!Number.isFinite(line) || line < 1) return null;
-  const column = match[2] !== undefined ? Number(match[2]) : undefined;
-  return column !== undefined && Number.isFinite(column) && column >= 1
-    ? { line, column }
-    : { line };
+  const column = match[2] ? Number(match[2]) : undefined;
+  if (column !== undefined && (!Number.isFinite(column) || column < 1)) return null;
+  const rangeEnd = match[3] ?? match[5];
+  if (rangeEnd !== undefined && (!Number.isFinite(Number(rangeEnd)) || Number(rangeEnd) < line)) return null;
+  return { line, ...(column !== undefined ? { column } : {}) };
 }
 
 function leafName(path: string): string {
@@ -93,6 +94,38 @@ function isLikelyFilePath(path: string): boolean {
 
 function isAbsoluteFilePath(path: string): boolean {
   return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+}
+
+function encodeWindowsPathForHref(path: string): string {
+  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")
+    ? encodeURIComponent(path)
+    : path;
+}
+
+function normalizeMarkdownFilePath(url: string): string {
+  // Convert file URLs to references before sanitization, never native links.
+  // Main still verifies the resulting path against its allowed roots.
+  if (/^file:/i.test(url)) {
+    try {
+      const file = new URL(url);
+      if (file.hostname && file.hostname !== "localhost") return url;
+      if (file.search || file.hash) return url;
+      const pathname = decodeURIComponent(file.pathname);
+      const path = /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+      const filePath = parseFileRefPosition(path) ? stripLineRef(path) : path;
+      if (!isAbsoluteFilePath(filePath) || !isLikelyFilePath(filePath)) return url;
+      return encodeURIComponent(path);
+    } catch {
+      return url;
+    }
+  }
+  // Keep a drive letter from being interpreted as a URI scheme by the
+  // renderer and sanitizer; the anchor decodes this back before file lookup.
+  const decoded = safeDecodeUri(url);
+  if (parseFileRef(decoded) && parseFileRefPosition(decoded)) return encodeURIComponent(decoded);
+  if (!/^[A-Za-z]:[\\/]/.test(decoded)) return url;
+  if (!parseFileRef(decoded)) return url;
+  return encodeWindowsPathForHref(decoded);
 }
 
 /**
@@ -211,6 +244,12 @@ export type ChatPreviewTarget =
   | { kind: "url"; url: string }
   | { kind: "session"; sessionId: string };
 
+function fileTargetHref(target: Extract<ChatPreviewTarget, { kind: "file" }>): string {
+  const position = target.line === undefined ? ""
+    : ":" + target.line + (target.column === undefined ? "" : ":" + target.column);
+  return position ? encodeURIComponent(target.path + position) : encodeWindowsPathForHref(target.path);
+}
+
 /** Resolve one raw chat token into a previewable target, or null. */
 export function resolvePreviewTarget(
   text: string,
@@ -239,6 +278,28 @@ export function resolvePreviewTarget(
   if (isAbsoluteFilePath(file)) return { kind: "file", path: file, ...(position ?? {}) };
   const rel = toWorkspaceRel(file, root, baseDir);
   return rel ? { kind: "file", path: rel, ...(position ?? {}) } : null;
+}
+
+/** Route a plain click on a local Markdown link through the existing file opener. */
+export function handleMarkdownFileLinkClick(
+  event: { preventDefault(): void },
+  href: string,
+  root: string | null | undefined,
+  baseDir: string | undefined,
+  openFileRef: (path: string, baseDir?: string, mimeType?: string,
+    position?: { line?: number; column?: number }) => void,
+): boolean {
+  const decoded = safeDecodeUri(href);
+  const target = resolvePreviewTarget(decoded, root, baseDir);
+  const ref = target?.kind === "file" ? target.path : toWorkspaceRel(decoded, root, baseDir);
+  if (!ref) return false;
+  event.preventDefault();
+  if (target?.kind === "file" && target.line !== undefined) {
+    openFileRef(ref, baseDir, undefined, { line: target.line, column: target.column });
+  } else {
+    openFileRef(ref, baseDir);
+  }
+  return true;
 }
 
 /** Tool-call args → preview target (Read/Write/Edit paths, fetch URLs). */
@@ -381,6 +442,12 @@ const SKIP_MDAST = new Set([
   "html",
 ]);
 
+function normalizeMarkdownLinkDestination(node: MdastNode): void {
+  if ((node.type === "link" || node.type === "definition") && typeof node.url === "string") {
+    node.url = normalizeMarkdownFilePath(node.url);
+  }
+}
+
 /**
  * Turn bare file/URL tokens in markdown phrasing into link nodes so the
  * existing markdown Anchor handler can preview them. Skips fenced code,
@@ -411,6 +478,7 @@ export function linkifyMdastTree(
   function walk(node: MdastNode | null | undefined, skip: boolean) {
     if (!node || typeof node.type !== "string") return;
     inputNodeCount += 1;
+    normalizeMarkdownLinkDestination(node);
     if ((node.type === "text" || node.type === "inlineCode") && typeof node.value === "string") {
       sourceLength += node.value.length;
     }
@@ -449,9 +517,7 @@ export function linkifyMdastTree(
               ? target.url
               : target.kind === "session"
                 ? formatSessionLink(target.sessionId)
-                : /^[A-Za-z]:[\\/]/.test(target.path) || target.path.startsWith("\\\\")
-                  ? encodeURIComponent(target.path)
-                  : target.path;
+                : fileTargetHref(target);
           next.push({
             type: "link",
             url,
@@ -476,9 +542,7 @@ export function linkifyMdastTree(
               ? segment.target.url
               : segment.target.kind === "session"
                 ? formatSessionLink(segment.target.sessionId)
-                : (/^[A-Za-z]:[\\/]/.test(segment.target.path) || segment.target.path.startsWith("\\\\"))
-                  ? encodeURIComponent(segment.target.path)
-                  : segment.target.path;
+                : fileTargetHref(segment.target);
           next.push({
             type: "link",
             url,

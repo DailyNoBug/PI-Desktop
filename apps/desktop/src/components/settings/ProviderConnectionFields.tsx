@@ -10,7 +10,8 @@
 import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { CatalogApiStyle } from "@pi-desktop/shared";
-import { Field, Input } from "../ui";
+import { Field, Input, TooltipButton } from "../ui";
+import { IconTrash } from "../icons";
 import { SettingsMenuSelect } from "./SettingsMenuSelect";
 import { ServiceMonogram } from "./ServiceMonogram";
 import { endpointLabel } from "./service-catalog";
@@ -22,13 +23,19 @@ export type ProviderConnectionFieldsProps = {
   editing: boolean;
   saving: boolean;
   serviceLabel: string;
+  /** Optional hint for a key that belongs to a Host-owned plugin row. */
+  apiKeyHint?: string;
   /** Endpoint the named preset talks to; empty on a custom endpoint. */
   serviceBaseUrl: string;
+  /** Hides service switching when the manifest owns this provider row. */
+  lockedService?: boolean;
   onChangeService: () => void;
   apiKeyRef: RefObject<HTMLInputElement | null>;
   nameRef: RefObject<HTMLInputElement | null>;
   apiKey: string;
   onApiKeyChange: (value: string) => void;
+  hasSavedApiKey?: boolean;
+  onClearApiKey?: () => void;
   name: string;
   onNameChange: (value: string) => void;
   baseUrl: string;
@@ -49,12 +56,16 @@ export function ProviderConnectionFields({
   editing,
   saving,
   serviceLabel,
+  apiKeyHint,
   serviceBaseUrl,
+  lockedService = false,
   onChangeService,
   apiKeyRef,
   nameRef,
   apiKey,
   onApiKeyChange,
+  hasSavedApiKey = false,
+  onClearApiKey,
   name,
   onNameChange,
   baseUrl,
@@ -68,7 +79,9 @@ export function ProviderConnectionFields({
   requiresApiStyleChoice,
 }: ProviderConnectionFieldsProps) {
   const { t } = useTranslation();
-  const keyHint = editing ? t("settings.apiKeyKeepHint") : undefined;
+  const keyHint = custom && !hasSavedApiKey
+    ? t("settings.apiKeyOptionalHint")
+    : editing ? t("settings.apiKeyKeepHint") : undefined;
 
   return (
     <div className={named ? "provider-setup-fields is-named" : "provider-setup-fields is-custom"}>
@@ -90,20 +103,22 @@ export function ProviderConnectionFields({
                 </span>
               ) : null}
             </span>
-            <button
-              type="button"
-              className="provider-service-chip-change"
-              disabled={saving}
-              onClick={onChangeService}
-            >
-              {t("settings.changeService")}
-            </button>
+            {!lockedService ? (
+              <button
+                type="button"
+                className="provider-service-chip-change"
+                disabled={saving}
+                onClick={onChangeService}
+              >
+                {t("settings.changeService")}
+              </button>
+            ) : null}
           </div>
         </div>
 
         {named ? (
           <div className="provider-setup-key">
-            <Field label={t("settings.apiKey")} hint={keyHint}>
+            <Field label={t("settings.apiKey")} hint={apiKeyHint ?? keyHint}>
               <Input
                 ref={apiKeyRef}
                 type="password"
@@ -157,17 +172,34 @@ export function ProviderConnectionFields({
             </div>
           </div>
           <div className="provider-setup-field-row provider-setup-custom-auth-row">
-            <Field label={t("settings.apiKey")} hint={keyHint}>
-              <Input
-                ref={apiKeyRef}
-                type="password"
-                value={apiKey}
-                placeholder="sk-…"
-                className="font-mono text-sm-plus"
-                autoComplete="off"
-                onChange={(event) => onApiKeyChange(event.target.value)}
-              />
-            </Field>
+            <div className="provider-setup-key">
+              <Field label={t("settings.apiKey")} hint={keyHint}>
+                <div className="provider-setup-key-control">
+                  <Input
+                    ref={apiKeyRef}
+                    type="password"
+                    value={apiKey}
+                    placeholder="sk-…"
+                    className="font-mono text-sm-plus"
+                    autoComplete="off"
+                    disabled={saving}
+                    onChange={(event) => onApiKeyChange(event.target.value)}
+                  />
+                  {hasSavedApiKey && onClearApiKey ? (
+                    <TooltipButton
+                      type="button"
+                      className="icon-btn icon-btn-square"
+                      tooltip={t("settings.clearApiKey")}
+                      ariaLabel={t("settings.clearApiKey")}
+                      disabled={saving}
+                      onClick={onClearApiKey}
+                    >
+                      <IconTrash size={14} aria-hidden />
+                    </TooltipButton>
+                  ) : null}
+                </div>
+              </Field>
+            </div>
             <Field
               label={t("settings.apiStyle")}
               hint={apiStyleNote ?? (accountOnlyApiStyle ? t(requiresApiStyleChoice

@@ -41,10 +41,10 @@ test("composer converts oversized text paste and materializes clipboard files", 
     composer,
     /createFileReference\(file\.path, file\.name, sessionId, \{[\s\S]*kind: file\.kind/,
   );
-  assert.match(composer, /serializeComposerFileReferences\(outgoing\.text, outgoing\.references\)/);
+  assert.match(composer, /serializeComposerFileReferences\(rawText, activeFileReferences\)/);
   assert.match(
     composer,
-    /const serializedContent = serializeComposerFileReferences\(outgoing\.text, outgoing\.references\)/,
+    /const serializedContent = serializeComposerFileReferences\(rawText, activeFileReferences\)/,
   );
   // The draft is a contenteditable rich field: sentinels render as atomic
   // chips and every caret write goes through the DOM-range helper.
@@ -142,7 +142,7 @@ test("picker attachments materialize a session before importing paths", () => {
 test("composer opens one unified file picker directly from the plus button", () => {
   const leftStart = composer.indexOf('<div className="composer-left">');
   const plusIndex = composer.indexOf('tooltip={t("chat.addFiles")}', leftStart);
-  const modeIndex = composer.indexOf("composer-mode-chip", leftStart);
+  const modeIndex = composer.indexOf("<ComposerModePicker", leftStart);
   assert.ok(leftStart >= 0 && plusIndex > leftStart && modeIndex > leftStart);
   assert.ok(plusIndex < modeIndex, "upload must precede the agent mode chip");
   assert.match(composer, /void pickAndAttach\(\);/);
@@ -268,7 +268,7 @@ test("file picker exposes files only", () => {
 test("large image attachments avoid whole-file startup reads", () => {
   assert.match(attachments, /async function hashFile\(path: string\)/);
   assert.match(attachments, /createReadStream\(path\)/);
-  assert.match(attachments, /const inline = supportsVision && size <= MAX_INLINE_IMAGE_BYTES/);
+  assert.match(attachments, /const read = supportsVision && size <= MAX_INLINE_IMAGE_BYTES/);
   assert.match(attachments, /await copyFile\(source, target, fsConstants\.COPYFILE_EXCL\)/);
   assert.doesNotMatch(attachments, /const bytes = readFileSync\(source\.absolute\)/);
   assert.match(history, /const size = \(await stat\(canonical\)\)\.size/);
