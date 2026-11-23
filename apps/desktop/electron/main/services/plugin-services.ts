@@ -5,6 +5,7 @@ import { createPluginWorkspaceReader } from "../remote/plugin-workspace-files";
 import {
   IPC,
   ErrorCodes,
+  FILE_LINES_ADD_CHANNEL,
   type ActivationScope,
   type AppSettings,
   type BrowserState,
@@ -12,6 +13,8 @@ import {
   type ModelBinding,
   type ShortcutPlatform,
   type ThinkingLevel,
+  type ProjectRecord,
+  normalizeProjectPath,
   type UiMessage,
 } from "@pi-desktop/shared";
 import type {
@@ -19,6 +22,7 @@ import type {
   PluginNativeNotificationInput,
   PluginNativeNotificationResult,
   PluginNotificationPermission,
+  PluginSessionUserMessagePersisted,
 } from "@pi-desktop/plugin-sdk";
 import {
   asPluginThinkingLevel,
@@ -60,9 +64,13 @@ import type { TurnEndedPayload } from "../runtime/session-coordination";
 import type { HostProcess } from "../host-process";
 import { createPluginSessionContext } from "./plugin-session-context";
 import { createPluginProjectLister } from "./plugin-projects";
+import { createPluginSessionProjectResolver } from "./plugin-session-project";
 import { createComposerSuggestionRelay } from "./composer-suggestion";
+import { createPluginModelContext } from "../runtime/plugin-model-context";
 import type { Logger } from "../logger";
 import type { PluginAppearance } from "../../shared/plugin-panel-chrome";
+
+import { addFileLinesFromView } from "../file-line-reference";
 
 export type PluginServicesDependencies = {
   dataDir: string;
@@ -86,6 +94,7 @@ export type PluginServicesDependencies = {
   vendorOAuth: VendorOAuth;
   /** The live turn of one session, read from the host's own turn map. */
   getActiveTurn: (sessionId: string) => string | null;
+  isTurnDispatchable: (sessionId: string, turnId: string) => boolean;
   /**
    * Whether a plugin's contributions apply to the project the window shows.
    * Scope records live in Main, so this is the one lookup that decides.
@@ -123,6 +132,7 @@ export function createPluginServices({
   resolveAgentRuntimeLaunch,
   vendorOAuth,
   getActiveTurn,
+  isTurnDispatchable,
   isPluginActiveInProject,
   pluginActiveInProject,
 }: PluginServicesDependencies) {
@@ -131,8 +141,13 @@ export function createPluginServices({
     (error as { errorCode?: string } | null | undefined)?.errorCode ===
     ErrorCodes.HOST_UNAVAILABLE;
   const pluginPanels = new PluginPanelHost(
-    async (pluginId, channel, payload, context) =>
-      plugins.invokePanelBridge(pluginId, channel, payload, context),
+    async (pluginId, channel, payload, context) => {
+      if (channel !== FILE_LINES_ADD_CHANNEL) return plugins.invokePanelBridge(pluginId, channel, payload, context);
+      return addFileLinesFromView(pluginId, context?.senderId, payload, {
+        plugins, pluginViews, pluginSession, pluginActiveInProject, getHost, getWorkspacePath,
+        publish: (selection) => sendToRenderer(IPC.event.composerFileLines, selection),
+      });
+    },
     // A panel reaching for an undeclared host is the shape an exfiltration
     // attempt takes, so it is logged like a denied API call rather than dropped
     // silently in the network layer.
@@ -160,19 +175,28 @@ export function createPluginServices({
       throw Object.assign(new Error("host unavailable"), { code: "UNSUPPORTED" });
     }
     const result = await getHost()!.call(method, { ...input, pluginId });
+    const body = (result ?? {}) as Record<string, unknown>;
     const changed =
-      (method === "plugin.session.import" &&
-        (result as { imported?: unknown })?.imported === true) ||
-      (method === "plugin.session.importBatch" &&
-        Number((result as { imported?: unknown })?.imported ?? 0) > 0) ||
-      (method === "plugin.session.rename" &&
-        (result as { updated?: unknown })?.updated === true) ||
-      (method === "plugin.session.setAutoTitle" &&
-        (result as { updated?: unknown })?.updated === true) ||
-      (method === "plugin.session.delete" &&
-        (result as { deleted?: unknown })?.deleted === true);
+      (method === "plugin.session.import" && body.imported === true) ||
+      (method === "plugin.session.importBatch" && Number(body.imported ?? 0) > 0) ||
+      (method === "plugin.session.rename" && body.updated === true) ||
+      (method === "plugin.session.setAutoTitle" && body.updated === true) ||
+      (method === "plugin.session.delete" && body.deleted === true) ||
+      // Message-level writes (ADR 0339) also change what the user sees in the
+      // open transcript, so they announce themselves like the session writes.
+      (method === "plugin.session.appendMessage" && typeof body.messageId === "string") ||
+      (method === "plugin.session.replaceMessages" && typeof body.messageCount === "number") ||
+      (method === "plugin.session.deleteMessage" && typeof body.deletedCount === "number") ||
+      (method === "plugin.session.truncateFrom" && typeof body.keptCount === "number");
     if (changed) {
-      sendToRenderer(IPC.event.sessionsChanged, { reason: method, pluginId });
+      // `sessionId` scopes the refresh to the session that actually changed, so
+      // the shell can repaint an open transcript without re-selecting it.
+      const sessionId = typeof input.sessionId === "string" ? input.sessionId : undefined;
+      sendToRenderer(IPC.event.sessionsChanged, {
+        reason: method,
+        pluginId,
+        ...(sessionId ? { sessionId } : {}),
+      });
     }
     return result;
   };
@@ -396,6 +420,14 @@ export function createPluginServices({
         callPluginSessionHost("plugin.session.importBatch", pluginId, input),
       rename: (pluginId, input) => callPluginSessionHost("plugin.session.rename", pluginId, input),
       delete: (pluginId, input) => callPluginSessionHost("plugin.session.delete", pluginId, input),
+      appendMessage: (pluginId, input) =>
+        callPluginSessionHost("plugin.session.appendMessage", pluginId, input),
+      replaceMessages: (pluginId, input) =>
+        callPluginSessionHost("plugin.session.replaceMessages", pluginId, input),
+      deleteMessage: (pluginId, input) =>
+        callPluginSessionHost("plugin.session.deleteMessage", pluginId, input),
+      truncateFrom: (pluginId, input) =>
+        callPluginSessionHost("plugin.session.truncateFrom", pluginId, input),
     },
     project: {
       create: (pluginId, input) => callPluginProjectHost(pluginId, input),
@@ -531,15 +563,11 @@ export function createPluginServices({
     log: (level, message, data) => logger.app("plugin", level, message, { data }),
     onAuthorized: async (serverId, record): Promise<McpServerStatus> => {
       const existed = userMcp.listRecords().some((item) => item.id === serverId);
-      if (record && !existed) {
-        userMcp.setRecords([...userMcp.listRecords(), record]);
-      }
       userMcp.invalidate(serverId);
-      const status: McpServerStatus = await userMcp.test(serverId);
-      if (!existed) {
-        userMcp.invalidate(serverId);
-        userMcp.setRecords(userMcp.listRecords().filter((item) => item.id !== serverId));
-      }
+      // A server no workspace lists yet is tested as saved, without being
+      // adopted into a list, and its probe connection is dropped afterwards.
+      const status: McpServerStatus = await userMcp.test(serverId, null, existed ? undefined : record);
+      if (!existed) userMcp.invalidate(serverId);
       sendToRenderer(IPC.event.pluginChanged, { reason: "mcp", pluginId: serverId });
       return status;
     },
@@ -568,6 +596,23 @@ export function createPluginServices({
    * can hold sessions on different projects, so this cannot be a single value.
    */
   const sessionProjects = new Map<string, string | null>();
+  const modelContext = createPluginModelContext({
+    isDispatchable: isTurnDispatchable,
+    projectFor: (sessionId) => sessionProjects.get(sessionId),
+    inProject: pluginActiveInProject,
+    providers: (inScope) => plugins.modelContextProviders(inScope),
+    projectId: async (projectPath) => {
+      try {
+        const result = await getHost()?.call<{ projects: ProjectRecord[] }>("projects.list", undefined, 100);
+        const path = normalizeProjectPath(projectPath);
+        const project = result?.projects.find((entry) => normalizeProjectPath(entry.path) === path);
+        return project ? String(project.id) : undefined;
+      } catch {
+        // Project identity is advisory; the independent scope gate still applies.
+        return undefined;
+      }
+    },
+  });
   const emitBrowserState = (state: BrowserState) => {
     sendToRenderer(IPC.event.browserState, state);
   };
@@ -626,7 +671,20 @@ export function createPluginServices({
       });
     }
   };
+  const announceObservedSession = (
+    event: "session:turnStarted" | "session:userMessagePersisted",
+    payload: { sessionId: string; turnId: string; messageId?: string },
+  ): void => {
+    // A missing mapping is not an invitation to use the window's project.
+    if (!sessionProjects.has(payload.sessionId)) return;
+    const projectPath = sessionProjects.get(payload.sessionId);
+    plugins.broadcastEvent(event, [payload], (pluginId) => pluginActiveInProject(pluginId, projectPath));
+  };
+  const observePersistedUserMessage = ({ sessionId, turnId, messageId }: PluginSessionUserMessagePersisted): void => {
+    announceObservedSession("session:userMessagePersisted", { sessionId, turnId, messageId });
+  };
   const announceTurnEnded = (payload: TurnEndedPayload): void => {
+    modelContext.end(payload.sessionId, payload.turnId);
     broadcastSessionEvent("session:turnEnded", payload);
     // The snapshot also carries the running turn, so a surface that subscribes
     // to `session:activated` learns the selected session went idle from the
@@ -682,7 +740,7 @@ export function createPluginServices({
       const host = getHost();
       if (!host) throw new Error("Browser preview host is unavailable.");
       const res = await host.call<{ session: { projectPath?: string; worktree?: unknown } | null }>(
-        "session.get", { id: sessionId },
+        "session.get", { id: sessionId, messageLimit: 1 },
       );
       if (!res?.session) throw new Error("Browser preview session is unavailable.");
       if (res.session.worktree) {
@@ -715,7 +773,7 @@ export function createPluginServices({
      * `workspace:changed` event both expose the open project's folder roots
      * (ADR 0263) instead of the bare primary path.
      */
-    getWorkspaceInfo: () => pluginWorkspaceInfo(getWorkspacePath()),
+    getWorkspaceInfo: (path = getWorkspacePath()) => pluginWorkspaceInfo(path),
     listProjects: createPluginProjectLister(getHost, (operation) => {
       logger.app("plugin", "warn", "plugin.projects.unavailable", {
         code: "HOST_UNAVAILABLE", data: { operation },
@@ -735,6 +793,7 @@ export function createPluginServices({
      * runtime has not launched yet, which falls back to the visible workspace.
      */
     getWorkspacePathForSession: (sessionId) => sessionProjects.get(sessionId) ?? null,
+    resolveSessionProjectPath: createPluginSessionProjectResolver(getHost),
     agentExtensionsChanged: () =>
       sendToRenderer(IPC.event.pluginChanged, { reason: "agentExtensions" }),
     /** `pi.session.getActive`: the selected session as the shell shows it. */
@@ -744,6 +803,12 @@ export function createPluginServices({
      * and revealing a view stay inside the project the plugin was activated in.
      */
     isPluginActiveInProject: (pluginId) => isPluginActiveInProject(pluginId),
+    /**
+     * #2377: the project-aware form backs the desktop.control session-read
+     * gate, so a scoped plugin's `session/list` (including the reads a
+     * background service makes) never crosses its activation scope.
+     */
+    pluginActiveInProject,
     /**
      * `pi.ui.revealView`: the runtime validated the view and the session; the
      * shell owns work-panel tabs, so it is the surface that opens the tab.
@@ -762,6 +827,8 @@ export function createPluginServices({
      * composer.
      */
     suggestComposer: (offer) => composerSuggestion.offer(offer),
+    getComposerSuggestionTarget: (pluginId, input) => composerSuggestion.getTarget(pluginId, input),
+    suggestComposerCandidates: (pluginId, input) => composerSuggestion.offerCandidates(pluginId, input),
     /** `pi.composer.clearSuggestion`: drop this plugin's own line. */
     clearComposerSuggestion: (pluginId, sessionId) =>
       composerSuggestion.clearSuggestion(pluginId, sessionId),
@@ -801,6 +868,9 @@ export function createPluginServices({
     sessionProjects,
     emitBrowserState,
     announceTurnEnded,
+    observePersistedUserMessage,
+    readPluginModelContext: modelContext.read,
+    announceObservedSession,
     pluginPanels,
     pluginViews,
     browserHost,

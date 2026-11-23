@@ -19,6 +19,7 @@ import {
   PLUGIN_PANEL_WINDOW_CONTROL_CHANNEL,
   PLUGIN_PANEL_WINDOW_STATE_CHANNEL,
   PLUGIN_PANEL_LOCALE_ARGUMENT_PREFIX,
+  PLUGIN_PANEL_LAUNCH_EVENT,
   type PluginPanelTheme,
   type PluginPanelWindowControlAction,
 } from "../shared/plugin-panel-chrome";
@@ -59,6 +60,13 @@ export type PluginPanelOpenRequest = {
   allowMicrophone?: boolean;
   /** Adds a development-only reminder for the non-clickable drag band. */
   development?: boolean;
+  /**
+   * Input that summoned this panel from the launcher (issue #2085). Delivered
+   * after the page loads and readable once through
+   * `pluginBridge.consumeLauncherPayload()`; the page never receives a payload
+   * the user did not type for it.
+   */
+  launch?: { triggerId: string; payload: string };
 };
 
 /**
@@ -83,7 +91,7 @@ type BridgeHandler = (
   pluginId: string,
   channel: string,
   payload?: Record<string, unknown>,
-  context?: { droppedPath?: string },
+  context?: { droppedPath?: string; senderId?: number },
 ) => Promise<unknown>;
 
 /** Reports an egress attempt a panel was not allowed to make. */
@@ -464,6 +472,7 @@ export class PluginPanelHost {
           if (existing.isMinimized()) existing.restore();
           existing.show();
           existing.focus();
+          this.deliverLaunch(request, existing);
           return;
         }
       }
@@ -570,6 +579,7 @@ export class PluginPanelHost {
           request.pluginId,
         );
         if (!win.isDestroyed()) {
+          this.deliverLaunch(request, win);
           win.show();
         }
       } catch (error) {
@@ -627,6 +637,7 @@ export class PluginPanelHost {
    * the host sends on that channel. Panels that do not subscribe are inert
    * receivers; the event names are fixed by the host (e.g. `appearance:changed`).
    */
+
   broadcast(event: string, payload: unknown): void {
     const channel = `pi-plugin-panel-event:${event}`;
     for (const win of this.windows.values()) {
@@ -636,6 +647,32 @@ export class PluginPanelHost {
       } catch {
         // One panel that cannot receive must not starve the others.
       }
+    }
+  }
+
+  /**
+   * Hand a launcher payload to one panel, once per open.
+   *
+   * The page reads it through `pluginBridge.consumeLauncherPayload()`, whose
+   * first call wins and returns null afterwards. An open without a payload
+   * sends nothing, so a plugin cannot read input the user typed for another
+   * time or for another plugin (docs/spec/07-plugins/18-plugin-launcher.md §5).
+   */
+  private deliverLaunch(
+    request: PluginPanelOpenRequest,
+    win: BrowserWindow,
+  ): void {
+    if (!request.launch || win.isDestroyed() || win.webContents.isDestroyed()) {
+      return;
+    }
+    try {
+      win.webContents.send(
+        `pi-plugin-panel-event:${PLUGIN_PANEL_LAUNCH_EVENT}`,
+        request.launch,
+      );
+    } catch {
+      // A payload that cannot be delivered leaves the panel open and empty
+      // rather than failing the open the user already committed to.
     }
   }
 }

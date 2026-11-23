@@ -324,7 +324,7 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
     });
     state.desktopControl = control;
     plugins.setServices({ desktopControl: control });
-    // CC Connect integration (ADR 0347): loopback RACP bridge over the same
+    // CC Connect integration (ADR 0356): loopback RACP bridge over the same
     // Agent Host plus local cc-connect daemon lifecycle, exposed to the
     // pi.cc-connect plugin behind the `ccconnect.control` permission. Both
     // stay off until the user enables them; `autoStart` restores the bridge

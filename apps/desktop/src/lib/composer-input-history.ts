@@ -1,3 +1,4 @@
+import { parseFileLineRange } from "@pi-desktop/shared";
 import type { ComposerDraftSnapshot } from "./composer-smart-stop";
 
 /**
@@ -6,7 +7,7 @@ import type { ComposerDraftSnapshot } from "./composer-smart-stop";
  * One localStorage key holds bounded buckets, newest-used first: recalling in a
  * conversation never shows another conversation's prompts. A bucket keeps the
  * text and the file references of each accepted submission, like
- * `plugin-launcher-history.ts` keeps its MRU list. Storage is best-effort: a
+ * `launcher-store.ts` keeps its MRU list. Storage is best-effort: a
  * missing, blocked, or corrupted store yields an empty history and never breaks
  * sending.
  */
@@ -39,11 +40,15 @@ function readReference(value: unknown): HistoryReference | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   if (typeof row.path !== "string" || !row.path || typeof row.name !== "string") return null;
-  const kind = row.kind === "image" || row.kind === "file" ? row.kind : undefined;
+  const kind = row.kind === "image" || row.kind === "file" || row.kind === "directory" ? row.kind : undefined;
+  const lineRange = parseFileLineRange(row.lineRange);
   return {
     path: row.path,
     name: row.name,
     kind,
+    ...(typeof row.size === "number" && Number.isSafeInteger(row.size) && row.size >= 0 ? { size: row.size } : {}),
+    ...(typeof row.localReference === "string" ? { localReference: row.localReference } : {}),
+    ...(lineRange ? { lineRange } : {}),
     ...(typeof row.mimeType === "string" && row.mimeType ? { mimeType: row.mimeType } : {}),
     ...(typeof row.token === "string" && row.token ? { token: row.token } : {}),
   };

@@ -3,10 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { loadStyles } from "./helpers/styles.mjs";
 
-const sidebarSource = await readFile(
-  new URL("../src/components/Sidebar.tsx", import.meta.url),
-  "utf8",
-);
+const sidebarSource =
+  (await readFile(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8")) +
+  (await readFile(new URL("../src/components/SidebarNavigation.tsx", import.meta.url), "utf8"));
+const footerSource = sidebarSource.slice(sidebarSource.indexOf("export function SidebarFooter"));
 const usageSource = await readFile(
   new URL("../src/components/TokenUsageSummary.tsx", import.meta.url),
   "utf8",
@@ -35,90 +35,41 @@ test("the sidebar footer is an action bar, not a fabricated identity", () => {
   }
 });
 
-test("footer exposes settings, token usage, plugins, scheduled tasks and notifications in one row", () => {
-  assert.match(sidebarSource, /className="footer-actions"/);
-  const settingsIndex = sidebarSource.indexOf('data-nav="settings"');
-  const usageIndex = sidebarSource.indexOf("<TokenUsageSummary onBeforeOpen=");
-  const pluginsIndex = sidebarSource.indexOf('data-nav="plugins"');
+test("footer keeps Settings, the version chip, and the fork's token usage summary", () => {
+  // Upstream's slim destinations plus the fork's token usage row (ADR 0348).
+  assert.deepEqual(
+    [...footerSource.matchAll(/data-nav="([^"]+)"/g)].map((match) => match[1]),
+    ["settings", "build"],
+  );
+  // Settings is a labelled entry that opens the Settings dialog.
+  assert.match(footerSource, /className=\{cx\("footer-settings", settingsOpen && "active"\)\}/);
+  assert.match(footerSource, /aria-haspopup="dialog"/);
+  assert.match(footerSource, /onClick=\{\(\) => openSettings\(\)\}/);
+  assert.match(footerSource, /t\("nav\.settings"\)/);
+  // The fork's token usage summary sits between Settings and the build chip.
+  const settingsIndex = footerSource.indexOf('data-nav="settings"');
+  const usageIndex = footerSource.indexOf("<TokenUsageSummary onBeforeOpen=");
+  const buildIndex = footerSource.indexOf('data-nav="build"');
   assert.ok(settingsIndex >= 0);
   assert.ok(usageIndex > settingsIndex);
-  assert.ok(pluginsIndex > usageIndex);
-  const pluginsAction = sidebarSource.match(
-    /<TooltipButton[\s\S]*?data-nav="plugins"[\s\S]*?<\/TooltipButton>/,
-  )?.[0] ?? "";
-  assert.match(pluginsAction, /<IconPlug size=\{14\} aria-hidden \/>/);
-  assert.doesNotMatch(sidebarSource, /data-nav="theme"/);
-  assert.match(
-    sidebarSource,
-    /<NotificationCenter onBeforeOpen=\{\(\) => closeMenus\(false\)\} \/>/,
-  );
-  // Logs live in Settings → About; the footer stays down to daily controls.
-  assert.doesNotMatch(sidebarSource, /openLogs/);
-  // Every action is icon-only, so each needs a label for pointer and AT users.
-  const actions = sidebarSource
-    .split("<TooltipButton")
-    .filter((chunk) => /className=(?:"footer-action"|\{`footer-action )/.test(chunk));
-  assert.equal(actions.length, 3);
-  assert.match(
-    usageSource,
-    /className=\{`footer-action \$\{open \? "active" : ""\}`\}/,
-  );
+  assert.ok(buildIndex < 0 || buildIndex > usageIndex);
+  assert.match(usageSource, /className=\{`footer-action \$\{open \? "active" : ""\}`\}/);
   assert.match(usageSource, /tooltip=\{t\("tokenUsage\.title"\)\}/);
   assert.match(usageSource, /ariaLabel=\{t\("tokenUsage\.title"\)\}/);
-  for (const action of actions) {
-    const attrs = action.slice(0, action.indexOf(">"));
-    assert.match(attrs, /tooltip=/);
-    assert.match(attrs, /ariaLabel=/);
-  }
-  // All footer destinations report their active state to assistive tech; the
-  // Plugins button also reports the Back toggle a second activation performs.
-  const footerAttributes = (marker) => {
-    const at = sidebarSource.indexOf(marker);
-    if (at < 0) return "";
-    return sidebarSource.slice(
-      sidebarSource.lastIndexOf("<TooltipButton", at),
-      sidebarSource.indexOf("</TooltipButton>", at),
-    );
-  };
-  assert.match(
-    footerAttributes('data-nav="settings"'),
-    /aria-pressed=\{page === "settings"\}/,
-  );
-  assert.match(
-    footerAttributes('data-nav="plugins"'),
-    /aria-pressed=\{page === "plugins"\}/,
-  );
-  assert.match(footerAttributes('data-nav="scheduled"'), /aria-pressed=\{page === "scheduled"\}/);
+  // The notification entry is gone from the sidebar (upstream issue #2431).
+  assert.doesNotMatch(sidebarSource, /NotificationCenter/);
+  // Logs live in Settings → About; the footer stays down to daily controls.
+  assert.doesNotMatch(sidebarSource, /openLogs/);
 });
 
-test("footer sits on the sidebar content grid without a hairline", () => {
-  const block = globalStyles.match(/\.sidebar-footer\s*\{[^}]+\}/)?.[0] ?? "";
-  // Zero side padding keeps the chip text and trailing icon aligned with the
-  // nav rows that .sidebar-body already insets by 8px. D297: the footer is set
-  // apart from the nav by `margin-top: auto` and its own padding, not a rule.
-  assert.match(block, /padding:\s*7px 0 2px/);
-  assert.doesNotMatch(block, /border-top/);
-  assert.match(globalStyles, /\.footer-build\s*\{[^}]*padding:\s*5px 8px/s);
-});
-
-test("footer action buttons share the notification trigger's hit target", () => {
-  const block = globalStyles.match(/\.footer-action\s*\{[^}]+\}/)?.[0] ?? "";
-  assert.match(block, /width:\s*32px/);
-  assert.match(block, /height:\s*32px/);
-  assert.match(block, /transition:[^;]*var\(--motion-duration-fast\)/);
-});
-
-test("build chip surfaces the version and only dots an actionable update", () => {
-  assert.match(sidebarSource, /const update = useUpdateState\(\)/);
-  assert.match(
-    sidebarSource,
-    /update\?\.status === "available" \|\| update\?\.status === "downloaded"/,
+test("footer stays flat and labeled for pointer and assistive tech users", () => {
+  assert.doesNotMatch(sidebarSource, /data-nav="theme"/);
+  // The token usage action is icon-only, so it needs a label.
+  const action = usageSource.slice(
+    usageSource.indexOf("<TooltipButton"),
+    usageSource.indexOf("</TooltipButton>"),
   );
-  assert.match(sidebarSource, /className="footer-build-dot"/);
-  // An actionable update routes to the Settings row that can act on it.
-  assert.match(sidebarSource, /setSettingsAnchor\("updates\.title"\)/);
-  assert.match(sidebarSource, /setSettingsTab\("about"\)/);
-  assert.match(sidebarSource, /api\.updatesCheck\(\)/);
-  const dot = globalStyles.match(/\.footer-build-dot\s*\{[^}]+\}/)?.[0] ?? "";
-  assert.match(dot, /background:\s*var\(--ds-accent\)/);
+  const attrs = action.slice(0, action.indexOf(">"));
+  assert.match(attrs, /tooltip=/);
+  assert.match(attrs, /ariaLabel=/);
 });

@@ -1,5 +1,16 @@
 # PI-Desktop Baseline Freeze
 
+> [Session-owned Plan approval permissions](../adr/plan-approval-session-permission.md)
+> makes the Plan/legacy Goal approval default follow the owning Session's effective
+> permission. Device-wide approval history no longer overrides that Session.
+
+> [Pasted directory references](../adr/composer-pasted-directory-references.md) add
+> folder cards and lazy dir prompt context without copying trees or granting access.
+> [Pasted local file references](../adr/composer-local-file-references.md) extend
+> native clipboard paste to live file paths and byte sizes, with metadata-only
+> dispatch and unchanged tool permissions.
+
+
 - Baseline Version: `0.4.22`
 - Date: `2026-10-08`
 - Status: `Frozen for implementation details (indefinite local permission approvals + Plan checkpoint artifact + approval/execution startup fence + protocol v11 + schema v16 + host-owned plugin session import/read/update/delete P0/P1 + selectable shell catalog + icon-free composer prompt row + turn-boundary context checkpoint compaction + session-scoped work panel + edge-specific work-panel/chat resize ownership + models.dev chat model catalog + provider/runtime safety + M5 hardening + settings IA + project archive + sidebar organization + app update delivery + three-platform release + Extensions page density and theme-readable actions + custom global UI font + ChatGPT-style logical project groups + categorized plugin providers in Add Service)`
@@ -123,8 +134,8 @@
 > WebSocket binding, a headless Agent Host module, and the full local
 > approval vocabulary, and D375 schedules the SSH-tunnel remote Host first
 > while Gateway and browser access stay unscheduled. None of them changes the
-> current exclusion. Voice dictation (D686 / ADR 0345, superseded by D687 /
-> ADR 0346) runs through the frozen `pi-desktop/dictation/*` IPC domain on the
+> current exclusion. Voice dictation (D692 / ADR 0354, superseded by D693 /
+> ADR 0355) runs through the frozen `pi-desktop/dictation/*` IPC domain on the
 > bundled local voice plugin `pi.local-voice`: local Whisper transcription,
 > no cloud STT/TTS bindings, no secret ref — with no protocol or
 > storage-schema version change.
@@ -178,7 +189,7 @@
 37. Secrets backend: **safeStorage primary + encrypted file fallback**
 38. Workspace ignore: **denylist + defaults + `.pi-desktopignore`**
 39. Tool result limits: **per-tool budgets (128KB / 4000 lines search, 96KB / 4000 lines shell); `truncated` only when a result is cut short**
-40. Settings directory: **General / AI / Shortcuts / Instructions / Models / Skills / MCP / Subagents / Project archive / Cloud sync / Remote Hosts / Info**;
+40. Settings directory: **Appearance / Conversation / Shortcuts / Voice / Behavior / Models / Instructions / Skills / MCP / Subagents / Project archive / System / Cloud sync / Remote Hosts / Info** — one destination owns one subject (D684);
     external model, skill, and MCP scans live in their owning pages; session
     import is plugin-owned;
     the project archive owns durable project discovery, archive, restore, and
@@ -208,7 +219,8 @@
     structured fields in the existing `plan_approvals` row. The row records the
     artifact path/hash/size and execution fields. Approve/reject are the only
     actions; approval explicitly selects `ask`, `accept-edits`, or `auto` with
-    Ask as the UI default, opens the artifact for review, and expires after 30
+    the Session's effective permission as the UI default (Ask when unavailable),
+    opens the artifact for review, and expires after 30
     absolute minutes with `PLAN_APPROVAL_TIMEOUT`.**
 46. Plan recovery and shells: **a startup transaction marks prior pending,
     queued, and running Plan work interrupted before serving RPC, with no

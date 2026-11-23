@@ -4,7 +4,7 @@
 > `apps/desktop/electron/main/ipc/dictation-ipc.ts`,
 > `apps/desktop/electron/main/plugin-runtime.ts`,
 > `apps/desktop/resources/plugins/pi.local-voice/`.
-> ADR: [0346-local-voice-plugin](../../adr/0346-local-voice-plugin.md).
+> ADR: [0355-local-voice-plugin](../../adr/0355-local-voice-plugin.md).
 
 Dictation (speech-to-text for the composer) is a plugin capability in this
 fork, not a host service. It enters through the frozen dictation IPC domain
@@ -12,7 +12,7 @@ fork, not a host service. It enters through the frozen dictation IPC domain
 the 2026-10 upstream sync introduced its own host voice stack) and runs on a
 speech adapter registered by a plugin. The shipped implementation is the
 bundled first-party plugin `pi.local-voice`, which transcribes locally on a
-Whisper ONNX model (ADR 0346, superseding the Phase 1 cloud STT of ADR 0345).
+Whisper ONNX model (ADR 0355, superseding the Phase 1 cloud STT of ADR 0354).
 
 The 2026-10 upstream sync additionally adopted the upstream host speech
 capability (ASR/TTS via `speech-service.ts` and `AppSettings.speech`, ADR
@@ -61,7 +61,7 @@ Speech adapter protocol ids match `^[a-z][a-z0-9._-]{0,63}$`
 (`packages/shared/src/speech.ts`). Speech has no configured host state — an
 absent adapter is the only unconfigured state — and no app surface reads a
 speech binding: callers are the frozen voice IPC domain and plugin adapters
-(ADR 0291, ADR 0346).
+(ADR 0291, ADR 0355).
 
 ## 3. Bundled `pi.local-voice` plugin
 
@@ -122,7 +122,7 @@ bundled local-voice plugin. Unload unregisters.
   speech protocol.
 - Settings exposes **no** cloud speech surface (ADR 0291): this fork has no
   `AppSettings.speech` bindings and no `speech/*` IPC, and the only Settings
-  surface is the local-voice **Voice** card (ADR 0346). Whisper / TTS models
+  surface is the local-voice **Voice** card (ADR 0355). Whisper / TTS models
   must not appear in the chat model picker.
 - v1 does not implement Realtime or agent tools; microphone capture is the
   dictation path above.

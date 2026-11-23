@@ -45,10 +45,11 @@ export const PLUGIN_PANEL_LOCALE_ARGUMENT_PREFIX = "--pi-plugin-panel-locale=";
  *
  * An embedded view has no window to minimize, maximize, or drag, so the preload
  * skips the control capsule and the 46px safe area entirely and reports a
- * titlebar height of 0. `window.pluginBridge` is identical either way, so the
+ * titlebar height of 0. Both placements use the same panel bridge, so the
  * same HTML entry works in both placements (ADR 0092 §2 addendum).
  */
 export const PLUGIN_PANEL_EMBEDDED_ARGUMENT = "--pi-plugin-panel-embedded=1";
+export const PLUGIN_PANEL_COMPOSER_FILE_LINES_ARGUMENT = "--pi-plugin-panel-composer-file-lines=1";
 
 /**
  * Marks a plugin surface as a floating widget: a transparent, frameless window
@@ -58,6 +59,16 @@ export const PLUGIN_PANEL_EMBEDDED_ARGUMENT = "--pi-plugin-panel-embedded=1";
  * a panel, so one HTML entry can serve both placements.
  */
 export const PLUGIN_PANEL_WIDGET_ARGUMENT = "--pi-plugin-panel-widget=1";
+
+/**
+ * Event name the launcher uses to hand a plugin the input that summoned it.
+ *
+ * The payload arrives after the panel page has loaded, so it cannot race the
+ * document; `pluginBridge.consumeLauncherPayload()` reads it exactly once, which
+ * is what keeps one typed input from being delivered twice or kept available for
+ * a later time the user did not type it.
+ */
+export const PLUGIN_PANEL_LAUNCH_EVENT = "launcher:payload";
 
 /**
  * Smallest surface each placement may ask for. A panel is sized around

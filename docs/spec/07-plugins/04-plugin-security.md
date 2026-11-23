@@ -163,7 +163,11 @@ Plugins cannot access:
 - Other plugins' data
 - Host secrets through a general-purpose API; `provider.oauth` grants access
   only to the callback's own declared provider credential
-- The host's full session database (unless a controlled API exists in the future)
+- The host's full session database through any general-purpose surface. A
+  controlled API exists: `pi.session` with the `.own` grants (imported sessions
+  only) or the `session.*.all` grants (every live session, approved at install
+  and audited per call). There is no other path to sessions, no SQLite handle,
+  and no transcript file access
 
 ## 5.1 Inter-plugin message bus
 
@@ -452,6 +456,15 @@ preview, and it deliberately shows no text the plugin or a model behind it
 authored, so a prompt-injected transcript cannot relabel `session/delete` as
 something benign. Escape and dismissal are refusals. A headless host with no
 dialog service refuses every dangerous operation outright.
+
+The dialog offers Deny / Allow once. Only `agent/askTool/resolve` also offers
+"Allow until quit", because answering an Agent question approves nothing: the
+Agent's next action still crosses the host's own tool permission gate. The
+grant is in memory, per plugin and operation, and is dropped when the plugin
+is explicitly stopped or the app quits. Approvals (`tool/resolvePermission`,
+`plans/resolve`, `extensions/ui/respond`) and destructive operations are never
+remembered: a plugin-authored answer to them would otherwise approve later
+requests without the user (#2504).
 
 `ui.microphone` allows only the `media` permission, for audio, inside the
 plugin's isolated panel session. Camera and every other device permission stay

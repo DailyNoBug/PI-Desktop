@@ -24,6 +24,7 @@ Provide a permission–capability–risk–default-policy reference table for re
 | `fs.delete.workspace` | high | — | Downgraded on load to `fs.delete` with `own: true` | Legacy name; only the plugin's own output goes without asking |
 | `agent.tool.register` | high | Register an agent tool | Confirm at install | Tool execution is audited separately |
 | `agent.prompt.inject` | high | Activate the catalog and on-demand bodies from `contributes.skills` | Deny by default / strong confirmation | Easily leads to behavior hijacking |
+| `agent.modelContext` | high | `contributes.modelContext: true` and `onModelContext` | Confirm at install | Bounded, lower-trust context data for active managed turns in the plugin's project scope. No transcript, prompt, or draft read; never runs for standalone completion. |
 | `composer.transform` | medium | `contributes.composerTransforms` and `onComposerTransform` | Confirm at install | Runs only after an explicit Composer action. Receives the draft and optional model key, not session history or separate attachment/file-reference metadata; request and result are capped at 100,000 characters and audited |
 | `composer.suggest` | medium | `pi.composer.suggest` / `pi.composer.clearSuggestion` | Confirm at install | Writes one dismissible line into the placeholder layer of the Composer for the session on screen, only while the draft is empty and only for the turn the plugin names. The user takes it with Tab, drops it with Esc, and typing, sending, a session switch, a new turn, the plugin stopping, a reload or a window close all end it. The plugin never sends it and never reads the draft. Text is folded to one line and cut at 200 characters; the lifetime defaults to 120 s and is capped at 10 minutes. Audited; a place that will not show it answers `{ shown: false, reason }` instead of throwing |
 | `agent.extension` | high | Run `contributes.agentExtensions` modules inside the agent process | Explicit confirmation; local imports and development plugins only in v1.1 | Same access as the agent's own tools; the plugin sandbox does not apply (spec 16) |
@@ -42,7 +43,7 @@ Provide a permission–capability–risk–default-policy reference table for re
 | `browser.cdp` | high | `pi.browser.*` against the host work-panel guest | Confirm at install | Guest bounds are clamped to the calling plugin view; CDP is allowlisted |
 | `git.read` | medium | `pi.git.status`, `pi.git.branches`, `pi.git.diff` | Granted at install | Current workspace only through fixed host-owned Git argv; bounded status, branch, and diff output |
 | `git.write` | high | `pi.git.stage`, `pi.git.unstage`, `pi.git.discard`, `pi.git.createBranch`, `pi.git.switchBranch`, `pi.git.commit`, `pi.git.push`, `pi.git.pull` | Confirm at install | Current workspace only; fixed operations, validated paths, bounded output, per-workspace serialization. Discard and branch switching need native consent |
-| `desktop.control` | high | `pi.desktop.listOperations`, `pi.desktop.invoke`, including the reviewed `session/collaboration/*` operations | Confirm at install | Shared with the local MCP control plane's reviewed operation catalog, except for operations marked plugin-only: the six `session/collaboration/*` operations reach the plugin gateway but are deliberately absent from the MCP-visible catalog and have no renderer mutation channel; collaboration `spawn`/`send` additionally require an active plugin Agent tool invocation, whose source Session/turn/invocation identity is injected by the host; panel cancellation is limited to that plugin's own deliveries; a `dangerous` operation needs `confirm: true` from the plugin **and** the user's answer to a host-owned native dialog that names the catalog operation; the MCP bearer token and Electron channel names are never exposed |
+| `desktop.control` | high | `pi.desktop.listOperations`, `pi.desktop.invoke`, including the reviewed `session/collaboration/*` operations | Confirm at install | Shared with the local MCP control plane's reviewed operation catalog, except for operations marked plugin-only: the six `session/collaboration/*` operations reach the plugin gateway but are deliberately absent from the MCP-visible catalog and have no renderer mutation channel; collaboration `spawn`/`send` additionally require an active plugin Agent tool invocation, whose source Session/turn/invocation identity is injected by the host; panel cancellation is limited to that plugin's own deliveries; a `dangerous` operation needs `confirm: true` from the plugin **and** the user's answer to a host-owned native dialog that names the catalog operation; session reads (`session/list`, `session/get`, `session/listMessages`, `session/listRevisions`) are filtered by activation scope like `session.getActive` (#2377); the MCP bearer token and Electron channel names are never exposed |
 | `ccconnect.control` | medium | `pi.ccConnect.status/setBridgeEnabled/detectBinary/startProcess/stopProcess/restartProcess/logs` — bridge enablement and local cc-connect daemon lifecycle for the bundled pi.cc-connect panel | Confirm at install | No network access from the plugin itself; the daemon is started only from a locally-detected executable (never downloaded); PI-managed configuration stays under the plugin data directory and `~/.cc-connect` is never touched; the bridge device token lives in a 0600 file outside the plugin sandbox and is never returned to the plugin or renderer; log tails redact token-shaped strings |
 | `ui.microphone` | medium | `navigator.mediaDevices.getUserMedia({ audio: true })` inside the plugin's isolated panel | Confirm at install | Audio only; camera and every other device permission stay denied; no native handle or host secret reaches the plugin |
 | `audio.capture.background` | high | `pi.audio.getInputDevices`, `openInput`, `closeInput`, `getCaptureState`, `onInputFrame` / `offInputFrame` (registered in the plugin API and gated by this permission; the two synchronous registration helpers throw the coded refusal) | Deny by default | Host owns the device; PCM16 frames only, no device handle or `MediaStream`. The host has no device backend yet, so an authorized call is refused with a coded `UNSUPPORTED` (audited); no device is opened |
@@ -51,15 +52,19 @@ Provide a permission–capability–risk–default-policy reference table for re
 | `models.list` | medium | `pi.models.list` | Confirm at install | Ready provider/model rows only; no secrets |
 | `project.create` | high | `pi.project.create` and explicit `projectId` on session import | Confirm at install | Creates or reuses a durable project row without activating the workspace; imported sessions remain unbound unless the id is supplied |
 | `session.read` | high | `pi.session.getLlmContext` | Confirm at install | In-flight tool session only; compaction-aware projection (D019 / D336) |
+| `session.observe` | medium | `session:turnStarted`, `session:userMessagePersisted` | Confirm at install | Session, turn, and persisted message identifiers only; plugin process only, subject to the session's project scope. No transcript or Composer access. |
 | `session.autoTitle` | high | `pi.session.getAutoTitleContext`, `pi.session.setAutoTitle` | Confirm at install | First user prompt (≤1,000 chars) and first assistant reply (≤500 chars) only, for default-titled sessions; title writes are compare-and-set. It does not grant transcript reads |
 | `session.import` | high | `pi.session.import`, `pi.session.importBatch` | Confirm at install | Imports only into the calling plugin's declared session sources; bounded and rate-limited |
 | `session.read.own` | medium | `pi.session.list`, `pi.session.get`, `pi.session.listMessages` | Confirm at install | Reads only sessions imported by the calling plugin; no cross-plugin access |
 | `session.update.own` | medium | `pi.session.rename` | Confirm at install | Renames only the calling plugin's active imported sessions |
 | `session.delete.own` | high | `pi.session.delete` | Confirm at install | Trash/purge only the calling plugin's imported sessions; rate-limited |
+| `session.read.all` | high | `pi.session.list`, `pi.session.get`, `pi.session.listMessages` | Confirm at install | Reads **any** live session, including the conversations the user created in this app: title, project, model binding, and full message history with tool payloads. `.all` is a separate grant from `session.read.own` and wins when both are declared; the audit line records which scope authorised the call (ADR 0340) |
+| `session.update.all` | high | `pi.session.rename`, `pi.session.appendMessage`, `pi.session.replaceMessages` | Confirm at install | Renames any session and rewrites its transcript: append, replace, or delete-single-message. Rewrites are refused while a turn is running (`TURN_RUNNING`) and rate-limited. A rename claims the manual title source, so `session.autoTitle` cannot overwrite it afterwards |
+| `session.delete.all` | high | `pi.session.delete`, `pi.session.deleteMessage`, `pi.session.truncateFrom` | Confirm at install | Trash/purge any session and cut or delete its messages. Keeps the session-delete rate limit; message rewrites share a 60/min message-write budget |
 | `usage.read` | medium | `pi.usage.listTurns` | Confirm at install | Read-only listing of completed-turn facts (per-turn token counters and identifiers, keyset-paginated); no message body and no write path |
 | `agent.complete` | high | `pi.agent.complete` | Confirm at install | Host-owned one-shot; spends user quota; `includeSessionContext` also needs `session.read` |
 | `speech.adapter.register` | high | `pi.speech.registerAdapter` / `unregisterAdapter` | Confirm at install | Registers a speech protocol. Handles stay in the guest; HTTP plans are executed by the host with the bound provider key and must stay on that origin. There are no built-in protocol ids any more; every protocol is plugin-registered |
-| `plugin.rpc` | medium | `pi.rpc.register` / `unregister` — one handler receiving renderer-originated management calls over `pi-desktop/plugin/rpc` | Confirm at install | `(method, params)` dispatch under the host's command budget; params and replies must be JSON-serializable; the bundled `pi.local-voice` plugin is the example (ADR 0346) |
+| `plugin.rpc` | medium | `pi.rpc.register` / `unregister` — one handler receiving renderer-originated management calls over `pi-desktop/plugin/rpc` | Confirm at install | `(method, params)` dispatch under the host's command budget; params and replies must be JSON-serializable; the bundled `pi.local-voice` plugin is the example (ADR 0355) |
 
 The Default policy column is the intended policy. The current host does not
 apply it per permission: the install and update review lists every declared
@@ -131,6 +136,13 @@ plugin, so it carries three bounds the other modes do not:
   `appearance:changed`, `session:modelChanged`, `session:turnEnded`,
   `session:activated`, and `plugin:settingsChanged` arrive on the existing plugin event channel, and subscribing to an unknown
   event name does not error
+- `session.read.all` / `session.update.all` / `session.delete.all` each replace
+  the matching `.own` grant rather than extending it: a manifest may declare
+  both, and `.all` wins. Message-level writes (`pi.session.appendMessage`,
+  `replaceMessages`, `deleteMessage`, `truncateFrom`) exist only under `.all`,
+  because rewriting a transcript is never an imported-session operation
+  (ADR 0340). `session.autoTitle` stays the narrow title path and does not
+  imply any session read grant
 
 ## 3A. Plan operating-state rule
 
@@ -197,6 +209,9 @@ plugin's row (Files), so "Edit files" is followed by the list.
 | `desktop.control` | Control the desktop | 控制桌面操作 |
 | `net.anyHost` | Access any network address | 访问任意网络地址 |
 | `session.autoTitle` | Read first-turn title context and update automatic titles | 读取首轮标题上下文并更新自动标题 |
+| `session.read.all` | Read any conversation, including yours | 读取任意会话，包括你自己的对话 |
+| `session.update.all` | Rewrite any conversation, including its messages | 改写任意会话，包括修改其消息 |
+| `session.delete.all` | Delete any conversation, including yours | 删除任意会话，包括你自己的对话 |
 
 These permissions have no catalog entry today and are shown as their raw key:
 `ui.settings`, `session.import`, `session.read.own`, `session.update.own`, `session.delete.own`, `ui.view`, `project.create`.

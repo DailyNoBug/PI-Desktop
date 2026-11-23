@@ -12,6 +12,8 @@ import { AgentHost } from "./agent-host.js";
 import type { ApprovalPort, PendingToolRequest } from "./approvals.js";
 import {
   MemoryQueueStore,
+  TRUSTED_MODE_ORIGIN,
+  TRUSTED_BACKGROUND_CONTINUATION,
   type Clock,
   type IdSource,
   type Principal,
@@ -495,6 +497,53 @@ describe("AgentHost turns", () => {
     expect(runtime.aborts).toEqual([{ sessionId: "s1", turnId: "rt_2" }]);
     await host.stopTurn(controller, queued.turn.id);
     expect(runtime.stops).toEqual(["s1"]);
+  });
+
+  it("keeps automatic job continuations behind active work and queued user input", async () => {
+    const { host, runtime } = build({ permissionMode: "ask" });
+    const origin = { id: "job", host: {} };
+    const params = { [TRUSTED_BACKGROUND_CONTINUATION]: origin, sessionId: "s1", input: { text: "job result" }, context: { requestId: "completion-1" } };
+    const started = await host.startTurn(owner, params);
+    expect(runtime.prompts[0]![TRUSTED_BACKGROUND_CONTINUATION]).toBe(origin);
+    expect(runtime.prompts[0]!.effectivePermissionMode).toBe("ask");
+    host.ingest(envelope("s1", started.turn.id, { type: "agent_start" }));
+    await host.startTurn(controller, { sessionId: "s1", admission: "queue", input: { text: "new user task" }, context: { requestId: "user-first" } });
+    await expect(host.startTurn(owner, { ...params, admission: "queue" })).rejects.toMatchObject({ code: "AGENT_BUSY" });
+    await expect(host.enqueueTurn(owner, params)).rejects.toMatchObject({ code: "AGENT_BUSY" });
+    expect(runtime.prompts).toHaveLength(1);
+    expect(JSON.parse(JSON.stringify(params))[TRUSTED_BACKGROUND_CONTINUATION]).toBeUndefined();
+  });
+
+  it("passes a trusted mode origin to the runtime and never queues a mode continuation", async () => {
+    const { host, runtime } = build({ permissionMode: "auto" });
+    const started = await host.startTurn(owner, {
+      [TRUSTED_MODE_ORIGIN]: "host",
+      sessionId: "s1",
+      input: { text: "continue" },
+      context: { requestId: "c1" },
+    });
+    expect(runtime.prompts[0]![TRUSTED_MODE_ORIGIN]).toBe("host");
+    host.ingest(envelope("s1", started.turn.id, { type: "agent_start" }));
+    // A busy session rejects the continuation instead of queueing it.
+    await expect(host.startTurn(owner, {
+      [TRUSTED_MODE_ORIGIN]: "host",
+      sessionId: "s1",
+      admission: "queue",
+      input: { text: "continue" },
+      context: { requestId: "c2" },
+    })).rejects.toMatchObject({ code: "AGENT_BUSY" });
+    // Queued user input goes first, even when the session goes idle.
+    await host.startTurn(controller, { sessionId: "s1", admission: "queue", input: { text: "user" }, context: { requestId: "u1" } });
+    await expect(host.enqueueTurn(owner, {
+      [TRUSTED_MODE_ORIGIN]: "host",
+      sessionId: "s1",
+      input: { text: "continue" },
+      context: { requestId: "c3" },
+    })).rejects.toMatchObject({ code: "AGENT_BUSY" });
+    // A JSON copy cannot carry the origin.
+    const copied = JSON.parse(JSON.stringify({ [TRUSTED_MODE_ORIGIN]: "host", content: "x" })) as Record<PropertyKey, unknown>;
+    expect(copied[TRUSTED_MODE_ORIGIN]).toBeUndefined();
+    expect(runtime.prompts.filter((prompt) => prompt[TRUSTED_MODE_ORIGIN] === undefined).map((prompt) => prompt.content)).toEqual([]);
   });
 
   it("does not let a late prompt acknowledgement revive a terminal turn", async () => {

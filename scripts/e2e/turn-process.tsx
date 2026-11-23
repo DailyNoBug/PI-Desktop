@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { createInstance } from "i18next";
 import { I18nextProvider } from "react-i18next";
 import { en } from "@pi-desktop/i18n";
-import type { AppSettings, UiMessage } from "@pi-desktop/shared";
+import { applyMessageUpdate, type AppSettings, type UiMessage } from "@pi-desktop/shared";
 import { AssistantTurn } from "../../apps/desktop/src/features/chat/transcript/AssistantTurn";
 import { ShowThinkingRow } from "../../apps/desktop/src/components/settings/ShowThinkingRow";
 import { TranscriptDisplayModeRow } from "../../apps/desktop/src/components/settings/TranscriptDisplayModeRow";
@@ -186,6 +186,60 @@ export async function turnProcessProbe() {
   const contiguous = [read, grep, bash1, bash2, edit, answer];
 
   try {
+    setSettings({ smoothStreaming: false, showThinking: false });
+    const progress = "Checking references.";
+    const markdown = "**Ready.**";
+    const marked = { type: "text" as const, length: progress.length,
+      signature: JSON.stringify({ v: 1, id: "msg_progress", phase: "commentary" }) };
+    const unmarked = { type: "text" as const, length: markdown.length };
+    const identity = message("phased", "assistant", "", { status: "streaming" });
+    const append = (snapshot: UiMessage, deltaText: string) => applyMessageUpdate(snapshot, {
+      type: "message_update", stream: "delta", message: identity, deltaText,
+    });
+    const live = append({ ...identity,
+      providerReplay: { version: 1, blocks: [{ ...marked, length: 0 }] },
+    }, progress);
+    const copyButton = () => container.querySelector<HTMLButtonElement>(`.message-actions button[aria-label="${i18n.t("chat.copy")}"]`);
+    const copyReply = async () => {
+      // Exercise the mounted toolbar button without touching the user's clipboard.
+      const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+      let payload: string | undefined;
+      Object.defineProperty(navigator, "clipboard", { configurable: true,
+        value: { writeText: async (text: string) => { payload = text; } } });
+      try {
+        click(copyButton());
+        await Promise.resolve();
+        return payload;
+      } finally {
+        if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+        else Reflect.deleteProperty(navigator, "clipboard");
+      }
+    };
+    render([live], true, null, "phased");
+    check(visible(firstProcess()) && firstProcess()?.querySelector(".message-bubble")?.textContent === progress &&
+      !container.querySelector(".message-col > .message-bubble, .thinking") && !copyButton(),
+      "live commentary is visible only as process prose with thinking hidden");
+    const answered = append({ ...live,
+      providerReplay: { version: 1, blocks: [marked, { ...unmarked, length: 0 }] },
+    }, markdown);
+    render([answered], true, null, "phased");
+    check(row("phased")?.textContent === "Ready." && !row("phased")?.closest(".turn-process"),
+      "the answer streams outside the commentary disclosure");
+    const settled = { ...answered, status: "complete" as const };
+    for (const [key, savedRow] of [["phased", settled], ["reopened", structuredClone(settled)]] as const) {
+      render([savedRow], false, null, key);
+      check(processHeaders()[0]?.getAttribute("aria-expanded") === "false" && row("phased")?.textContent === "Ready.",
+        `${key}: completion folds progress without hiding the answer`);
+      click(processHeaders()[0]);
+      check(firstProcess()?.querySelector(".message-bubble")?.textContent === progress && await copyReply() === markdown,
+        `${key}: opening the process reveals the commentary, but Copy writes only the raw answer`);
+    }
+    render([{ ...settled, providerReplay: { version: 1, blocks: [{ ...marked, signature: "msg_legacy" }, unmarked] } }],
+      false, null, "legacy-unsigned");
+    check(!processHeaders().length && row("phased")?.textContent === `${progress}Ready.` && await copyReply() === settled.content,
+      "legacy saved text without an explicit phase still displays and copies in full");
+    setSettings();
+
     // One disclosure per turn: the Bash rows are rows inside the turn's process,
     // not siblings of it, so a long turn collapses in one gesture.
     render(mixed, true, null, "settling-activity-group");
@@ -249,9 +303,18 @@ export async function turnProcessProbe() {
       visible(bash1Row) && visible(bash2Row),
       "opening the process reveals the Bash rows",
     );
+    const foldedGroupLabel =
+      completedGroupHeader?.querySelector(".tool-activity-label")?.textContent ?? "";
     check(
-      visible(row("read")) && completedGroupHeader?.getAttribute("aria-expanded") === "true",
-      "opening the process reveals the already-open activity group with its tool rows",
+      !visible(row("read")) && completedGroupHeader?.getAttribute("aria-expanded") === "false",
+      "opening the process reveals the folded activity group, not its tool rows",
+    );
+    check(
+      foldedGroupLabel.includes(i18n.t("chat.activityBucket.search")) &&
+        foldedGroupLabel.includes(i18n.t("chat.activityBucket.read")) &&
+        completedGroupHeader?.querySelector(".tool-activity-ops")?.textContent ===
+          i18n.t("chat.activityOps", { count: 2 }),
+      "a folded group header names the actions it contains and the operation count",
     );
 
     // Real geometry and hit testing: the turn title, a nested group title and a
@@ -666,8 +729,24 @@ export async function turnProcessProbe() {
     ];
     check(
       liveThinkingHeaders.length === 2 &&
-        liveThinkingHeaders.every((header) => header.getAttribute("aria-expanded") === "true"),
-      "fully folded expands each visible thinking row by default",
+        liveThinkingHeaders.every((header) => header.getAttribute("aria-expanded") === "false"),
+      "reasoning that is no longer the live tail stays folded",
+    );
+    // The row the turn is still producing is the only one that starts expanded.
+    render(
+      [earlierThinking, read, liveThinking],
+      true,
+      null,
+      "fully-folded-thinking-live-tail",
+    );
+    const tailThinkingHeaders = [
+      ...container.querySelectorAll<HTMLElement>(".tool-row.thinking .tool-row-header"),
+    ];
+    check(
+      tailThinkingHeaders.length === 2 &&
+        tailThinkingHeaders[0]?.getAttribute("aria-expanded") === "false" &&
+        tailThinkingHeaders[1]?.getAttribute("aria-expanded") === "true",
+      "the reasoning row the live turn is still streaming starts expanded",
     );
     render(
       [earlierThinking, read, completedThinking, thinkingAnswer],
@@ -687,13 +766,29 @@ export async function turnProcessProbe() {
       ".process-activity-group.grouped",
     )?.querySelector<HTMLElement>(".tool-activity-header");
     check(
-      settledThinkingGroupHeader?.getAttribute("aria-expanded") === "true" &&
+      settledThinkingGroupHeader?.getAttribute("aria-expanded") === "false" &&
         settledThinkingHeaders.length === 2 &&
-        settledThinkingHeaders.every((header) => header.getAttribute("aria-expanded") === "true") &&
-        container.textContent?.includes("Earlier reasoning remains available.") === true &&
-        container.textContent?.includes("Latest reasoning remains available.") === true &&
-        row("read")?.querySelector<HTMLElement>(".tool-row-header")?.getAttribute("aria-expanded") === "false",
-      "reopening the process reveals the open group and reasoning while tool payloads stay collapsed",
+        settledThinkingHeaders.every((header) => header.getAttribute("aria-expanded") === "false") &&
+        container.textContent?.includes("Earlier reasoning remains available.") === false &&
+        !visible(row("read")),
+      "a settled process settles both its group and its reasoning",
+    );
+    // Opening the group restores each reasoning row's own answer: the rows stay
+    // folded until the reader opens them, and tool payloads stay folded too.
+    click(settledThinkingGroupHeader ?? null);
+    check(
+      settledThinkingGroupHeader?.getAttribute("aria-expanded") === "true" &&
+        settledThinkingHeaders.every((header) => header.getAttribute("aria-expanded") === "false"),
+      "opening the group does not expand the reasoning inside it",
+    );
+    click(settledThinkingHeaders[0] ?? null);
+    check(
+      container.textContent?.includes("Earlier reasoning remains available.") === true,
+      "a folded reasoning row opens on request",
+    );
+    check(
+      row("read")?.querySelector<HTMLElement>(".tool-row-header")?.getAttribute("aria-expanded") === "false",
+      "tool payloads stay collapsed inside an opened group",
     );
 
     const largeGroup = Array.from({ length: 5 }, (_, index) =>
@@ -711,7 +806,24 @@ export async function turnProcessProbe() {
     click(processHeaders()[0] ?? null);
     check(
       largeGroupHeader?.getAttribute("aria-expanded") === "false",
-      "large activity groups remain collapsed by default",
+      "a settled group folds whatever its size",
+    );
+    // The switch is the only tier: turning auto-collapse off opens every settled
+    // group, including a five-row one.
+    setSettings({ autoCollapseSettledGroups: false });
+    render(
+      [...largeGroup, thinkingAnswer],
+      false,
+      null,
+      "large-completed-activity-group-open",
+    );
+    click(processHeaders()[0] ?? null);
+    const openedLargeGroupHeader = row("large-group-0")?.closest<HTMLElement>(
+      ".process-activity-group.grouped",
+    )?.querySelector<HTMLElement>(".tool-activity-header");
+    check(
+      openedLargeGroupHeader?.getAttribute("aria-expanded") === "true",
+      "turning auto-collapse off leaves settled groups open",
     );
     setSettings();
 

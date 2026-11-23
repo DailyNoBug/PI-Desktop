@@ -14,7 +14,7 @@ const componentSource = await readFile(
   "utf8",
 );
 const sidebarSource = await readFile(
-  new URL("../src/components/Sidebar.tsx", import.meta.url),
+  new URL("../src/components/SidebarNavigation.tsx", import.meta.url),
   "utf8",
 );
 const styles = await loadStyles();

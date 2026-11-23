@@ -16,14 +16,27 @@ Each ADR includes:
 - Consequences
 - Alternatives (optional)
 
+Keep records short: state the decision and its main consequences, not the
+implementation log or validation evidence. Behavior lives in the code, specs,
+and tests. Superseded records keep only a stub; the long-form originals stay in
+git history.
+
 ## Index
+
 
 | ID | Title | Status |
 |---|---|---|
+| codemode-sandbox-boundary | [Codemode sandbox execution boundary](codemode-sandbox-boundary.md) | Accepted |
+| mode-definitions | [User-definable modes as staged workflows](mode-definitions.md) | Proposed |
+| sidebar-layout-recovery | [Recover sidebar layout independently of Chromium storage](sidebar-layout-recovery.md) | Accepted |
+| steering-local-tool-interruption | [Steering waits for confirmed tool settlement](steering-local-tool-interruption.md) | Accepted |
+| file-manager-line-references | [File Manager line references](file-manager-line-references.md) | Implemented candidate |
+| composer-pasted-directory-references | [Composer pasted directory references](composer-pasted-directory-references.md) | Accepted |
 | plugin-projects-list | [Read-only durable project enumeration for plugins](plugin-projects-list.md) | Accepted |
 | append-only-review-state | [Append-only review state](append-only-review-state.md) | Implemented candidate |
 | lossless-tool-image-storage | [Lossless tool-image storage and bounded history mutations](lossless-tool-image-storage.md) | Implemented candidate |
 | plugin-remote-workspace-reads | [Plugin reads in remote workspaces](plugin-remote-workspace-reads.md) | Implemented candidate |
+| plugin-net-fetch-binary-response | [Bounded binary response mode for plugin net.fetch](plugin-net-fetch-binary-response.md) | Accepted |
 | browser-background-lifecycle | [Browser page execution outlives side-panel presentation](browser-background-lifecycle.md) | Accepted |
 | asktool-draft-survives-session-switch | [AskTool drafts survive a card remount](asktool-draft-survives-session-switch.md) | Accepted |
 | tool-abort-abandons-host-call | [A user stop ends the turn even when the running tool cannot be cancelled](tool-abort-abandons-host-call.md) | Accepted for implementation |
@@ -122,7 +135,7 @@ Each ADR includes:
 | 0076 | Capture the Windows-reserved plugin launcher chord in host-core | Accepted |
 | 0077 | Add an interactive multi-question asktool | Accepted for implementation |
 | 0078 | Cross-platform tray-resident minimize | Accepted for implementation (amended by 0117, 0123, and tray-session-shortcuts) |
-| 0079 | Use VitePress for the bilingual documentation site | Accepted |
+| 0079 | Use VitePress for the bilingual documentation site | Accepted; Chinese mirror scope amended by ADR chinese-docs-entry-points-only |
 | 0080 | Prewarm the global plugin launcher after boot | Accepted |
 | 0081 | Host-owned cross-platform plugin panel chrome | Accepted |
 | 0082 | Localized and page-adaptive plugin panel chrome | Accepted |
@@ -395,19 +408,35 @@ Each ADR includes:
 | 0332 | [macOS keeps its translucent window surface with an opaque opt-out](0332-macos-opaque-window-surface.md) | Accepted (D665, amended by D666 and D667; supersedes the macOS vibrancy window backing from D348; issue #1064) |
 | gen-ui-inline-visualization | [Inline generative UI visualizations](gen-ui-inline-visualization.md) | Accepted (D671) |
 | 0337 | [Keep the request prefix stable across delegation settlements](0337-stable-prompt-prefix-across-delegation.md) | Accepted (supersedes ADR 0279 §9) |
+| 0341 | [Explicit actions on reviewed files](0341-explicit-reviewed-file-actions.md) | Accepted |
 | 0338 | [A user-supplied video owns the boot surface, served over a host-owned scheme](0338-user-supplied-startup-animation.md) | Accepted (D679) |
+| 0339 | [Chat file references open absolute files outside the managed roots](0339-chat-file-refs-open-absolute-files-outside-managed-roots.md) | Accepted (amends ADR 0262 §4) |
 
 | model-reasoning-effort-override | [Model reasoning effort override](model-reasoning-effort-override.md) | Proposed |
 
-| 0339 | [Sidebar token usage summary](0339-sidebar-token-usage-summary.md) | Accepted (amends 0173; D680) |
-| 0340 | [Bundled Git work panel](0340-bundled-git-work-panel.md) | Accepted (D681; amended by 0341 / D682) |
-| 0341 | [Tree review and AI commit messages in Git](0341-git-ai-commit-messages.md) | Accepted (D682) |
-| 0342 | [Window-sized plugin view modals](0342-window-sized-plugin-view-modals.md) | Accepted (D683) |
-| 0343 | [Remote SSH Agent Runtime](0343-remote-ssh-agent-runtime.md) | Accepted for implementation (D684) |
-| 0344 | [Managed SSH password authentication](0344-managed-ssh-password-auth.md) | Accepted (D685) |
-| 0345 | [Voice dictation, phase 1](0345-voice-dictation-phase-1.md) | Accepted for implementation (D686) |
-| 0346 | [Local voice plugin replaces cloud speech](0346-local-voice-plugin.md) | Accepted for implementation (D687) |
-| 0347 | [CC Connect loopback bridge](0347-cc-connect-loopback-bridge.md) | Accepted for implementation (D688) |
+| 0342 | [Built-in computer use is a host-owned capability behind a user-picked scope grant](0342-os-computer-use-capability.md) | Proposed (D681; amends non-goal 9) |
+| 0340 | [Let a granted plugin reach every session, not only its imports](0340-plugin-session-all-scope.md) | Accepted (D680; amends ADR 0200 and ADR 0323) |
+| 0343 | [The plugin launcher enumerates and opens local applications](0343-plugin-launcher-local-apps.md) | Accepted (issue #2085) |
+| 0344 | [Computer use grants the whole desktop automatically, and Stop is the boundary](0344-computer-use-whole-desktop-grant.md) | Accepted (D682; amends ADR 0342 §4 and §6) |
+| 0345 | [One settings destination owns one subject](0345-one-settings-destination-one-subject.md) | Accepted (D684; amends D143, D166, D678) |
+| 0346 | [`@agent` mentions route a turn to a named subagent](0346-composer-agent-mentions.md) | Accepted (issue #986; extends 0024 / 0062) |
+| composer-local-file-references | [Pasted local files are live references](composer-local-file-references.md) | Accepted (issue #2314) |
+| chinese-docs-entry-points-only | [Chinese documentation keeps entry points only](chinese-docs-entry-points-only.md) | Accepted; amends ADR 0079 |
+| windows-native-snap-without-frame-insets | [Restore Windows snapping without Electron frame insets](windows-native-snap-without-frame-insets.md) | Accepted (issue #2330; amends ADR 0317) |
+| plan-approval-session-permission | [Plan approval defaults to the owning Session's permission](plan-approval-session-permission.md) | Accepted; amends ADR 0053 and ADR 0158 |
+| plugin-transcript-selection-views | [Docked views can accept transcript selections](plugin-transcript-selection-views.md) | Accepted (issue #2395) |
+| opt-in-background-job-continuation | [Opt-in background job continuation](opt-in-background-job-continuation.md) | Proposed (#2143) |
+| plugin-turn-observation-model-context-and-suggestion-targets | [Publish turn observations, scoped model context, and Composer suggestion targets](plugin-turn-observation-model-context-and-suggestion-targets.md) | Accepted (#2470) |
+
+| 0348 | [Sidebar token usage summary](0348-sidebar-token-usage-summary.md) | Accepted (amends 0173; D686) |
+| 0349 | [Bundled Git work panel](0349-bundled-git-work-panel.md) | Accepted (D687; amended by 0350 / D688) |
+| 0350 | [Tree review and AI commit messages in Git](0350-git-ai-commit-messages.md) | Accepted (D688) |
+| 0351 | [Window-sized plugin view modals](0351-window-sized-plugin-view-modals.md) | Accepted (D689) |
+| 0352 | [Remote SSH Agent Runtime](0352-remote-ssh-agent-runtime.md) | Accepted for implementation (D690) |
+| 0353 | [Managed SSH password authentication](0353-managed-ssh-password-auth.md) | Accepted (D691) |
+| 0354 | [Voice dictation, phase 1](0354-voice-dictation-phase-1.md) | Accepted for implementation (D692) |
+| 0355 | [Local voice plugin replaces cloud speech](0355-local-voice-plugin.md) | Accepted for implementation (D693) |
+| 0356 | [CC Connect loopback bridge](0356-cc-connect-loopback-bridge.md) | Accepted for implementation (D694) |
 
 > The fork's own decisions originally took the 0230 - 0235 range that merged main
 > had already assigned, so they were renumbered to D430 - D435 and ADR 0266 - 0271
@@ -420,6 +449,9 @@ Each ADR includes:
 > fork's records moved once more, to ADR 0322 - 0329 and D650 - D657. The
 > 2026-11 sync then brought upstream ADRs 0322 - 0338 and decision ids up to
 > D679, claiming the fork's 0322 - 0330 and D650 - D658, so the fork's records
-> moved to ADR 0339 - 0347 and D680 - D688. Note upstream independently reused
-> decision id D439 for its window-toggle and chat-content-width records; the
-> fork's voice-dictation record is D686.
+> moved to ADR 0339 - 0347 and D680 - D688. The 2026-12 sync then brought
+> upstream ADRs 0339 - 0346 and decision ids up to D685, claiming the fork's
+> 0339 - 0346 and D680 - D685, so the fork's records moved to ADR 0348 - 0356
+> and D686 - D694. Note upstream independently reused decision id D439 for its
+> window-toggle and chat-content-width records; the fork's voice-dictation
+> record is D692.

@@ -22,10 +22,7 @@ export {
   type HostOperationsDeps,
 } from "@pi-desktop/host-runtime";
 
-/** pi-host-only deps; `dataDir` keeps host credentials out of plugin reads. */
-export type PiHostOperationsDeps = HostOperationsDeps & { dataDir?: string };
-
-export function createHostOperations(deps: PiHostOperationsDeps): Omit<RacpHostOperations, "terminal"> {
+export function createHostOperations(deps: HostOperationsDeps): Omit<RacpHostOperations, "terminal"> {
   return {
     ...createSharedHostOperations(deps),
     workspaceTools: createWorkspaceTools(deps.getHost),

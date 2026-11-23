@@ -73,14 +73,23 @@ export type AppSettings = {
   speech?: SpeechSettings;
   /** App-owned real-time voice bindings; separate from local dictation. */
   liveVoice?: LiveVoiceSettings;
+  /** Granted native application control (ADR 0342); off and unbound by default. */
+  computerUse?: import("../computer-use.js").ComputerUseSettings;
   defaultMode: Mode;
   /**
    * Keep retryable provider/network failures retrying until the request succeeds.
    * Absent and false use the bounded ten-retry policy.
    */
   infiniteProviderRetry?: boolean;
+  /** Opt-in local background result delivery; absent means disabled. */
+  backgroundJobContinuationEnabled?: boolean;
   /** Allow Agent mode to call TypeSafe Jev for explicit structured classifications. */
   jevEnabled?: boolean;
+  /**
+   * Offer the sandboxed `codemode` tool in Agent mode (ADR
+   * codemode-sandbox-boundary). Off when absent.
+   */
+  codemodeEnabled?: boolean;
   /** Prevent idle system sleep while this desktop app runs; off when absent. */
   keepAwakeWhileRunning?: boolean;
   /** Enable scheduled task UI, tools and new runs. Absent means enabled. */
@@ -150,6 +159,23 @@ export type AppSettings = {
    */
   transcriptDisplayMode?: TranscriptDisplayMode;
   /**
+   * Fold a settled activity group by default (issue #2094).
+   *
+   * `false` keeps every settled group open; absent and `true` fold them, so a
+   * completed turn expands to a compact list of what the agent did. There is no
+   * other tier: the old "groups of up to four rows stay open" rule is gone,
+   * because a switch labelled auto-collapse must not still collapse something.
+   */
+  autoCollapseSettledGroups?: boolean;
+  /**
+   * Fold reasoning that is no longer being generated (issue #2094).
+   *
+   * Only meaningful while `showThinking` renders reasoning rows. `false` keeps
+   * every rendered Thinking row open; absent and `true` fold all of them except
+   * the row the live turn is still streaming.
+   */
+  autoCollapseThinking?: boolean;
+  /**
    * @deprecated Replaced by `transcriptDisplayMode`. Retained for persisted
    * settings and older clients; current rendering no longer reads it.
    */
@@ -209,7 +235,7 @@ export type AppSettings = {
    */
   contextUsageDisplay?: ContextUsageDisplay;
   /**
-   * Local plugin dictation preferences (fork, ADR 0346). Transcription runs
+   * Local plugin dictation preferences (fork, ADR 0355). Transcription runs
    * on a local model owned by the local-voice plugin, so no endpoint or key
    * is configured here. Legacy cloud fields (`sttBaseUrl`/`sttModel`) and
    * the pre-2026-10 `voice` member name are ignored. Distinct from the
@@ -262,6 +288,12 @@ export type AppSettings = {
    * disabled, so a fresh install shows a clean sidebar until the user opts in.
    */
   sidebarSessionTime?: boolean;
+  /**
+   * Per-module visibility for the left sidebar. Every module is shown unless
+   * its key is explicitly `false`, so an absent object keeps the released
+   * layout. Settings stays reachable regardless: it has no key here.
+   */
+  sidebarModules?: SidebarModulePreferences;
   /** Voice input settings (D-voice-runtime). */
   voice?: VoiceInputSettings;
   /**
@@ -290,6 +322,26 @@ export type VoiceInputSettings = {
 export type LinkOpenTarget = "workpanel" | "external";
 
 export type ContextUsageDisplay = "remaining" | "used";
+
+/**
+ * Hideable sidebar modules. Child modules (a section's toolbar buttons) only
+ * render while their parent section is visible.
+ */
+export type SidebarModuleId =
+  | "newTask"
+  | "scheduled"
+  | "pluginMarket"
+  | "pinnedSessions"
+  | "sessions"
+  | "sessionSort"
+  | "newSession"
+  | "projects"
+  | "newProject"
+  | "projectNewTask"
+  | "buildVersion";
+
+/** `false` hides a module; absent or `true` shows it. */
+export type SidebarModulePreferences = Partial<Record<SidebarModuleId, boolean>>;
 
 /**
  * One action the transcript background radial menu can place on a direction.

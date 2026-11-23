@@ -5,6 +5,7 @@ import { createQueueSlice } from "../../apps/desktop/src/stores/slices/queue-sli
 import type { SessionRuntime } from "../../apps/desktop/src/stores/runtime/session-runtime";
 import { useComposerSubmit } from "../../apps/desktop/src/features/chat/composer/hooks/useComposerSubmit";
 import { verifyComposerSubmission } from "./composer-submission";
+import "./composer-draft-race";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { createInstance } from "i18next";
@@ -30,18 +31,24 @@ import {
 import { api } from "../../apps/desktop/src/lib/api";
 import { FilesTab } from "../../apps/desktop/src/components/workpanel/FilesTab";
 import { FileRefChip, MessageAttachmentImage } from "../../apps/desktop/src/features/chat/transcript/shared";
+import { MessageRow } from "../../apps/desktop/src/features/chat/transcript/MessageRow";
+import { SlotSessionProvider } from "../../apps/desktop/src/plugins/renderer-slots/use-slots";
 import { useOpenChatFileRef } from "../../apps/desktop/src/hooks/use-preview-target";
 import {
   readComposerDraft,
   resetComposerDraftCache,
+  sameDraftFileReference,
 } from "../../apps/desktop/src/lib/composer-draft-cache";
+import type { ComposerDraftSnapshot } from "../../apps/desktop/src/lib/composer-smart-stop";
 import { useAppStore } from "../../apps/desktop/src/stores/app-store";
+import { loadComposerInputHistory } from "../../apps/desktop/src/lib/composer-input-history";
+import { promptAttachmentsFromDraft } from "../../apps/desktop/src/stores/helpers/store-helpers";
 
 declare global {
   var composerPreviewPointer: (input: { type: "mousePressed" | "mouseMoved" | "mouseReleased"; x: number; y: number }) => Promise<void>;
   var composerPreviewPressKey: (key: string) => Promise<void>;
   var composerPreviewCapture: (() => Promise<void>) | undefined;
-  var composerPasteProbe: () => Promise<unknown>;
+  var composerPasteProbe: (screenshotOnly?: boolean, fileReferencesOnly?: boolean, referenceProject?: string, referenceHistoryOnly?: boolean) => Promise<unknown>;
   var composerHistoryProbe: (phase: "prepare" | "verify") => Promise<unknown>;
 }
 const assert = (value: unknown, message: string) => {
@@ -76,6 +83,7 @@ function Fixture({ sessionId, t, workspacePath }: { sessionId: string; t: TFunct
   const submitController = useComposerSubmit({
     value: draft.value, draftKey: draft.draftKey, activeSessionId: sessionId || null,
     thinkingLevel: "off", modelReady: true, sendBlocked: false, pasting: false,
+    invalidateComposerTransforms: noop,
     activeFileReferences: draft.activeFileReferences, t, draft,
     recordHistory: inputHistory.record,
     sendPrompt: (...args) => historySendPrompt(...args),
@@ -100,6 +108,8 @@ function Fixture({ sessionId, t, workspacePath }: { sessionId: string; t: TFunct
       <div className="composer-shell">
       <ComposerInput
         imagePreview={draft.imagePreview}
+        directoryReferences={draft.activeFileReferences.filter((reference) => reference.kind === "directory")}
+        onRemoveDirectory={draft.removeDirectoryReference}
         inputRef={draft.ref}
         value={draft.value}
         placeholderText=""
@@ -151,7 +161,7 @@ function Mp4AttachmentChips({ scratchPath }: { scratchPath: string }) {
   );
 }
 
-globalThis.composerPasteProbe = async () => {
+globalThis.composerPasteProbe = async (screenshotOnly = false, fileReferencesOnly = false, referenceProject = "", referenceHistoryOnly = false) => {
   const i18n = createInstance();
   await i18n.init({
     lng: "en",
@@ -200,6 +210,7 @@ globalThis.composerPasteProbe = async () => {
     editor: HTMLDivElement,
     text: string,
     files: File[],
+    fileLines?: { workspace: string; path: string; start: number; end: number },
   ) => {
     const data = new DataTransfer();
     if (text) {
@@ -207,6 +218,7 @@ globalThis.composerPasteProbe = async () => {
       data.setData("text/html", `<b>${text}</b>`);
     }
     for (const file of files) data.items.add(file);
+    if (fileLines) data.setData("application/x-pi-desktop-file-lines", JSON.stringify(fileLines));
     const event = new ClipboardEvent("paste", {
       clipboardData: data,
       bubbles: true,
@@ -235,6 +247,106 @@ globalThis.composerPasteProbe = async () => {
     selection.addRange(range);
   };
   try {
+    const lineEditor = await reset();
+    const workspace = "/fixture/project";
+    useAppStore.setState({ activeProjectPath: workspace });
+    await dispatchPaste(lineEditor, "saved line selection", [], { workspace, path: workspace + "/gpt.py", start: 85, end: 86 });
+    const lineChip = lineEditor.querySelector(".composer-chip");
+    assert(lineChip?.textContent?.includes("gpt.py (85:86)"), "file range paste did not create a line chip");
+    assert(!lineEditor.textContent?.includes("saved line selection"), "file range paste inserted source text");
+    assert(controller.snapshotReferences("paste-a")[0]?.lineRange?.start === 85, "file range did not reach the draft");
+    for (let start = 1; start <= 3; start++) {
+      await dispatchPaste(lineEditor, "saved line selection", [], { workspace, path: workspace + "/gpt.py", start, end: start });
+    }
+    assert(controller.snapshotReferences("paste-a").length === 4, "file range limit fixture did not fill");
+    await dispatchPaste(lineEditor, "limit fallback text", [], { workspace, path: workspace + "/gpt.py", start: 4, end: 4 });
+    assert(lineEditor.textContent?.includes("limit fallback text"), "file range limit swallowed the pasted plain text");
+    assert(controller.snapshotReferences("paste-a").length === 4, "file range limit added an extra chip");
+    const otherProjectEditor = await reset();
+    await dispatchPaste(otherProjectEditor, "foreign selection", [], {
+      workspace: "/fixture/other", path: "/fixture/other/gpt.py", start: 85, end: 86,
+    });
+    assert(!otherProjectEditor.querySelector(".composer-chip"), "another project's paste created a file line chip");
+    assert(otherProjectEditor.textContent?.includes("foreign selection"), "another project's paste lost the plain text");
+    useAppStore.setState({ activeProjectPath: null });
+
+    useAppStore.setState({ sessions: [{
+      id: "paste-a", title: "Folder paste fixture", source: "desktop", mode: "agent",
+      permissionMode: "inherit", thinkingLevel: "off", messageCount: 0,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    }] });
+    if (fileReferencesOnly || referenceHistoryOnly) {
+      const prefix = referenceHistoryOnly ? "" : "Inspect ";
+      await reset(prefix, prefix.length, prefix.length);
+      useAppStore.setState({ workspace: { path: referenceProject, name: "Reference fixture" } as AppState["workspace"] });
+      render("paste-a", referenceProject);
+      if (referenceHistoryOnly) {
+        const history = loadComposerInputHistory("paste-a")[0];
+        assert(history?.fileReferences.length === 2, "process restart lost reference history");
+        flushSync(() => controller.restoreDraftForKey("paste-a", history));
+        await new Promise(requestAnimationFrame);
+      } else {
+        const files = Array.from((document.getElementById("native-files") as HTMLInputElement).files!);
+        assert(files.length === 2 && files.every(file => api.getDroppedFilePath(file)), "native reference File paths missing");
+        for (const file of files) file.arrayBuffer = () => { throw new Error("disk file bytes were read by the renderer"); };
+        await dispatchPaste(controller.ref.current!, "", files);
+      }
+      const snapshot = controller.draftSnapshot(readEditorValue(controller.ref.current!));
+      const matchesSnapshot = (candidate: ComposerDraftSnapshot | undefined) => candidate !== undefined &&
+        candidate.text === snapshot.text && candidate.fileReferences.length === snapshot.fileReferences.length &&
+        candidate.fileReferences.every((file, index) => sameDraftFileReference(file, snapshot.fileReferences[index]));
+      assert(snapshot.fileReferences.length === 2, "native file-only selection did not attach both references");
+      const large = snapshot.fileReferences.find(file => file.name === "large reference.bin")!;
+      assert(large?.size === 67108865 && large.localReference && !large.path.includes("/scratch/"), "large file lost its original path, size or selection id");
+      assert(controller.ref.current!.textContent?.includes("64 MiB"), "file card did not display its size");
+      flushSync(() => root.render(null));
+      render("paste-a", referenceProject);
+      await new Promise(requestAnimationFrame);
+      assert(matchesSnapshot(controller.draftSnapshot(readEditorValue(controller.ref.current!))), "remount lost reference metadata");
+      const previousSend = historySendPrompt;
+      try {
+        historySendPrompt = async (content, draft) => {
+          const response = await api.prompt({ sessionId: "paste-a", content,
+            attachments: promptAttachmentsFromDraft(draft?.fileReferences ?? []) });
+          return response.accepted;
+        };
+        await rejectSubmission();
+        const history = loadComposerInputHistory("paste-a")[0];
+        assert(matchesSnapshot(history), "accepted history changed live reference metadata");
+        flushSync(() => controller.restoreDraftForKey("paste-a", history));
+        await new Promise(requestAnimationFrame);
+        assert(matchesSnapshot(controller.draftSnapshot(readEditorValue(controller.ref.current!))), "history recall lost removable references");
+        flushSync(() => controller.ref.current!.querySelector<HTMLButtonElement>(".composer-chip-remove")!.click());
+        assert(controller.fileReferences.length === 1, "restored reference was not removable");
+      } finally { historySendPrompt = previousSend; }
+      return { ok: true, largeFileReference: true, noRendererByteRead: true, metadataHistory: true,
+        refreshedSize: true, processRestartMetadata: referenceHistoryOnly };
+    }
+    const directoryEditor = await dispatchPaste(await reset("before after", 0, 6), "", []);
+    const directoryChip = directoryEditor.closest(".composer-input-wrap")?.querySelector(".directory-reference-card");
+    assert(directoryChip?.textContent?.includes("copied folder"), "native folder metadata did not render a chip");
+    assert(directoryChip!.getBoundingClientRect().bottom <= directoryEditor.getBoundingClientRect().top,
+      "folder card must be above the editable text");
+    assert(directoryChip!.getBoundingClientRect().width < 200, "short folder name leaves too much blank card width");
+    assert(directoryEditor.getBoundingClientRect().height < 40, "a short prompt leaves excess blank space below the card");
+    assert(readEditorValue(directoryEditor) === "before after", "folder paste changed the editable text");
+    assert(controller.fileReferences[0]?.kind === "directory", "folder chip must own a directory reference");
+    const content = serializeInlineComposerFileReferences(readEditorValue(directoryEditor), controller.activeFileReferences);
+    assert(content.includes("<dir>") && content.includes("Inspect their structure"), "model prompt lost directory context");
+    flushSync(() => directoryChip?.querySelector<HTMLButtonElement>(".directory-reference-remove")?.click());
+    assert(controller.fileReferences.length === 0, "folder chip could not be removed");
+    flushSync(() => root.render(
+      <I18nextProvider i18n={i18n}>
+        <SlotSessionProvider sessionId="paste-a">
+          <MessageRow message={{ id: "directory-message", role: "user", content, createdAt: "2026-01-01T00:00:00Z" }} isRunning={false} />
+        </SlotSessionProvider>
+      </I18nextProvider>,
+    ));
+    assert(host.querySelector(".message-user-text")?.textContent === "before after", "user bubble leaked the model prompt");
+    const sentFolder = host.querySelector<HTMLButtonElement>(".message-bubble .directory-reference-main");
+    assert(sentFolder?.textContent?.includes("copied folder"), "user bubble lost the clickable folder");
+    sentFolder!.click();
+
     // Settings replaces ChatSurface, then remounts the composer in the same
     // workspace. Exercise the real draft hook and DOM across that lifecycle.
     render("paste-a", "/project-a");
@@ -310,6 +422,26 @@ globalThis.composerPasteProbe = async () => {
       !api.getDroppedFilePath(image),
       "synthetic clipboard image unexpectedly has a native path",
     );
+    if (screenshotOnly) {
+      const readDirectories = api.readClipboardDirectories;
+      let directoryScans = 0;
+      api.readClipboardDirectories = async () => {
+        directoryScans++;
+        throw new Error("screenshot entered native directory discovery");
+      };
+      try {
+        await paste("", [image]);
+        assert(directoryScans === 0, "screenshot entered native directory discovery");
+        assert(controller.fileReferences.length === 1 && controller.fileReferences[0].kind === "image",
+          "screenshot bytes did not become an image attachment");
+      } finally {
+        api.readClipboardDirectories = readDirectories;
+      }
+      await paste("native-image.png", [nativeFiles[0]]);
+      assert(controller.fileReferences.length === 1 && controller.fileReferences[0].kind === "image",
+        "native image file lost its attachment path");
+      return { ok: true, screenshotWithoutDirectoryScan: true, nativeImagePreserved: true };
+    }
     const text = "Word paragraph 中文\nsecond line";
     let editor = await paste(text, [image]);
     assert(
@@ -519,7 +651,18 @@ globalThis.composerPasteProbe = async () => {
       previewHost.remove();
     }
 
-    await paste("", [image]);
+    const readDirectories = api.readClipboardDirectories;
+    let screenshotDirectoryScans = 0;
+    api.readClipboardDirectories = async () => {
+      screenshotDirectoryScans++;
+      return readDirectories();
+    };
+    try {
+      await paste("", [image]);
+    } finally {
+      api.readClipboardDirectories = readDirectories;
+    }
+    assert(screenshotDirectoryScans === 0, "screenshot paste waited for native directory scanning");
     assert(
       controller.fileReferences.length === 1 &&
         controller.fileReferences[0].kind === "image",
@@ -643,6 +786,8 @@ globalThis.composerPasteProbe = async () => {
       "closing did not restore the draft caret");
     for (const key of ["Enter", " "]) {
       chip.focus();
+      // Chromium can keep the editing host focused for a nested non-editable chip.
+      const focusBeforePreview = document.activeElement;
       const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
       flushSync(() => chip.dispatchEvent(event));
       assert(event.defaultPrevented, "preview key inserted text or sent the draft");
@@ -650,8 +795,8 @@ globalThis.composerPasteProbe = async () => {
       assert(readEditorValue(editor) === beforePreview && submitted === 0,
         "preview key altered or sent the draft");
       await globalThis.composerPreviewPressKey("Escape");
-      await until(() => !dialog(), "native Escape did not dismiss the preview");
-      assert(!dialog() && document.activeElement === chip, "cancel did not close and restore attachment focus");
+      await until(() => !dialog() && document.activeElement === focusBeforePreview,
+        "native Escape did not dismiss the preview and restore the original focus");
     }
     // The isolated host supplies real images within the allowed scratch directory.
     const wide = createFileReference(imageReference.path.replace(/[^/\\]+$/, "wide-fixture.png"), "wide.png", "paste-a", {
@@ -981,6 +1126,7 @@ globalThis.composerPasteProbe = async () => {
     await verifyComposerSubmission(imageReference.path, i18n);
     return {
       ok: true,
+      nativeDirectoryMetadata: true,
       fullComposerSubmissionAndOverflow: true,
       mixedShortText: true,
       multilineAndUndoRedo: true,
@@ -1128,9 +1274,11 @@ globalThis.composerHistoryProbe = async (phase) => {
         latestTurnResults: {},
         sessionOutcomes: {},
         isRunning: false,
+        rememberModel: noop,
       } as unknown as AppState;
       const queueRuntime = {
         beginNavigationIntent: () => 1,
+        sessionModeSelections: new Map(),
         submittedComposerDrafts: new Map(),
         sessionTranscriptCache: new Map(),
         insertOptimisticUserMessage: () => {},
@@ -1153,6 +1301,7 @@ globalThis.composerHistoryProbe = async (phase) => {
         messageErrorFromUnknown: () => { throw new Error("unexpected prompt failure"); },
         assistantErrorMessage: () => { throw new Error("unexpected prompt failure"); },
         materializeDraftSession: async () => "history-created-session",
+        flushPendingSessionConfiguration: async () => {},
       });
       historySendPrompt = queueSlice.sendPrompt;
       api.prompt = async (input) => {
@@ -1164,7 +1313,10 @@ globalThis.composerHistoryProbe = async (phase) => {
       };
       try {
         await press("Enter");
-        await started;
+        await Promise.race([
+          started,
+          latestSubmission.then(() => { throw new Error("Home submission settled before reaching the prompt boundary"); }),
+        ]);
         const homeSubmission = latestSubmission;
         render("paste-b");
         releaseSend();

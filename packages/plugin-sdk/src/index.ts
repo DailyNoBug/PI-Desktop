@@ -24,6 +24,10 @@ export type PluginNetFetchInput = {
   headers?: Record<string, string>;
   body?: string;
   timeoutMs?: number;
+  /** Defaults to text. Base64 returns bounded binary response bytes. */
+  responseType?: "text" | "base64";
+  /** Required upper bound for base64 responses when supplied. */
+  maxResponseBytes?: number;
   /** Defaults to follow. error refuses any 3xx; manual returns it unchanged. */
   redirect?: "follow" | "error" | "manual";
 };
@@ -32,6 +36,16 @@ export type PluginNetFetchResult = {
   status: number;
   headers: Record<string, string>;
   bodyText: string;
+  /** Present only when responseType is base64. */
+  bodyBase64?: string;
+  contentType?: string;
+  byteLength?: number;
+};
+
+export type PluginNetCapabilities = {
+  fetchRedirectModes: ("follow" | "error" | "manual")[];
+  binaryResponseBody?: true;
+  maxResponseBodyBytes?: number;
 };
 
 /**
@@ -185,6 +199,22 @@ export type PluginManifest = {
     globalShortcuts?: PluginGlobalShortcutContrib[];
     /** User-invoked text actions beside the Composer controls. */
     composerTransforms?: PluginComposerTransformContrib[];
+    /** Opt into the process-only `onModelContext` hook (`agent.modelContext`). */
+    modelContext?: true;
+    /**
+     * Launcher triggers: the plugin claims launcher input that matches its
+     * pattern. Each `pattern` is matched against the *whole* trimmed launcher
+     * input, so a character class never competes with a one-character query;
+     * patterns that could backtrack catastrophically are refused at manifest
+     * load. Requires the `ui.panel` permission, because a match opens this
+     * plugin's panel.
+     */
+    launcherTriggers?: Array<{
+      id: string;
+      pattern: string;
+      flags?: string;
+      title?: string | { en: string; "zh-CN": string };
+    }>;
   };
   permissions?: string[];
   /**
@@ -391,7 +421,8 @@ export type PluginSessionListItem = {
   sessionId: string;
   title: string;
   source: string;
-  externalId: string;
+  /** The import source's id; `null` for a session this plugin did not import. */
+  externalId: string | null;
   projectId: number | null;
   messageCount: number;
   originKind: "imported" | "created";
@@ -408,8 +439,8 @@ export type PluginSessionListResult = {
 export type PluginSessionGetResult = {
   sessionId: string;
   title: string;
-  source: string;
-  externalId: string;
+  /** The import source's id; `null` for a session this plugin did not import. */
+  externalId: string | null;
   originKind: "imported" | "created";
   projectId: number | null;
   projectPath: string | null;
@@ -472,7 +503,8 @@ export type PluginSessionMessageResult = {
   content: string;
   contentTruncated?: boolean;
   createdAt: string;
-  origin: "external";
+  /** `external` for imported history, `desktop` for a host-created session. */
+  origin: "external" | "desktop";
   tool?: {
     name: string;
     callId: string;
@@ -485,6 +517,49 @@ export type PluginSessionMessageResult = {
 export type PluginSessionMessageListResult = {
   items: PluginSessionMessageResult[];
   nextCursor?: string;
+};
+
+/**
+ * One message a plugin writes (`session.update.all`). The `id` is optional:
+ * the host generates one when it is absent, and a supplied id makes a retried
+ * write idempotent instead of appending the row twice.
+ */
+export type PluginSessionMessageInput = {
+  id?: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  /** Monotonic RFC3339 within one call, newest last. */
+  createdAt: string;
+  modelId?: string;
+  providerId?: string;
+  toolName?: string;
+  toolCallId?: string;
+  toolStatus?: "success" | "error";
+  toolArgs?: unknown;
+  toolResult?: unknown;
+};
+
+/** Result of `pi.session.appendMessage`. */
+export type PluginSessionAppendResult = {
+  messageId: string;
+};
+
+/** Result of `pi.session.replaceMessages`. */
+export type PluginSessionReplaceResult = {
+  /** Rows the rewritten transcript now holds. */
+  messageCount: number;
+};
+
+/** Result of `pi.session.deleteMessage`; a missing target is a no-op, not an error. */
+export type PluginSessionDeleteMessageResult = {
+  deleted: boolean;
+  deletedCount: number;
+};
+
+/** Result of `pi.session.truncateFrom`. */
+export type PluginSessionTruncateResult = {
+  keptCount: number;
+  discardedCount: number;
 };
 
 /** Resolve a plugin label using the active PI-Desktop locale. */
@@ -829,6 +904,9 @@ export const PLUGIN_VIEW_ICONS = [
 
 export type PluginViewIcon = (typeof PLUGIN_VIEW_ICONS)[number];
 
+/** User-selected transcript text sent to a single docked view. */
+export type PluginViewSelection = { sessionId: string; text: string };
+
 /**
  * One surface the plugin docks inside the host's work panel.
  *
@@ -837,6 +915,8 @@ export type PluginViewIcon = (typeof PLUGIN_VIEW_ICONS)[number];
  * plugin can ship "Changes" and "History" as two independent entries.
  */
 export type PluginViewContrib = {
+  /** Also offer this view in the context menu for selected transcript text. */
+  acceptsTranscriptSelection?: boolean;
   /** Plugin-local view id; `<pluginId>/<id>` addresses it globally. */
   id: string;
   /** Menu label. Localized objects are resolved against the host locale. */
@@ -1322,12 +1402,37 @@ export type PluginThemeSummary = {
   base: "light" | "dark";
 };
 
+export type PluginAppCapabilities = {
+  sessionUserMessagePersisted?: boolean;
+  composerSuggestionCandidates?: boolean;
+};
+
+export type PluginComposerSuggestionTargetInput = { sessionId: string; turnId: string };
+export type PluginComposerSuggestCandidatesInput = {
+  target: string;
+  candidates: readonly string[];
+  ttlMs?: number;
+};
+
+export type PluginSessionTurnStarted = { sessionId: string; turnId: string };
+export type PluginSessionUserMessagePersisted = PluginSessionTurnStarted & { messageId: string };
+
+export type PluginModelContextInput = PluginSessionTurnStarted & { projectId?: string; modelKey?: string };
+export type PluginModelContextResult = { text: string };
+
+type PluginObservedSessionEvents = {
+  "session:turnStarted": PluginSessionTurnStarted;
+  "session:userMessagePersisted": PluginSessionUserMessagePersisted;
+};
+
 export type PluginHostApi = {
+  /** Host capabilities are feature flags, not permission grants. */
   app: {
     getVersion: () => Promise<string>;
     /** Active app language. Plugin-owned UI localizes from this (ADR 0280). */
     getLocale: () => Promise<string>;
     getAppearance: () => Promise<PluginAppearance>;
+    getCapabilities: () => Promise<PluginAppCapabilities>;
     /**
      * Apply the host's app theme preference (`ui.theme`). Accepts a built-in
      * preference or a currently registered plugin theme id.
@@ -1376,6 +1481,10 @@ export type PluginHostApi = {
      * a new turn, this plugin unloading, a renderer reload, or a window close.
      */
     suggest: (input: PluginComposerSuggestInput) => Promise<PluginComposerSuggestResult>;
+    /** Obtain a short-lived, opaque offer target for an eligible Composer. */
+    getSuggestionTarget: (input: PluginComposerSuggestionTargetInput) => Promise<string | null>;
+    /** Offer up to three alternatives without reading, editing, or sending the draft. */
+    suggestCandidates: (input: PluginComposerSuggestCandidatesInput) => Promise<PluginComposerSuggestResult>;
     /** Drop this plugin's suggestion; nothing is shown when it is already gone. */
     clearSuggestion: (input?: PluginComposerClearSuggestionInput) => Promise<{ ok: true }>;
   };
@@ -1546,6 +1655,37 @@ export type PluginHostApi = {
       sessionId: string;
       mode?: "trash" | "purge";
     }) => Promise<{ deleted: boolean }>;
+    /**
+     * Message-level writes. Each one needs `session.update.all` and rewrites the
+     * live transcript, so the host refuses while a turn owns the session
+     * (`TURN_RUNNING`) and rate-limits the whole group.
+     */
+    appendMessage: (input: {
+      sessionId: string;
+      message: PluginSessionMessageInput;
+    }) => Promise<PluginSessionAppendResult>;
+    replaceMessages: (input: {
+      sessionId: string;
+      /** At most 2,000 entries; the whole live transcript is rewritten. */
+      messages: PluginSessionMessageInput[];
+    }) => Promise<PluginSessionReplaceResult>;
+    /**
+     * Delete one message, or — when it is a user prompt — that prompt and its
+     * replies. Needs `session.delete.all`; a missing target is a no-op.
+     */
+    deleteMessage: (input: {
+      sessionId: string;
+      messageId: string;
+    }) => Promise<PluginSessionDeleteMessageResult>;
+    /**
+     * Keep the prefix before `fromMessageId` (or the first `keepCount` messages)
+     * and discard the rest. Needs `session.delete.all`.
+     */
+    truncateFrom: (input: {
+      sessionId: string;
+      fromMessageId?: string;
+      keepCount?: number;
+    }) => Promise<PluginSessionTruncateResult>;
   };
   /**
    * Read-only completed-turn facts served by the host (`usage.read`). Flat
@@ -1617,7 +1757,7 @@ export type PluginHostApi = {
   };
   net: {
     /** Query before using redirect on hosts that may predate this API. */
-    getCapabilities: () => Promise<{ fetchRedirectModes: ("follow" | "error" | "manual")[] }>;
+    getCapabilities: () => Promise<PluginNetCapabilities>;
     fetch: (input: PluginNetFetchInput) => Promise<PluginNetFetchResult>;
     /**
      * Real-time bidirectional sockets (`net.websocket`). A connect is confined
@@ -1644,8 +1784,14 @@ export type PluginHostApi = {
     pull: () => Promise<PluginGitOperation>;
   };
   events: {
-    on: (event: string, handler: (...args: unknown[]) => void) => void;
-    off: (event: string, handler: (...args: unknown[]) => void) => void;
+    on: {
+      <K extends keyof PluginObservedSessionEvents>(event: K, handler: (payload: PluginObservedSessionEvents[K]) => void): void;
+      (event: string, handler: (...args: unknown[]) => void): void;
+    };
+    off: {
+      <K extends keyof PluginObservedSessionEvents>(event: K, handler: (payload: PluginObservedSessionEvents[K]) => void): void;
+      (event: string, handler: (...args: unknown[]) => void): void;
+    };
   };
 };
 
@@ -1669,6 +1815,11 @@ export type PluginModule = {
   onComposerTransform?: (
     input: PluginComposerTransformInput,
   ) => Promise<string> | string;
+  /** Return optional lower-trust text for one managed session turn. */
+  onModelContext?: (
+    input: PluginModelContextInput,
+    context: { signal: AbortSignal },
+  ) => Promise<PluginModelContextResult | void> | PluginModelContextResult | void;
 };
 
 /** Upper bound on ExtensionAPI modules one plugin may contribute. */
@@ -1692,6 +1843,7 @@ export const PLUGIN_PERMISSIONS = [
   "agent.tool.register",
   "agent.prompt.inject",
   "agent.complete",
+  "agent.modelContext",
   "composer.transform",
   // One dismissible line in the composer's placeholder layer. A grant here can
   // put text into a draft the user may send, so it sits with the draft writer
@@ -1709,10 +1861,18 @@ export const PLUGIN_PERMISSIONS = [
   "models.list",
   "project.create",
   "session.read",
+  "session.observe",
   "session.import",
   "session.read.own",
   "session.update.own",
   "session.delete.own",
+  // The `.all` family (ADR 0339): the same three verbs over every live session,
+  // including the user's own conversations. A separate grant rather than a
+  // wider `.own`, so an existing install never silently gains reach. `all` wins
+  // when a manifest declares both.
+  "session.read.all",
+  "session.update.all",
+  "session.delete.all",
   "session.autoTitle",
   // Read-only usage facts (pi.usage.listTurns):
   // completed-turn counters and session titles, never message bodies.
@@ -1756,6 +1916,23 @@ export function validateManifest(raw: unknown): {
   const m = raw as Partial<PluginManifest>;
   if (typeof m.id !== "string" || !m.id) {
     return { ok: false, error: "manifest.id is required" };
+  }
+  // The id names the plugin's install and data directories and its browser
+  // session partition, which map any other character to `_`; only these
+  // characters keep two plugins apart (the host enforces the same rule).
+  if (!/^[A-Za-z0-9._-]+$/.test(m.id) || m.id === "." || m.id === "..") {
+    return {
+      ok: false,
+      error: "manifest.id may only contain letters, digits, '.', '-' and '_'",
+    };
+  }
+  // Windows drops a trailing `.` and maps device names to devices, so such
+  // ids cannot name a directory of their own.
+  if (m.id.endsWith(".")) {
+    return { ok: false, error: "manifest.id must not end with '.'" };
+  }
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(m.id)) {
+    return { ok: false, error: "manifest.id must not start with a Windows device name" };
   }
   if (typeof m.name !== "string" || !m.name) {
     return { ok: false, error: "manifest.name is required" };
@@ -1820,6 +1997,15 @@ export function validateManifest(raw: unknown): {
     }
   }
   const contributesError = validateContributions(m.contributes);
+  if (m.contributes?.modelContext !== undefined && m.contributes.modelContext !== true) {
+    return { ok: false, error: "contributes.modelContext must be true" };
+  }
+  if (m.contributes?.modelContext === true && !Array.isArray(m.permissions)) {
+    return { ok: false, error: "contributes.modelContext requires the agent.modelContext permission" };
+  }
+  if (m.contributes?.modelContext === true && !m.permissions?.includes("agent.modelContext")) {
+    return { ok: false, error: "contributes.modelContext requires the agent.modelContext permission" };
+  }
   if (
     !contributesError &&
     (m.contributes?.agentExtensions?.length ?? 0) > 0 &&
@@ -2385,6 +2571,9 @@ export function validateContributions(
     if (entryError) return entryError;
     if (view.order !== undefined && !Number.isFinite(view.order)) {
       return `view "${view.id}" order must be a number`;
+    }
+    if (view.acceptsTranscriptSelection !== undefined && typeof view.acceptsTranscriptSelection !== "boolean") {
+      return `view "${view.id}" acceptsTranscriptSelection must be a boolean`;
     }
     // `icon` is intentionally unchecked: an unknown token degrades to a letter
     // tile, so rejecting one would break a plugin over a cosmetic detail.

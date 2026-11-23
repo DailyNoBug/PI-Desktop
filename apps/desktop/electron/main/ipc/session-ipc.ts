@@ -1,4 +1,5 @@
 import { shell } from "electron";
+import type { ModeCatalogService } from "../runtime/mode-catalog";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import {
@@ -9,6 +10,7 @@ import {
   draftMatchesExisting,
   providerCreateInputFromDraft,
   isModelConfigImportSource,
+  isModeId,
   type ModelConfigImportDraft,
   type Mode,
   type SessionThinkingLevel,
@@ -107,6 +109,8 @@ export type SessionIpcDependencies = {
   };
   forgetTranscriptRewriteHistory: (sessionId: string) => void;
   stripWinLongPrefix: (path: string) => string;
+  /** Resolves the definition snapshot attached to a mode selection. */
+  modeCatalog: Pick<ModeCatalogService, "snapshotFor">;
 };
 
 export function registerSessionIpc({
@@ -126,6 +130,7 @@ export function registerSessionIpc({
   beginTranscriptRewrite,
   forgetTranscriptRewriteHistory,
   stripWinLongPrefix,
+  modeCatalog,
 }: SessionIpcDependencies): void {
   let host: HostProcess | null = null;
   let sidecar: AgentSidecar | null = null;
@@ -260,14 +265,20 @@ export function registerSessionIpc({
       return { session };
     }
     if (!host) throw new Error("host unavailable");
-    const capabilityPromise = sessionCapabilityContext();
-    const res = await host.call<{ session?: (RuntimeSession & { id?: string }) | null }>(
+    if (!input || typeof input !== "object" || Array.isArray(input) ||
+      (input.mode !== undefined && (typeof input.mode !== "string" || !isModeId(input.mode)))) {
+      throw Object.assign(new Error("Invalid session creation mode"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+    }
+    const currentHost = host;
+    const mode = input.mode ?? "agent";
+    const modeSnapshot = await modeCatalog.snapshotFor(mode);
+    const { providers, defaults } = await sessionCapabilityContext();
+    const res = await currentHost.call<{ session?: (RuntimeSession & { id?: string }) | null }>(
       "session.create",
-      input,
+      { ...input, mode, modeSnapshot },
     );
     logger.app("session", "info", "session created", { sessionId: res.session?.id });
     if (!res.session) return res;
-    const { providers, defaults } = await capabilityPromise;
     return { ...res, session: enrichSession(res.session, providers, defaults) };
   });
   handle(
@@ -413,6 +424,20 @@ export function registerSessionIpc({
     }
     return readSessionCollaboration(host, sidecar, sessionId);
   });
+  handle(IPC.invoke.sessionUsageCost, async (input?: { sessionId?: unknown }) => {
+    const sessionId = typeof input?.sessionId === "string" ? input.sessionId.trim() : "";
+    if (!sessionId || sessionId.length > 256) {
+      throw Object.assign(new Error("sessionId must be a non-empty string of at most 256 characters"), {
+        errorCode: ErrorCodes.INVALID_ARGUMENT,
+      });
+    }
+    // Imported native Pi sessions have no Desktop turn ledger to roll up.
+    if (sessionId.startsWith("native-pi:")) {
+      return { sessionId, turnCount: 0, requestCount: 0, providers: [] };
+    }
+    if (!host) throw new Error("host unavailable");
+    return host.call("session.usageCost", { sessionId });
+  });
   handle(IPC.invoke.sessionOpen, async (rawSessionId: string) => {
     if (!host) throw new Error("host unavailable");
     const sessionId = String(rawSessionId ?? "").trim();
@@ -448,21 +473,36 @@ export function registerSessionIpc({
       return { ok: true };
     }
     if (!host) throw new Error("host unavailable");
-    const res = await host.call("session.delete", { id });
-    await persistenceOutbox.dropSession(id);
-    forgetTranscriptRewriteHistory(id);
-    // Drop the session's pi-agent so a later session with the same id (or a
-    // stale runtime) can't answer with this session's context.
-    if (sidecar) {
-      sidecar.clearProjectInstructionRoot(id);
-      sidecar.clearVendorAuthBindings(id);
-      await sidecar
-        .call("agent.disposeSession", { sessionId: id })
-        .catch(() => undefined);
+    // Same contract as session.moveProject: hold the session operation while
+    // deleting so a queued prompt cannot begin a turn between the check and
+    // the host call. The running check happens only after acquiring — a
+    // prompt holding the operation registers its turn and releases it, and
+    // the delete must still refuse that turn (issue #2291).
+    const releaseSessionOperation = await acquireSessionOperation(id);
+    try {
+      if (activeTurns.has(id)) {
+        throw Object.assign(new Error("Cannot delete a running session"), {
+          errorCode: ErrorCodes.AGENT_BUSY,
+        });
+      }
+      const res = await host.call("session.delete", { id });
+      await persistenceOutbox.dropSession(id);
+      forgetTranscriptRewriteHistory(id);
+      // Drop the session's pi-agent so a later session with the same id (or a
+      // stale runtime) can't answer with this session's context.
+      if (sidecar) {
+        sidecar.clearProjectInstructionRoot(id);
+        sidecar.clearVendorAuthBindings(id);
+        await sidecar
+          .call("agent.disposeSession", { sessionId: id })
+          .catch(() => undefined);
+      }
+      sessionProjects.delete(id);
+      logger.app("session", "info", "session deleted", { sessionId: id });
+      return res;
+    } finally {
+      releaseSessionOperation();
     }
-    sessionProjects.delete(id);
-    logger.app("session", "info", "session deleted", { sessionId: id });
-    return res;
   });
   handle(IPC.invoke.sessionRename, async (id: string, title: string) => {
     if (id.startsWith("native-pi:")) {
@@ -489,17 +529,20 @@ export function registerSessionIpc({
   });
   handle(
     IPC.invoke.sessionMoveProject,
-    async (input: { sessionId?: string; projectPath?: string } = {}) => {
+    async (input: { sessionId?: string; projectPath?: string | null } = {}) => {
       if (!host) throw new Error("host unavailable");
       const sessionId = String(input.sessionId ?? "").trim();
       rejectNativeMutation(sessionId, "project move");
-      const projectPath = String(input.projectPath ?? "").trim();
+      // An explicit `null` moves the session out of its project into the
+      // temporary group; a missing or blank path is still rejected.
+      const detach = input.projectPath === null;
+      const projectPath = detach ? null : String(input.projectPath ?? "").trim();
       if (!sessionId) {
         throw Object.assign(new Error("sessionId required"), {
           errorCode: ErrorCodes.INVALID_ARGUMENT,
         });
       }
-      if (!projectPath) {
+      if (!detach && !projectPath) {
         throw Object.assign(new Error("projectPath required"), {
           errorCode: ErrorCodes.INVALID_ARGUMENT,
         });
@@ -748,9 +791,12 @@ export function registerSessionIpc({
         return { session };
       }
       if (!host) throw new Error("host unavailable");
+      // Every mode other than the builtin Agent and Plan carries the parsed
+      // definition; the Host persists it as the session's policy snapshot.
+      const modeSnapshot = await modeCatalog.snapshotFor(config.mode);
       const result = await host.call<{ session?: RuntimeSession | null }>(
         "session.configure",
-        { id, ...config },
+        { id, ...config, ...(modeSnapshot ? { modeSnapshot } : {}) },
       );
       if (!result.session) return result;
       const { providers, defaults } = await sessionCapabilityContext();

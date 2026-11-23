@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { RacpError, type Principal, type SessionSummary } from "@pi-desktop/agent-host";
 import { collectWorkspaceDiff } from "./workspace-diff.js";
 import { listDir, readWorkspaceFile } from "./workspace-files.js";
-import { toSessionSummary, type HostRpc, type HostSessionRecord } from "./host-ports.js";
+import { toSessionSummary, withSessionProjectIds, type HostRpc, type HostSessionRecord } from "./host-ports.js";
 import type { RuntimeService } from "./runtime-service.js";
 import type { RacpHostOperations, RacpProjectCatalog, RacpSessionCatalog, RacpWorkspaceAccess } from "@pi-desktop/racp";
 import type { RacpProjectSummary } from "@pi-desktop/shared";
@@ -39,6 +39,8 @@ export type HostOperationsDeps = {
   revokeDevice?: (deviceId: string) => Promise<boolean>;
   /** Root the folder picker may not leave; defaults to the user's home directory. */
   browseRoot?: string;
+  /** Host credentials and persistence must never be exposed through plugin reads. */
+  dataDir?: string;
 };
 
 function requireHost(getHost: () => HostRpc | null): HostRpc {
@@ -62,18 +64,11 @@ export function createSessionCatalog(deps: HostOperationsDeps): RacpSessionCatal
    * (spec §5.1), so the summary is decorated from the projects table. A path
    * with no row (a session whose project was removed) simply has no id.
    */
-  async function withProjectIds(host: HostRpc, records: HostSessionRecord[]): Promise<SessionSummary[]> {
-    const needsLookup = records.some((record) => record.projectPath);
-    const byPath = new Map<string, string>();
-    if (needsLookup) {
-      const { projects } = await host.call<{ projects: ProjectRow[] }>("projects.list", {}).catch(hostError);
-      for (const project of projects ?? []) byPath.set(project.path, String(project.id));
-    }
-    return records.map((record) => {
-      const summary = toSessionSummary(record);
-      const projectId = record.projectPath ? byPath.get(record.projectPath) : undefined;
-      return projectId ? { ...summary, projectId } : summary;
-    });
+  async function withProjectIds(
+    host: HostRpc,
+    records: HostSessionRecord[],
+  ): Promise<SessionSummary[]> {
+    return withSessionProjectIds(host, records).catch(hostError);
   }
   async function get(host: HostRpc, sessionId: string): Promise<SessionSummary> {
     const result = await host.call<{ session?: HostSessionRecord | null }>("session.get", { id: sessionId, messageLimit: 1 }).catch(hostError);

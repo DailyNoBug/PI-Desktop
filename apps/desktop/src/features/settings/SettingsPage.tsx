@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   AppSettings,
-  GlobalPermissionMode,
   PluginScenicThemesDestinationMeta,
-  ShortcutPlatform,
 } from "@pi-desktop/shared";
 import { useAppStore } from "../../stores/app-store";
 import { api } from "../../lib/api";
 import {
+  DEFAULT_SETTINGS_TAB,
   isSettingsDestinationHidden,
   SETTINGS_NAV_GROUP_LABELS,
   visibleSettingsNav,
@@ -19,63 +18,32 @@ import {
   IconArchive,
   IconBookOpen,
   IconBot,
-  IconChevronLeft,
+  IconChat,
   IconFileText,
   IconGlobe,
-  IconDownload,
   IconInfo,
   IconKeyboard,
+  IconMonitor,
   IconPalette,
   IconSearch,
   IconServer,
   IconSliders,
   IconSparkles,
   IconCloudDown,
+  IconDownload,
   IconMic,
+  IconWorkflow,
 } from "../../components/icons";
-import { Badge, Button, cx, SegmentedControl, SettingsToggle } from "../../components/ui";
-import { ModelConfigPage } from "../../components/settings/ModelConfigPage";
-import { VoiceSettingsSection as DictationSettingsSection } from "./VoiceSettingsSection";
-import { ImportSection } from "./import-page";
-import { KeyboardShortcutsSection } from "../../components/settings/KeyboardShortcutsSection";
-import { FontFamilyRow } from "../../components/settings/FontFamilyRow";
-import { ShowThinkingRow } from "../../components/settings/ShowThinkingRow";
-import { TranscriptDisplayModeRow } from "../../components/settings/TranscriptDisplayModeRow";
-import { RadialMenuSettings } from "../../components/settings/RadialMenuSettings";
-import { FontSizeRow } from "../../components/settings/FontSizeRow";
-import { LanguageRow } from "../../components/settings/LanguageRow";
-import { SettingsMenuSelect } from "../../components/settings/SettingsMenuSelect";
-import { ThemeRow } from "../../components/settings/ThemeRow";
-import { MacosWindowTranslucencyRow } from "../../components/settings/MacosWindowTranslucencyRow";
-import { StartupAnimationRows } from "../../components/settings/StartupAnimationRows";
-import { NetworkProxySection } from "../../components/settings/NetworkProxySection";
-import { ProjectsPage } from "../../pages/ProjectsPage";
-import { AgentSkillsPage } from "../../components/settings/AgentSkillsPage";
-import { AgentMcpPage } from "../../components/settings/AgentMcpPage";
-import { AgentSubagentsPage } from "../../components/settings/AgentSubagentsPage";
-import { ConnectionsSection } from "../../components/settings/ConnectionsSection";
-import { RemoteHostsPage } from "../../components/settings/RemoteHostsPage";
-import { VoiceSettingsSection } from "./voice/VoiceSettingsSection";
-import {
-  CommandShellRow,
-  ContextUsageDisplayRow,
-  LargePasteThresholdRow,
-  LinkOpenTargetRow,
-  SettingsCard,
-  SettingsRow,
-} from "./primitives";
-import { AgentInstructionsSection, UpdatesRow } from "./agent-sections";
-import { CloseBehaviorSection, DeveloperSection } from "./developer-sections";
+import { Badge, cx } from "../../components/ui";
 import { PluginScenicThemesDestination } from "../../components/settings/PluginScenicThemesDestination";
-import { ConfigSyncPage } from "../../components/settings/ConfigSyncPage";
-import { StorageSettingsSection } from "./StorageSettingsSection";
-
-type SettingsTab = ReturnType<typeof useAppStore.getState>["settingsTab"];
+import { SettingsDestinationContent, type SettingsTab } from "./SettingsDestinationContent";
+import { useSettingsPersistence } from "./useSettingsPersistence";
 
 type NavItem = {
   id: SettingsTab;
   labelKey: string;
   titleKey: string;
+  subtitleKey?: string;
   icon: ReactNode;
   group: SettingsNavGroupId;
   experimentalBadgeKey?: string;
@@ -83,6 +51,11 @@ type NavItem = {
   keywordKeys: string[];
 };
 
+/**
+ * Settings rail + destination content. Hosted by the Settings dialog; each
+ * destination body comes from `SettingsDestinationContent` so other surfaces
+ * can embed one destination without the rail.
+ */
 export function SettingsPage() {
   const { t } = useTranslation();
   const tab = useAppStore((s) => s.settingsTab);
@@ -90,11 +63,7 @@ export function SettingsPage() {
   const settingsAnchor = useAppStore((s) => s.settingsAnchor);
   const settingsTabNonce = useAppStore((s) => s.settingsTabNonce);
   const setSettingsAnchor = useAppStore((s) => s.setSettingsAnchor);
-  const setPage = useAppStore((s) => s.setPage);
-  const settings = useAppStore((s) => s.settings);
-  const version = useAppStore((s) => s.version);
-  const refreshProviders = useAppStore((s) => s.refreshProviders);
-  const platform = (window.piDesktop?.platform ?? "darwin") as ShortcutPlatform;
+  const { settings, saveSettings } = useSettingsPersistence();
 
   // Experimental feature surfaces remain available in development builds only.
   const includeDevelopmentOnly = import.meta.env.DEV;
@@ -110,8 +79,6 @@ export function SettingsPage() {
   );
 
   const [query, setQuery] = useState("");
-  const [recoveringSettings, setRecoveringSettings] = useState(!settings);
-  const [settingsRecoveryFailed, setSettingsRecoveryFailed] = useState(false);
   const [extensions, setExtensions] = useState<PluginScenicThemesDestinationMeta[]>([]);
   const [activeExtension, setActiveExtension] = useState<PluginScenicThemesDestinationMeta | null>(null);
   const seenSettingsTabNonce = useRef(settingsTabNonce);
@@ -147,35 +114,17 @@ export function SettingsPage() {
   useEffect(() => {
     if (activeExtension && !extensions.some((entry) => entry.ref === activeExtension.ref)) {
       setActiveExtension(null);
-      setSettingsTab("general");
+      setSettingsTab(DEFAULT_SETTINGS_TAB);
     }
   }, [activeExtension, extensions, setSettingsTab]);
 
   // A hidden destination must not keep rendering: leave the page the rail no
   // longer offers (for example Cloud sync or Remote Hosts after developer mode
-  // is switched off) and fall back to General.
+  // is switched off) and fall back to the default destination.
   useEffect(() => {
     if (!settings || !tabHidden) return;
-    setSettingsTab("general");
+    setSettingsTab(DEFAULT_SETTINGS_TAB);
   }, [settings, tabHidden, setSettingsTab]);
-
-  const recoverSettings = useCallback(async () => {
-    setRecoveringSettings(true);
-    setSettingsRecoveryFailed(false);
-    try {
-      const recovered = await api.getSettings();
-      useAppStore.setState({ settings: recovered });
-    } catch {
-      setSettingsRecoveryFailed(true);
-    } finally {
-      setRecoveringSettings(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (settings) return;
-    void recoverSettings();
-  }, [settings, recoverSettings]);
 
   // Arriving from the global search dialog: scroll to and flash the row
   // whose title matches the pending anchor key. This runs after the
@@ -220,14 +169,6 @@ export function SettingsPage() {
     };
   }, [settingsAnchor, tab, t, setSettingsAnchor]);
 
-  const saveSettings = async (patch: Partial<AppSettings>) => {
-    if (!settings) return;
-    const nextSettings = { ...settings, ...patch };
-    await api.setSettings(nextSettings);
-    useAppStore.setState({ settings: nextSettings });
-    await refreshProviders();
-  };
-
   const selectPluginTheme = async (theme: string) => {
     await saveSettings({ theme: theme as AppSettings["theme"] });
   };
@@ -238,26 +179,30 @@ export function SettingsPage() {
   const navItems: NavItem[] = useMemo(() => {
     const iconFor: Record<SettingsTab, ReactNode> = {
       // Semantic Lucide glyphs for the settings destinations.
-      general: <IconSliders size={14} />,
-      ai: <IconSparkles size={14} />,
+      appearance: <IconPalette size={14} />,
+      chat: <IconChat size={14} />,
       shortcuts: <IconKeyboard size={14} />,
-      instructions: <IconFileText size={14} />,
+      voice: <IconMic size={14} />,
+      behavior: <IconSliders size={14} />,
       agent: <IconBot size={14} />,
+      instructions: <IconFileText size={14} />,
       skills: <IconBookOpen size={14} />,
       mcp: <IconServer size={14} />,
-      subagents: <IconBot size={14} />,
+      subagents: <IconSparkles size={14} />,
       connections: <IconServer size={14} />,
       import: <IconDownload size={14} />,
+      modes: <IconWorkflow size={14} />,
       projects: <IconArchive size={14} />,
+      system: <IconMonitor size={14} />,
       sync: <IconCloudDown size={14} />,
       remoteHosts: <IconGlobe size={14} />,
-      voice: <IconMic size={14} />,
       about: <IconInfo size={14} />,
     };
     return navEntries.map((entry) => ({
       id: entry.id,
       labelKey: entry.labelKey,
       titleKey: entry.titleKey,
+      subtitleKey: entry.subtitleKey,
       icon: iconFor[entry.id],
       group: entry.group,
       experimentalBadgeKey: entry.experimentalBadgeKey,
@@ -266,7 +211,7 @@ export function SettingsPage() {
   }, [navEntries]);
 
   // Search matches the tab label and the titles of the rows inside it, so
-  // typing e.g. "theme" or "主题" surfaces Basics even though the tab is
+  // typing e.g. "theme" or "主题" surfaces Appearance even though the tab is
   // named differently.
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -279,7 +224,7 @@ export function SettingsPage() {
   }, [navItems, query, t]);
 
   // Keep the destination index flat for search, while giving the rail titled
-  // visual clusters so the eight rows do not read as one dense block.
+  // visual clusters so the rows do not read as one dense block.
   const filteredGroups = useMemo(() => {
     const groups = new Map<SettingsNavGroupId, NavItem[]>();
     for (const item of filteredItems) {
@@ -292,14 +237,12 @@ export function SettingsPage() {
 
   const activeNavItem = navItems.find((item) => item.id === tab);
   const activeTitleKey = activeNavItem?.titleKey ?? "settings.title";
-  const tabNeedsSettings = ["general", "ai", "shortcuts", "agent"].includes(tab);
 
   return (
     <div className="settings-shell settings-shell-full">
-      <div className="settings-titlebar" aria-hidden="true" />
       <aside className="settings-nav sidebar-surface" aria-label={t("settings.title")}>
-        <div className="settings-nav-top drag">
-          <div className="settings-search-wrap no-drag">
+        <div className="settings-nav-top">
+          <div className="settings-search-wrap">
             <IconSearch size={14} />
             <input
               ref={settingsSearchRef}
@@ -315,7 +258,7 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <div className="settings-nav-scroll no-drag">
+        <div className="settings-nav-scroll">
           {filteredGroups.length === 0 ? (
             <div className="settings-nav-empty">{t("settings.noResults")}</div>
           ) : (
@@ -368,361 +311,44 @@ export function SettingsPage() {
           )}
         </div>
 
-        {/* Pinned to the rail's bottom so it lands on the same line as the
-            main shell's sidebar footer icon row. Both the band and the control
-            stay explicitly non-draggable, like the rail's other controls. */}
-        <div className="settings-nav-footer no-drag">
-          <button
-            type="button"
-            className="settings-back no-drag"
-            data-nav="back-to-app"
-            onClick={() => setPage("chat")}
-          >
-            <IconChevronLeft size={15} />
-            <span>{t("settings.backToApp")}</span>
-          </button>
-        </div>
       </aside>
 
       <div className="settings-content" ref={contentRef}>
         <div className="settings-content-inner">
           <div className="settings-content-enter">
-          <h1 className="settings-section-title">
-            <span>{activeExtension?.label ?? t(activeTitleKey)}</span>
-            {!activeExtension && activeNavItem?.experimentalBadgeKey ? (
-              <Badge tone="warning">{t(activeNavItem.experimentalBadgeKey)}</Badge>
-            ) : null}
-          </h1>
+          {/*
+            The page opens by saying where you are and what the destination
+            decides (D684): the rail's glyph again at page scale, the title,
+            and one line of orientation for destinations whose own content does
+            not already start with a description.
+          */}
+          <header className="settings-page-header">
+            <span className="settings-page-icon" aria-hidden="true">
+              {activeExtension
+                ? (() => {
+                    const ExtensionIcon = pluginViewIcon(activeExtension.icon) ?? IconPalette;
+                    return <ExtensionIcon size={18} />;
+                  })()
+                : activeNavItem?.icon}
+            </span>
+            <div className="settings-page-heading">
+              <h1 className="settings-section-title">
+                <span>{activeExtension?.label ?? t(activeTitleKey)}</span>
+                {!activeExtension && activeNavItem?.experimentalBadgeKey ? (
+                  <Badge tone="warning">{t(activeNavItem.experimentalBadgeKey)}</Badge>
+                ) : null}
+              </h1>
+              {!activeExtension && activeNavItem?.subtitleKey ? (
+                <p className="settings-page-subtitle">{t(activeNavItem.subtitleKey)}</p>
+              ) : null}
+            </div>
+          </header>
 
           {activeExtension ? (
             <PluginScenicThemesDestination destination={activeExtension} selectTheme={selectPluginTheme} />
           ) : <>
 
-          {tabNeedsSettings && !settings ? (
-            <div className="settings-recovery" role="status" aria-live="polite">
-              {recoveringSettings ? (
-                <>
-                  <span className="route-pending-indicator" aria-hidden />
-                  <span>{t("common.loading")}</span>
-                </>
-              ) : settingsRecoveryFailed ? (
-                <>
-                  <span>{t("errors.HOST_UNAVAILABLE")}</span>
-                  <Button variant="secondary" onClick={() => void recoverSettings()}>
-                    {t("errors.action.retry")}
-                  </Button>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-
-          {tab === "general" && settings && (
-            <div className="settings-stack">
-              <SettingsCard title={t("settings.appearance")}>
-                <ThemeRow settings={settings} saveSettings={saveSettings} />
-                <LanguageRow settings={settings} saveSettings={saveSettings} />
-                <FontFamilyRow settings={settings} saveSettings={saveSettings} />
-                <FontSizeRow settings={settings} saveSettings={saveSettings} />
-                {platform === "darwin" && (
-                  <MacosWindowTranslucencyRow settings={settings} saveSettings={saveSettings} />
-                )}
-                <StartupAnimationRows settings={settings} saveSettings={saveSettings} />
-              </SettingsCard>
-
-              <SettingsCard title={t("settings.sidebar")}>
-                <SettingsRow
-                  title={t("settings.sidebarRunningIndicators")}
-                  description={t("settings.sidebarRunningIndicatorsDesc")}
-                >
-                  <SettingsToggle
-                    checked={settings.sidebarRunningIndicators === true}
-                    label={t("settings.sidebarRunningIndicators")}
-                    onChange={() => void saveSettings({
-                      sidebarRunningIndicators: settings.sidebarRunningIndicators !== true,
-                    })}
-                  />
-                </SettingsRow>
-                {/*
-                  The two sub-switches are gated by the master switch. They keep
-                  their stored value while disabled, so turning the master back
-                  on restores the previous choice instead of resetting it.
-                */}
-                <SettingsRow title={t("settings.sidebarRunningBadge")}>
-                  <SettingsToggle
-                    checked={settings.sidebarRunningBadge === true}
-                    label={t("settings.sidebarRunningBadge")}
-                    disabled={settings.sidebarRunningIndicators !== true}
-                    onChange={() => void saveSettings({
-                      sidebarRunningBadge: settings.sidebarRunningBadge !== true,
-                    })}
-                  />
-                </SettingsRow>
-                <SettingsRow title={t("settings.sidebarRunningRail")}>
-                  <SettingsToggle
-                    checked={settings.sidebarRunningRail === true}
-                    label={t("settings.sidebarRunningRail")}
-                    disabled={settings.sidebarRunningIndicators !== true}
-                    onChange={() => void saveSettings({
-                      sidebarRunningRail: settings.sidebarRunningRail !== true,
-                    })}
-                  />
-                </SettingsRow>
-                <SettingsRow title={t("settings.sidebarSessionTime")}>
-                  <SettingsToggle
-                    checked={settings.sidebarSessionTime === true}
-                    label={t("settings.sidebarSessionTime")}
-                    onChange={() => void saveSettings({
-                      sidebarSessionTime: settings.sidebarSessionTime !== true,
-                    })}
-                  />
-                </SettingsRow>
-              </SettingsCard>
-
-              <SettingsCard title={t("settings.scheduledTasks")}>
-                <SettingsRow
-                  title={t("settings.scheduledTasks")}
-                  description={t("settings.scheduledTasksDesc")}
-                >
-                  <SettingsToggle
-                    checked={settings.scheduledTasksEnabled !== false}
-                    label={t("settings.scheduledTasks")}
-                    onChange={() => void saveSettings({
-                      scheduledTasksEnabled: settings.scheduledTasksEnabled === false,
-                    })}
-                  />
-                </SettingsRow>
-              </SettingsCard>
-
-              <RadialMenuSettings
-                settings={settings}
-                saveSettings={saveSettings}
-              />
-
-              <NetworkProxySection settings={settings} saveSettings={saveSettings} />
-
-              <StorageSettingsSection />
-
-              <SettingsCard title={t("settings.power")}>
-                <SettingsRow
-                  title={t("settings.keepAwakeWhileRunning")}
-                  description={t("settings.keepAwakeWhileRunningDesc")}
-                >
-                  <SettingsToggle
-                    checked={settings.keepAwakeWhileRunning === true}
-                    label={t("settings.keepAwakeWhileRunning")}
-                    onChange={() => void saveSettings({
-                      keepAwakeWhileRunning: settings.keepAwakeWhileRunning !== true,
-                    })}
-                  />
-                </SettingsRow>
-                <SettingsRow
-                  title={t("settings.preventScreenSleep")}
-                  description={t("settings.preventScreenSleepDesc")}
-                >
-                  <SettingsToggle
-                    checked={settings.preventScreenSleep === true}
-                    label={t("settings.preventScreenSleep")}
-                    onChange={() => void saveSettings({ preventScreenSleep: !settings.preventScreenSleep })}
-                  />
-                </SettingsRow>
-              </SettingsCard>
-
-              {platform !== "darwin" && <CloseBehaviorSection />}
-            </div>
-          )}
-
-          {tab === "ai" && settings && (
-            <div className="settings-stack">
-              <SettingsCard title={t("settings.permissions")}>
-                <SettingsRow
-                  title={t("settings.permissionMode")}
-                  description={t("settings.permissionModeDesc")}
-                >
-                  <SettingsMenuSelect
-                    className="settings-permission-select"
-                    label={t("settings.permissionMode")}
-                    value={settings.defaultPermissionMode ?? "ask"}
-                    onChange={(mode) =>
-                      void saveSettings({
-                        defaultPermissionMode: mode as GlobalPermissionMode,
-                      })
-                    }
-                    options={[
-                      { id: "ask", label: t("settings.permissionModeAsk") },
-                      {
-                        id: "accept-edits",
-                        label: t("settings.permissionModeAcceptEdits"),
-                      },
-                      { id: "auto", label: t("settings.permissionModeAuto") },
-                    ]}
-                  />
-                </SettingsRow>
-              </SettingsCard>
-
-              <SettingsCard title={t("settings.defaultsTitle")}>
-                <SettingsRow title={t("settings.mode")} description={t("settings.modeDesc")}>
-                  <SegmentedControl
-                    value={settings.defaultMode ?? "agent"}
-                    onChange={(value) => void saveSettings({ defaultMode: value })}
-                    options={[
-                      { value: "agent", label: t("settings.modeAgent") },
-                      { value: "plan", label: t("settings.modePlan") },
-                      { value: "goal", label: t("settings.modeGoal") },
-                    ]}
-                    label={t("settings.mode")}
-                    role="group"
-                  />
-                </SettingsRow>
-                <CommandShellRow settings={settings} saveSettings={saveSettings} />
-                <LinkOpenTargetRow settings={settings} saveSettings={saveSettings} />
-                <ShowThinkingRow settings={settings} saveSettings={saveSettings} />
-                <TranscriptDisplayModeRow settings={settings} saveSettings={saveSettings} />
-                <ContextUsageDisplayRow
-                  settings={settings}
-                  saveSettings={saveSettings}
-                />
-                <SettingsRow
-                  title={t("settings.enterToSend")}
-                  description={t("settings.enterToSendDesc")}
-                >
-                  <SettingsToggle
-                    checked={settings.enterToSend}
-                    label={t("settings.enterToSend")}
-                    onChange={() => void saveSettings({ enterToSend: !settings.enterToSend })}
-                  />
-                </SettingsRow>
-                <SettingsRow
-                  title={t("settings.infiniteProviderRetry")}
-                  description={t("settings.infiniteProviderRetryDesc")}
-                >
-                  <SettingsToggle
-                    checked={settings.infiniteProviderRetry === true}
-                    label={t("settings.infiniteProviderRetry")}
-                    onChange={() => void saveSettings({ infiniteProviderRetry: settings.infiniteProviderRetry !== true })}
-                  />
-                </SettingsRow>
-                <SettingsRow
-                  title={t("settings.smoothStreaming")}
-                  description={t("settings.smoothStreamingDesc")}
-                >
-                  <SettingsToggle
-                    checked={settings.smoothStreaming !== false}
-                    label={t("settings.smoothStreaming")}
-                    onChange={() => void saveSettings({ smoothStreaming: !(settings.smoothStreaming !== false) })}
-                  />
-                </SettingsRow>
-                <SettingsRow
-                  title={t("settings.inlineVisualizations")}
-                  description={t("settings.inlineVisualizationsDesc")}
-                >
-                  <SettingsToggle
-                    checked={settings.inlineVisualizations === true}
-                    label={t("settings.inlineVisualizations")}
-                    onChange={() =>
-                      void saveSettings({
-                        inlineVisualizations: settings.inlineVisualizations !== true,
-                      })
-                    }
-                  />
-                </SettingsRow>
-                <LargePasteThresholdRow
-                  settings={settings}
-                  saveSettings={saveSettings}
-                />
-              </SettingsCard>
-
-            </div>
-          )}
-
-          {tab === "voice" && !tabHidden && settings && (
-            <VoiceSettingsSection
-              t={t}
-              settings={settings}
-              saveSettings={saveSettings}
-            />
-          )}
-
-          {tab === "shortcuts" && settings && (
-            <div className="settings-stack">
-              <KeyboardShortcutsSection
-                settings={settings}
-                platform={platform}
-                saveSettings={saveSettings}
-              />
-            </div>
-          )}
-
-           {tab === "agent" && (
-             <>
-               <ModelConfigPage />
-               {settings ? (
-                 <DictationSettingsSection settings={settings} saveSettings={saveSettings} />
-               ) : null}
-             </>
-           )}
-
-          {tab === "skills" && <AgentSkillsPage />}
-
-          {tab === "mcp" && <AgentMcpPage />}
-
-          {tab === "subagents" && <AgentSubagentsPage />}
-
-          {tab === "connections" && <ConnectionsSection />}
-
-          {tab === "instructions" && <AgentInstructionsSection />}
-
-
-          {tab === "import" && <ImportSection />}
-
-
-          {tab === "projects" && <ProjectsPage />}
-
-          {tab === "sync" && !tabHidden && <ConfigSyncPage />}
-
-          {tab === "remoteHosts" && !tabHidden && <RemoteHostsPage />}
-
-          {tab === "about" && (
-            <div className="settings-stack">
-              <div className="settings-about-hero">
-                <div className="settings-about-hero-name">
-                  {version?.name || "PI-Desktop"}
-                </div>
-                <div className="settings-about-hero-version">
-                  {t("settings.aboutVersion", { version: version?.version ?? "" })}
-                </div>
-                <div className="settings-about-hero-meta">
-                  protocol {version?.protocolVersion} · host {version?.hostVersion}
-                </div>
-              </div>
-              <UpdatesRow
-                currentVersion={version?.version}
-                settings={settings ?? null}
-                saveSettings={saveSettings}
-              />
-              <SettingsCard>
-                <SettingsRow title={t("settings.logs")}>
-                  <Button variant="secondary" onClick={() => void api.openLogs()}>
-                    {t("settings.openLogs")}
-                  </Button>
-                </SettingsRow>
-                <SettingsRow
-                  title={t("settings.feedback")}
-                  description={t("settings.feedbackDesc")}
-                >
-                  <Button
-                    variant="secondary"
-                    onClick={() => void api.openFeedback().catch(() => undefined)}
-                  >
-                    {t("settings.openFeedback")}
-                  </Button>
-                </SettingsRow>
-              </SettingsCard>
-
-              {settings && (
-                <DeveloperSection settings={settings} saveSettings={saveSettings} />
-              )}
-            </div>
-          )}
+          <SettingsDestinationContent tab={tab} tabHidden={tabHidden} />
           </>}
 
           </div>

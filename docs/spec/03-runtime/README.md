@@ -24,5 +24,7 @@
 | [20-remote-ssh-desktop.md](20-remote-ssh-desktop.md) | Remote SSH desktop client and supervisor |
 | [20-speech.md](20-speech.md) | Local voice plugin (dictation) + host speech (ASR/TTS) |
 | [live-voice.md](live-voice.md) | App-owned real-time voice calls |
-| [21-image-generation.md](21-image-generation.md) | Image generation and editing |
-| [22-config-sync.md](22-config-sync.md) | Portable configuration sync |
+| [computer-use.md](computer-use.md) | Granted native application control |
+
+- [Image generation and editing](21-image-generation.md)
+- [Portable configuration sync](22-config-sync.md)

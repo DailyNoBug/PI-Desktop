@@ -135,56 +135,81 @@ test("creation-phase delegation copy is catalog-backed", () => {
 test("settings rail labels stay concise and parallel across locales", () => {
   const chinese = flattenCatalog(zhCN);
   const keys = [
-    "general",
-    "ai",
+    "appearance",
+    "chat",
     "shortcuts",
-    "instructions",
+    "voice",
+    "behavior",
     "models",
+    "instructions",
     "skills",
     "mcp",
     "subagents",
     "connections",
     "import",
     "projects",
+    "system",
+    "sync",
+    "remoteHosts",
     "info",
   ].map((key) => `settings.nav.${key}`);
 
   assert.deepEqual(
     keys.map((key) => english[key]),
     [
-      "General",
-      "AI",
+      "Appearance",
+      "Conversation",
       "Shortcuts",
-      "Instructions",
+      "Voice",
+      "Behavior",
       "Models",
+      "Instructions",
       "Skills",
       "MCP",
       "Subagents",
       "Connections",
       "Import",
       "Projects",
+      "System",
+      "Cloud sync",
+      "Remote hosts",
       "Info",
     ],
   );
   assert.deepEqual(
     keys.map((key) => chinese[key]),
     [
-      "常规",
-      "AI",
+      "外观",
+      "对话",
       "快捷键",
-      "指令",
+      "语音",
+      "行为",
       "模型",
+      "指令",
       "技能",
       "MCP",
       "子智能体",
       "连接",
       "导入",
       "项目",
+      "系统",
+      "云同步",
+      "远程主机",
       "信息",
     ],
   );
   // Fork keeps its explicit Connections (Remote SSH) and Import destinations,
   // so both nav labels stay defined in every catalog.
+  for (const [id, catalog] of Object.entries(catalogs)) {
+    const flat = flattenCatalog(catalog);
+    for (const key of keys) {
+      assert.equal(typeof flat[key], "string", `${id} ${key}`);
+      assert.ok(flat[key].trim(), `${id} ${key} must not be blank`);
+    }
+    for (const retired of ["general", "ai"]) {
+      assert.equal(flat[`settings.nav.${retired}`], undefined, `${id} ${retired}`);
+    }
+  }
   assert.equal(english["settings.groupPreferences"], "Preferences");
   assert.equal(chinese["settings.groupPreferences"], "偏好");
   assert.equal(english["settings.groupSystem"], "System");

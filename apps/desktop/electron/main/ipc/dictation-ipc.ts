@@ -1,5 +1,5 @@
 /**
- * Local plugin dictation IPC domain (fork feature, ADR 0346) — runs entirely
+ * Local plugin dictation IPC domain (fork feature, ADR 0355) — runs entirely
  * inside the bundled local-voice plugin, independent of the upstream host
  * voice/live-voice stack.
  *

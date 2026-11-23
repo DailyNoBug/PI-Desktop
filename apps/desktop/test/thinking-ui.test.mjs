@@ -61,6 +61,7 @@ const settingsSource = (
       "../src/components/settings/ProviderSetupDialog.tsx",
       // The picker both credential kinds render owns the thinking chips (D270).
       "../src/components/settings/ModelSelectionPanes.tsx",
+      "../src/components/settings/ModelAdvancedSettings.tsx",
       "../src/components/settings/VendorAccountDialog.tsx",
       "../src/components/settings/useProviderModels.ts",
     ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
@@ -277,18 +278,18 @@ test("expanded assistant activity rails collapse their disclosures", () => {
   assert.match(stylesSource, /\.disclosure-collapse-rail:focus-visible\s*\{/);
 });
 
-test("tool and search rows stay collapsed while thinking keeps its leaf default", () => {
+test("tool and search rows stay collapsed while reasoning follows its own switch", () => {
   assert.match(transcriptDisclosureSource, /export function useAutomaticDisclosure\(/);
   assert.match(transcriptDisclosureSource, /revealRequest\?: number/);
   assert.match(transcriptDisclosureSource, /const currentOpen = useRef\(open\)/);
   assert.match(transcriptDisclosureSource, /const setManualOpen = useCallback/);
   assert.match(
     transcriptSource,
-    /const automaticallyOpen = activityGroupStartsOpen\(visibleItems, \{\s*subagentTopology: hasSubagentTopology,\s*turnActive,\s*groupActive: live,\s*\}\);/,
+    /const automaticallyOpen = activityGroupStartsOpen\(\{\s*turnActive,\s*groupActive: live,\s*collapseSettled: collapseSettledGroups,\s*\}\);/,
   );
   assert.match(
     transcriptSource,
-    /<ThinkingRow[\s\S]*?\n\s*autoOpen\n/,
+    /<ThinkingRow[\s\S]*?\n\s*autoOpen=\{thinkingRowStartsOpen\(/,
   );
   // The leaf default stays with thinking only; a tool, hosted-search or plan
   // row waits for an explicit user action in either mode.

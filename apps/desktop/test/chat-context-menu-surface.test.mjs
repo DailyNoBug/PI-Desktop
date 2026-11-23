@@ -24,7 +24,7 @@ const assistantTurnSource = await readFile(
 test("the pointer-anchored menu portals, measures, and closes without trapping focus", () => {
   assert.match(menuSource, /portalToBody\(/);
   assert.match(menuSource, /placeContextMenu\(/);
-  assert.match(menuSource, /className=\{`context-menu\$\{placement \? " is-open" : ""\}`\}/);
+  assert.match(menuSource, /className=\{`context-menu[^\n]*\$\{placement \? " is-open" : ""\}`\}/);
   assert.match(menuSource, /window\.addEventListener\("pointerdown", onOutside, true\)/);
   assert.match(menuSource, /window\.addEventListener\("keydown", onKeyDown, true\)/);
   assert.match(menuSource, /if \(event\.key === "Tab"\)/);
@@ -39,11 +39,11 @@ test("the pointer-anchored menu portals, measures, and closes without trapping f
   assert.match(menuSource, /event\.key !== "ArrowRight"/);
   assert.match(menuSource, /event\.key === "ArrowLeft"/);
   assert.match(menuSource, /role="menu"[\s\S]*aria-label=\{label\}/);
-  assert.match(menuSource, /if \(!request\.items\.length\) return;/);
+  assert.match(menuSource, /if \(!request\.items\.length && !selectionItems\) return;/);
 });
 
 test("the transcript owns one menu and each speaking row can open it", () => {
-  assert.match(transcriptSource, /<TranscriptMenuProvider>/);
+  assert.match(transcriptSource, /<TranscriptMenuProvider\s+sessionId=\{/);
   assert.match(transcriptSource, /onContextMenu=\{onContextMenu\}/);
   assert.match(transcriptSource, /conversationMenuItems\(/);
   assert.match(messageRowSource, /onContextMenu=\{onContextMenu\}/);

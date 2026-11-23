@@ -21,10 +21,13 @@ type CachedComposerDraft = ComposerDraftSnapshot & {
 export const HOME_DRAFT_KEY = "__home__";
 
 export type ComposerDraftFileInput = {
+  size?: number;
+  localReference?: string;
+  lineRange?: import("@pi-desktop/shared").FileLineRange;
   sessionId?: string;
   path: string;
   name: string;
-  kind?: "image" | "file" | "session";
+  kind?: "image" | "file" | "session" | "directory" | "agent";
   mimeType?: string;
   token?: string;
   plugin?: ComposerPluginPart;
@@ -32,20 +35,26 @@ export type ComposerDraftFileInput = {
 
 /** The draft-snapshot form of a live reference: its fields without session or id. */
 export function draftFileReference({
+  size,
+  localReference,
   path,
   name,
   kind,
   mimeType,
   token,
   plugin,
+  lineRange,
 }: ComposerDraftFileInput): ComposerDraftFileReference {
   return {
+    ...(size !== undefined ? { size } : {}),
+    ...(localReference ? { localReference } : {}),
     path,
     name,
     kind,
     ...(mimeType ? { mimeType } : {}),
     ...(token ? { token } : {}),
     ...(plugin ? { plugin } : {}),
+    ...(lineRange ? { lineRange } : {}),
   };
 }
 
@@ -72,7 +81,11 @@ export function sameDraftFileReference(
     a.name === b.name &&
     a.kind === b.kind &&
     a.mimeType === b.mimeType &&
+    a.size === b.size &&
+    a.localReference === b.localReference &&
     a.token === b.token &&
+    a.lineRange?.start === b.lineRange?.start &&
+    a.lineRange?.end === b.lineRange?.end &&
     samePluginPart(a.plugin, b.plugin)
   );
 }

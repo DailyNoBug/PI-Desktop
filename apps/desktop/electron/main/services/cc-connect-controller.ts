@@ -1,6 +1,6 @@
 /**
  * CC Connect controller: the host-owned integration point between PI-Desktop
- * and a locally-managed cc-connect daemon (ADR 0347).
+ * and a locally-managed cc-connect daemon (ADR 0356).
  *
  * Two responsibilities, both off until the user enables them:
  * - the loopback RACP bridge (`racp-bridge.ts`), which serves the desktop's

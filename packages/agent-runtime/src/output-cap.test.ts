@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { getCurrentSystemPrompt, normalizeContext, type Message } from "@earendil-works/pi-ai";
+import { CHECKPOINT_TRUNCATION_MARKER } from "./compaction-tail.js";
+import { ESTIMATED_TEXT_CHARS_PER_TOKEN } from "./pi-runtime-estimates.js";
 import {
   clampOutputToContext,
   estimateOutputCapInputTokens,
   requestTranscript,
+  truncateTextWithinOutputCap,
   type OutputCapContext,
 } from "./output-cap.js";
 
@@ -158,6 +161,40 @@ describe("estimateOutputCapInputTokens", () => {
     // 1000 (system) + ceil(4030 / 4) for the serialized tool array (the JSON
     // wrapper carries 30 extra chars on top of the 4000-char description).
     expect(estimateOutputCapInputTokens(context)).toBe(2008);
+  });
+
+  it("corrects CJK in context.tools the same way as system toolsAdded", () => {
+    const description = "测".repeat(4000);
+    const tools = [{
+      name: "lookup",
+      description,
+      parameters: { type: "object", properties: {} },
+    }];
+    const viaTools = estimateOutputCapInputTokens({ messages: [], tools });
+    const viaToolsAdded = estimateOutputCapInputTokens({
+      messages: [{ role: "system", content: "", toolsAdded: tools }],
+    });
+    // Serialized schema is 4083 chars: baseline ceil(4083 / 4) = 1021.
+    // 4000 Han chars add ceil(4000 * 0.75) = 3000. Subagent budgets pass
+    // schemas on context.tools, so that path must match toolsAdded.
+    expect(viaTools).toBe(viaToolsAdded);
+    expect(viaTools).toBe(4021);
+  });
+
+  it("estimates an ASCII tool schema the same on context.tools and toolsAdded", () => {
+    const description = "a".repeat(4000);
+    const tools = [{
+      name: "lookup",
+      description,
+      parameters: { type: "object", properties: {} },
+    }];
+    const viaTools = estimateOutputCapInputTokens({ messages: [], tools });
+    const viaToolsAdded = estimateOutputCapInputTokens({
+      messages: [{ role: "system", content: "", toolsAdded: tools }],
+    });
+    // Same 4083-char schema and no CJK, so both stay on the chars/4 baseline.
+    expect(viaTools).toBe(viaToolsAdded);
+    expect(viaTools).toBe(1021);
   });
 
   it("treats a raw string content and empty content consistently", () => {
@@ -552,4 +589,48 @@ it("counts instruction sections and tool declarations in transcript-only request
   const state = { messages: [{ role: "system", content: "", sections: { skills: "中文说明" }, toolsAdded: [{ name: "Read", parameters: { type: "object" } }] }] };
   expect(estimateOutputCapInputTokens(state)).toBeGreaterThan(estimateOutputCapInputTokens(base));
   expect(estimateOutputCapInputTokens(state)).toBeGreaterThan(4);
+});
+
+describe("truncateTextWithinOutputCap", () => {
+  const budget = 200;
+  const ceiling = Math.floor(budget * ESTIMATED_TEXT_CHARS_PER_TOKEN);
+
+  it("leaves ASCII at the character ceiling", () => {
+    const text = truncateTextWithinOutputCap(
+      "a".repeat(1_600),
+      budget,
+      CHECKPOINT_TRUNCATION_MARKER,
+      ceiling,
+    );
+    expect(text.length).toBe(ceiling);
+    expect(estimateOutputCapInputTokens({
+      messages: [{ role: "user", content: text }],
+    })).toBeLessThanOrEqual(budget);
+  });
+
+  it("shrinks CJK that is longer than the ceiling", () => {
+    const text = truncateTextWithinOutputCap(
+      "中".repeat(1_600),
+      budget,
+      CHECKPOINT_TRUNCATION_MARKER,
+      ceiling,
+    );
+    expect(text).toContain(CHECKPOINT_TRUNCATION_MARKER.trim());
+    expect(estimateOutputCapInputTokens({
+      messages: [{ role: "user", content: text }],
+    })).toBeLessThanOrEqual(budget);
+  });
+
+  it("shrinks CJK that fits the character ceiling but not the token budget", () => {
+    const text = truncateTextWithinOutputCap(
+      "中".repeat(600),
+      budget,
+      CHECKPOINT_TRUNCATION_MARKER,
+      ceiling,
+    );
+    expect(text.length).toBeLessThan(600);
+    expect(estimateOutputCapInputTokens({
+      messages: [{ role: "user", content: text }],
+    })).toBeLessThanOrEqual(budget);
+  });
 });

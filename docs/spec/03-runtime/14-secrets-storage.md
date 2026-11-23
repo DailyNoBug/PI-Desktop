@@ -64,8 +64,8 @@ same encrypted Host store. Renderer access is limited to set/delete/has; Electro
 main reads it only for an explicitly enabled Agent launch and passes it
 ephemerally to the sidecar.
 
-The removed `voice/stt` ref (D686 / ADR 0345) held the cloud-STT API key; it
-was deleted with the fork's cloud speech path (ADR 0346) and local dictation now
+The removed `voice/stt` ref (D692 / ADR 0354) held the cloud-STT API key; it
+was deleted with the fork's cloud speech path (ADR 0355) and local dictation now
 reads no secret at all. A stored value in an existing profile is an orphan
 nothing reads.
 

@@ -156,6 +156,11 @@ export type ContextCompactionStatus = {
  */
 export type ContextCompactionMark = ContextCompactionStatus & {
   id: string;
+  /** Checkpoint creation time. Older live marks may omit it. */
+  createdAt?: string;
+  /** Model that rebuilt the compacted context, when recorded by the runtime. */
+  providerId?: string;
+  modelId?: string;
   /** Last message the checkpoint covers; the row renders right after it. */
   throughMessageId: string;
   /** False when the window rolled over without asking for a summary. */
@@ -212,6 +217,7 @@ export type AgentActivity =
   | { phase: "starting"; since: number }
   | { phase: "waiting-model"; since: number }
   | { phase: "preparing"; since: number }
+  | { phase: "waiting-tool-stop"; since: number }
   | {
       phase: "compacting";
       since: number;

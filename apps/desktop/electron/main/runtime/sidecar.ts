@@ -1,4 +1,4 @@
-import { IPC, type AgentEventEnvelope, type UiMessage } from "@pi-desktop/shared";
+import { IPC, type AgentEventEnvelope, type ComputerGrantView, type UiMessage } from "@pi-desktop/shared";
 import {
   findSubagentProviderSource,
   modelConfigWithBinding,
@@ -12,6 +12,9 @@ import {
   loadBuiltinSkillBody,
 } from "../builtin-skills";
 import { createImageGenerationTool } from "../services/image-generation-service";
+import { createComputerUseTool } from "../computer-use/service";
+import { resolveComputerUseProvider } from "../computer-use/provider";
+import type { ComputerCursorOverlay } from "../computer-use/cursor-overlay";
 import { registerPluginDevTools } from "../plugin-dev-tools";
 import { resolveLocalFile } from "../browser-view";
 import { catalogModelConfigFor } from "../models-dev-catalog";
@@ -31,11 +34,13 @@ import { currentSystemProxyRelayUrl } from "../network-proxy";
 
 export type SidecarRuntimeDependencies = {
   runtimeState: RuntimeState;
+  observeBackgroundResult?: (event: AgentEventEnvelope) => void;
   steeringReplies: Set<string>;
   logger: Logger;
   sendToRenderer: (channel: string, payload: unknown) => void;
   persistAgentEvent: (envelope: AgentEventEnvelope) => UiMessage | undefined;
   activeTurns: Map<string, string>;
+  readPluginModelContext?: (params: Record<string, unknown>) => Promise<unknown>;
   approvedExecutionIdsBySession: Map<string, string>;
   claimedExecutionSessions: Map<string, string>;
   inflightCheckpointer: InflightCheckpointer;
@@ -66,15 +71,21 @@ export type SidecarRuntimeDependencies = {
   disabledBuiltinSkills: () => Promise<string[]>;
   pluginActiveInProject: (pluginId: string, projectPath: string | null | undefined) => boolean;
   currentNetworkProxy: () => any;
+  /** The agent's drawn cursor. Visualization only (ADR 0342 §10). */
+  computerCursorOverlay: Pick<ComputerCursorOverlay, "apply">;
+  /** Push the live computer-use grant to the renderer's indicator. */
+  publishComputerGrant: (grant: ComputerGrantView | null) => void;
 };
 
 export function createSidecarRuntime({
   runtimeState,
+  observeBackgroundResult,
   steeringReplies,
   logger,
   sendToRenderer,
   persistAgentEvent,
   activeTurns,
+  readPluginModelContext,
   approvedExecutionIdsBySession,
   claimedExecutionSessions,
   inflightCheckpointer,
@@ -97,6 +108,8 @@ export function createSidecarRuntime({
   disabledBuiltinSkills,
   pluginActiveInProject,
   currentNetworkProxy,
+  computerCursorOverlay,
+  publishComputerGrant,
 }: SidecarRuntimeDependencies): {
   emitAgentEvent: (envelope: AgentEventEnvelope) => void;
   wireSidecar: (sidecar: AgentSidecar) => void;
@@ -194,7 +207,9 @@ export function createSidecarRuntime({
       return;
     }
     if (method === "agent.event") {
+      if (runtimeState.sidecar !== s) return;
       const envelope = params as AgentEventEnvelope;
+      observeBackgroundResult?.(envelope);
       const event = envelope.event;
       if (event.type === "tool_start") {
         activeToolCalls.set(toolKey(envelope.sessionId, event.toolCallId), {
@@ -364,19 +379,27 @@ export function createSidecarRuntime({
 
   const s = new AgentSidecar((text) => logger.child("agent", text));
   wireSidecar(s);
+  if (readPluginModelContext) {
+    s.setPluginModelContextReader((params) => runtimeState.sidecar === s && !isQuitting()
+      ? readPluginModelContext(params) : Promise.resolve([]));
+  }
   // The directory a session's file tools work in: its isolated worktree
-  // (ADR 0329), resolved by host-core from its own registry, or its project.
+  // (ADR 0329), project, or host-owned scratch directory (ADR 0124).
   const sessionFileRoot = async (sessionId: string): Promise<string | null> => {
     const host = runtimeState.host;
     if (!host) return null;
     const res = await host.call<{
       session: { projectPath?: string; worktree?: unknown } | null;
-    }>("session.get", { id: sessionId });
+    }>("session.get", { id: sessionId, messageLimit: 1 });
     if (res?.session?.worktree) {
       const location = await host.call<{ path?: string }>("worktree.location", { sessionId });
       return location.path?.trim() || null;
     }
-    return res?.session?.projectPath?.trim() || null;
+    if (!res?.session) return null;
+    const projectPath = res.session.projectPath?.trim();
+    if (projectPath) return projectPath;
+    const scratch = await host.call<{ path: string }>("session.getScratchPath", { sessionId });
+    return scratch.path?.trim() || null;
   };
   s.setProjectInstructionResolver(async ({ sessionId, projectPath, path }) => {
     // The root is registered by Electron main from the host-owned session
@@ -570,6 +593,24 @@ export function createSidecarRuntime({
     // Fake-IP tolerance belongs to the network policy, not to the proxy switch.
     allowFakeIp: () => relaxedNetworkPolicyEnabled(),
   }));
+  // Granted native application control (ADR 0342, ADR 0344). The host
+  // authorises the call through `tools.execute` before this handler runs, and
+  // the loop here holds no grant of its own: it asks the host for the desktop
+  // grant and re-reads the live one on every observation.
+  s.setLocalTool("Computer", createComputerUseTool({
+    getHost: () => runtimeState.host,
+    overlay: computerCursorOverlay,
+    resolveProvider: async (binding) => {
+      if (!runtimeState.host) return null;
+      return resolveComputerUseProvider({
+        host: runtimeState.host,
+        binding,
+        resolveAuth: providerId => vendorOAuth.resolveAuth(providerId),
+      });
+    },
+    onGrant: grant => publishComputerGrant(grant),
+    log: (message, data) => logger.app("runtime", "warn", message, data),
+  }));
   s.setLocalTool("BrowserPreview", async ({ args, sessionId }) => {
     const raw = String((args as { path?: unknown })?.path ?? "").trim();
     if (!raw) {
@@ -658,13 +699,7 @@ export function createSidecarRuntime({
   // Plugin authoring (D171): scaffold, validate and package a plugin without
   // leaving the session. Paths stay inside the open workspace.
   registerPluginDevTools(s, {
-    resolveWorkspace: async (sessionId) => {
-      try {
-        return await sessionFileRoot(sessionId);
-      } catch {
-        return null;
-      }
-    },
+    resolveWorkspace: sessionFileRoot,
     registerDevPlugin: async (path) => {
       if (!runtimeState.host) throw new Error("host unavailable");
       const loaded = await runtimeState.host.call<{ plugin?: { permissions?: string[] } }>(

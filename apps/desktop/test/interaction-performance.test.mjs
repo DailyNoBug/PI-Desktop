@@ -38,13 +38,17 @@ test("streaming state stays inside the chat render boundary", () => {
 });
 
 test("chat configuration errors still navigate to agent settings", () => {
+  // setSettingsTab opens the Settings dialog on that destination.
   assert.match(chatSurface, /store\.setSettingsTab\("agent"\)/);
-  assert.match(chatSurface, /store\.setPage\("settings"\)/);
 });
 
-test("secondary destinations stay outside the initial shell bundle", () => {
-  assert.match(appShell, /const SettingsPage = lazy/);
-  assert.match(appShell, /import\("\.\.\/\.\.\/pages\/SettingsPage"\)/);
+test("secondary destinations stay outside the initial shell bundle", async () => {
+  const overlayHost = await read("../src/features/startup/AppOverlayHost.tsx");
+  assert.match(overlayHost, /const SettingsDialog = lazy\(/);
+  assert.match(overlayHost, /import\("\.\.\/settings\/SettingsDialog"\)/);
+  assert.match(overlayHost, /const StartupGuideDialog = lazy\(/);
+  assert.match(overlayHost, /const AnnouncementDialog = lazy\(/);
+  assert.doesNotMatch(overlayHost, /^import \{[^}]*\} from "\.\.\/settings\/SettingsDialog"/m);
   assert.match(appShell, /import\("\.\.\/\.\.\/pages\/PluginsPage"\)/);
   assert.match(appShell, /<Suspense fallback=\{<RoutePending \/>\}>/);
 });
@@ -71,7 +75,7 @@ test("stream rendering avoids duplicate frame state and coalesces following", ()
   // commit that reveals it, or the reveal shows one empty frame (ADR 0137).
   assert.match(
     transcript,
-    /const renderedProjection =\s*readingWindow \|\| firstCommit \|\| paneRevealed \? projection : deferredProjection/,
+    /const renderedProjection =\s*readingWindow \|\| historyPending \|\| firstCommit \|\| paneRevealed \? projection : deferredProjection/,
   );
   assert.match(transcript, /getTranscriptProjection\(messages, compactions\)/);
   assert.match(transcript, /useDeferredValue\(projection\)/);

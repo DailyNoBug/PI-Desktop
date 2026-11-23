@@ -147,6 +147,9 @@ impl Database {
                 tx.execute_batch(PLAN_APPROVALS_SCHEMA)?;
                 tx.execute_batch(crate::session_collaboration::SCHEMA)?;
                 tx.execute_batch(WORKTREE_DDL)?;
+                tx.execute_batch(super::MODE_RUNS_SCHEMA)?;
+                super::mode_run_elapsed_migration::initialize(&tx)?;
+                super::completion_report_migration::initialize(&tx)?;
                 tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
                 tx.commit()?;
             }
@@ -216,6 +219,13 @@ impl Database {
             26 => {
                 migrate_v26_to_v27(&conn, path)?;
             }
+            27 => {}
+            28 => {}
+            29 => {}
+            30 => {}
+            31 => {}
+            32 => {}
+            33 => {}
             legacy @ 1..=6 => {
                 let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
                 drop(conn);
@@ -278,6 +288,34 @@ impl Database {
         }
         if migrated_version == 26 {
             migrate_v26_to_v27(&conn, path)?;
+        }
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version == 27 {
+            super::project_path_migration::migrate(&conn, path, 27)?;
+        }
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version == 28 {
+            super::mode_runs_migration::migrate(&conn, path)?;
+        }
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version == 29 {
+            super::mode_run_elapsed_migration::migrate(&conn, path)?;
+        }
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version == 30 {
+            super::completion_report_migration::migrate(&conn, path)?;
+        }
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version == 31 {
+            super::session_mode_migration::migrate(&conn, path)?;
+        }
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version == 32 {
+            super::legacy_goal_migration::migrate(&conn, path)?;
+        }
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version == 33 {
+            super::model_discovery_migration::migrate_reported_context_window(&conn, path)?;
         }
         let db = Self { conn, data_dir };
         db.boot_maintenance()?;
@@ -370,7 +408,10 @@ impl Database {
             }
             return Ok(id);
         }
-        upsert_project_row(&self.conn, path, touch)?
+        let target = canonical_project_path(path)
+            .ok_or_else(|| anyhow!("project path must not be blank"))?;
+        super::project_path_migration::reconcile_project_paths(&self.conn, Some(&target))?;
+        upsert_project_row(&self.conn, &target, touch)?
             .ok_or_else(|| anyhow!("project path must not be blank"))
     }
 
@@ -403,6 +444,7 @@ impl Database {
     }
 
     pub fn list_projects(&self) -> Result<Vec<ProjectRecord>> {
+        super::project_path_migration::reconcile_project_paths(&self.conn, None)?;
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, path, name, pinned, created_at, last_opened_at
          FROM projects
@@ -424,7 +466,8 @@ impl Database {
     /// Session ids attached to a project row, including sessions already
     /// marked deleted. Callers delete each session so its transcript files follow.
     pub fn project_session_ids(&self, path: &str) -> Result<Vec<String>> {
-        let path = canonical_project_path(path)
+        let path = self
+            .stored_project_path(path)?
             .ok_or_else(|| anyhow!("project path must not be blank"))?;
         let mut stmt = self.conn.prepare_cached(
             "SELECT s.id FROM sessions s
@@ -438,7 +481,8 @@ impl Database {
     /// Delete a project row by canonical path. Returns whether a row existed so
     /// callers can report an idempotent removal.
     pub fn delete_project(&self, path: &str) -> Result<bool> {
-        let path = canonical_project_path(path)
+        let path = self
+            .stored_project_path(path)?
             .ok_or_else(|| anyhow!("project path must not be blank"))?;
         let deleted = self
             .conn

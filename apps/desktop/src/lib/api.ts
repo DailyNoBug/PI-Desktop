@@ -1,3 +1,8 @@
+import type { ReviewContextLines, ReviewContextResult, ReviewTurnsPage, ReviewChangesPage } from "@pi-desktop/shared";
+type ClipboardDirectoryPaste = {
+  items: Array<{ kind: "directory"; path: string; name: string } | { kind: "file"; name: string }>;
+  token: string | null;
+};
 import { projectPlanHistory } from "./plan-history";
 import { guardRemoteInvocation } from "./remote-ipc-safety";
 import { isRemoteSession, safeSessionSummary } from "./remote-session-safety";
@@ -42,6 +47,8 @@ import type {
   ComposerCommand,
   ComposerPasteFile,
   ComposerPastedFile,
+  ComposerSuggestionAnswer,
+  ComposerSuggestionMessage,
   FsChatRefResolveResult,
   FsEntry,
   FsImageDataUrlResult,
@@ -60,9 +67,11 @@ import type {
   OnboardingState,
   OAuthLoginEvent,
   OAuthRespondInput,
-  OAuthStartResult,
   OAuthVendor,
+  OAuthStartResult,
   PluginSummary,
+  LauncherCatalog,
+  LauncherOpenPluginRequest,
   PluginPermissionReview,
   PluginSettingDefinition,
   PluginServiceStatus,
@@ -70,6 +79,8 @@ import type {
   PluginViewMeta,
   PluginScenicThemesDestinationMeta,
   PluginTheme,
+  MarketBrowseQuery,
+  MarketBrowseResult,
   MarketPluginSummary,
   MarketPluginDetail,
   PluginInstallResult,
@@ -170,12 +181,15 @@ import {
   defaultCommandShellForPlatform,
   IPC,
   isCommandShellId,
+  normalizeBuiltinMode,
   normalizeLargePasteThreshold,
   normalizeMode,
   normalizeNetworkProxy,
   normalizeNetworkPolicy,
   normalizeRadialMenuPreferences,
+  normalizeSidebarModulePreferences,
   radialMenuWriteError,
+  sidebarModulesWriteError,
   resolveFontScale,
   normalizeChatContentMaxWidth,
   validateNetworkPolicy,
@@ -389,6 +403,7 @@ export type BackgroundTaskSummary = {
   state: "running" | "exited" | "failed" | "stopped";
   elapsedMs: number;
   exitCode?: number;
+  continuation?: "pending" | "started" | "consumed" | "cancelled" | "failed";
 };
 
 export type BackgroundTasksListResult = {
@@ -457,10 +472,14 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     transcriptDisplayMode: isTranscriptDisplayModeValue(settings.transcriptDisplayMode)
       ? settings.transcriptDisplayMode
       : "fully-folded",
-    defaultMode: normalizeMode((settings as { defaultMode?: unknown }).defaultMode),
+    autoCollapseSettledGroups: settings.autoCollapseSettledGroups !== false,
+    autoCollapseThinking: settings.autoCollapseThinking !== false,
+    // The default mode stays a builtin; user modes are chosen per session.
+    defaultMode: normalizeBuiltinMode((settings as { defaultMode?: unknown }).defaultMode),
     infiniteProviderRetry:
       (settings as { infiniteProviderRetry?: unknown }).infiniteProviderRetry === true,
     jevEnabled: (settings as { jevEnabled?: unknown }).jevEnabled === true,
+    codemodeEnabled: (settings as { codemodeEnabled?: unknown }).codemodeEnabled === true,
     defaultCommandShell: isCommandShellId(
       (settings as { defaultCommandShell?: unknown }).defaultCommandShell,
     )
@@ -472,6 +491,7 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     ),
     fontScale: resolveFontScale(settings),
     radialMenu: normalizeRadialMenuPreferences(settings.radialMenu),
+    sidebarModules: normalizeSidebarModulePreferences(settings.sidebarModules),
     networkProxy: normalizeNetworkProxy(
       (settings as { networkProxy?: unknown }).networkProxy,
     ),
@@ -507,9 +527,31 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
       errorCode: "INVALID_PARAMS",
     });
   }
+  if (
+    Object.prototype.hasOwnProperty.call(settings, "autoCollapseSettledGroups") &&
+    typeof settings.autoCollapseSettledGroups !== "boolean"
+  ) {
+    throw Object.assign(new Error("autoCollapseSettledGroups is invalid"), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(settings, "autoCollapseThinking") &&
+    typeof settings.autoCollapseThinking !== "boolean"
+  ) {
+    throw Object.assign(new Error("autoCollapseThinking is invalid"), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
   const radialMenuProblem = radialMenuWriteError(settings.radialMenu);
   if (radialMenuProblem) {
     throw Object.assign(new Error(radialMenuProblem), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
+  const sidebarModulesProblem = sidebarModulesWriteError(settings.sidebarModules);
+  if (sidebarModulesProblem) {
+    throw Object.assign(new Error(sidebarModulesProblem), {
       errorCode: "INVALID_PARAMS",
     });
   }
@@ -520,6 +562,7 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
     chatContentMaxWidth?: unknown;
     infiniteProviderRetry?: unknown;
     jevEnabled?: unknown;
+    codemodeEnabled?: unknown;
     smoothStreaming?: unknown;
     sidebarRunningIndicators?: unknown;
     sidebarRunningBadge?: unknown;
@@ -584,6 +627,14 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
     typeof value.jevEnabled !== "boolean"
   ) {
     throw Object.assign(new Error("jevEnabled is invalid"), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(value, "codemodeEnabled") &&
+    typeof value.codemodeEnabled !== "boolean"
+  ) {
+    throw Object.assign(new Error("codemodeEnabled is invalid"), {
       errorCode: "INVALID_PARAMS",
     });
   }
@@ -824,6 +875,8 @@ export const api = {
     })),
   getSessionCollaboration: (sessionId: string) =>
     invoke<SessionCollaborationSummary>(IPC.invoke.sessionCollaboration, { sessionId }),
+  getSessionUsageCost: (sessionId: string) =>
+    invoke<import("@pi-desktop/shared").SessionUsageCost>(IPC.invoke.sessionUsageCost, { sessionId }),
   deleteSession: (id: string) => invoke(IPC.invoke.sessionDelete, id),
   getSessionScratchPath: (sessionId: string) =>
     invoke<{ path: string }>(IPC.invoke.sessionGetScratchPath, { sessionId }),
@@ -838,7 +891,8 @@ export const api = {
   /** Ask the host for a first-prompt title; it refuses a renamed session. */
   deriveSessionTitle: (id: string, title: string) =>
     invoke<{ updated: boolean }>(IPC.invoke.sessionDeriveTitle, id, title),
-  moveSessionProject: (sessionId: string, projectPath: string) =>
+  /** `projectPath: null` moves the session out of its project. */
+  moveSessionProject: (sessionId: string, projectPath: string | null) =>
     invoke<{ session: SessionSummary }>(IPC.invoke.sessionMoveProject, {
       sessionId,
       projectPath,
@@ -894,6 +948,8 @@ export const api = {
     invoke<BackgroundTasksListResult>(IPC.invoke.backgroundTasksList),
   backgroundTasksOutput: (id: string) =>
     invoke<BackgroundTaskOutput>(IPC.invoke.backgroundTasksOutput, { id }),
+  backgroundTasksCancelContinuation: (id: string) =>
+    invoke<{ ok: boolean }>(IPC.invoke.backgroundTasksCancelContinuation, { id }),
   backgroundTasksStop: (id: string) =>
     invoke<{ ok: boolean; found: boolean }>(IPC.invoke.backgroundTasksStop, { id }),
   onBackgroundTasksChanged: (listener: (payload: { version?: number }) => void) => {
@@ -1050,6 +1106,8 @@ export const api = {
     invoke<{ ok: boolean }>(IPC.invoke.providersOauthDelete, providerId),
   getProject: () =>
     invoke<{ workspace: ProjectWorkspace | null }>(IPC.invoke.projectGet),
+  getSidebarPreferences: () => invoke<unknown>(IPC.invoke.sidebarPreferencesGet),
+  setSidebarPreferences: (value: unknown) => invoke<void>(IPC.invoke.sidebarPreferencesSet, value),
   listProjects: () =>
     invoke<{ projects: ProjectRecord[] }>(IPC.invoke.projectList),
   listProjectGroups: () =>
@@ -1107,14 +1165,16 @@ export const api = {
     }),
   pickFiles: () =>
     invoke<{ token: string | null; canceled?: boolean }>(IPC.invoke.composerPickFiles),
+  readClipboardDirectories: () => invoke<ClipboardDirectoryPaste | null>(IPC.invoke.composerReadClipboardDirectories),
   getDroppedFilePath: (file: File) =>
     window.piDesktop?.getDroppedFilePath?.(file) ?? null,
   pickPhotos: () =>
     invoke<{ token: string | null; canceled?: boolean }>(IPC.invoke.composerPickPhotos),
-  importFiles: (sessionId: string, token: string) =>
+  importFiles: (sessionId: string, token: string, reference = false) =>
     invoke<{ files: ComposerPastedFile[] }>(IPC.invoke.composerImportFiles, {
       sessionId,
       token,
+      reference,
     }),
   pasteFiles: (sessionId: string, files: ComposerPasteFile[]) =>
     invoke<{ files: ComposerPastedFile[] }>(IPC.invoke.composerPasteFiles, {
@@ -1598,6 +1658,21 @@ export const api = {
   openPluginPanel: (id: string) => invoke(IPC.invoke.pluginOpenPanel, id),
   togglePluginLauncher: () => invoke(IPC.invoke.pluginLauncherToggle),
   dismissPluginLauncher: () => invoke(IPC.invoke.pluginLauncherDismiss),
+  /** Everything the launcher can show: launchable plugins plus installed apps. */
+  launcherCatalog: () => invoke<LauncherCatalog>(IPC.invoke.pluginLauncherCatalog),
+  launcherOpenApp: (appId: string) =>
+    invoke(IPC.invoke.pluginLauncherOpenApp, { appId }),
+  launcherOpenPlugin: (request: LauncherOpenPluginRequest) =>
+    invoke(IPC.invoke.pluginOpenPanel, request),
+  /**
+   * Ask for a window height that fits what the panel currently renders. The
+   * host clamps the value into the supported range and ignores nonsense.
+   */
+  launcherSetContentHeight: (height: number) =>
+    invoke(IPC.invoke.pluginLauncherContentHeight, { height }),
+  /** Leave the panel, focus the main window, and open the plugin market page. */
+  launcherOpenPluginMarket: () =>
+    invoke(IPC.invoke.pluginLauncherOpenMarket),
   listPluginThemes: () => invoke<PluginTheme[]>(IPC.invoke.pluginThemes),
   listPluginProviderCatalog: () =>
     invoke<PluginProviderCatalogMeta[]>(IPC.invoke.pluginProviderCatalog),
@@ -1613,7 +1688,7 @@ export const api = {
   pluginViewOpen: (
     pluginId: string,
     viewId: string,
-    extra?: { sessionId?: string; location?: string; tabId?: string },
+    extra?: { sessionId?: string; location?: string; tabId?: string; selection?: string },
   ) => invoke(IPC.invoke.pluginViewOpen, { pluginId, viewId, ...extra }),
   pluginViewClose: (pluginId: string, viewId: string, extra?: { sessionId: string; tabId?: string }) =>
     invoke(IPC.invoke.pluginViewClose, { pluginId, viewId, ...extra }),
@@ -1650,6 +1725,9 @@ export const api = {
       providerId: string;
       sourceUrl: string;
     }>(IPC.invoke.marketSearch, { query, category }),
+  /** One page of the marketplace; the host falls back to its snapshot offline. */
+  marketBrowse: (query: MarketBrowseQuery) =>
+    invoke<MarketBrowseResult>(IPC.invoke.marketBrowse, query),
   marketGetDetail: (id: string) =>
     invoke<{ plugin: MarketPluginDetail }>(IPC.invoke.marketGetDetail, id),
   marketInstall: (input: {
@@ -1739,6 +1817,16 @@ export const api = {
   toggleDevTools: (open?: boolean) =>
     invoke<{ open: boolean }>(IPC.invoke.devtoolsToggle, { open }),
   workspaceDiff: (sessionId?: string) => invoke<WorkspaceDiff>(IPC.invoke.workspaceDiff, { ...(sessionId ? { sessionId } : {}) }),
+  workspaceReviewTurns: (input: { sessionId: string; before?: number; limit?: number }) =>
+    invoke<ReviewTurnsPage>(IPC.invoke.workspaceReviewTurns, input),
+  workspaceReviewChanges: (input: { sessionId: string; turnId?: string; snapshotId?: string; offset?: number; limit?: number }) =>
+    invoke<ReviewChangesPage>(IPC.invoke.workspaceReviewChanges, input),
+  workspaceReviewContext: (input: { sessionId: string; snapshotId: string; context: ReviewContextLines }) =>
+    invoke<ReviewContextResult>(IPC.invoke.workspaceReviewContext, input),
+  workspaceReviewOpenFile: (input: { sessionId: string; snapshotId: string; action: "external" | "folder" }) =>
+    invoke(IPC.invoke.workspaceReviewOpenFile, input),
+  workspaceReviewRollbackFile: (input: { sessionId: string; snapshotId: string }) =>
+    invoke<import("@pi-desktop/shared").ReviewFileRollbackResult>(IPC.invoke.workspaceReviewRollbackFile, input),
   workspaceReviewRollback: (input: {
     sessionId: string;
     snapshotId: string;
@@ -1776,6 +1864,8 @@ export const api = {
       ...(sessionId ? { sessionId } : {}),
     }),
   fsReveal: (path: string, sessionId?: string) => invoke(IPC.invoke.fsReveal, { path, ...(sessionId ? { sessionId } : {}) }),
+  fsRevealDirectory: (path: string, sessionId: string) =>
+    invoke(IPC.invoke.fsReveal, { path, sessionId, directory: true }),
   fsOpen: (path: string, mimeType?: string, sessionId?: string) =>
     invoke(IPC.invoke.fsOpen, { path, mimeType, ...(sessionId ? { sessionId } : {}) }),
   fsIndex: (sessionId?: string) => invoke<FsIndexResult>(IPC.invoke.fsIndex, { ...(sessionId ? { sessionId } : {}) }),
@@ -1784,12 +1874,19 @@ export const api = {
   /**
    * Complete a file reference from chat text to a real file (D320 follow-up).
    * The main process owns the root order — project, session scratch,
-   * attachments — because only it can see the scratch store.
+   * attachments — because only it can see the scratch store. `allowDirectory`
+   * lets an exact reference name a real directory (issue #2113); shorthand
+   * resolution keeps answering files only.
    */
-  fsResolveRef: (ref: string, sessionId?: string) =>
+  fsResolveRef: (
+    ref: string,
+    sessionId?: string,
+    options?: { allowDirectory?: boolean },
+  ) =>
     invoke<FsChatRefResolveResult>(IPC.invoke.fsResolveRef, {
       ref,
       ...(sessionId ? { sessionId } : {}),
+      ...(options?.allowDirectory ? { allowDirectory: true } : {}),
     }),
   composerCommands: () =>
     invoke<{ commands: ComposerCommand[] }>(IPC.invoke.composerCommands),
@@ -1973,21 +2070,10 @@ export const api = {
    * only the renderer knows whether the draft can take it. A malformed message
    * is ignored — nothing here decides whether a plugin's suggestion is valid.
    */
-  onPluginComposerSuggestion: (
-    listener: (
-      event:
-        | {
-            kind: "offer";
-            requestId: string;
-            pluginId: string;
-            sessionId: string;
-            turnId?: string;
-            text: string;
-            expiresAt: number;
-          }
-        | { kind: "clear"; pluginId?: string; sessionId?: string },
-    ) => void,
-  ) => {
+  onComposerFileLines: (listener: (payload: { sessionId: string; reference: import("@pi-desktop/shared").FileLineReference }) => void) =>
+    window.piDesktop?.on?.(IPC.event.composerFileLines, (payload) => listener(payload as Parameters<typeof listener>[0])) ?? (() => {}),
+  /** Shell-only composer target, offer and clear messages. */
+  onPluginComposerSuggestion: (listener: (event: ComposerSuggestionMessage) => void) => {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.pluginComposerSuggestion, (payload) => {
       const event = payload as {
@@ -1997,47 +2083,47 @@ export const api = {
         sessionId?: unknown;
         turnId?: unknown;
         text?: unknown;
+        candidates?: unknown;
+        revision?: unknown;
+        validUntil?: unknown;
         expiresAt?: unknown;
       };
       if (event?.kind === "clear") {
         listener({
           kind: "clear",
-          ...(typeof event.pluginId === "string" && event.pluginId
-            ? { pluginId: event.pluginId }
-            : {}),
-          ...(typeof event.sessionId === "string" && event.sessionId
-            ? { sessionId: event.sessionId }
-            : {}),
+          ...(typeof event.pluginId === "string" && event.pluginId ? { pluginId: event.pluginId } : {}),
+          ...(typeof event.sessionId === "string" && event.sessionId ? { sessionId: event.sessionId } : {}),
         });
         return;
       }
-      if (
-        event?.kind !== "offer" ||
-        typeof event.requestId !== "string" ||
-        typeof event.pluginId !== "string" ||
-        typeof event.sessionId !== "string" ||
-        typeof event.text !== "string" ||
-        typeof event.expiresAt !== "number"
-      ) {
+      if (typeof event?.requestId !== "string" || typeof event.sessionId !== "string") return;
+      if (event.kind === "target") {
+        listener({ kind: "target", requestId: event.requestId, sessionId: event.sessionId });
         return;
       }
-      listener({
-        kind: "offer",
+      if (event.kind !== "offer" || typeof event.pluginId !== "string" ||
+          typeof event.expiresAt !== "number" || !Number.isFinite(event.expiresAt)) return;
+      const offer = {
+        kind: "offer" as const,
         requestId: event.requestId,
         pluginId: event.pluginId,
         sessionId: event.sessionId,
         ...(typeof event.turnId === "string" && event.turnId ? { turnId: event.turnId } : {}),
-        text: event.text,
         expiresAt: event.expiresAt,
-      });
+      };
+      if (event.candidates !== undefined) {
+        if (!Array.isArray(event.candidates) || event.candidates.length < 1 ||
+            event.candidates.length > 3 || !event.candidates.every((text) => typeof text === "string" && text) ||
+            typeof event.revision !== "string" || !event.revision ||
+            typeof event.validUntil !== "number" || !Number.isFinite(event.validUntil)) return;
+        listener({ ...offer, candidates: event.candidates, revision: event.revision, validUntil: event.validUntil });
+      } else if (typeof event.text === "string") {
+        listener({ ...offer, text: event.text });
+      }
     });
   },
-  /** The shell's answer to one composer suggestion the main process is waiting on. */
-  pluginComposerSuggestionResult: (input: {
-    requestId: string;
-    shown: boolean;
-    reason?: string;
-  }) => invoke<{ ok: boolean }>(IPC.invoke.pluginComposerSuggestionResult, input),
+  pluginComposerSuggestionResult: (input: ComposerSuggestionAnswer) =>
+    invoke<{ ok: boolean }>(IPC.invoke.pluginComposerSuggestionResult, input),
   onBrowserOpenFile: (listener: (event: { path: string }) => void) => {
     if (!window.piDesktop?.on) return () => undefined;
     return window.piDesktop.on(IPC.event.browserOpenFile, (payload) => {
@@ -2183,6 +2269,11 @@ export const api = {
       pluginId?: string;
       projectPath?: string | null;
       selectSessionId?: string;
+      /**
+       * The one session whose transcript changed. A plugin message write names
+       * it so the shell can repaint an already open transcript (ADR 0339).
+       */
+      sessionId?: string;
     }) => void,
   ) => {
     if (!window.piDesktop?.on) return () => undefined;
@@ -2193,6 +2284,7 @@ export const api = {
           pluginId?: string;
           projectPath?: string | null;
           selectSessionId?: string;
+          sessionId?: string;
         },
       ),
     );

@@ -412,6 +412,13 @@ configured that value; the Advanced inputs retain the conservative runtime
 limits until the user edits them. Both markers are optional, so old configs
 remain readable and downgrade clients ignore them.
 
+For a saved non-OAuth endpoint, a catalog-owned context window follows the
+cached capacity reported for the exact provider and wire model ID when the
+endpoint still lists the model. Session launch passes this window to the
+runtime for compaction and provider requests. Missing capacity, unlisted
+models, and an unavailable cache fall back to the catalog/binding resolution
+above. Discovery does not change the saved binding or its output cap.
+
 The configured user value remains persisted and visible in Advanced settings, but
 provider safety does not trust an enlarged override beyond a known published
 window. Outbound output caps, automatic compaction, and overflow classification
@@ -470,12 +477,17 @@ fields remain readable for scheduled jobs and older consumers; no database or
 IPC migration is required. Settings has no fixed chat-default picker or service
 "Make default" action. Image-generation selection remains independent.
 
-The combined Composer model menu shows the three most recent available bindings
-first. Each row identifies the provider as well as the model or alias. Search is
-always visible and searches all configured models. Other models expand inline,
-grouped by provider, without duplicating recent entries. With no history, all
-models are visible immediately. The current model is checked; reasoning controls
-remain below the list. Discovery enriches exact
+The combined Composer model menu is two panes under an always-visible search.
+A source rail lists Recent (up to six available bindings, newest first) and each
+provider with its model count; the pane beside it lists the chosen source's
+models, so every configured model is one click away. Recent rows identify the
+provider as well as the model or alias. Search spans all providers, shows grouped
+results, and dims rail sources without matches. With a single source (for
+example no history and one provider) the rail is hidden and all models are
+visible immediately. The pane height is fixed by the tallest source so switching
+sources never resizes the menu. Escape clears a typed search before it closes
+the menu. The current model is checked; reasoning controls
+sit in a footer below the list. Discovery enriches exact
 configured IDs without adding unconfigured choices. Model and reasoning changes
 retain the existing session configuration and permission boundaries.
 

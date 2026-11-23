@@ -1,6 +1,6 @@
 import { useId, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import type { SessionTodo } from "@pi-desktop/shared";
+import { isModeRunOpen, type SessionTodo } from "@pi-desktop/shared";
 import type { BackgroundTaskOutput, BackgroundTaskSummary } from "../lib/api";
 import { Button } from "./ui";
 import { IconChevronDown, IconChevronUp } from "./icons";
@@ -8,6 +8,7 @@ import { TodoPanel, todoProgress } from "./TodoDock";
 import { useAppStore } from "../stores/app-store";
 import { useBackgroundTasks } from "../features/chat/background-tasks/useBackgroundTasks";
 import { useSessionTodosRecovery } from "../features/chat/todos/useSessionTodosRecovery";
+import { useModesStore } from "../features/modes/modes-store";
 
 /**
  * The composer's shared Todo + background-task container.
@@ -21,9 +22,26 @@ import { useSessionTodosRecovery } from "../features/chat/todos/useSessionTodosR
  * rows. Filtering, removal and the badge all live in the hook, so this file stays
  * presentational.
  */
+/**
+ * While a builtin Goal run is open, its status bar is the session's progress
+ * surface, so the dock is hidden. The AI todo list and background tasks stay
+ * in the session and show again once the run ends.
+ */
 export function TaskDock({ sessionId }: { sessionId: string }) {
+  const goalRunOpen = useModesStore((state) => {
+    const run = state.runs[sessionId];
+    return Boolean(run && run.modeId === "goal" && isModeRunOpen(run.state));
+  });
+  return goalRunOpen ? null : <TaskDockPanel sessionId={sessionId} />;
+}
+
+function TaskDockPanel({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation();
   const snapshot = useAppStore((state) => state.sessionTodos[sessionId]);
+  // The shimmer is an infinite animation. A run that ends early can leave an
+  // in_progress step behind, so the sweep follows the session's run state, not
+  // the step's status alone: an idle window must stop submitting frames (#1064).
+  const sessionRunning = useAppStore((state) => state.runningSessions[sessionId] ?? false);
   const panelId = useId();
 
   // The container now owns the todo read, so it recovers the snapshot the same
@@ -54,6 +72,7 @@ export function TaskDock({ sessionId }: { sessionId: string }) {
     output,
     toggleOutput,
     stop,
+    cancelContinuation,
     remove,
     error,
     stoppingIds,
@@ -103,7 +122,7 @@ export function TaskDock({ sessionId }: { sessionId: string }) {
             <span className="dock-header-text">{headerText}</span>
             {progress?.current ? (
               <span
-                className={`dock-header-current${collapsed ? " todo-dock-shimmer" : ""}`}
+                className={`dock-header-current${collapsed && sessionRunning ? " todo-dock-shimmer" : ""}`}
                 title={progress.current.content}
               >
                 {progress.current.content}
@@ -181,14 +200,15 @@ export function TaskDock({ sessionId }: { sessionId: string }) {
               {t(`backgroundTasks.${error === "remove" ? "removeFailed" : `${error}Failed`}`)}
             </p>
           ) : null}
-          {hasTodo ? (
+          {hasTodo && tab === "todo" ? (
             <TodoPanel
               todos={todos}
               listId={`${panelId}-todo`}
               interactive={!collapsed && tab === "todo"}
+              animate={sessionRunning}
             />
           ) : null}
-          {hasTasks ? (
+          {hasTasks && tab === "tasks" ? (
             <TaskPanel
               listId={`${panelId}-tasks`}
               tasks={tasks}
@@ -197,6 +217,7 @@ export function TaskDock({ sessionId }: { sessionId: string }) {
               stoppingIds={stoppingIds}
               onToggleOutput={toggleOutput}
               onStop={(id) => void stop(id)}
+              onCancelContinuation={(id) => void cancelContinuation(id)}
               onRemove={remove}
             />
           ) : null}
@@ -206,11 +227,7 @@ export function TaskDock({ sessionId }: { sessionId: string }) {
   );
 }
 
-/**
- * Task rows. `Output` and `Stop`/`Remove` sit outside the row body so the
- * clickable band never swallows a control, and the whole row stays one line:
- * a long command ellipsizes with its full text in `title`.
- */
+/** The command preview and its actions share one line above the expanded details. */
 function TaskPanel({
   listId,
   tasks,
@@ -219,6 +236,7 @@ function TaskPanel({
   stoppingIds,
   onToggleOutput,
   onStop,
+  onCancelContinuation,
   onRemove,
 }: {
   listId: string;
@@ -228,6 +246,7 @@ function TaskPanel({
   stoppingIds: ReadonlySet<string>;
   onToggleOutput: (id: string) => void;
   onStop: (id: string) => void;
+  onCancelContinuation: (id: string) => void;
   onRemove: (id: string) => boolean;
 }) {
   const { t } = useTranslation();
@@ -241,6 +260,7 @@ function TaskPanel({
           const meta = [
             t(`backgroundTasks.${task.state}`),
             running ? formatElapsed(task.elapsedMs) : null,
+            task.continuation ? t(`backgroundTasks.continuation${task.continuation === "pending" && !running ? "Ready" : task.continuation}`) : null,
             task.exitCode !== undefined ? String(task.exitCode) : null,
           ].filter(Boolean).join(" \u00b7 ");
           return (
@@ -269,6 +289,11 @@ function TaskPanel({
                   <span className="task-command" title={task.command}>{task.command}</span>
                   <span className="task-meta">{meta}</span>
                 </div>
+                {task.continuation === "pending" ? (
+                  <Button type="button" variant="ghost" size="sm" className="task-action" onClick={() => onCancelContinuation(task.id)}>
+                    {t("backgroundTasks.cancelContinuation")}
+                  </Button>
+                ) : null}
                 {running ? (
                   <Button
                     type="button"
@@ -280,7 +305,7 @@ function TaskPanel({
                   >
                     {stopping ? t("backgroundTasks.stopping") : t("backgroundTasks.stop")}
                   </Button>
-                ) : (
+                ) : task.continuation !== "pending" ? (
                   <Button
                     type="button"
                     variant="ghost"
@@ -290,10 +315,13 @@ function TaskPanel({
                   >
                     {t("backgroundTasks.dismiss")}
                   </Button>
-                )}
+                ) : null}
               </div>
               {expanded ? (
-                <pre className="task-output">{formatOutput(output, task.id)}</pre>
+                <>
+                  <code className="task-command-detail">{task.command}</code>
+                  <pre className="task-output">{formatOutput(output, task.id)}</pre>
+                </>
               ) : null}
             </div>
           );

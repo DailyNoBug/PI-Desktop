@@ -23,6 +23,7 @@ import {
   ErrorCodes,
   isGlobalPermissionMode,
   normalizeProposalKind,
+  normalizeBuiltinMode,
   normalizeMode,
   PROTOCOL_VERSION,
   SCHEMA_VERSION,
@@ -97,8 +98,8 @@ function permissionMode(value: unknown): "ask" | "accept-edits" | "auto" {
 }
 
 function mode(value: unknown): RacpSessionMode {
-  const normalized = normalizeMode(value);
-  return normalized === "plan" || normalized === "goal" ? normalized : "agent";
+  // RACP remote sessions have no custom modes; keep builtin ids only.
+  return normalizeBuiltinMode(value);
 }
 
 function toRacpStatus(sessionId: string, activeTurns: Map<string, string>): RacpSessionStatus {

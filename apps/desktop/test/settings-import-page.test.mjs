@@ -6,7 +6,7 @@ import { loadStylesSync } from "./helpers/styles.mjs";
 
 const here = new URL(".", import.meta.url);
 const read = (path) => readFileSync(fileURLToPath(new URL(path, here)), "utf8");
-const settingsPage = read("../src/features/settings/SettingsPage.tsx");
+const settingsPage = read("../src/features/settings/SettingsDestinationContent.tsx");
 const settingsSearch = read("../src/lib/settings-search.ts");
 const modelPage = read("../src/components/settings/ModelConfigPage.tsx");
 const skillsPage = read("../src/components/settings/AgentSkillsPage.tsx");

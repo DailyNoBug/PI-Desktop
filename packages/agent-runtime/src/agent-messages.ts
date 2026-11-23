@@ -7,7 +7,7 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { JsonObject, JsonValue, Usage } from "@earendil-works/pi-ai";
-import type { MessageUsage, UsageProvenance } from "@pi-desktop/shared";
+import { responsesTextPhase, type AssistantProviderReplay, type MessageUsage, type UsageProvenance } from "@pi-desktop/shared";
 
 export function nowIso(): string {
   return new Date().toISOString();
@@ -72,14 +72,21 @@ export function usageFromPi(
   const validCost = usage.cost && (["input", "output", "cacheRead", "cacheWrite", "total"] as const).every((key) => Number.isFinite(usage.cost[key]) && usage.cost[key] >= 0);
   // Pi adapters normally calculate cost from model rates. Unmarked all-zero
   // costs are also their missing-price placeholder, not evidence of free use.
-  const costStatus = provenance.costStatus ?? (validCost && usage.cost.total > 0 ? "estimated" : "unknown");
-  const cost = validCost && costStatus !== "unknown" ? { ...usage.cost } : undefined;
+  // Pi 1.5 marks a total that is the provider-billed cost (for example
+  // OpenRouter usage accounting). That is authoritative over catalog-rate
+  // provenance, including models without native rates.
+  const billed = validCost && usage.cost.totalFromProvider === true;
+  const costStatus = billed ? "reported"
+    : provenance.costStatus ?? (validCost && usage.cost.total > 0 ? "estimated" : "unknown");
+  const cost = validCost && costStatus !== "unknown"
+    ? { input: usage.cost.input, output: usage.cost.output, cacheRead: usage.cost.cacheRead, cacheWrite: usage.cost.cacheWrite, total: usage.cost.total }
+    : undefined;
   if (totalTokens <= 0 && inputTokens <= 0 && outputTokens <= 0 && !cost?.total) return undefined;
   return {
     inputTokens,
     outputTokens,
-    ...(cacheReadTokens > 0 ? { cacheReadTokens } : {}),
-    ...(cacheWriteTokens > 0 ? { cacheWriteTokens } : {}),
+    ...(Number.isFinite(usage.cacheRead) && usage.cacheRead >= 0 ? { cacheReadTokens } : {}),
+    ...(Number.isFinite(usage.cacheWrite) && usage.cacheWrite >= 0 ? { cacheWriteTokens } : {}),
     ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
     totalTokens,
     usageOrigin: "pi",
@@ -103,7 +110,7 @@ export function usageToPi(usage: MessageUsage | undefined): AccountedPiUsage {
     ...(usage?.reasoningTokens !== undefined ? { reasoning: usage.reasoningTokens } : {}),
     totalTokens: usage?.totalTokens ?? input + output + cacheRead + cacheWrite,
     cost: usage?.cost && usage.costStatus !== "unknown"
-      ? { ...usage.cost }
+      ? { ...usage.cost, ...(usage.costStatus === "reported" ? { totalFromProvider: true } : {}) }
       : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     // Explicitly tag the numeric placeholder so it can never become a known
     // zero-dollar charge when reconstructed history crosses this boundary again.
@@ -111,11 +118,25 @@ export function usageToPi(usage: MessageUsage | undefined): AccountedPiUsage {
   };
 }
 
+/** Only the transcript needs the signed original; report and recovery callers consume `text`. */
+export type CommentaryTranscript = { text: string; replay: AssistantProviderReplay };
+
+/** Appends to the trailing text block need only a delta. A different partition needs one snapshot. */
+export function sameCommentaryBoundaries(previous?: CommentaryTranscript, next?: CommentaryTranscript): boolean {
+  if (!previous || !next) return previous === next;
+  const before = previous.replay.blocks;
+  const after = next.replay.blocks;
+  return before.length === after.length && before.every((block, i) =>
+    block.signature === after[i].signature && (i === before.length - 1 || block.length === after[i].length));
+}
+
 export type AssistantContent = {
   text: string;
   thinking: string;
   hasText: boolean;
   hasThinking: boolean;
+  hasFinalAnswer?: true;
+  transcript?: CommentaryTranscript;
 };
 
 /** Flatten a pi-ai assistant content array into visible text and reasoning. */
@@ -131,16 +152,25 @@ export function assistantContent(content: unknown): AssistantContent {
   let thinking = "";
   let hasText = false;
   let hasThinking = false;
-  for (const part of content) {
-    if (!part || typeof part !== "object") continue;
-    const block = part as {
-      type?: string;
-      text?: string;
-      thinking?: string;
-    };
+  let hasFinalAnswer = false;
+  let transcript: CommentaryTranscript | undefined;
+  for (const block of content) {
+    if (!isRecord(block)) continue;
     if (block.type === "text" && typeof block.text === "string") {
       hasText = true;
-      text += block.text;
+      const phase = responsesTextPhase(block.textSignature);
+      if (phase === "commentary" && !transcript) {
+        transcript = { text, replay: { version: 1, blocks: text ? [{ type: "text", length: text.length }] : [] } };
+      }
+      if (transcript) {
+        transcript.text += block.text;
+        transcript.replay.blocks.push({
+          type: "text", length: block.text.length,
+          ...(phase && typeof block.textSignature === "string" ? { signature: block.textSignature } : {}),
+        });
+      }
+      if (phase !== "commentary") text += block.text;
+      if (phase === "final_answer" && block.text.length) hasFinalAnswer = true;
     } else if (block.type === "thinking") {
       hasThinking = true;
       if (typeof block.thinking === "string") {
@@ -151,7 +181,11 @@ export function assistantContent(content: unknown): AssistantContent {
       }
     }
   }
-  return { text, thinking, hasText, hasThinking };
+  return {
+    text, thinking, hasText, hasThinking,
+    ...(hasFinalAnswer ? { hasFinalAnswer: true } : {}),
+    ...(transcript ? { transcript } : {}),
+  };
 }
 
 /**
@@ -176,9 +210,27 @@ export function truncateTextWithMarker(
 }
 
 /**
+ * Which string a block contributes to the truncation budget.
+ *
+ * Readable assistant thinking lives in `thinking`, not `text`, and pi counts
+ * it toward the context estimate. Redacted thinking is an opaque signature
+ * replay and is not rewritten. A thinking block that only carries `text`
+ * (some OpenAI-compatible adapters) still uses that field.
+ */
+function truncationField(block: Record<string, unknown>): "text" | "thinking" | undefined {
+  if (block.type === "thinking" && block.redacted === true) return undefined;
+  if (block.type === "thinking" && typeof block.thinking === "string") return "thinking";
+  if (typeof block.text === "string") return "text";
+  return undefined;
+}
+
+/**
  * Bound every text block of one message so the message's total text is at most
- * `maxChars`. Blocks without text (tool calls, images) are kept, so a truncated
- * message is still a provider-valid message with its tool calls intact.
+ * `maxChars`. Answer text is reserved first; assistant thinking is then cut to
+ * whatever remains, and a shortened thinking block drops its provider signature
+ * so the replay is not a mutated signed trace. Blocks without text (tool calls,
+ * images, redacted thinking) are kept, so a truncated message is still a
+ * provider-valid message with its tool calls intact.
  */
 export function truncateMessageText(
   message: AgentMessage,
@@ -191,18 +243,39 @@ export function truncateMessageText(
     return text === content ? message : ({ ...message, content: text } as AgentMessage);
   }
   if (!Array.isArray(content)) return message;
-  let remaining = maxChars;
+  const fields = content.map((block) =>
+    isRecord(block) ? truncationField(block) : undefined,
+  );
+  // Reserve answer text first so a long thinking trace cannot evict it.
+  let textBudget = maxChars;
+  const textAllowance: number[] = [];
+  content.forEach((block, index) => {
+    if (fields[index] !== "text" || !isRecord(block)) return;
+    const value = block.text as string;
+    const allowance = Math.min(value.length, Math.max(0, textBudget));
+    textAllowance[index] = allowance;
+    textBudget -= allowance;
+  });
+  let thinkingBudget = Math.max(0, textBudget);
   let changed = false;
-  const blocks = content.map((block) => {
-    if (!isRecord(block) || typeof block.text !== "string") return block;
-    if (block.text.length <= remaining) {
-      remaining -= block.text.length;
+  const blocks = content.map((block, index) => {
+    const field = fields[index];
+    if (!field || !isRecord(block)) return block;
+    const value = block[field];
+    if (typeof value !== "string") return block;
+    const allowance = field === "text" ? (textAllowance[index] ?? 0) : thinkingBudget;
+    if (value.length <= allowance) {
+      if (field === "thinking") thinkingBudget -= value.length;
       return block;
     }
     changed = true;
-    const text = truncateTextWithMarker(block.text, Math.max(1, remaining), marker);
-    remaining = 0;
-    return { ...block, text };
+    const nextValue = truncateTextWithMarker(value, Math.max(1, allowance), marker);
+    if (field === "thinking") thinkingBudget = 0;
+    if (field === "text") return { ...block, text: nextValue };
+    const next: Record<string, unknown> = { ...block, thinking: nextValue };
+    delete next.thinkingSignature;
+    delete next.redacted;
+    return next;
   });
   return changed ? ({ ...message, content: blocks } as AgentMessage) : message;
 }

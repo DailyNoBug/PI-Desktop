@@ -8,9 +8,13 @@ import type {
   RefObject,
   SetStateAction,
 } from "react";
+import { IconChevronDown, IconChevronUp } from "../../../components/icons";
+import { TooltipButton } from "../../../components/ui";
 import { editorSelectionRange, readEditorValue } from "./editor";
 import { ComposerImagePreview } from "./ComposerImagePreview";
 import { ComposerImageHover } from "./ComposerImageHoverPreview";
+import { DirectoryReferenceCard } from "../DirectoryReferenceCard";
+import type { ComposerFileReference } from "./model";
 import { composerSuggestionKeyAction } from "./plugins/suggestion-keys";
 import type { ComposerSuggestionView } from "./hooks/useComposerSuggestion";
 import type { CompletionController } from "./hooks/useComposerCompletions";
@@ -18,6 +22,8 @@ import type { ComposerImagePreviewController } from "./hooks/useComposerImagePre
 
 export type ComposerInputProps = {
   imagePreview?: ComposerImagePreviewController;
+  directoryReferences?: ComposerFileReference[];
+  onRemoveDirectory?: (id: string) => void;
   inputRef: RefObject<HTMLDivElement | null>;
   value: string;
   placeholderText: string;
@@ -56,6 +62,8 @@ export type ComposerInputProps = {
 /** Rich contenteditable input; draft state and async operations stay outside. */
 export function ComposerInput({
   imagePreview,
+  directoryReferences = [],
+  onRemoveDirectory,
   inputRef,
   value,
   placeholderText,
@@ -82,10 +90,24 @@ export function ComposerInput({
     const editor = inputRef.current;
     return editor ? installComposerDeletionGuard(editor) : undefined;
   }, [inputRef]);
+  const navigation = suggestion?.navigation;
   return (
     <div className="composer-input-wrap">
       {imagePreview ? <ComposerImagePreview controller={imagePreview} /> : null}
       {imagePreview ? <ComposerImageHover controller={imagePreview} editorRef={inputRef} /> : null}
+      {directoryReferences.length > 0 ? (
+        <div className="directory-reference-list">
+          {directoryReferences.map((reference) => (
+            <DirectoryReferenceCard
+              key={reference.id}
+              path={reference.path}
+              name={reference.name}
+              disabled={inputBlocked}
+              onRemove={() => onRemoveDirectory?.(reference.id)}
+            />
+          ))}
+        </div>
+      ) : null}
       <div className="composer-input-stage">
         {/* React does not render children into this node; the editor module
           paints atomic attachment chips imperatively. */}
@@ -170,14 +192,24 @@ export function ComposerInput({
             // suggestion only acts once neither claims the key.
             const suggestionAction = composerSuggestionKeyAction(event, {
               suggestion: suggestion !== null,
+              candidateCount: navigation?.count,
               completionItems: composerAc.hasItems,
               completionOpen: composerAc.open,
             });
-            if (suggestionAction) {
-              event.preventDefault();
-              if (suggestionAction === "accept") suggestion?.accept();
-              else suggestion?.dismiss();
-              return;
+            if (suggestionAction && suggestion) {
+              if (suggestionAction === "dismiss") {
+                event.preventDefault();
+                event.stopPropagation();
+                suggestion.dismiss();
+                return;
+              }
+              const handled = suggestionAction === "accept"
+                ? suggestion.accept()
+                : navigation?.cycle(suggestionAction === "previous" ? -1 : 1);
+              if (handled) {
+                event.preventDefault();
+                return;
+              }
             }
             if (
               (event.key === "ArrowUp" || event.key === "ArrowDown") &&
@@ -205,13 +237,45 @@ export function ComposerInput({
           empty, which is what makes Tab a plain "write this for me". */}
         {value.length === 0 ? (
           suggestion ? (
-            <span
-              key={`suggestion-${suggestion.text}`}
-              className="composer-placeholder composer-placeholder-suggestion"
-              aria-hidden="true"
-            >
-              <span className="composer-suggestion-text">{suggestion.text}</span>
-              <span className="composer-suggestion-hint">{suggestion.hint}</span>
+            <span className="composer-placeholder composer-placeholder-suggestion">
+              <span className="composer-suggestion-text" aria-hidden="true">{suggestion.text}</span>
+              <span className="composer-suggestion-hint" aria-hidden="true">{suggestion.hint}</span>
+              {navigation ? (
+                <span
+                  className="composer-suggestion-navigation"
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape" || event.nativeEvent.isComposing ||
+                        event.altKey || event.ctrlKey || event.metaKey) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (composerAc.open) composerAc.close();
+                    else suggestion.dismiss();
+                    inputRef.current?.focus();
+                  }}
+                >
+                  <TooltipButton
+                    className="composer-suggestion-nav-button"
+                    type="button"
+                    tooltip={navigation.previousLabel}
+                    aria-keyshortcuts="ArrowUp"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => navigation.cycle(-1)}
+                  >
+                    <IconChevronUp size={12} aria-hidden="true" />
+                  </TooltipButton>
+                  <span className="composer-suggestion-position" aria-hidden="true">{navigation.position}</span>
+                  <TooltipButton
+                    className="composer-suggestion-nav-button"
+                    type="button"
+                    tooltip={navigation.nextLabel}
+                    aria-keyshortcuts="ArrowDown"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => navigation.cycle(1)}
+                  >
+                    <IconChevronDown size={12} aria-hidden="true" />
+                  </TooltipButton>
+                </span>
+              ) : null}
             </span>
           ) : (
             <span
@@ -225,11 +289,9 @@ export function ComposerInput({
         ) : null}
         {/* The visible line is decoration; the live region is what a screen
           reader announces, once, without stealing focus. */}
-        {suggestion ? (
-          <span className="sr-only" role="status" aria-live="polite">
-            {suggestion.text}
-          </span>
-        ) : null}
+        <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {suggestion ? `${navigation ? `${navigation.position}: ` : ""}${suggestion.text}` : ""}
+        </span>
       </div>
     </div>
   );

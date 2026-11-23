@@ -53,6 +53,7 @@ registered; reserved codes in §3.8 remain intentionally absent from
 | `INVALID_ARGUMENT` | no | request schema/args invalid, including a native-tool path of the wrong file/directory kind |
 | `INVALID_PARAMS` | no | host-core RPC parameter validation failed (numeric `1002`); the sidecar and renderer surface it unchanged |
 | `UNAUTHORIZED` | no | capability/auth boundary rejected call |
+| `PERMISSION_DENIED` | no | session ownership, permission mode, or continuation eligibility rejects the operation; do not retry without a change in authorization or state |
 | `NOT_FOUND` | no | entity not found |
 | `SESSION_NOT_FOUND` | no | a session-scoped RPC (including `tools.execute`) named a session the host does not have; an unknown id never inherits the global workspace |
 | `CONFLICT` | maybe | state conflict / busy resource |
@@ -90,6 +91,16 @@ does not turn temporary thread pressure into a host process exit.
 
 ### 3.2 Agent / session
 
+Provider status parsing also recognizes DashScope `Code: <status>` envelopes
+at the start of an error message, and an OpenAI SDK `Error code: NNN` prefix
+(HTTP 400-599) at the start of the message. A streamed `InvalidParameter: <400>`
+rejection is terminal even when the enclosing HTTP response was 200:
+resending unchanged tool history cannot repair it. Structured error status
+fields retain precedence; arbitrary angle-bracket numbers in prose are not
+HTTP statuses, and neither is a bare `code: NNN` business field such as
+SiliconFlow `30001` or Zhipu JSON `"code":1308`. Authentication, rate-limit
+and transient 5xx envelopes retain their existing classifications.
+
 | code | retriable | meaning |
 |---|---|---|
 | `AGENT_BUSY` | no | session already has active turn; leftover subagents after a terminal parent error do not keep the session busy (D352) |
@@ -106,6 +117,7 @@ does not turn temporary thread pressure into a host process exit.
 | `CONTEXT_COMPACTION_FAILED` | no | automatic retained-tail recovery could not prepare, persist, or fit a checkpoint, or manual checkpoint summary generation / durable append failed; the guarded next provider request does not start |
 | `STREAM_FAILED` | yes | provider stream was terminated, closed prematurely, or otherwise ended before a complete response; up to ten same-turn retries may precede the terminal event |
 | `EMPTY_MODEL_RESPONSE` | yes | the model ended its turn with no tool call and no visible text twice: once as streamed, once after the automatic re-run; the first reply to a Host-ledger completion notice is exempt (spec 02-agent-runtime §5e, D446) |
+| `TOOL_CALL_NOT_EXECUTED` | no | a complete known-tool Qwen call was emitted as assistant text; the message shows a format diagnostic without executing text, retrying the provider or interrupting valid structured siblings |
 | `PROMPT_ENHANCEMENT_EMPTY` | no | the one-shot enhancement model returned no text |
 | `SPEECH_PROTOCOL_UNSUPPORTED` | no | the speech protocol is unknown to the plugin adapter registry or does not support this role |
 | `SUBAGENT_IDLE_TIMEOUT` | no | withdrawn (D328): idle watchdogs are not armed; the code remains for stored results |
@@ -129,7 +141,7 @@ does not turn temporary thread pressure into a host process exit.
 | `TOOL_FAILED` | maybe | tool executed but failed |
 | `FILE_NOT_FOUND` | no | Read/Write/Edit target path does not exist (distinct from `TOOL_DENIED`) |
 | `TOOL_ABORTED` | no | the tool was cancelled by a user stop or a turn abort before it finished |
-| `VOICE_NOT_CONFIGURED` | no | dictation requested while the local-voice plugin is disabled, has no installed model, or its speech adapter is not live (ADR 0346) |
+| `VOICE_NOT_CONFIGURED` | no | dictation requested while the local-voice plugin is disabled, has no installed model, or its speech adapter is not live (ADR 0355) |
 | `SPEECH_NOT_CONFIGURED` | no | host speech ASR or TTS is not bound in settings |
 | `SPEECH_INPUT_TOO_LARGE` | no | speech input exceeds 25 MB |
 | `VOICE_PAYLOAD_TOO_LARGE` | no | dictation audio exceeded the 20 MiB payload cap |
@@ -388,6 +400,39 @@ does not trigger automatic provider or billing fallback.
 | `LIVE_AUDIO_BACKPRESSURE` | no | bounded PCM or playback credits were exhausted |
 | `LIVE_EXECUTION_NOT_CONNECTED` | no | a provider requested an unsupported function/delegation execution path |
 
+### 3.10 Computer use (ADR 0342)
+
+Computer-use errors are returned as `Computer` tool failures and host
+`computer.*` responses. Each refusal is separately attributable: a missing
+capability is never a hang and never a no-op reported as success. Retriable
+means the same call may succeed after the stated condition clears — it never
+means the host will retry, and it never widens a scope.
+
+| code | retriable | meaning |
+|---|---|---|
+| `COMPUTER_DISABLED` | no | computer use is disabled in settings |
+| `COMPUTER_NOT_CONFIGURED` | no | computer use is enabled but no model binding is configured |
+| `COMPUTER_ACTION_REJECTED` | no | the bound model answered outside the action schema, or named an element, coordinate, or target the validation refused |
+| `COMPUTER_NO_GRANT` | no | no active scope grant owns this session and turn chain |
+| `COMPUTER_STOPPED_BY_USER` | yes | the user stopped computer use; an agent-minted grant is refused until the cooldown ends (ADR 0344) |
+| `COMPUTER_GRANT_IN_USE` | no | another session or turn chain holds the single active grant |
+| `COMPUTER_GRANT_EXPIRED` | no | the grant hit its idle expiry, was revoked, or its target closed |
+| `COMPUTER_BUDGET_EXHAUSTED` | no | the grant's remaining input-action budget reached zero |
+| `COMPUTER_SCOPE_VIOLATION` | no | the request resolved outside the granted window or application |
+| `COMPUTER_SELF_TARGET_REFUSED` | no | the target is a PI-Desktop window; refused under every mode |
+| `COMPUTER_TARGET_DENYLISTED` | no | the target is on the credential-surface or user denylist |
+| `COMPUTER_SECURE_INPUT_REFUSED` | no | the OS reports secure input or a password field holds focus |
+| `COMPUTER_STALE_BASIS` | yes | the coordinate basis does not match a current capture of this scope |
+| `COMPUTER_STALE_REVISION` | yes | the grant revision changed; re-inspect before acting |
+| `COMPUTER_ELEMENT_NOT_FOUND` | yes | the `uid` is unknown, detached, or no longer in the scope |
+| `COMPUTER_ELEMENT_NOT_ACTIONABLE` | no | the element exists but offers no accessibility action for this request |
+| `COMPUTER_INPUT_POLICY_DENIED` | no | the grant's input policy or the user's approval decision refused this batch |
+| `COMPUTER_OS_PERMISSION_MISSING` | no | Screen Recording, Accessibility, or the accessibility bus is not granted |
+| `COMPUTER_TARGET_ELEVATED` | no | the target window is owned by a higher-integrity process |
+| `COMPUTER_PLATFORM_UNSUPPORTED` | no | this platform or session type offers no supported inspection, synthesis, or capture path |
+| `COMPUTER_CAPTURE_UNAVAILABLE` | no | an `a11y-only` grant or an unavailable capture backend forbids pixels |
+| `COMPUTER_TIMEOUT` | yes | a bounded inspection, wait, synthesis, or capture stage timed out |
+
 ## 4. Mapping rules
 
 ### Host RPC numeric → AppError.code
@@ -415,10 +460,13 @@ exceeds max length`, xAI `maximum prompt length is`, Groq, llama.cpp, and
 Bedrock `Input is too long for requested model`. `CONTEXT_TOO_LARGE` is never
 replayed by either retry budget, and a delegate reports it as
 `SUBAGENT_CONTEXT_OVERFLOW`. Explicit billing/account exhaustion codes and
-messages (including `insufficient_quota`, `credit_balance_exhausted`,
-organization/project spend-limit codes, `insufficient credits`, and
-`requires more credits`) map to terminal `PROVIDER_ERROR` even when the HTTP
-status is 429, and HTTP 402 is terminal `PROVIDER_ERROR` even when the body
+messages (including OpenCode Zen's `FreeUsageLimitError`, `insufficient_quota`,
+`credit_balance_exhausted`,
+organization/project spend-limit codes, `insufficient credits`,
+`insufficient balance` / `balance is insufficient` (DeepSeek, SiliconFlow,
+MiniMax), and `requires more credits`, and Zhipu/Z.ai JSON error code `1308`
+for a reached plan usage limit) map to terminal `PROVIDER_ERROR` even when the
+HTTP status is 429, and HTTP 402 is terminal `PROVIDER_ERROR` even when the body
 omits those phrases. Throughput rate-limit wording, including
 Bedrock's `Throttling error: Too many tokens, please wait before trying again.`,
 stays `PROVIDER_RATE_LIMITED`. An unprefixed JSON error body that carries an
@@ -428,8 +476,10 @@ classified from that 400-599 code the same way as a `<status>:` message:
 `MODEL_NOT_CONFIGURED`, 429 stays retryable, and 5xx stay retryable unless
 the body reports a context overflow that is not a rate limit, which is
 terminal `CONTEXT_TOO_LARGE`. A 400 or 422 that explicitly rejects the API
-key (`invalid api key`, `api key not valid`, or `API_KEY_INVALID`, including
-Gemini's `API key not valid` body) is terminal `PROVIDER_UNAUTHORIZED`;
+key (`invalid api key`, `invalid x-api-key`, `incorrect api key`,
+`api key expired`, `api key not valid`, or `API_KEY_INVALID`, including
+Gemini's `API key not valid` body and OpenAI's statusless
+`Incorrect API key provided`) is terminal `PROVIDER_UNAUTHORIZED`;
 `permission denied` and a bare `unauthorized` on those statuses stay
 `PROVIDER_ERROR`.
 

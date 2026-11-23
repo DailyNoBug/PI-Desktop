@@ -19,7 +19,11 @@ import { registerNotificationIpc } from "./notification-ipc";
 import { registerPluginIpc } from "./plugin-ipc";
 import { registerPluginUiIpc } from "./plugin-ui-ipc";
 import { registerRemoteIpc } from "./remote-ipc";
+import { registerPluginLauncherIpc } from "./plugin-launcher-ipc";
+import { registerComputerIpc } from "./computer-ipc";
 import { registerJevIpc } from "./jev-ipc";
+import { registerModesIpc } from "./modes-ipc";
+import type { ModeServices } from "../runtime/mode-services";
 import { registerProviderIpc } from "./provider-ipc";
 import { registerScheduledIpc } from "./scheduled-ipc";
 import { registerSessionIpc } from "./session-ipc";
@@ -52,6 +56,8 @@ export type RegisterIpcDependencies = {
   ipcMain: IpcMain;
   getMainWindow: () => BrowserWindow | null;
   getHost: () => HostProcess | null;
+  /** Push the live computer-use grant to the renderer's indicator. */
+  publishComputerGrant: (grant: import("@pi-desktop/shared").ComputerGrantView | null) => void;
   traySessions: ReturnType<typeof createTraySessions>;
   taskbarUnreadBadge: ReturnType<typeof createTaskbarUnreadBadge>;
   getSidecar: () => AgentSidecar | null;
@@ -77,6 +83,8 @@ export type RegisterIpcDependencies = {
   /** Host activation plus the inline-visualization switch, for runtime consumers. */
   runtimeDisabledBuiltinSkills: () => Promise<string[]>;
   completionNoticeTurns: Set<string>;
+  /** Mode definition catalog and staged run coordination (ADR mode-definitions). */
+  modeServices: ModeServices;
   liveCallService?: LiveCallService;
   liveVoiceWidget?: LiveVoiceWidget;
   restartForStorage: () => void;
@@ -104,6 +112,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     getRemoteManager,
     getMainWindow,
     getHost,
+    publishComputerGrant,
     getSidecar,
     getAgentHostBridge,
     getBackendRouter,
@@ -113,6 +122,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     settleComposerSuggestion,
     getPluginLauncherWindow,
     togglePluginLauncher,
+    openPluginMarket,
     safeOpenExternal,
     updater,
     dataDir,
@@ -123,6 +133,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     persistenceOutbox,
     logger,
     plugins,
+    localApps,
     speech,
     sessionCapabilityContext,
     enrichSession,
@@ -298,6 +309,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     beginTranscriptRewrite,
     forgetTranscriptRewriteHistory,
     stripWinLongPrefix,
+    modeCatalog: dependencies.modeServices.catalog,
   });
   registerSettingsIpc({
     registrar,
@@ -344,6 +356,8 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     onProviderInvalidated: (providerId) => liveCallService?.invalidateProvider(providerId),
   });
   registerJevIpc({ registrar, logger });
+  registerModesIpc({ registrar, catalog: dependencies.modeServices.catalog, runs: dependencies.modeServices.runs });
+  registerComputerIpc({ registrar, getHost, publishGrant: publishComputerGrant });
   registerWorktreeIpc({
     registrar,
     getHost,
@@ -450,6 +464,8 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     activeTurns,
     completionNoticeTurns,
     recordTurnStart,
+    observePersistedUserMessage: dependencies.observePersistedUserMessage,
+    scheduledRunsBySession,
     isTurnDispatchable,
     activeTurnUsages,
     approvedExecutionIdsBySession,
@@ -466,6 +482,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     optionalWorkspaceRoot,
     composerCommandService,
     loadComposerTemplatesCached,
+    modeRuns: dependencies.modeServices.runs,
   });
 
   registerPluginIpc({
@@ -540,6 +557,15 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     getPluginPanelTheme,
     setActivePluginSession,
     settleComposerSuggestion,
+  });
+  registerPluginLauncherIpc({
+    registrar,
+    getHost,
+    getPluginLauncherWindow,
+    plugins,
+    localApps,
+    getLocale: getUpdaterLocale,
+    openPluginMarket,
   });
   registerSpeechIpc({ registrar, speech });
 

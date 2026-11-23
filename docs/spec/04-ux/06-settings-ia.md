@@ -1,9 +1,28 @@
 # 06. Settings Information Architecture
 
-## 1. Settings root (Codex full-page shell)
+## 1. Settings root (modal dialog)
 
-Settings is a **full-window page** that replaces the app sidebar + main chrome (Codex electron behavior):
+Settings is a **modal dialog** over the current page (chat, Scheduled or
+Extensions). It is not a route: opening it records no navigation history and
+the page underneath keeps its state.
 
+- Opened from the sidebar footer **Settings** entry, `Mod+,`, the native menu,
+  global search hits and in-app deep links (`setSettingsTab` / `openSettings`).
+  Closed by the dialog's close button, `Escape`, or a press on the backdrop.
+  `Escape` belongs to the innermost layer: a menu, shortcut recorder or nested
+  dialog that handles it keeps the dialog open. Navigating to a page
+  (`setPage`), selecting a session, creating a project, or **New task** closes
+  the dialog, as leaving the former full-window page did.
+- Settings is the lowest of the three app-level modals. It waits while the
+  startup guide or the release announcement is open and appears after them
+  (priority guide > announcement > settings, see `05-onboarding.md`).
+- The dialog is up to 1080 × 760px inside a 24px viewport margin (12px below
+  760px wide), portaled to the `#pi-desktop-overlays` host on the dialog layer
+  (z 40). Native plugin views beneath are hidden while it is open.
+- Each destination body is `SettingsDestinationContent`, shared with other
+  surfaces (the startup guide embeds the Models destination) so a row behaves
+  identically wherever it appears. Settings reads/writes go through
+  `useSettingsPersistence`.
 - Switching to a different Settings destination starts the content pane at the
   top, including plugin destinations. Re-selecting the current destination or
   updating settings in place preserves the current scroll position. Global
@@ -16,73 +35,80 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   shows a compact loading/failure state with a retry action instead of an empty
   section.
 
-- Left settings rail only, **275px**, using the same `sidebar-surface` material
-  as the main sidebar: native vibrancy with shared tint/sheen on macOS, opaque
-  `--ds-bg-sidebar` on Windows/Linux, and shared optional background imagery.
-  macOS settings-wrapper ancestry is transparent; the content pane and its
-  titlebar remain opaque. Only a nested settings content enter wrapper plays a
-  route animation; the scrolling inner pane, rail, and backing never fade or
-  translate. That entrance is opacity-only. Settings dialogs and sheets portal
-  to a viewport-fixed `#pi-desktop-overlays` host on the document element and
-  cover the full window, including the rail.
-- Returning to the app restores the prior sidebar collapsed/expanded state
-  without a sidebar entrance animation or a width ramp. Real toggle and
-  automatic collapse/restore transitions on the visible shell still animate;
-  initial presentation and route restoration do not.
-- Top of rail: traffic-light clearance and the pill **Search settings…**
-- The **Back to app** (`返回应用`) action is pinned to the foot of the rail, not
-  the top: it keeps its chevron + label form as a 32px control, and it shares
-  the horizontal band of the main shell's sidebar footer icon row (settings /
-  plugins / notifications), so the action does not jump vertically when the
-  full-page takeover opens or closes. The directory above it scrolls when the
-  window is too short for every destination, so a pinned action never covers a
-  row
-- The 46px top band is a native window drag region across both the rail and the
-  content pane, but it is drawn in two parts so each keeps its own surface: the
-  rail drags via its own top strip on the rail surface, and the content pane's
-  band starts at the rail edge on the primary surface. The band must never paint
-  the primary surface over the rail, which would show two colors in one top row.
-  Interactive controls remain explicitly non-draggable
+- Left settings rail only, **275px** (200px below 760px wide), using the same
+  `sidebar-surface` material as the main sidebar. Only a nested settings
+  content enter wrapper plays a route animation; the scrolling inner pane,
+  rail, and backing never fade or translate. That entrance is opacity-only.
+  Dialogs opened from Settings portal to the same overlay host and stack
+  above it. Menus, dropdowns, popovers and sheets that would portal to
+  `document.body` (`portalToBody`) instead mount on the dialog's layer host
+  (`.modal-layer-host`, one step above the dialog layer), so row "…" menus,
+  pickers and market sheets stay clickable inside the dialog. The startup
+  guide provides the same host for its embedded Models page.
+- Top of rail: the pill **Search settings…**. The rail has no footer action;
+  the dialog's close button sits at its top-right corner.
+- The dialog is not a window drag region.
+- Info (About) carries a **Startup guide** row that replays the startup guide
+  (`05-onboarding.md` §3) without resetting its first-launch marker.
 - A compact navigation directory with short, parallel labels and icons, in this
-  exact order:
-  1. **General / 常规** — Lucide `SlidersHorizontal` (appearance)
-  2. **AI** — Lucide `Sparkles` (permissions, defaults, command shell)
+  exact order. **One destination owns one subject** (D684 / ADR 0345): a
+  destination is never the landing place for whatever did not fit elsewhere,
+  and a subject that belongs to none of them is a missing destination rather
+  than an extra card on an unrelated page:
+  1. **Appearance / 外观** — Lucide `Palette` (theme, language, type, chrome)
+  2. **Conversation / 对话** — Lucide `MessageSquare` (transcript presentation and composer input)
   3. **Shortcuts / 快捷键** — Lucide `Keyboard` (keyboard shortcuts)
-  4. **Instructions / 指令** — Lucide `FileText` (global and project instruction files)
-  5. **Models / 模型** — Lucide `Bot` (providers and default model)
-  6. **Skills / 技能** — Lucide `BookOpen` (reusable agent instructions)
-  7. **MCP** — Lucide `Server` (agent connections)
-  8. **Subagents / 子智能体** — Lucide `Bot` (built-in and personal parallel agents)
-  9. **Connections / 连接** — Lucide `Server` (SSH Hosts and remote projects)
-  10. **Import / 导入** — Lucide `Download` (bring sessions and model configuration in from other tools)
-  11. **Projects / 项目** — Lucide `Archive` (durable project index)
-  12. **Cloud sync / 云同步** — Lucide `CloudDownload` (encrypted portable configuration backup and bidirectional sync; Experimental, all builds)
-  13. **Remote Hosts / 远程主机** — Lucide `Globe` (experimental SSH hosts, sessions, and explicit model copy)
-  14. **Info / 信息** — Lucide `Info` (versions, logs, updates, developer)
-
-  The upstream **Voice / 语音** destination (live-voice bindings, Lucide `Mic`)
-  also exists and appears between AI and Shortcuts only in development builds
-  with developer mode on; it is separate from the fork's AI-tab dictation card.
-  Icons are decorative (`aria-hidden` via the SVG default) and stay monochrome
-  with the rail label; do not reuse refresh/rotate glyphs here.
+  4. **Voice / 语音** — Lucide `Mic` (Live Voice enablement and provider bindings)
+  5. **Behavior / 行为** — Lucide `SlidersHorizontal` (session defaults, execution, computer use)
+  6. **Models / 模型** — Lucide `Bot` (providers and default model)
+  7. **Instructions / 指令** — Lucide `FileText` (global and project instruction files)
+  8. **Skills / 技能** — Lucide `BookOpen` (reusable agent instructions)
+  9. **MCP** — Lucide `Server` (agent connections)
+  10. **Subagents / 子智能体** — Lucide `Sparkles` (built-in and personal parallel agents)
+  11. **Connections / 连接** — Lucide `Server` (SSH Hosts and remote projects)
+  12. **Import / 导入** — Lucide `Download` (bring sessions and model configuration in from other tools)
+  13. **Projects / 项目** — Lucide `Archive` (durable project index)
+  14. **System / 系统** — Lucide `Monitor` (network, storage, power, window close behavior)
+  15. **Cloud sync / 云同步** — Lucide `CloudDownload` (encrypted portable configuration backup and bidirectional sync; Experimental, all builds)
+  16. **Remote Hosts / 远程主机** — Lucide `Globe` (experimental SSH hosts, sessions, and explicit model copy)
+  17. **Info / 信息** — Lucide `Info` (versions, logs, updates, developer)
+  Rail icons are decorative (`aria-hidden` via the SVG default) and stay
+  monochrome with the rail label, except on the selected row, where the glyph
+  takes the accent alongside the row's accent-tinted pill; do not reuse
+  refresh/rotate glyphs here. No two destinations share a glyph: Models keeps
+  `Bot` and Subagents takes the `Sparkles` the retired AI destination released.
+- The fork adds **Connections / 连接** (SSH Hosts and remote projects) and
+  **Import / 导入** (session and model import from other tools) between
+  Subagents and Projects. The fork's voice dictation card lives on the
+  Models destination (the bundled local-voice plugin), separate from the
+  upstream Voice destination.
+- The destinations named `general` and `ai` are retired. Their ids stay
+  resolvable — `general` → Appearance, `ai` → Behavior — so a stored selection,
+  a native menu, or a link written before the split lands on a real page
+  instead of an empty content pane. Neither id appears in the directory or in
+  search results.
 - The directory remains a flat searchable list in the same exact order. For
   scanability, the destinations are shown in four titled visual clusters:
-  `Preferences` / `偏好` (General, AI, Shortcuts), `Agent` / `智能体`
-  (Instructions, Models, Skills, MCP, Subagents), `Workspace` / `工作区`
-  (Connections, Import, Projects), and `System` / `系统` (Cloud sync, Remote
-  Hosts, Info; Cloud sync and Remote Hosts are Experimental destinations
-  available in all builds). Headings are muted, non-interactive labels and use
-  whitespace for separation; no divider lines are rendered. These are visual
-  landmarks only, not a second navigation level.
-  muted, non-interactive labels and use whitespace for separation; no divider
-  lines are rendered. These are visual landmarks only, not a second navigation
-  level.
+  `Preferences` / `偏好` (Appearance, Conversation, Shortcuts, Voice),
+  `Agent` / `智能体` (Behavior, Models, Instructions, Skills, MCP, Subagents),
+  `Workspace` / `工作区` (Connections, Import, Projects), and `System` / `系统` (System, Cloud sync,
+  Remote Hosts, Info; Cloud sync and Remote Hosts are Experimental destinations
+  available in all builds). Headings are muted, non-interactive labels at the
+  smallest legible type step with letter spacing, and they use whitespace for
+  separation; no divider lines are rendered. These are visual landmarks only,
+  not a second navigation level.
   When search filters the directory, empty clusters and their headings disappear.
-- **Voice** is a regular Preferences destination between AI and Shortcuts,
-  present in every build with no Experimental badge and no developer-mode
-  requirement. Its rail row, page, search hits, and idle Composer entry are
-  available to all users.
+- **Voice** is a regular Preferences destination after Shortcuts, present in
+  every build with no Experimental badge and no developer-mode requirement. Its
+  rail row, page, search hits, and idle Composer entry are available to all
+  users.
   It is the only place to enable Live Voice. See the Voice section below.
+- Every destination opens with a **page header**: the rail's glyph repeated at
+  page scale on an accent-tinted fill, the page title, and — for destinations
+  whose own content does not already start with a description — one line saying
+  what the destination decides. The capability, model and project workbenches
+  keep their own opening description and carry no header subtitle, so a page
+  never states its purpose twice.
 - **Cloud sync / 云同步** is an Experimental `System` / `系统` destination
   available in development and packaged builds. Its rail row, page, and
   settings-search hits are available in every build, and both the row and page
@@ -115,33 +141,24 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
 
 ## 2. Section contents
 
-### General
+### Appearance
 
-- **Storage** shows the effective application data path and the reclaimable cache
-  size. It is included in settings search. Choose directory uses the native picker;
-  confirmation displays both application and browser source paths, the target,
-  migration scope and the restart/backup policy. Cancelling has no side effects.
-  Accepting locks repeat actions until the app exits through ordered shutdown.
-- A separate sandboxed cold-maintenance window shows localized scanning, copying,
-  verifying and internal-path relocation stages, file counts, copied/verified bytes
-  and determinate progress where known. It does not load plugins or agent services.
-  Failure explains that the original profile remains active, then returns to it;
-  settings exposes the error and permits retry. A disconnected selected volume
-  blocks startup with a recovery explanation instead of silently using empty data.
-- **Clear cache** shows a size and requires an inline confirmation describing the
-  retained durable data before clearing and restarting. **Delete old backups** is
-  separate, lists original paths and warns users to check their plugins and old
-  attachments first. Arbitrary plugin-owned absolute references cannot be rewritten
-  by the host. Environment-controlled profiles display why maintenance is disabled.
-  Confirmation gets keyboard focus, asynchronous errors remain visible, and all
-  visible copy is localized. These operations affect only this local installation.
-- **Appearance** card:
+How the product looks and the chrome around a conversation, in four cards:
+**Interface**, **Sidebar**, **Radial context menu**, **Startup**. Nothing here
+changes what the agent does, and the machine-level cards this page used to
+carry — network, storage, power, close behavior — belong to **System** since
+D684.
+
+- **Interface** card:
   - **Theme**: a searchable picker row (same anchored-menu pattern as
     Language). The closed trigger sizes to the current label, capped by the
     settings control column, and shows the current name. The menu pins System,
     Light, and Dark at the top, then lists plugin themes after a divider with a
     "Provided by …" hint. Search matches labels, descriptions, ids, and plugin
-    ids. Selection updates `settings.theme`.
+    ids. Selection updates `settings.theme`. With System selected, OS appearance
+    changes refresh the resolved plugin palette and broadcast it to open plugin
+    surfaces, including Browser chrome, without another settings write or restart.
+    Explicit light/dark and registered plugin palettes remain fixed.
   - **Language**: a searchable picker row (not a card grid). The closed trigger
     sizes to the current label, capped by the settings control column, and
     shows the current native name, or Match system. The menu pins Auto at the
@@ -177,22 +194,64 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
     created, so the row shows a restart hint while the stored value differs from
     the surface this process launched with instead of pretending to change the
     live window. Other platforms do not render the row.
-  - **Startup animation** (D679 / ADR 0338): one switch, plus an **End early
-    when ready** sub-switch gated by it. The animation itself is a file, not a
-    value, so the row's other job is making the folder findable: its detail line
-    names the video the next launch would play — or says none was found — and
-    carries the action that opens `<dataDir>/startup/`, creating it on the way.
-    Both preferences persist under `AppSettings.startupAnimation` (`enabled`
-    absent means on, so dropping a file in is sufficient; `skipWhenReady` absent
-    plays the video out) and are read before the main window is created, so like
-    the row above they apply on the next launch. The status is re-scanned per
-    open, because a user who just dropped a file in has not restarted yet.
   - **Auto language detection** resolves the OS locale through the main process
     (`app.getLocale()`) rather than the renderer's `navigator.language`, and the
     Auto option shows the detected language inline (e.g. "Currently 简体中文")
   - native select triggers and their opened option lists use the active theme's
     readable foreground/background pairing on macOS, Windows, and Linux; the
     shared native-select contract applies to every app surface
+- **Sidebar** card: one master switch for project running activity
+  (`AppSettings.sidebarRunningIndicators`) plus independently gated
+  **Count badge** and **Activity rail** switches
+  (`sidebarRunningBadge`, `sidebarRunningRail`). When unset, the master and
+  Count badge resolve on while Activity rail resolves off; explicit saved
+  values remain authoritative. The two gated switches render as indented
+  sub-rows of the master, so the dependency is visible without a sentence
+  explaining it. They are disabled while the master switch is off and keep
+  their stored value, so re-enabling the master restores the previous choice
+  instead of resetting it. The affordances themselves are described in
+  [01-ui-ia.md §3.2](01-ui-ia.md#32-sidebar-project-groups).
+- **Sidebar modules** card: one switch per hideable sidebar module, in sidebar
+  order — **New task**, **Scheduled**, **Plugin marketplace**, **Pinned
+  sessions**, **Sessions** (nested: **Sort button**, **New session button**),
+  **Projects** (nested: **New project button**, **Project new-task button**)
+  and **Version**. Stored as `AppSettings.sidebarModules`, a map from module id
+  to boolean; an absent object or key means shown, so existing installs keep
+  the released layout without migration. Nested switches are disabled while
+  their section is off and keep their stored value. **Scheduled** is disabled
+  while scheduled tasks are turned off. **Settings** has no switch: it is the
+  visible way back. Both Electron Main and the renderer reject a non-object
+  value or a non-boolean entry; unknown keys are dropped on read.
+- **Radial context menu** card: one switch (**Enable on the transcript
+  background**) and four direction pickers (**Up**, **Right**, **Down**,
+  **Left**). The switch is off when `AppSettings.radialMenu.enabled` is absent
+  or false, which keeps the vertical background menu. Each picker stores one
+  `RadialMenuAction`: copy conversation, select conversation text, copy the
+  last answer, scroll to top, jump to latest, open the built-in browser, toggle
+  the work panel, open the project folder, or **Leave empty**. The work panel
+  direction follows the panel's state: it reads **Open work panel** while
+  collapsed and **Close work panel** while open. Pickers are disabled while the
+  switch is off and keep their stored directions for when it is turned back on.
+  Settings search indexes the card and its rows.
+- **Startup** card — **Startup animation** (D679 / ADR 0338): one switch, plus
+  an **End early when ready** sub-switch gated by it. The animation itself is a
+  file, not a value, so the row's other job is making the folder findable: its
+  detail line names the video the next launch would play — or says none was
+  found — and carries the action that opens `<dataDir>/startup/`, creating it on
+  the way. Both preferences persist under `AppSettings.startupAnimation`
+  (`enabled` absent means on, so dropping a file in is sufficient;
+  `skipWhenReady` absent plays the video out) and are read before the main
+  window is created, so like the translucency switch they apply on the next
+  launch. The status is re-scanned per open, because a user who just dropped a
+  file in has not restarted yet.
+
+### System
+
+This installation rather than the product's look or the agent's behavior:
+**Network**, **Storage**, **Power**, and on Windows/Linux **Close behavior**.
+Platform-specific close behavior lives here because it changes
+application-window behavior rather than agent behavior.
+
 - **Power** card: two independent opt-in switches. Keep computer awake uses
   `prevent-app-suspension` to block idle system sleep for the lifetime of the
   running desktop app, including between scheduled runs; the display may turn
@@ -201,23 +260,24 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   `AppSettings.keepAwakeWhileRunning` and `AppSettings.preventScreenSleep`,
   take effect immediately, restore on startup, and release their own blocker
   when disabled or during shutdown. Manual sleep and lid close follow the OS.
-- **Sidebar** card: one master switch for project running activity
-  (`AppSettings.sidebarRunningIndicators`) plus independently gated
-  **Count badge** and **Activity rail** switches
-  (`sidebarRunningBadge`, `sidebarRunningRail`). When unset, the master and
-  Count badge resolve on while Activity rail resolves off; explicit saved
-  values remain authoritative. The sub-switches are disabled while the master
-  switch is off and keep their stored value, so re-enabling the master restores
-  the previous choice instead of resetting it. The affordances themselves are
-  described in
-  [01-ui-ia.md §3.2](01-ui-ia.md#32-sidebar-project-groups).
-- **Scheduled tasks** card: an app-wide switch persisting as optional
-  `AppSettings.scheduledTasksEnabled`, on when absent or true. Off hides the
-  footer clock and global-search page entry, leaves the route if already open,
-  withholds scheduled Agent tools, and blocks new manual/automatic runs and task
-  edits at the Host. Existing task enable states, schedules, and history remain
-  unchanged; active runs can finish. Re-enabling restores access and resumes
-  normal due-time admission without replaying missed occurrences.
+- **Storage** shows the effective application data path and the reclaimable cache
+  size. It is included in settings search. Choose directory uses the native picker;
+  confirmation displays both application and browser source paths, the target,
+  migration scope and the restart/backup policy. Cancelling has no side effects.
+  Accepting locks repeat actions until the app exits through ordered shutdown.
+- A separate sandboxed cold-maintenance window shows localized scanning, copying,
+  verifying and internal-path relocation stages, file counts, copied/verified bytes
+  and determinate progress where known. It does not load plugins or agent services.
+  Failure explains that the original profile remains active, then returns to it;
+  settings exposes the error and permits retry. A disconnected selected volume
+  blocks startup with a recovery explanation instead of silently using empty data.
+- **Clear cache** shows a size and requires an inline confirmation describing the
+  retained durable data before clearing and restarting. **Delete old backups** is
+  separate, lists original paths and warns users to check their plugins and old
+  attachments first. Arbitrary plugin-owned absolute references cannot be rewritten
+  by the host. Environment-controlled profiles display why maintenance is disabled.
+  Confirmation gets keyboard focus, asynchronous errors remain visible, and all
+  visible copy is localized. These operations affect only this local installation.
 - **Network** card:
   - **Proxy**: a segmented control — System, Direct, Custom. System is the
     default and lets Chromium follow the OS proxy; Direct disables the proxy;
@@ -249,8 +309,8 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
     The first plaintext hop to such an endpoint shows one informational notice.
     The per-surface acknowledgements this replaced (`networkProxy.allowFakeIp`,
     `configSync.allowInsecureHttp`) are gone (ADR 0304).
-- Platform-specific **Close behavior** remains in General because it changes
-  application-window behavior rather than agent behavior.
+- **Close behavior** card, on Windows/Linux only: what the window's close
+  button does.
 - File-open target, menu-bar behavior, and bottom-panel behavior are not
   rendered until their host-backed settings schemas and runtime effects exist.
 
@@ -301,32 +361,30 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   these semantics. Both retain local recovery and approval requirements.
   Password changes are key rewrapping, not revocation of unlocked devices.
 
-### 全局 AI (`ai` tab)
-- **Permissions** card: the global permission-mode control
-  (ask / accept-edits / auto) that governs how autonomously the agent acts.
-  The control is a menu select on the shared anchored-menu surface rather than
-  a platform-drawn `<select>` popup, so every Settings picker opens the same
-  way. The closed trigger sizes to the current label, capped by the settings
-  control column.
-- **Defaults** card: the host-backed default operating mode (Agent / Plan / Goal),
-  command shell selection, Link open destination, context usage display
-  (remaining or used), the Show thinking toggle, the Transcript display
-  segmented control, Enter-to-send control, the infinite provider retry switch,
-  and the large text paste threshold. The
-  retry switch is off by default and explains that network/transient provider
-  failures keep retrying until success; Stop still cancels the turn and the
-  setting may continue API usage while enabled. Link open destination uses the Work panel browser by default
-  and routes chat, transcript, and plugin HTTP(S) clicks to the system
-  browser when set to Default OS browser. Plugin/settings clicks that want
-  the work panel return to chat first so the dock is visible, without
-  recording a navigation hop; a missing session falls back to the OS
-  browser. Workspace HTML preview, BrowserPreview, OAuth, and Feedback
-  keep their existing destinations. Context
-  usage display controls whether the composer toolbar context ring and its
-  popover lead with the remaining or the used capacity figure; the default
-  is remaining. The threshold controls when a text-only paste becomes a
-  temporary session-scratch file; it defaults to 600 characters and accepts
-  integer values from 1 through 1,000,000.
+### Conversation (`chat` tab)
+
+How a transcript is presented and how the composer takes input. Two cards:
+**Display** then **Input & links**. Nothing on this page changes what the model
+does or what it is allowed to do, and the Display card's caption says so once
+so no row repeats it.
+
+- **Display** card, in rendered order: the **Show thinking** toggle with its
+  **Auto-fold finished thinking** sub-row, the **Transcript display** segmented
+  control with its **Auto-fold finished groups** sub-row, **Context usage
+  display** (remaining or used), **Smooth streaming**, and **Inline
+  visualizations**. Context usage display controls whether the composer toolbar
+  context ring and its popover lead with the remaining or the used capacity
+  figure; the default is remaining.
+- **Input & links** card: the **Enter-to-send** control, the large text paste
+  threshold, and the **Link open destination**. The threshold controls when a
+  text-only paste becomes a temporary session-scratch file; it defaults to 600
+  characters and accepts integer values from 1 through 1,000,000. Link open
+  destination uses the Work panel browser by default and routes chat,
+  transcript, and plugin HTTP(S) clicks to the system browser when set to
+  Default OS browser. Plugin/settings clicks that want the work panel return to
+  chat first so the dock is visible, without recording a navigation hop; a
+  missing session falls back to the OS browser. Workspace HTML preview,
+  BrowserPreview, OAuth, and Feedback keep their existing destinations.
 - Composer text actions are contributed by explicitly installed plugins and
   appear only while their plugin is enabled and its `composer.transform`
   permission is granted. The host does not include a prompt-enhancement card or
@@ -339,8 +397,9 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   reasoning is actively streaming, leaves only the whole-run TextShimmer
   `Thinking` indicator; a collapsed row shows that indicator without an excerpt.
   Stored reasoning is retained and reappears when the toggle is turned back on.
-  With it on, Thinking rows default expanded in Flat and Commands first, while
-  Fully folded keeps the released live-only auto-open exception. It affects
+  With it on, a Thinking row starts folded once it is no longer streaming; the row
+  the live turn is still generating stays open, and the **Auto-fold finished
+  thinking** sub-row below can keep every row open instead. It affects
   presentation only, not model reasoning configuration, and it does not control
   turn-process or activity-group folding: active processes start open and
   untouched completed processes fold by default regardless of the toggle. The
@@ -348,8 +407,16 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   for persisted-settings compatibility and is no longer exposed; an absent or
   unknown value shows reasoning and an explicit `compact` hides it. Settings
   search indexes the row.
-- **Transcript display** is a segmented control in Defaults immediately after
-  **Show thinking**. It persists the optional `transcriptDisplayMode` field as
+- **Auto-fold finished thinking** is an indented sub-row directly under **Show
+  thinking** and appears only while that toggle is on, because with it off no
+  completed reasoning row renders. It persists the optional
+  `autoCollapseThinking` boolean, absent and `true` both meaning fold: only
+  reasoning the live turn is still streaming stays open. Turning it off keeps
+  every rendered Thinking row open. Hiding the sub-row by turning **Show
+  thinking** off never writes a value, so the stored choice survives and comes
+  back with the parent. Settings search indexes both the row and its description.
+- **Transcript display** is a segmented control in Display immediately after the
+  **Show thinking** pair. It persists the optional `transcriptDisplayMode` field as
   `flat`, `command-first`, or `fully-folded`, with the labels **Flat**,
   **Commands first**, and **Fully folded**; an absent or unknown value resolves
   to **Fully folded**, the layout released in v0.20.0. **Flat** renders one
@@ -365,19 +432,49 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   standard 240px field-column cap. Labels stay on one line; when space is
   insufficient, the control moves below the title and whole options wrap
   within the available pane width without horizontal overflow.
-- **Radial context menu** is a card in General after Sidebar with one switch
-  (**Enable on the transcript background**) and four direction pickers
-  (**Up**, **Right**, **Down**, **Left**). The switch is off when
-  `AppSettings.radialMenu.enabled` is absent or false, which keeps the vertical
-  background menu. Each picker stores one `RadialMenuAction`: copy conversation,
-  select conversation text, copy the last answer, scroll to top, jump to
-  latest, open the built-in browser, toggle the work panel, open the project
-  folder, or **Leave empty**. The work panel direction follows the panel's
-  state: it reads **Open work panel** while collapsed and **Close work panel**
-  while open. Pickers are disabled while the switch is off and
-  keep their stored directions for when it is turned back on. Settings search
-  indexes the card and its rows.
-- The **Command shell** row in Defaults uses the host-discovered catalog of native
+- **Auto-fold finished groups** is an indented sub-row directly under
+  **Transcript display**, and appears only for **Commands first** and **Fully
+  folded**; **Flat** renders no activity groups, so the row is hidden there and
+  has no effect. It persists the optional `autoCollapseSettledGroups` boolean,
+  absent and `true` both meaning fold: a group whose turn has settled starts
+  closed whatever its size, while a running turn, or a group that still owns a
+  running tool or delegation, stays open. Turning it off leaves every settled
+  group open - there is no size tier. Hiding the sub-row by switching to **Flat**
+  never writes a value, so the stored choice survives and returns with the mode.
+  Settings search indexes both the row and its description.
+
+### Agent behavior (`behavior` tab)
+
+What a new conversation starts with, and what the agent may do while it runs.
+Card order is **Session defaults → Execution → Computer use**.
+
+- **Session defaults** card: the host-backed default operating mode (Agent /
+  Plan / Goal), the global permission mode (ask / accept-edits / auto) that
+  governs how autonomously the agent acts, and the command shell selection.
+  These are one card because they are the same decision asked three ways: what
+  a run begins with. The permission control is a menu select on the shared
+  anchored-menu surface rather than a platform-drawn `<select>` popup, so every
+  Settings picker opens the same way. The closed trigger sizes to the current
+  label, capped by the settings control column.
+- **Execution** card: the background-job continuation switch, the
+  **Codemode scripts** switch, the infinite provider retry switch and the
+  app-wide **Scheduled tasks** switch. The Codemode switch persists as optional
+  `AppSettings.codemodeEnabled`, off when absent; it offers the Agent-mode
+  `codemode` tool and states that every nested call still uses the permission
+  mode and approvals (ADR codemode-sandbox-boundary). The retry switch is off by default and explains
+  that network/transient provider failures keep retrying until success; Stop
+  still cancels the turn and the setting may continue API usage while enabled.
+  The scheduled-tasks switch persists as optional
+  `AppSettings.scheduledTasksEnabled`, on when absent or true. Off hides the
+  footer clock and global-search page entry, leaves the route if already open,
+  withholds scheduled Agent tools, and blocks new manual/automatic runs and task
+  edits at the Host. Existing task enable states, schedules, and history remain
+  unchanged; active runs can finish. Re-enabling restores access and resumes
+  normal due-time admission without replaying missed occurrences.
+- **Computer use** card: last on the page. It omits card/row explanatory copy
+  and the static scope note; controls, platform and permission status, errors,
+  and the missing-model hint remain unchanged.
+- The **Command shell** row in Session defaults uses the host-discovered catalog of native
   PowerShell 5.1, PowerShell 7, cmd, Git Bash, and Bash with IDs
   `windows-powershell`, `windows-pwsh`, `cmd`, `git-bash`, and
   `bash` where supported. The selected `defaultCommandShell` persists across
@@ -387,7 +484,7 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
   selector is the only configured-state indicator; status text is reserved for
   the default, fallback, and no-effective-shell cases. A Bash turn verifies its
   pinned ID/dialect before execution. The row renders the same menu select as
-  the Permissions card and the Appearance pickers.
+  the permission mode beside it and the Appearance pickers.
 - Context management has **no card and no controls** (D200 / ADR 0061, kept by
   D203 / ADR 0064). Automatic protection is always on and its budgets and
   retention limits are derived from the active model's window, so there is
@@ -399,7 +496,7 @@ Settings is a **full-window page** that replaces the app sidebar + main chrome (
 Speech has **no cloud-binding Settings surface** (ADR 0291): this fork has no
 `AppSettings.speech` field and no `speech/*` IPC. Transcription settings are
 the local-voice **Voice** card's `AppSettings.voice` rows on the Models
-destination (ADR 0346), and search indexes no other speech keys.
+destination (ADR 0355), and search indexes no other speech keys.
 
 Token usage is **not a Settings destination** (D335 / D622 / ADR 0306). The
 expanded sidebar footer Activity icon, directly right of Settings, opens a
@@ -472,7 +569,7 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
   - the `voiceDictation` action (default `Mod + Shift + V`, agent group)
     toggles composer dictation and follows the same override, conflict, and
     restore rules as the rest of the shared shortcut map (D628 / ADR 0312; the
-    dictation backend is now the local voice plugin, ADR 0346)
+    dictation backend is now the local voice plugin, ADR 0355)
 
 ### Model configuration (`agent` tab)
 - The model configuration page groups its sections in this order: **AI
@@ -484,7 +581,8 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
   picker without duplicating the current value. The picker groups model-level
   options by provider, marks the exact current entry, and keeps its searchable
   list bounded. Account labels are not appended to model IDs. Global operating
-  mode, command shell, and Enter-to-send are owned by the AI destination.
+  mode and command shell are owned by Behavior, and Enter-to-send by
+  Conversation.
 - **Vendor accounts** card (D237/D240), between Defaults and Providers:
   - the card lists accounts, not vendors: one row per local OAuth provider row,
     including multiple rows for the same vendor. Its list surface uses the same
@@ -517,7 +615,7 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
     row and keeps the global default model in sync when that account is selected
   - Test connection resolves the account's OAuth authorization and reports a
     transient success or failure without probing the provider with an API key
-- **Voice** card (D687 / ADR 0346): local dictation state of the bundled
+- **Voice** card (D693 / ADR 0355): local dictation state of the bundled
   `pi.local-voice` plugin. The card shows the plugin state (disabled or
   engine missing render as notes) and one row per catalog model — Whisper
   tiny / base / small — with Download (live percentage progress polled while
@@ -663,8 +761,9 @@ remains marketplace plugin `pi.token-insights`, opened from the command palette
 The permission-mode selector remains available in the composer while the
 session is in Agent, Plan, or Goal. In Plan and Goal it controls Bash
 confirmation only: Ask and Accept edits prompt, while Auto may run a mutating
-Bash command without confirmation. The AI Defaults card must describe that both
-contract modes are intent boundaries, not strict read-only security profiles.
+Bash command without confirmation. The Session defaults card must describe that
+both contract modes are intent boundaries, not strict read-only security
+profiles.
 
 ### Jev classifier
 
@@ -730,6 +829,14 @@ system while preserving their different data ownership:
   the primary action's tooltip names that destination so the choice is never
   implicit. Choosing Project without a selected project reports that instead
   of failing silently.
+  MCP creation and inline imports are the exception: All uses the selected
+  project when present and otherwise Global. Explicit Global/Project retain
+  their ownership. An opened editor pins its project owner; changing the page's
+  selected project cannot move an existing definition (#1953).
+  Save refreshes the list at the editor's pinned destination before checking
+  duplicate IDs/names. A same-name definition in another project cannot block
+  a valid save; a conflict in the target project still blocks it. Host upsert
+  retains its authoritative destination validation for concurrent writes.
 - Inside the panel, each level is a group header row — level name, resolved
   `.agents` path in mono, localized count — followed by its rows. Lists flow
   at natural page height like every other Settings surface; the page scrolls
@@ -800,8 +907,9 @@ system while preserving their different data ownership:
   opens inline on the MCP page. Imported servers follow the current Global /
   Project filter and selected project; secrets and header values are never
   shown in candidate rows.
-- MCP Market installs into the same destination as Add: Global under All or
-  Global, and the selected project under Project. Its installed badges reflect
+- MCP Market installs into the same destination as Add: the selected project
+  under All when present, Global otherwise or under explicit Global, and the
+  selected project under Project. Its installed badges reflect
   only that destination, so an entry in another level can still be installed
   here. Project installation requires a selected project and never falls back
   to Global.
@@ -1042,15 +1150,18 @@ system while preserving their different data ownership:
 
 ## 3. Navigation rules
 
-- Profile footer / command palette open Settings full page (default General)
+- The sidebar footer Settings entry / command palette open the Settings dialog
+  on its last destination (default Appearance, the first destination in the
+  directory)
 - Composer model menu and provider setup actions deep-link to the Providers
-  card inside Agent
+  card inside Models
 - Plugin management remains available from the app shell's independent
   **Plugins** destination, including load, enable, disable, and uninstall; it is
   not duplicated in Settings
 - Project archive is indexed by Settings search and is not duplicated as a home
   sidebar destination or standalone global-search page
-- Back to app returns to chat shell from the rail's pinned footer action
+- Closing the dialog (close button, Escape, backdrop) returns to the page
+  underneath unchanged
 - Developer-only destinations, where declared, join and leave the rail, page,
   and search as one unit. Cloud sync and Remote Hosts are Experimental but not
   developer-only, so both remain available in packaged builds and are not
@@ -1058,24 +1169,27 @@ system while preserving their different data ownership:
 
 ## 4. Acceptance
 
-1. Opening Settings hides the coding app sidebar (full-page takeover)
-2. Rail shows the search pill at the top, the back-to-app action pinned at the
-   foot on the main sidebar's footer icon line, and exactly General / 常规, AI,
-   Shortcuts / 快捷键, Instructions / 指令, Models / 模型, Skills / 技能, MCP,
-   Subagents / 子智能体, Connections / 连接, Import / 导入, Projects / 项目,
-   Cloud sync / 云同步 and Remote Hosts / 远程主机 (both Experimental, all
-   builds), and Info / 信息 in that order, with Voice / 语音 (upstream live
-   voice) appearing between AI and Shortcuts only in development builds with
-   developer mode on. The rows are grouped under Preferences / 偏好,
-   Agent / 智能体, Workspace / 工作区, and System / 系统. There is no
-   Usage / 用量 destination.
-3. Appearance is part of General and has no standalone rail destination
-4. Providers is part of Agent and has no standalone rail destination
+1. Opening Settings shows a modal dialog over the current page; the app
+   sidebar and page stay mounted underneath and keep their state
+2. Rail shows the search pill at the top, no footer action, and exactly
+   Appearance / 外观,
+   Conversation / 对话, Shortcuts / 快捷键, Voice / 语音, Behavior / 行为,
+   Models / 模型, Instructions / 指令, Skills / 技能, MCP, Subagents / 子智能体,
+   Connections / 连接, Import / 导入, Projects / 项目, System / 系统, Cloud sync / 云同步 and Remote Hosts /
+   远程主机 (both Experimental, all builds), and Info / 信息 in that order. The
+   rows are grouped under Preferences / 偏好, Agent / 智能体,
+   Workspace / 工作区, and System / 系统. There is no Usage / 用量 destination,
+   and no General or AI destination: those ids resolve to Appearance and
+   Behavior without appearing in the rail or in search results.
+3. Appearance is its own destination; the network, storage, power and
+   close-behavior cards it used to share a page with are on System
+4. Providers is part of Models and has no standalone rail destination
 5. Plugins has no Settings destination; the app-shell Plugins page supports
    load, enable, disable, and uninstall
-6. General shows the host-backed Appearance card; the AI destination shows
-   Permissions and Defaults, including the Command shell row; the
-   Shortcuts destination shows the Keyboard shortcuts card; Info shows the
+6. Appearance shows the host-backed Interface card; Conversation shows Display
+   and Input & links; Behavior shows Session defaults — including the
+   permission mode and the Command shell row — then Execution and Computer use;
+   the Shortcuts destination shows the Keyboard shortcuts card; Info shows the
    Developer card. Plugin-contributed destinations, when present, appear after
    every core group under Extensions. Each destination is a renderer-composited
    sandboxed surface: it preserves the existing Settings rail, titlebar,
@@ -1086,12 +1200,15 @@ system while preserving their different data ownership:
 8. Model configuration shows compact Defaults, separate vendor accounts, the
    account edit/add dialogs, and AI service cards rather than a dense always-on
    form dump
-9. A row's or card heading's explanation is not a permanent second line: it
-   travels as a string into the question mark beside the title, which reveals
-   it on hover and keyboard focus and keeps at least 4.5:1 contrast against its
-   card surface in both light and dark themes. A row's live value (the pinned
-   default model) is data rather than prose and stays visible, and a form
-   field's hint follows the same rule as a row's explanation
+9. A row's explanation is not a permanent second line: it travels as a string
+   into the question mark beside the title, which reveals it on hover and
+   keyboard focus and keeps at least 4.5:1 contrast against its card surface in
+   both light and dark themes. A row's live value (the pinned default model) is
+   data rather than prose and stays visible, and a form field's hint follows the
+   same rule as a row's explanation. A **card** may instead carry one visible
+   caption line under its heading (D684), because that one line orients a whole
+   group rather than explaining a single switch; copy that needs a second
+   sentence stays behind the heading's help mark
 10. Dragging the empty top band from either side of Settings moves the native
    window without blocking Back, search, or navigation controls
 11. Resizing the window expands or contracts the content cards with the
@@ -1169,8 +1286,12 @@ the current window width:
 | Rail width | ~275px (`--ds-settings-nav-width`, shared by the rail and the top band inset) |
 | Rail surface | Shared sidebar material; light opaque fallback `#f3f3f3`, native glass on macOS |
 | Top band | content pane only, inset by the rail width; rail keeps its own surface |
-| Active nav pill | denser 6px/10px pad, ~8px radius, gray mix on rail |
+| Active nav pill | 7px/10px pad, `--radius-md`, accent mixed ~12% into the rail's active tone; the row's glyph takes `--ds-accent` |
+| Rail cluster heading | smallest legible step (`--text-xs-plus`), semibold, `--tracking-wide`, uppercase |
+| Page header | 38px accent-tinted glyph fill (`--radius-md-plus`) + 14px gap + title block |
 | Section title | 28px / 560, first baseline ~y70 |
+| Page subtitle | `--text-md`, `--ds-text-secondary`, one line under the title |
+| Card caption | `--text-sm-plus`, `--ds-text-secondary`, one line under the card heading |
 | Content width | Full available pane width after rail and gutters |
 | Card radius | ~14px elevated stroke |
 | Toggle | **32×20** thumb 16, neutral accent on (not green) |

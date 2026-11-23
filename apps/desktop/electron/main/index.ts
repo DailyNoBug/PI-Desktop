@@ -1,3 +1,4 @@
+import { createBackgroundContinuationCoordinator } from "./runtime/background-continuations";
 import {
   app,
   BrowserWindow,
@@ -7,6 +8,11 @@ import {
   session,
 } from "electron";
 import { join } from "node:path";
+import {
+  createDefaultLocalAppDeps,
+  createLocalAppCatalog,
+  type LocalAppCatalog,
+} from "./local-apps";
 import {
   applyNetworkProxyFromAppSettings,
   currentNetworkProxy,
@@ -25,6 +31,7 @@ import {
   type AgentEventEnvelope,
   type RemoteRelayToolDescriptor,
   type CloseBehavior,
+  type ComputerGrantView,
   type KeybindingOverrides,
   type PlanExecutionFinishStatus,
 } from "@pi-desktop/shared";
@@ -64,8 +71,10 @@ import { MainProcessState } from "./bootstrap/main-state";
 import { registerApplicationActivation } from "./bootstrap/app-activation";
 import { createHostRuntime } from "./runtime/host";
 import { createSidecarRuntime } from "./runtime/sidecar";
+import { createComputerCursorOverlay } from "./computer-use/cursor-overlay";
 import { createEventPersistence } from "./runtime/event-persistence";
 import { createPlanRuntime } from "./runtime/plans";
+import { createModeServices } from "./runtime/mode-services";
 import { createRuntimeLifecycle } from "./runtime/lifecycle";
 import {
   createProviderCatalogRuntime,
@@ -354,6 +363,7 @@ const pluginServices = createPluginServices({
    * coordination instance that reads it too.
    */
   getActiveTurn: (sessionId) => activeTurns.get(sessionId) ?? null,
+  isTurnDispatchable: (sessionId, turnId) => isTurnDispatchable(sessionId, turnId),
   /** The same scope lookup every plugin view IPC consults. */
   isPluginActiveInProject: (pluginId) => pluginActiveInProject(pluginId, currentWorkspacePath()),
   vendorOAuth,
@@ -368,6 +378,7 @@ const {
   pluginViews,
   browserHost,
   announceTurnEnded,
+  observePersistedUserMessage,
   speech,
 } = pluginServices;
 
@@ -598,6 +609,7 @@ const createdLauncher = createLauncher({
   logger,
   safeOpenExternal,
   toggleMainWindow,
+  dataDir,
 });
 launcherRuntime = createdLauncher;
 const {
@@ -662,6 +674,7 @@ const sessionCoordination = createSessionCoordination({
     // A new turn owns the composer now, so a suggestion about the previous one
     // stops being shown and stops being showable (ADR 0333).
     pluginServices.composerSuggestion.noteTurnStarted(sessionId, turnId);
+    pluginServices.announceObservedSession("session:turnStarted", { sessionId, turnId });
   },
 });
 const {
@@ -713,6 +726,25 @@ const sessionCollaboration = createSessionCollaborationService({
   log: (message, data) => logger.app("runtime", "warn", message, { data }),
 });
 
+const backgroundContinuations = createBackgroundContinuationCoordinator({
+  getHost,
+  start: async (sessionId, origin) => {
+    if (!mainState.agentHostBridge) throw new Error("Agent Host unavailable");
+    return mainState.agentHostBridge.startBackgroundContinuation(sessionId, origin);
+  },
+  isQuitting: () => mainState.quitting,
+  log: (message, error) => logger.app("session", "warn", message, { data: String(error) }),
+});
+
+const modeServices = createModeServices({
+  getHost,
+  getAgentHostBridge: () => mainState.agentHostBridge,
+  getSidecar,
+  sendToRenderer,
+  logger,
+  isQuitting: () => mainState.quitting,
+});
+
 const planRuntime = createPlanRuntime({
   runtimeState,
   planState: planRuntimeState,
@@ -735,7 +767,10 @@ const planRuntime = createPlanRuntime({
   acquireSessionOperation,
   resolveAgentRuntimeLaunch,
   isQuitting: () => mainState.quitting,
-  onTurnSettled: sessionCollaboration.settle,
+  onTurnSettled: async (sessionId, turnId) => {
+    try { await sessionCollaboration.settle(sessionId, turnId); } finally { backgroundContinuations.wake(); }
+  },
+  onTurnEnded: (sessionId, turnId, end) => modeServices.runs.settleTurn(sessionId, turnId, end),
 });
 const {
   finishTurn,
@@ -769,12 +804,29 @@ const eventPersistence = createEventPersistence({
 });
 const { persistAgentEvent } = eventPersistence;
 
+/**
+ * The agent's drawn cursor and the indicator feed (ADR 0342 §10).
+ *
+ * The overlay is created lazily by its own module on the first draw command,
+ * and it closes with the grant: a window that outlived the authority it was
+ * drawn for would tell the user an action is still possible when it is not.
+ */
+const computerCursorOverlay = createComputerCursorOverlay({
+  log: (message, data) => logger.app("runtime", "warn", message, data),
+});
+function publishComputerGrant(grant: ComputerGrantView | null): void {
+  sendToRenderer(IPC.event.computerGrantChanged, { grant });
+  if (!grant || grant.state !== "active") computerCursorOverlay.close();
+}
+
 const sidecarRuntime = createSidecarRuntime({
+  observeBackgroundResult: backgroundContinuations.observe,
   runtimeState,
   steeringReplies,
   logger,
   sendToRenderer,
   persistAgentEvent,
+  readPluginModelContext: pluginServices.readPluginModelContext,
   activeTurns,
   approvedExecutionIdsBySession,
   claimedExecutionSessions,
@@ -800,11 +852,14 @@ const sidecarRuntime = createSidecarRuntime({
   disabledBuiltinSkills: runtimeDisabledBuiltinSkills,
   pluginActiveInProject,
   currentNetworkProxy,
+  computerCursorOverlay,
+  publishComputerGrant,
 });
 emitAgentEvent = sidecarRuntime.emitAgentEvent;
 const { startSidecar } = sidecarRuntime;
 
 const { startHost } = createHostRuntime({
+  onBackgroundTasksChanged: backgroundContinuations.wake,
   runtimeState,
   dataDir,
   logger,
@@ -816,6 +871,7 @@ const { startHost } = createHostRuntime({
   userMcp,
   pluginActiveInProject,
   sendToRenderer,
+  settleModeReturn: (sessionId, run) => modeServices.runs.settleReturn(sessionId, run),
   emitAgentEvent,
   togglePluginLauncher,
   finishTurn,
@@ -1079,9 +1135,34 @@ const liveCallService = createLiveCallService({
   onCallView: (view) => liveVoiceWidget.publish(view),
 });
 
+/**
+ * Installed applications for the plugin launcher.
+ *
+ * The scanning adapter needs real filesystem and Electron access, whose wiring
+ * is asynchronous, while IPC registration is synchronous. This handle awaits
+ * that wiring on first use, warms the first scan in the background so the first
+ * `Alt+Space` already has application tiles, and reports "still scanning" until
+ * it exists (docs/spec/07-plugins/18-plugin-launcher.md §4).
+ */
+let localAppsCatalog: LocalAppCatalog | null = null;
+const localAppsReady = createDefaultLocalAppDeps().then((deps) => {
+  const catalog = createLocalAppCatalog(deps);
+  localAppsCatalog = catalog;
+  void catalog.refresh().catch(() => undefined);
+  return catalog;
+});
+const localApps: LocalAppCatalog = {
+  list: async () => (await localAppsReady).list(),
+  refresh: async () => (await localAppsReady).refresh(),
+  launch: async (appId) => (await localAppsReady).launch(appId),
+  isScanning: () => localAppsCatalog?.isScanning() ?? true,
+  diagnostics: () => localAppsCatalog?.diagnostics() ?? [],
+};
+
 function registerIpc() {
   return registerIpcHandlers({
     getRemoteManager: () => remoteManager,
+    modeServices,
     restartForStorage: () => {
       shutdownState.quitConfirmed = true;
       app.relaunch({ args: [...process.argv.slice(1).filter((arg) => arg !== "--pi-managed-storage"), "--pi-managed-storage"] });
@@ -1092,6 +1173,7 @@ function registerIpc() {
     ipcMain,
     getMainWindow,
     getHost,
+    publishComputerGrant,
     getSidecar,
     getAgentHostBridge: () => mainState.agentHostBridge,
     getBackendRouter: () => startupState.backendRouter,
@@ -1106,6 +1188,9 @@ function registerIpc() {
       pluginServices.composerSuggestion.settle(answer),
     getPluginLauncherWindow: () => mainState.pluginLauncherWindow,
     togglePluginLauncher,
+    /** Same delivery path as the application menu, so readiness and focus are
+     * handled once instead of by the launcher IPC. */
+    openPluginMarket: () => dispatchApplicationMenuCommand("openPluginMarket"),
     safeOpenExternal,
     updater,
     dataDir,
@@ -1116,6 +1201,7 @@ function registerIpc() {
     persistenceOutbox,
     logger,
     plugins,
+    localApps,
     speech,
     sessionCapabilityContext,
     enrichSession,
@@ -1123,6 +1209,7 @@ function registerIpc() {
     beginTranscriptRewrite: eventPersistence.beginTranscriptRewrite,
     forgetTranscriptRewriteHistory: sessionCoordination.forgetTranscriptRewriteHistory,
     recordTurnStart,
+    observePersistedUserMessage,
     stripWinLongPrefix,
     normalizeSettings,
     validateSettingsWrite,

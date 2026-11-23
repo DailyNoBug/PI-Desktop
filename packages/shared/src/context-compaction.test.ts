@@ -61,6 +61,10 @@ describe("checkpointContextTokens", () => {
 });
 
 describe("contextCompactionMark", () => {
+  it("preserves the model that rebuilt the context", () => {
+    expect(contextCompactionMark(record({ providerId: "provider", modelId: "current" })))
+      .toMatchObject({ providerId: "provider", modelId: "current" });
+  });
   it("carries the post-compaction context estimate for the composer (#2015)", () => {
     expect(
       contextCompactionMark(record({ details: { generation: 2, contextTokens: 18_400 } })),
@@ -70,6 +74,7 @@ describe("contextCompactionMark", () => {
   it("describes one compaction for its transcript row and the inspector", () => {
     expect(contextCompactionMark(record({ details: { generation: 3 } }))).toEqual({
       id: "checkpoint-1",
+      createdAt: "2026-08-06T00:00:00.000Z",
       throughMessageId: "m9",
       generation: 3,
       summaryTokens: 100,

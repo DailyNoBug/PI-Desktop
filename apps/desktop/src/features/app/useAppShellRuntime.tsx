@@ -16,14 +16,18 @@ import { installRendererApi } from "../../capture/renderer-api";
 import { StartupAnimation } from "../../components/StartupAnimation";
 import { StartupSplash } from "../../components/StartupSplash";
 import { api } from "../../lib/api";
+import { scheduledWorkspaceCache } from "../scheduled/scheduled-workspace-cache";
 import { composerSuggestion } from "../chat/composer/plugins/suggestion-bridge";
+import { usePluginBrowseState } from "../plugins/browse-state";
 import { subscribeRemoteInteractions } from "../../lib/remote-interactions";
+import { startModesSync } from "../modes/modes-sync";
 import { playNotificationChime } from "../../lib/notification-sound";
 import {
   clampSidebarWidth,
   loadSidebarWidth,
   saveSidebarWidth,
 } from "../../lib/sidebar-preferences";
+import { DEFAULT_SETTINGS_TAB } from "../../lib/settings-search";
 import { sidebarWidthBudget } from "../../lib/sidebar-resize";
 import { commitWorkPanelPresentation } from "../../lib/work-panel-presentation";
 import {
@@ -113,7 +117,7 @@ export function useAppShellRuntime() {
   const [sidebarWidth, setSidebarWidth] = useState(() => loadSidebarWidth());
   const { sidebarEntering, sidebarExiting, handleSidebarAnimationEnd } = useSidebarTransition(
     sidebarCollapsed,
-    ready && page !== "settings",
+    ready,
   );
   const [shellWidth, setShellWidth] = useState(0);
   const appShellRef = useRef<HTMLDivElement>(null);
@@ -345,8 +349,7 @@ export function useAppShellRuntime() {
   }, []);
 
   useEffect(() => {
-    const pageHidesWorkPanel =
-      page === "settings" || page === "plugins" || page === "scheduled";
+    const pageHidesWorkPanel = page === "plugins" || page === "scheduled";
     const shouldPresent =
       ready && !pageHidesWorkPanel && workPanelOpen;
     const request = ++workPanelReservationRequest.current;
@@ -421,6 +424,7 @@ export function useAppShellRuntime() {
         switch (command) {
           case "newTask":
             if (workPanelMaximizedRef.current) setWorkPanelMaximized(false);
+            store.closeSettings();
             await store.newSession();
             requestAnimationFrame(() =>
               document.querySelector<HTMLTextAreaElement>(".composer-input")?.focus(),
@@ -430,7 +434,7 @@ export function useAppShellRuntime() {
             await store.openProject();
             break;
           case "openSettings":
-            store.setSettingsTab("general");
+            store.setSettingsTab(DEFAULT_SETTINGS_TAB);
             break;
           case "openSearch":
             setSearchOpen(true);
@@ -446,6 +450,12 @@ export function useAppShellRuntime() {
             break;
           case "openLogs":
             await api.openLogs();
+            break;
+          case "openPluginMarket":
+            // Sent by the launcher's empty state: land on the marketplace tab
+            // of the plugins page instead of the installed list.
+            store.setPage("plugins");
+            usePluginBrowseState.getState().setTab("market");
             break;
           case "checkForUpdates": {
             const updateState = await api.updatesCheck();
@@ -649,6 +659,10 @@ export function useAppShellRuntime() {
     void api.menuRendererReady().catch(() => undefined);
   }, [ready]);
 
+  // Mode catalog (Electron main) and run pushes (host-core) for the picker,
+  // the run status bar and Settings → Modes (ADR mode-definitions).
+  useEffect(() => startModesSync(), []);
+
   // The Host owns the prompt queue (D375); mirror it whenever the visible
   // session changes so a reload or a switch shows the durable entries.
   useEffect(() => {
@@ -724,9 +738,7 @@ export function useAppShellRuntime() {
         ...(event.location ? { location: event.location } : {}),
       });
     });
-    // A plugin offered one line for the composer (`pi.composer.suggest`). The
-    // shell owns the composer, so it decides here and answers the main process,
-    // which is waiting on the plugin's call with that answer.
+    // The renderer owns the composer; only it can answer a target probe or offer.
     const offComposerSuggestion = api.onPluginComposerSuggestion((event) => {
       if (event.kind === "clear") {
         composerSuggestion.clear({
@@ -735,13 +747,16 @@ export function useAppShellRuntime() {
         });
         return;
       }
-      const outcome = composerSuggestion.offer({
-        pluginId: event.pluginId,
-        sessionId: event.sessionId,
-        ...(event.turnId ? { turnId: event.turnId } : {}),
-        text: event.text,
-        expiresAt: event.expiresAt,
-      });
+      if (event.kind === "target") {
+        const revision = composerSuggestion.getTarget(event.sessionId);
+        void api.pluginComposerSuggestionResult({
+          requestId: event.requestId,
+          shown: revision !== null,
+          ...(revision ? { revision } : {}),
+        });
+        return;
+      }
+      const outcome = composerSuggestion.offer(event);
       void api.pluginComposerSuggestionResult({
         requestId: event.requestId,
         shown: outcome.shown === true,
@@ -749,6 +764,7 @@ export function useAppShellRuntime() {
       });
     });
     const offHostStatus = api.onHostStatus((status) => {
+      if (status.component !== "sidecar" && (!status.ok || status.restarted)) scheduledWorkspaceCache.clear();
       if (status.archMismatch) setArchMismatch(status.archMismatch);
       if (status.ok) {
         setBackendDown(null);
@@ -813,6 +829,17 @@ export function useAppShellRuntime() {
           }
           if (event.selectSessionId) {
             await useAppStore.getState().selectSession(event.selectSessionId);
+          } else if (event.sessionId) {
+            // A plugin message write named the session it changed. The sidebar
+            // refresh above cannot repaint an open transcript, so re-read it —
+            // but only when the user is looking at it and no turn owns it.
+            const current = useAppStore.getState();
+            if (
+              current.activeSessionId === event.sessionId &&
+              current.runningSessions[event.sessionId] !== true
+            ) {
+              await current.selectSession(event.sessionId, { record: false });
+            }
           }
         })
         .catch(() => undefined);
@@ -919,22 +946,24 @@ export function useAppShellRuntime() {
             break;
           case "openWorkPanel": {
             const p = useAppStore.getState().page;
-            if (p !== "settings" && p !== "plugins" && p !== "scheduled") {
+            if (p !== "plugins" && p !== "scheduled") {
               useAppStore.getState().toggleWorkPanel();
             }
             break;
           }
           case "abort":
-            void abort();
-             break;
-           case "voiceDictation":
-             // Reaches the active composer's dictation hook via a DOM event;
-             // the hook owns the singleton guard, so two composers mounted at
-             // once cannot both start recording.
-             window.dispatchEvent(
-               new CustomEvent("pi-desktop:voice-dictation-toggle"),
-             );
-             break;
+            void abort().catch((error) => {
+              showToast(error instanceof Error ? error.message : String(error), { variant: "error" });
+            });
+            break;
+          case "voiceDictation":
+            // Reaches the active composer's dictation hook via a DOM event;
+            // the hook owns the singleton guard, so two composers mounted at
+            // once cannot both start recording.
+            window.dispatchEvent(
+              new CustomEvent("pi-desktop:voice-dictation-toggle"),
+            );
+            break;
           case "toggleWindow":
             // The same native action the menu item runs (D438): hide the window
             // the user is looking at, or bring it back. The window's own close
@@ -1049,6 +1078,7 @@ export function useAppShellRuntime() {
         ? (
             <StartupAnimation
               playing={startupAnimation.playing}
+      videoRef={startupAnimation.videoRef}
               revealing={startupAnimation.phase === "reveal"}
               holdingLong={startupAnimation.holdingLong}
               onFirstFrame={startupAnimation.onFirstFrame}

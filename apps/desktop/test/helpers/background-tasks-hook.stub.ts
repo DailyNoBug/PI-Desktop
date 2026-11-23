@@ -1,4 +1,4 @@
-import type { BackgroundTaskSummary } from "../../src/lib/api";
+import type { BackgroundTaskOutput, BackgroundTaskSummary } from "../../src/lib/api";
 
 /**
  * Stand-in for `useBackgroundTasks` in the container's render tests.
@@ -15,6 +15,9 @@ export type DockFixture = {
   tasks: BackgroundTaskSummary[];
   sessionTasks: BackgroundTaskSummary[];
   collapsed?: boolean;
+  activeTab?: "todo" | "tasks";
+  expandedId?: string;
+  output?: BackgroundTaskOutput;
 };
 
 declare global {
@@ -27,15 +30,15 @@ export function useBackgroundTasks() {
   return {
     tasks: fixture.tasks,
     sessionTasks: fixture.sessionTasks,
-    activeTab: "tasks" as const,
+    activeTab: fixture.activeTab ?? "tasks",
     openTasksTab() {},
     openTodoTab() {},
     collapsed: fixture.collapsed ?? true,
     setCollapsed() {},
     badge: 0,
     badgeText: "0",
-    expandedId: null,
-    output: null,
+    expandedId: fixture.expandedId ?? null,
+    output: fixture.output ?? null,
     toggleOutput() {},
     stop() {},
     remove() {

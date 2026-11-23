@@ -1,11 +1,13 @@
+import { readComposerDraft, readComposerDraftRevision } from "../../../../lib/composer-draft-cache";
 import {
+  useEffect,
   useState,
   useRef,
   type ClipboardEvent,
   type DragEvent as ReactDragEvent,
 } from "react";
 import type { TFunction } from "i18next";
-import { parseSessionLinks, sessionLinkSpans } from "@pi-desktop/shared";
+import { FILE_LINES_CLIPBOARD_TYPE, MAX_FILE_LINE_REFERENCES, parseFileLineReference, parseSessionLinks, sessionLinkSpans, type FileLineReference } from "@pi-desktop/shared";
 import { materializeDraftSession, useAppStore } from "../../../../stores/app-store";
 import { api } from "../../../../lib/api";
 import {
@@ -33,6 +35,7 @@ import {
   type ComposerFileReference,
 } from "../editor";
 import type { ComposerDraftController } from "./useComposerDraft";
+import { normalizeProjectPath } from "../../../../lib/sidebar-session-groups";
 
 type UseComposerAttachmentsOptions = {
   inputBlocked: boolean;
@@ -91,6 +94,39 @@ export function useComposerAttachments({
 
   const snapshotReferences = (sourceSessionId: string) =>
     draft.snapshotReferences(sourceSessionId);
+
+  const addFileLineReference = (reference: FileLineReference, editor: HTMLDivElement) => {
+    const state = useAppStore.getState();
+    if (isInputBlocked || state.activeSessionId !== activeSessionId || !state.activeProjectPath ||
+        normalizeProjectPath(reference.workspace) !== normalizeProjectPath(state.activeProjectPath)) return false;
+    const owner = activeSessionId ?? "";
+    const previous = snapshotReferences(owner);
+    if (previous.some(item => item.path === reference.path && item.lineRange?.start === reference.start && item.lineRange.end === reference.end)) return true;
+    if (previous.filter(item => item.lineRange).length >= MAX_FILE_LINE_REFERENCES) {
+      state.showToast(t("chat.fileLineReferenceLimit", { count: MAX_FILE_LINE_REFERENCES }), { variant: "error" });
+      return false;
+    }
+    const { start, end } = editorSelectionRange(editor);
+    const source = readEditorValue(editor);
+    const token = nextChipToken();
+    const chip = createFileReference(reference.path, undefined, owner, {
+      kind: "file",
+      lineRange: { start: reference.start, end: reference.end },
+      token,
+    });
+    const text = source.slice(0, start) + token + source.slice(end);
+    const references = [...previous.map(item => createFileReference(item.path, item.name, owner, item)), chip];
+    writeComposerDraft(draftKey, { text, fileReferences: references.map(draftFileReference) }, state.activeProjectPath);
+    draft.applyEditorDraft(text, references, start + token.length);
+    return true;
+  };
+  const fileLineInput = useRef({ activeSessionId, draft, addFileLineReference });
+  fileLineInput.current = { activeSessionId, draft, addFileLineReference };
+  useEffect(() => api.onComposerFileLines(({ sessionId, reference }) => {
+    const current = fileLineInput.current;
+    const editor = current.draft.ref.current;
+    if (editor && sessionId === current.activeSessionId && current.addFileLineReference(reference, editor)) editor.focus();
+  }), []);
 
   const pickAndAttach = async () => {
     // The ref closes the gap before React re-renders the disabled button.
@@ -225,24 +261,47 @@ export function useComposerAttachments({
       return;
     }
     if (isInputBlocked) return;
+    const fileLines = event.clipboardData.getData(FILE_LINES_CLIPBOARD_TYPE);
+    if (fileLines && fileLines.length <= 9000) {
+      let reference: FileLineReference | undefined;
+      try { reference = parseFileLineReference(JSON.parse(fileLines)); } catch { /* Plain text remains available. */ }
+      if (reference && addFileLineReference(reference, event.currentTarget)) {
+        event.preventDefault();
+        return;
+      }
+    }
     const text = event.clipboardData.getData("text/plain");
     const pastedFiles = clipboardFiles(event.clipboardData);
-    const files = preferClipboardText(text, pastedFiles, api.getDroppedFilePath)
+    const preferText = preferClipboardText(text, pastedFiles, api.getDroppedFilePath);
+    const files = preferText
       ? []
       : pastedFiles;
+    const hasNativeFileTypes = event.clipboardData.types?.includes("Files");
+    const nativeFilePaste = !preferText && (hasNativeFileTypes || !text);
+    const screenshotPaste = files.length > 0 && files.every(file =>
+      file.type.toLowerCase().startsWith("image/") && !api.getDroppedFilePath(file),
+    );
     const textLength = Array.from(text).length;
     const isLargeTextPaste = !files.length && textLength > largePasteThreshold;
-    if (isLargeTextPaste || files.length) {
+    if (isLargeTextPaste || files.length || nativeFilePaste) {
       event.preventDefault();
       const editor = event.currentTarget;
-      const { start: selectionStart, end: selectionEnd } = editorSelectionRange(editor);
-      const sourceValue = readEditorValue(editor);
+      let { start: selectionStart, end: selectionEnd } = editorSelectionRange(editor);
+      let sourceValue = readEditorValue(editor);
       const sourceSessionId = activeSessionId;
       const sourceDraftKey = draftKey;
-      const previousReferences = snapshotReferences(sourceSessionId ?? "");
+      const sourceWorkspacePath = useAppStore.getState().workspace?.path ?? "";
+      let previousReferences = snapshotReferences(sourceSessionId ?? "");
+      const sourceRevision = readComposerDraftRevision(sourceDraftKey);
       setPasting(true);
       try {
-        const payload = files.length
+        // 合成截图已有字节，无需启动系统目录探测进程；磁盘文件仍走原路径。
+        const native = !isLargeTextPaste && !screenshotPaste ? await api.readClipboardDirectories() : null;
+        if (!native && !files.length && !isLargeTextPaste) {
+          if (hasNativeFileTypes) throw new Error(t("chat.directoryPasteUnavailable"));
+          return;
+        }
+        const payload = native ? [] : files.length
           ? await Promise.all(
               files.map(async (file) => ({
                 name: file.name || undefined,
@@ -264,27 +323,57 @@ export function useComposerAttachments({
                 },
               ];
             })();
+        if (!sourceSessionId) {
+          const current = useAppStore.getState();
+          if (current.activeSessionId || (current.workspace?.path ?? "") !== sourceWorkspacePath) return;
+        }
         let sessionId = sourceSessionId;
         if (!sessionId) sessionId = (await materializeDraftSession()) ?? "";
         if (!sessionId) throw new Error("session unavailable");
 
-        const result = await api.pasteFiles(sessionId, payload);
+        let result;
+        if (native) {
+          const imported = native.token ? await api.importFiles(sessionId, native.token, true) : { files: [] };
+          let index = 0;
+          result = { files: native.items.map(item => item.kind === "directory"
+            ? { path: item.path, name: item.name, kind: "directory" as const, mimeType: undefined, size: undefined, localReference: undefined }
+            : imported.files[index++]) };
+        } else {
+          result = await api.pasteFiles(sessionId, payload);
+        }
+        if (native && readComposerDraftRevision(sourceDraftKey) !== sourceRevision) {
+          if (useAppStore.getState().activeSessionId === sourceSessionId) {
+            sourceValue = readEditorValue(editor);
+            const selection = editorSelectionRange(editor);
+            selectionStart = selection.start;
+            selectionEnd = selection.end;
+            previousReferences = snapshotReferences(sourceSessionId ?? "");
+          } else {
+            const latest = readComposerDraft(sourceDraftKey);
+            sourceValue = latest?.text ?? sourceValue;
+            selectionStart = selectionEnd = sourceValue.length;
+            previousReferences = latest?.fileReferences ?? previousReferences;
+          }
+        }
+        if (native && sourceSessionId && !useAppStore.getState().sessions.some(session => session.id === sourceSessionId)) return;
         const chips = result.files.map((file) => {
-          const token = nextChipToken();
+          const token = file.kind === "directory" ? undefined : nextChipToken();
           return {
             token,
             reference: createFileReference(file.path, file.name, sessionId, {
               kind: file.kind,
               mimeType: file.mimeType,
+              size: file.size,
+              localReference: file.localReference,
               token,
             }),
           };
         });
         const inserted = chips.map((chip) => chip.token).join("");
         const nextText =
-          sourceValue.slice(0, selectionStart) +
-          inserted +
-          sourceValue.slice(selectionEnd);
+          inserted
+            ? sourceValue.slice(0, selectionStart) + inserted + sourceValue.slice(selectionEnd)
+            : sourceValue;
         const nextReferences = [
           ...previousReferences.map((reference) =>
             createFileReference(reference.path, reference.name, sessionId!, reference),
@@ -304,7 +393,7 @@ export function useComposerAttachments({
         } else if (sourceDraftKey === HOME_DRAFT_KEY) {
           deleteComposerDraft(HOME_DRAFT_KEY);
         }
-        showToast(
+        if (!native) showToast(
           t,
           files.length ? "chat.filesPasted" : "chat.largeTextPasted",
           files.length

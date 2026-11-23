@@ -1,3 +1,4 @@
+import { builtinModeRuns } from "./helpers/builtin-mode-runs.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
@@ -46,7 +47,7 @@ test("native compact and session-addressed queue endpoints reject before host or
 // Real slices/IPC with synthetic state; no Electron process or native home.
 const { register } = await import("node:module");
 register(new URL("./helpers/ts-import-hooks.mjs", import.meta.url));
-const { IPC, isImageGenerationModel, imageGenerationBindings } = await import("@pi-desktop/shared");
+const { IPC, isImageOnlyChatModel, imageGenerationBindings } = await import("@pi-desktop/shared");
 const { registerAgentIpc } = await import("../electron/main/ipc/agent-ipc.ts");
 const { localNativeProjectPaths, searchSessionsAcrossSources } = await import("../electron/main/services/session-search.ts");
 const { createEventsSlice } = await import("../src/stores/slices/events-slice.ts");
@@ -59,6 +60,7 @@ test("unsupported native agent IPC never reaches host or queue", async () => {
   const forbidden = () => assert.fail("native operation reached Desktop backend");
   const backend = new Proxy({}, { get: () => forbidden });
   registerAgentIpc({
+    modeRuns: builtinModeRuns,
     registrar: { handle: (channel, handler) => handlers.set(channel, handler) },
     getHost: () => backend, getSidecar: () => backend, getAgentHostBridge: () => backend,
   });
@@ -126,6 +128,7 @@ test("queue remove/prioritize preserve the Desktop opaque host turnId contract",
   const handlers = new Map();
   const calls = [];
   registerAgentIpc({
+    modeRuns: builtinModeRuns,
     registrar: { handle: (channel, handler) => handlers.set(channel, handler) },
     getHost: () => null, getSidecar: () => null,
     getAgentHostBridge: () => ({ queue: {
@@ -144,6 +147,7 @@ test("native prompt only dispatches sidecar and cannot create a host queue entry
   const backend = new Proxy({}, { get: () => forbidden });
   const calls = [];
   registerAgentIpc({
+    modeRuns: builtinModeRuns,
     registrar: { handle: (channel, handler) => handlers.set(channel, handler) },
     getHost: () => backend, getAgentHostBridge: () => backend, setNotificationViewingSessionId() {},
     getSidecar: () => ({ call: async (...args) => { calls.push(args); return { accepted: true, turnId: "native-turn" }; } }),
@@ -157,9 +161,9 @@ test("native prompt only dispatches sidecar and cannot create a host queue entry
 
 test("native model readiness never depends on a Desktop provider but read-only fails closed", () => {
   const expression = composer.match(/const modelReady = ([\s\S]*?);/)[1];
-  const evaluateReady = new Function("isImageGenerationModel", "imageGenerationCandidates", "settings", "nativeSession", "activeSessionSummary", "provider", "modelId", "remoteSession", "promptAllowed", `return ${expression}`);
-  const ready = (nativeSession, activeSessionSummary, provider, modelId, settings, remoteSession = false, promptAllowed = false) =>
-    evaluateReady(isImageGenerationModel, imageGenerationBindings(settings?.imageGenerationModels, settings?.imageGeneration), settings, nativeSession, activeSessionSummary, provider, modelId, remoteSession, promptAllowed);
+  const evaluateReady = new Function("isImageOnlyChatModel", "imageGenerationCandidates", "settings", "nativeSession", "activeSessionSummary", "provider", "modelId", "remoteSession", "promptAllowed", "selectedModelInfo", `return ${expression}`);
+  const ready = (nativeSession, activeSessionSummary, provider, modelId, settings, remoteSession = false, promptAllowed = false, selectedModelInfo = undefined) =>
+    evaluateReady(isImageOnlyChatModel, imageGenerationBindings(settings?.imageGenerationModels, settings?.imageGeneration), settings, nativeSession, activeSessionSummary, provider, modelId, remoteSession, promptAllowed, selectedModelInfo);
   assert.equal(ready(true, { capabilities: { canPrompt: true } }, undefined, undefined), true);
   assert.equal(ready(true, { capabilities: { canPrompt: false } }, { enabled: true, hasSecret: true }, "model"), false);
   assert.equal(ready(true, {}, undefined, undefined), false);
@@ -168,11 +172,25 @@ test("native model readiness never depends on a Desktop provider but read-only f
   assert.equal(ready(false, {}, { enabled: true, hasSecret: true }, "model"), true);
   const settings = { imageGeneration: { providerId: "images", modelId: "model" } };
   const imageProvider = { id: "images", enabled: true, hasSecret: true };
-  assert.equal(ready(false, {}, imageProvider, "model", settings), false);
+  // "model" is a conversation-capable id, so an image designation on it does
+  // not block chat readiness; only a pure image-generation endpoint would.
+  assert.equal(ready(false, {}, imageProvider, "model", settings), true);
+  // A pure image-generation endpoint id stays unready for chat.
+  assert.equal(ready(false, {}, { ...imageProvider, id: "img" }, "gpt-image-2.5",
+    { imageGeneration: { providerId: "img", modelId: "gpt-image-2.5" } }), false);
   assert.equal(ready(false, {}, { ...imageProvider, id: "chat" }, "model", settings), true);
   assert.equal(ready(false, {}, imageProvider, "other-model", settings), true);
   assert.equal(ready(true, { capabilities: { canPrompt: true } }, imageProvider, "model", settings), true);
   assert.equal(ready(true, { capabilities: { canPrompt: false } }, imageProvider, "model", settings), false);
+
+  // The metadata argument reaches canSend: a non-reserved id whose discovered
+  // row publishes image-only output is unready, exactly as session launch
+  // would reject it; a dual-capability row stays ready.
+  const visionSettings = { imageGeneration: { providerId: "chat", modelId: "vision-image" } };
+  assert.equal(ready(false, {}, { ...imageProvider, id: "chat" }, "vision-image", visionSettings, false, false,
+    { modelId: "vision-image", modalities: { input: ["text"], output: ["image"] } }), false);
+  assert.equal(ready(false, {}, { ...imageProvider, id: "chat" }, "vision-image", visionSettings, false, false,
+    { modelId: "vision-image", modalities: { output: ["text", "image"] } }), true);
 
   // A remote session reads its own prompt capability and never a local provider.
   assert.equal(ready(false, {}, { enabled: true, hasSecret: true }, "model", undefined, true, true), true);

@@ -12,10 +12,19 @@ import type { Stats } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { pluginNetFetch, parseFetchRedirect, type PluginFetchTransport } from "./plugin-net-fetch";
+import { MAX_PLUGIN_BINARY_RESPONSE_BYTES, pluginNetFetch, parseFetchRedirect, type PluginFetchTransport } from "./plugin-net-fetch";
 import type { LoadedSkillDocument } from "./skill-document";
 import { assertLocalPluginRoot, pluginFsReadOptions, readRemotePluginFiles, type PluginRemoteFilesRead } from "./plugin-remote-files";
 import { getModuleDirectory } from "./module-path";
+import {
+  SESSION_WRITE_GRANTS,
+  describeSessionWriteProblem,
+  resolveSessionScope,
+  type SessionAccessScope,
+  type SessionAccessVerb,
+  type SessionWriteApi,
+  type SessionWriteShape,
+} from "./plugin-session-access";
 import {
   busTopicAllowed,
   isDeniedFsPath,
@@ -82,6 +91,7 @@ import {
   type PluginComposerSuggestInput,
   type PluginComposerSuggestResult,
   type PluginComposerClearSuggestionInput,
+  type PluginModelContextInput,
   PLUGIN_COMPOSER_SUGGESTION_MAX_CHARS,
   PLUGIN_COMPOSER_SUGGESTION_TTL_MS,
   PLUGIN_COMPOSER_SUGGESTION_TTL_MIN_MS,
@@ -115,6 +125,7 @@ import {
 import { desktopDataDir } from "./data-paths";
 import { McpServerClient, type McpServerClientOptions } from "./plugin-mcp";
 import { PluginToolInvocations, type PluginToolInvocation } from "./plugin-tool-invocations";
+import { pluginWorkspaceForCall, pluginWorkspacePath } from "./plugin-workspace-context";
 import { McpCallRegistry } from "./mcp-call-registry";
 import {
   RendererCallRelay,
@@ -141,6 +152,12 @@ import {
   type PluginShortcutRegistry,
 } from "./plugin-shortcut-registry";
 import { repairImportedExtensionWrapper } from "./imported-plugin-wrapper";
+import {
+  type PluginDesktopConsentAnswer,
+  PluginDesktopConsentGrants,
+  canRememberDesktopConsent,
+  normalizeDesktopConsentAnswer,
+} from "./plugin-desktop-consent-grants";
 import {
   migrateLegacyPromptEnhancementSettings,
   PROMPT_ENHANCEMENT_PLUGIN_ID,
@@ -324,6 +341,8 @@ export type PluginDesktopConsentRequest = {
   description: string;
   /** Positional arguments as the plugin supplied them (secret-stripped later). */
   args: unknown[];
+  /** Whether the dialog may offer "Allow until quit" for this operation. */
+  offerSession?: boolean;
 };
 
 /** One dangerous Git operation a plugin asked the host to run. */
@@ -334,6 +353,7 @@ export type PluginGitConsentRequest = {
   pathCount?: number;
   branch?: string;
 };
+export type { PluginDesktopConsentAnswer };
 
 export type PluginHostServices = {
   getWorkspacePath: () => string | null;
@@ -341,7 +361,7 @@ export type PluginHostServices = {
    * The workspace plus the project group behind it, when the caller can supply
    * it. Additive: `workspace.get` falls back to `getWorkspacePath` alone.
    */
-  getWorkspaceInfo?: () => PluginWorkspaceInfo | null;
+  getWorkspaceInfo?: (workspacePath?: string | null) => PluginWorkspaceInfo | null;
   /** Durable project metadata only; unavailable hosts resolve to an empty list. */
   listProjects?: () => Promise<PluginProjectInfo[]>;
   /**
@@ -350,6 +370,14 @@ export type PluginHostServices = {
    * visible workspace -- for a panel call or an unknown session.
    */
   getWorkspacePathForSession?: (sessionId: string) => string | null;
+  /** Authoritative durable session metadata for desktop-control scope checks. */
+  resolveSessionProjectPath?: (sessionId: string) => Promise<string | null>;
+  /**
+   * Whether a plugin's activation scope covers `projectPath` — the same
+   * project-aware check the UI surfaces apply (#2377). Optional so a headless
+   * test host without scope records keeps every plugin global.
+   */
+  pluginActiveInProject?: (pluginId: string, projectPath: string | null | undefined) => boolean;
   readRemoteWorkspaceFiles?: PluginRemoteFilesRead;
   /** The set of `contributes.agentExtensions` modules changed (load/unload). */
   agentExtensionsChanged?: () => void;
@@ -414,7 +442,7 @@ export type PluginHostServices = {
   fetch?: PluginFetchTransport;
   /** The reviewed desktop operation controller shared with MCP. */
   desktopControl?: McpControlController;
-  /** CC Connect integration: bridge + daemon lifecycle (ADR 0347). */
+  /** CC Connect integration: bridge + daemon lifecycle (ADR 0356). */
   ccConnect?: CcConnectController;
   /**
    * Host-owned geometry for an active docked view's temporary window modal.
@@ -433,7 +461,9 @@ export type PluginHostServices = {
    * user decides here. Without this service every dangerous operation from a
    * plugin is refused, which is the safe default for a headless host.
    */
-  confirmDesktopControl?: (request: PluginDesktopConsentRequest) => Promise<boolean>;
+  confirmDesktopControl?: (
+    request: PluginDesktopConsentRequest,
+  ) => Promise<boolean | PluginDesktopConsentAnswer>;
   /** Native consent for destructive or workspace-switching Git operations. */
   confirmGitOperation?: (request: PluginGitConsentRequest) => Promise<boolean>;
   audit?: (entry: Record<string, unknown>) => void;
@@ -557,6 +587,10 @@ export type PluginHostServices = {
     importBatch: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
     rename: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
     delete: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
+    appendMessage: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
+    replaceMessages: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
+    deleteMessage: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
+    truncateFrom: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
   };
   /**
    * The session the user is looking at, as the shell shows it. Read from the
@@ -587,6 +621,8 @@ export type PluginHostServices = {
   suggestComposer?: (offer: ComposerSuggestionOffer) => Promise<ComposerSuggestionOutcome>;
   /** `pi.composer.clearSuggestion`: drop this plugin's own line. */
   clearComposerSuggestion?: (pluginId: string, sessionId?: string) => void;
+  getComposerSuggestionTarget?: (pluginId: string, input: unknown) => Promise<string | null>;
+  suggestComposerCandidates?: (pluginId: string, input: unknown) => Promise<PluginComposerSuggestResult>;
   project?: {
     create: (pluginId: string, input: Record<string, unknown>) => Promise<unknown>;
   };
@@ -607,10 +643,32 @@ export type PluginOAuthProvider = {
 };
 
 /** Host APIs a plugin process may reach. Anything else does not exist (spec 04 §2). */
+// #2377: desktop.control session reads that reveal which sessions exist are
+// activation-scope boundaries, like `session.getActive` and the #1754 event
+// fan-out. `session/list` is filtered to in-scope sessions; the targeted reads
+// are refused when the target session belongs to an out-of-scope project.
+const SESSION_LIST_DESKTOP_OPERATION = "session/list";
+const SESSION_READ_DESKTOP_OPERATIONS = new Set([
+  SESSION_LIST_DESKTOP_OPERATION,
+  "session/get",
+  "session/listMessages",
+  "session/listRevisions",
+]);
+
+/** The single session a targeted session read names, when its args carry one. */
+function desktopSessionTargetId(args: readonly unknown[]): string | undefined {
+  const first = args[0];
+  if (!first || typeof first !== "object" || Array.isArray(first)) return undefined;
+  const record = first as Record<string, unknown>;
+  const raw = record.sessionId ?? record.id;
+  return typeof raw === "string" ? raw : undefined;
+}
+
 const HOST_API_ALLOWLIST = new Set([
   "app.getVersion",
   "app.getLocale",
   "app.getAppearance",
+  "app.getCapabilities",
   "app.setTheme",
   "themes.upsert",
   "themes.remove",
@@ -622,6 +680,8 @@ const HOST_API_ALLOWLIST = new Set([
   "ui.revealView",
   "composer.suggest",
   "composer.clearSuggestion",
+  "composer.getSuggestionTarget",
+  "composer.suggestCandidates",
   "ui.openPanel",
   "ui.closePanel",
   "ui.showToast",
@@ -706,6 +766,10 @@ const HOST_API_ALLOWLIST = new Set([
   "session.importBatch",
   "session.rename",
   "session.delete",
+  "session.appendMessage",
+  "session.replaceMessages",
+  "session.deleteMessage",
+  "session.truncateFrom",
   "usage.listTurns",
   "agent.complete",
   "providers.oauth.prompt",
@@ -1129,6 +1193,25 @@ function normalizePluginSessionInput(
   return { ...(input as Record<string, unknown>) };
 }
 
+/**
+ * Bound one message-level write payload (ADR 0339).
+ *
+ * The policy lives in `plugin-session-access` so it can be tested without a
+ * plugin host; this wrapper only turns a problem into the broker's own error and
+ * strips a scope the plugin must never set for itself.
+ */
+function normalizePluginMessageWriteInput(
+  input: unknown,
+  shape: SessionWriteShape,
+): Record<string, unknown> {
+  const rejected = describeSessionWriteProblem(input, shape);
+  if (rejected) throw apiError(rejected.code, rejected.message);
+  const record = { ...(input as Record<string, unknown>) };
+  // A plugin never chooses its own scope: the gateway sets it from the grants.
+  delete record.scope;
+  return record;
+}
+
 /** Longest session or turn id a plugin may name, matching the host's own bound. */
 const MAX_SESSION_ID_CHARS = 128;
 
@@ -1534,6 +1617,11 @@ export class PluginRuntime {
    * session would be a standing permission nobody reviewed.
    */
   private fsConsent = new Map<string, Set<string>>();
+  /**
+   * Desktop operations the user allowed a plugin until quit. In memory only,
+   * and dropped when the plugin is explicitly stopped.
+   */
+  private desktopConsent = new PluginDesktopConsentGrants();
   /** Cached write ledgers, keyed by plugin id. */
   private writeLedgers = new Map<string, Record<string, number>>();
   private nextBusSubscription = 1;
@@ -1953,6 +2041,43 @@ export class PluginRuntime {
     }
   }
 
+  /** Capture only providers permitted at the first request of a durable turn. */
+  modelContextProviders(inScope: (pluginId: string) => boolean) {
+    return [...this.loaded.values()]
+      .filter((loaded) => loaded.manifest.contributes?.modelContext === true && loaded.child &&
+        !loaded.disposing && loaded.permissions.has("agent.modelContext") && inScope(loaded.manifest.id))
+      .sort((a, b) => a.manifest.id.localeCompare(b.manifest.id))
+      .slice(0, 8)
+      .map((loaded) => {
+        const pluginId = loaded.manifest.id;
+        const eligible = () => this.loaded.get(pluginId) === loaded && Boolean(loaded.child) &&
+          !loaded.disposing && loaded.permissions.has("agent.modelContext") && inScope(pluginId);
+        return {
+          pluginId,
+          eligible,
+          read: async (input: PluginModelContextInput, signal: AbortSignal): Promise<string | undefined> => {
+            if (!eligible() || signal.aborted) return undefined;
+            try {
+              const result = await this.sendToChild(loaded,
+                { t: "call", method: "agent.modelContext", payload: input }, 250, signal);
+              if (!eligible() || signal.aborted || result === null) return undefined;
+              const text = (result as { text?: unknown } | undefined)?.text;
+              if (typeof text !== "string" || text.length > 4096 || Buffer.byteLength(text, "utf8") > 4096) {
+                throw apiError("PLUGIN_INVALID_RESULT", "invalid model context contribution");
+              }
+              return text.trim() || undefined;
+            } catch (error) {
+              if (!signal.aborted) this.services.audit?.({
+                pluginId, api: "agent.modelContext", ok: false,
+                errorCode: (error as PluginApiError)?.code ?? "PLUGIN_CONTEXT_FAILED", ts: Date.now(),
+              });
+              return undefined;
+            }
+          },
+        };
+      });
+  }
+
   getLoaded(pluginId: string): LoadedPlugin | undefined {
     return this.loaded.get(pluginId);
   }
@@ -2181,6 +2306,8 @@ export class PluginRuntime {
   broadcastEvent(event: string, args: unknown[] = [], filter?: (pluginId: string) => boolean): void {
     for (const loaded of this.loaded.values()) {
       if (filter && !filter(loaded.manifest.id)) continue;
+      if ((event === "session:turnStarted" || event === "session:userMessagePersisted") &&
+          (!filter || loaded.disposing || !loaded.permissions.has("session.observe"))) continue;
       try {
         loaded.child?.postMessage({ t: "event", event, args });
       } catch (error) {
@@ -2371,7 +2498,10 @@ export class PluginRuntime {
       loaded.disposing = true;
       this.toolInvocations.cancelOwner(loaded, "Plugin unloaded");
       // An explicit stop ends supervision; a supervisor-driven reload keeps it.
-      if (!this.restarting.has(pluginId)) this.cancelRestarts(pluginId);
+      if (!this.restarting.has(pluginId)) {
+        this.cancelRestarts(pluginId);
+        this.desktopConsent.revoke(pluginId);
+      }
       await this.stopServices(loaded);
     }
     if (loaded?.child) {
@@ -2692,6 +2822,8 @@ export class PluginRuntime {
           headers: (payload?.headers as Record<string, string> | undefined) ?? undefined,
           body: payload?.body ? String(payload.body) : undefined,
           timeoutMs: typeof payload?.timeoutMs === "number" ? payload.timeoutMs : undefined,
+          responseType: payload?.responseType === undefined ? undefined : String(payload.responseType) as "text" | "base64",
+          maxResponseBytes: typeof payload?.maxResponseBytes === "number" ? payload.maxResponseBytes : undefined,
           redirect: payload?.redirect,
         });
       case "plugin.getSettings":
@@ -2852,6 +2984,11 @@ export class PluginRuntime {
 
   private handleChildMessage(loaded: LoadedPlugin, message: any): void {
     if (!message || typeof message !== "object") return;
+    if (message.t === "ping") {
+      // Parent-liveness keepalive: the host exits if this round-trip stops.
+      loaded.child?.postMessage({ t: "pong", id: message.id });
+      return;
+    }
     if (message.t === "res") {
       const entry = loaded.pending.get(message.id);
       if (!entry) return;
@@ -3410,45 +3547,84 @@ export class PluginRuntime {
         return this.services.providerOAuthNotify(pluginId, loginId, event as PluginProviderOAuthEvent);
       }
       case "session.list": {
-        this.assertPermission(loaded, "session.read.own");
+        const scope = this.assertSessionScope(loaded, "read", api);
         const input = normalizePluginSessionInput(args[0] ?? {}, "other");
-        if (input.source !== undefined) this.sessionSource(loaded, input.source);
+        // A declared source only bounds the `.own` importer; `.all` reaches every
+        // session but has no source declaration to check it against.
+        if (scope === "own" && input.source !== undefined) {
+          this.sessionSource(loaded, input.source);
+        }
         if (!this.services.session?.list) {
           throw apiError("UNSUPPORTED", "host api not available: session.list");
         }
-        return this.services.session.list(loaded.manifest.id, input);
+        return this.services.session.list(loaded.manifest.id, { ...input, scope });
       }
       case "session.get": {
-        this.assertPermission(loaded, "session.read.own");
+        const scope = this.assertSessionScope(loaded, "read", api);
         const input = normalizePluginSessionInput(args[0] ?? {}, "other");
         if (!this.services.session?.get) {
           throw apiError("UNSUPPORTED", "host api not available: session.get");
         }
-        return this.services.session.get(loaded.manifest.id, input);
+        return this.services.session.get(loaded.manifest.id, { ...input, scope });
       }
       case "session.listMessages": {
-        this.assertPermission(loaded, "session.read.own");
+        const scope = this.assertSessionScope(loaded, "read", api);
         const input = normalizePluginSessionInput(args[0] ?? {}, "other");
         if (!this.services.session?.listMessages) {
           throw apiError("UNSUPPORTED", "host api not available: session.listMessages");
         }
-        return this.services.session.listMessages(loaded.manifest.id, input);
+        return this.services.session.listMessages(loaded.manifest.id, { ...input, scope });
       }
       case "session.rename": {
-        this.assertPermission(loaded, "session.update.own");
+        const scope = this.assertSessionScope(loaded, "update", api);
         const input = normalizePluginSessionInput(args[0] ?? {}, "other");
         if (!this.services.session?.rename) {
           throw apiError("UNSUPPORTED", "host api not available: session.rename");
         }
-        return this.services.session.rename(loaded.manifest.id, input);
+        return this.services.session.rename(loaded.manifest.id, { ...input, scope });
       }
       case "session.delete": {
-        this.assertPermission(loaded, "session.delete.own");
+        const scope = this.assertSessionScope(loaded, "delete", api);
         const input = normalizePluginSessionInput(args[0] ?? {}, "other");
         if (!this.services.session?.delete) {
           throw apiError("UNSUPPORTED", "host api not available: session.delete");
         }
-        return this.services.session.delete(loaded.manifest.id, input);
+        return this.services.session.delete(loaded.manifest.id, { ...input, scope });
+      }
+      // Message-level writes (ADR 0339). These have no `.own` form: rewriting a
+      // transcript is only ever an `.all` capability, so each case names its
+      // grant directly.
+      case "session.appendMessage": {
+        const scope = this.assertSessionWriteScope(loaded, "appendMessage", api);
+        const input = normalizePluginMessageWriteInput(args[0] ?? {}, "message");
+        if (!this.services.session?.appendMessage) {
+          throw apiError("UNSUPPORTED", "host api not available: session.appendMessage");
+        }
+        return this.services.session.appendMessage(loaded.manifest.id, { ...input, scope });
+      }
+      case "session.replaceMessages": {
+        const scope = this.assertSessionWriteScope(loaded, "replaceMessages", api);
+        const input = normalizePluginMessageWriteInput(args[0] ?? {}, "messages");
+        if (!this.services.session?.replaceMessages) {
+          throw apiError("UNSUPPORTED", "host api not available: session.replaceMessages");
+        }
+        return this.services.session.replaceMessages(loaded.manifest.id, { ...input, scope });
+      }
+      case "session.deleteMessage": {
+        const scope = this.assertSessionWriteScope(loaded, "deleteMessage", api);
+        const input = normalizePluginMessageWriteInput(args[0] ?? {}, "messageId");
+        if (!this.services.session?.deleteMessage) {
+          throw apiError("UNSUPPORTED", "host api not available: session.deleteMessage");
+        }
+        return this.services.session.deleteMessage(loaded.manifest.id, { ...input, scope });
+      }
+      case "session.truncateFrom": {
+        const scope = this.assertSessionWriteScope(loaded, "truncateFrom", api);
+        const input = normalizePluginMessageWriteInput(args[0] ?? {}, "truncate");
+        if (!this.services.session?.truncateFrom) {
+          throw apiError("UNSUPPORTED", "host api not available: session.truncateFrom");
+        }
+        return this.services.session.truncateFrom(loaded.manifest.id, { ...input, scope });
       }
       case "usage.listTurns": {
         // Read-only completed-turn facts (spec 07-plugins/03 §usage): flat
@@ -5245,6 +5421,141 @@ export class PluginRuntime {
     return this.services.viewModal;
   }
 
+  /**
+   * Resolve and audit the session-data scope for one call (ADR 0339).
+   *
+   * `*.all` is a separate grant from `*.own`, never a widening of it, and it
+   * wins when a manifest declares both. The audit line records the scope that
+   * actually authorised the call, which is what lets an operator tell an
+   * imported-session read from a read of the user's own conversation.
+   */
+  /**
+   * #2377: refuse a targeted desktop.control session read whose target session
+   * belongs to a project the caller's activation scope excludes. Resolved from
+   * durable metadata rather than the live runtime map. Unknown metadata is
+   * checked as null so project-scoped callers fail closed. Hosts without a
+   * scope service retain their existing global behavior.
+   */
+  private async assertDesktopSessionScope(
+    pluginId: string,
+    operation: string,
+    args: readonly unknown[],
+  ): Promise<void> {
+    if (operation === SESSION_LIST_DESKTOP_OPERATION) return;
+    if (!SESSION_READ_DESKTOP_OPERATIONS.has(operation)) return;
+    const activeInProject = this.services.pluginActiveInProject;
+    if (!activeInProject) return;
+    const sessionId = desktopSessionTargetId(args);
+    if (!sessionId) return;
+    const projectPath = this.services.resolveSessionProjectPath
+      ? await this.services.resolveSessionProjectPath(sessionId)
+      : this.services.getWorkspacePathForSession?.(sessionId) ?? null;
+    if (activeInProject(pluginId, projectPath)) return;
+    this.services.audit?.({
+      pluginId,
+      api: "desktop.invoke",
+      operation,
+      ok: false,
+      errorCode: "PERMISSION_DENIED",
+      reason: "scope",
+      ts: Date.now(),
+    });
+    throw apiError(
+      "PERMISSION_DENIED",
+      `${operation} targets a session outside this plugin's activation scope`,
+    );
+  }
+
+  /**
+   * #2377: hold the activation-scope line on the results of a desktop.control
+   * session read. `session/list` loses the sessions whose project the caller's
+   * scope excludes, so a project-scoped plugin never learns which sessions
+   * another project has open — the same guarantee `session.getActive` and the
+   * #1754 fan-out enforce on their channels.
+   */
+  private scopeDesktopSessionResult(
+    pluginId: string,
+    operation: string,
+    result: unknown,
+  ): unknown {
+    if (operation !== SESSION_LIST_DESKTOP_OPERATION) return result;
+    const activeInProject = this.services.pluginActiveInProject;
+    if (!activeInProject) return result;
+    const sessions = (result as { sessions?: unknown[] } | null | undefined)?.sessions;
+    if (!Array.isArray(sessions)) return result;
+    const scoped = sessions.filter((session) =>
+      activeInProject(
+        pluginId,
+        (session as { projectPath?: string | null } | null)?.projectPath ?? null,
+      ),
+    );
+    if (scoped.length !== sessions.length) {
+      this.services.audit?.({
+        pluginId,
+        api: "desktop.invoke",
+        operation,
+        ok: true,
+        scope: "filtered",
+        total: sessions.length,
+        returned: scoped.length,
+        ts: Date.now(),
+      });
+    }
+    return { ...(result as Record<string, unknown>), sessions: scoped };
+  }
+
+  private assertSessionScope(
+    loaded: LoadedPlugin,
+    verb: SessionAccessVerb,
+    api: string,
+  ): SessionAccessScope {
+    this.toolInvocations.current(loaded);
+    const scope = resolveSessionScope(loaded.permissions, verb);
+    if (!scope) {
+      const own = `session.${verb}.own`;
+      const all = `session.${verb}.all`;
+      this.services.audit?.({
+        pluginId: loaded.manifest.id,
+        api,
+        ok: false,
+        errorCode: "PERMISSION_DENIED",
+        required: `${own}|${all}`,
+        ts: Date.now(),
+      });
+      throw apiError("PERMISSION_DENIED", `missing permission: ${own} or ${all}`);
+    }
+    this.auditSessionCall(loaded, api, scope);
+    return scope;
+  }
+
+  /**
+   * Message-level writes have no `.own` form, so the grant is named exactly.
+   * `key` picks the grant from the one policy table in `plugin-session-access`.
+   */
+  private assertSessionWriteScope(
+    loaded: LoadedPlugin,
+    key: SessionWriteApi,
+    api: string,
+  ): SessionAccessScope {
+    this.assertPermission(loaded, SESSION_WRITE_GRANTS[key]);
+    this.auditSessionCall(loaded, api, "all");
+    return "all";
+  }
+
+  private auditSessionCall(
+    loaded: LoadedPlugin,
+    api: string,
+    scope: "own" | "all",
+  ): void {
+    this.services.audit?.({
+      pluginId: loaded.manifest.id,
+      api,
+      ok: true,
+      scope,
+      ts: Date.now(),
+    });
+  }
+
   private assertHasOAuthProvider(loaded: LoadedPlugin): void {
     const providers = (loaded.manifest.contributes?.providers ?? []) as PluginProviderContrib[];
     if (!providers.some((provider) => provider.authKind === "oauth")) {
@@ -5320,10 +5631,7 @@ export class PluginRuntime {
   private fsRoot(loaded: LoadedPlugin, rule: PluginFsRule): string | null {
     if (rule.root === "userSelected") return loaded.userRoot ?? null;
     const sessionId = this.inFlightTool(loaded.manifest.id)?.sessionId.trim() || undefined;
-    const scoped = sessionId
-      ? (this.services.getWorkspacePathForSession?.(sessionId) ?? null)
-      : null;
-    return scoped ?? this.services.getWorkspacePath();
+    return pluginWorkspacePath(this.services, sessionId);
   }
 
   private remoteFsRead(loaded: LoadedPlugin, operation: "list" | "preview", ref: string, options?: PluginFsReadOptions) {
@@ -5490,7 +5798,7 @@ export class PluginRuntime {
     if (!isAbsolute(String(requestPath ?? ""))) return null;
     const rule: PluginFsRule = loaded.fsPolicy.read ?? { root: "workspace", scope: [] };
     if (rule.root !== "workspace") return null;
-    const roots = (this.services.getWorkspaceInfo?.()?.roots ?? [])
+    const roots = (pluginWorkspaceForCall(this.services, this.inFlightTool(loaded.manifest.id)?.sessionId.trim() || undefined)?.roots ?? [])
       .map((entry) => entry?.path)
       .filter((path): path is string => Boolean(path));
     if (roots.length === 0) return null;
@@ -5721,6 +6029,10 @@ export class PluginRuntime {
       app: {
         getVersion: async () => this.services.getAppVersion?.() ?? "0.2.1",
         getLocale: async () => this.services.getLocale?.() ?? "en",
+        getCapabilities: async () => ({
+          sessionUserMessagePersisted: loaded.permissions.has("session.observe"),
+          composerSuggestionCandidates: true,
+        }),
         getAppearance: async () =>
           this.services.getAppearance?.() ?? {
             theme: "system",
@@ -5967,17 +6279,20 @@ export class PluginRuntime {
           this.suggestComposer(loaded, input),
         clearSuggestion: async (input?: PluginComposerClearSuggestionInput) =>
           this.clearComposerSuggestion(loaded, input),
+        getSuggestionTarget: async (input: unknown) => {
+          this.assertPermission(loaded, "composer.suggest");
+          if (!this.services.getComposerSuggestionTarget) throw apiError("UNSUPPORTED", "host api not available: composer.getSuggestionTarget");
+          return this.services.getComposerSuggestionTarget(pluginId, input);
+        },
+        suggestCandidates: async (input: unknown) => {
+          this.assertPermission(loaded, "composer.suggest");
+          if (!this.services.suggestComposerCandidates) throw apiError("UNSUPPORTED", "host api not available: composer.suggestCandidates");
+          return this.services.suggestComposerCandidates(pluginId, input);
+        },
       },
       workspace: {
         get: async () => {
-          // The enriched payload carries the project group behind the visible
-          // workspace (ADR 0263); the path-only fallback keeps `get` working for
-          // any caller whose services never bound the richer provider.
-          const info = this.services.getWorkspaceInfo?.();
-          if (info !== undefined) return info;
-          const path = this.services.getWorkspacePath();
-          if (!path) return null;
-          return { path, name: path.split(/[\\/]/).filter(Boolean).at(-1) || path };
+          return pluginWorkspaceForCall(this.services, this.inFlightTool(pluginId)?.sessionId.trim() || undefined);
         },
       },
       git: {
@@ -6058,6 +6373,7 @@ export class PluginRuntime {
           const operationInfo = this.services.desktopControl.operations.find(
             (candidate) => candidate.id === operation,
           );
+          await this.assertDesktopSessionScope(pluginId, operation, args);
           // The controller's `confirm` flag is an acknowledgement by the
           // caller, not a decision by the user. A plugin can set it at will,
           // so a dangerous operation additionally needs the host's native
@@ -6070,20 +6386,28 @@ export class PluginRuntime {
               );
             }
             const consent = this.services.confirmDesktopControl;
-            const granted = consent
-              ? await consent({
-                  pluginId,
-                  pluginName: resolvePluginLocalizedString(
-                    loaded.manifest.name,
-                    this.services.getLocale?.(),
-                    pluginId,
-                  ),
-                  operation,
-                  description: operationInfo.description,
-                  args,
-                })
-              : false;
-            if (!granted) {
+            const remembered = this.desktopConsent.has(pluginId, operation);
+            const answer: PluginDesktopConsentAnswer = remembered
+              ? "session"
+              : consent
+                ? normalizeDesktopConsentAnswer(
+                    await consent({
+                      pluginId,
+                      pluginName: resolvePluginLocalizedString(
+                        loaded.manifest.name,
+                        this.services.getLocale?.(),
+                        pluginId,
+                      ),
+                      operation,
+                      description: operationInfo.description,
+                      args,
+                      offerSession: canRememberDesktopConsent(operation),
+                    }),
+                    operation,
+                  )
+                : "deny";
+            if (answer === "session") this.desktopConsent.grant(pluginId, operation);
+            if (answer === "deny") {
               this.services.audit?.({
                 pluginId,
                 api: "desktop.invoke",
@@ -6116,6 +6440,7 @@ export class PluginRuntime {
               },
               ...(invocation ? { signal: invocation.signal } : {}),
             } satisfies McpControlInvokeInput);
+            const scopedResult = this.scopeDesktopSessionResult(pluginId, operation, result);
             this.services.audit?.({
               pluginId,
               api: "desktop.invoke",
@@ -6124,7 +6449,7 @@ export class PluginRuntime {
               ok: true,
               ts: Date.now(),
             });
-            return result;
+            return scopedResult;
           } catch (error) {
             this.services.audit?.({
               pluginId,
@@ -6750,13 +7075,15 @@ export class PluginRuntime {
         closeOutput: async () => this.refuseAudio(loaded, "audio.closeOutput"),
       },
       net: {
-        getCapabilities: async () => ({ fetchRedirectModes: ["follow", "error", "manual"] }),
+        getCapabilities: async () => ({ fetchRedirectModes: ["follow", "error", "manual"], binaryResponseBody: true, maxResponseBodyBytes: MAX_PLUGIN_BINARY_RESPONSE_BYTES }),
         fetch: async (input: {
           url: string;
           method?: string;
           headers?: Record<string, string>;
           body?: string;
           timeoutMs?: number;
+          responseType?: "text" | "base64";
+          maxResponseBytes?: number;
           redirect?: unknown;
         }) => {
           this.assertPermission(loaded, "net.fetch");

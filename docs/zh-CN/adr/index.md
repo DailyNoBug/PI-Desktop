@@ -300,7 +300,7 @@ ADR 记录那些不应被静默改变的架构选择。中文入口与英文索�
 | 0283 | [远程 MCP 服务端 OAuth 2.1 认证](/adr/0283-remote-mcp-oauth) | 已接受 |
 | 0284 | [`packages/host-runtime` 的无头运行时边界](/adr/0284-headless-runtime-boundary) | 已接受（实施中）（D447；ADR 0205 R2 前置） |
 | 0285 | [`packages/racp` 的 `RACP-WS` 传输](/adr/0285-racp-ws-transport) | 已接受（实施中）（D448；ADR 0205 R2） |
-| turn-process-and-thinking-display | [回合过程与思考展示](/zh-CN/adr/turn-process-and-thinking-display) | 已接受（2026-09-20 修订） |
+| turn-process-and-thinking-display | [回合过程与思考展示](/adr/turn-process-and-thinking-display) | 已接受（2026-09-20 修订） |
 | 0289 | [签名的 macOS GitHub Release 与应用内更新](/adr/0289-signed-macos-github-releases) | 已接受（D450；修订 ADR 0022 / 0145 / 0191 / 0204 / D078） |
 | 0290 | [恢复可拖拽侧边栏宽度，过窄时收起](/adr/0290-resizable-sidebar-collapse-threshold) | 已接受（D459；修订 ADR 0141 / ADR 0238） |
 | 0291 | [移除设置页面的语音界面](/adr/0291-remove-speech-settings-ui) | 已接受（修订 ADR 0281） |
@@ -316,14 +316,18 @@ ADR 记录那些不应被静默改变的架构选择。中文入口与英文索�
 | 0311 | [在 Host 受理时重新核验 Live Work 工作空间身份](/adr/0311-live-work-workspace-admission-guard) | 已实现候选 |
 | 0312 | [会话级 Todo 清单](/adr/0312-session-scoped-todo-checklist) | 已接受实施 |
 | registry-header-variable-spelling | [Remote header variables accept the registry's `{name}` spelling](/adr/registry-header-variable-spelling) | Proposed |
-| 0339 | [侧边栏 token 用量摘要](/adr/0339-sidebar-token-usage-summary) | 已接受（修订 ADR 0173；D680） |
-| 0340 | [内置 Git 工作面板](/adr/0340-bundled-git-work-panel) | 已接受（D681；由 0341 / D682 修订） |
-| 0341 | [Git 树形 review 与 AI 提交信息](/adr/0341-git-ai-commit-messages) | 已接受（D682） |
-| 0342 | [窗口级插件视图弹窗](/adr/0342-window-sized-plugin-view-modals) | 已接受（D683） |
-| 0343 | [Remote SSH Agent Runtime](/adr/0343-remote-ssh-agent-runtime) | 已接受实施（D684） |
-| 0344 | [受管 SSH 密码认证](/adr/0344-managed-ssh-password-auth) | 已接受（D685） |
-| 0345 | [语音听写第一阶段](/adr/0345-voice-dictation-phase-1) | 已接受实施（D686） |
-| 0346 | [本地语音插件取代云语音](/adr/0346-local-voice-plugin) | 已接受实施（D687） |
+| 0342 | [内置电脑操作是宿主拥有、以用户挑选的作用域授权为门的能力](/adr/0342-os-computer-use-capability) | 提议中（D681；修订非目标第 9 条） |
+| 0340 | [插件可访问任意会话（新增 .all 权限）](/adr/0340-plugin-session-all-scope) | 已接受（修订 ADR 0200、ADR 0323；D680） |
+| 0344 | [电脑操作默认授权整个桌面，“停止”就是边界](/adr/0344-computer-use-whole-desktop-grant) | 已接受（D682；修订 ADR 0342 第 4、6 条） |
+
+| 0348 | [侧边栏 token 用量摘要](/adr/0348-sidebar-token-usage-summary) | 已接受（修订 ADR 0173；D686） |
+| 0349 | [内置 Git 工作面板](/adr/0349-bundled-git-work-panel) | 已接受（D687；由 0350 / D688 修订） |
+| 0350 | [Git 树形 review 与 AI 提交信息](/adr/0350-git-ai-commit-messages) | 已接受（D688） |
+| 0351 | [窗口级插件视图弹窗](/adr/0351-window-sized-plugin-view-modals) | 已接受（D689） |
+| 0352 | [Remote SSH Agent Runtime](/adr/0352-remote-ssh-agent-runtime) | 已接受实施（D690） |
+| 0353 | [受管 SSH 密码认证](/adr/0353-managed-ssh-password-auth) | 已接受（D691） |
+| 0354 | [语音听写第一阶段](/adr/0354-voice-dictation-phase-1) | 已接受实施（D692） |
+| 0355 | [本地语音插件取代云语音](/adr/0355-local-voice-plugin) | 已接受实施（D693） |
 
 > Fork 自身的决策最初占用了合并主线已分配的 0230 - 0235 区间，因此对照主线
 > 重新编号为 D430 - D435 与 ADR 0266 - 0271；后续一次上游同步占用
@@ -331,9 +335,11 @@ ADR 记录那些不应被静默改变的架构选择。中文入口与英文索�
 > ADR 0273 - 0289，fork 移至 ADR 0290 - 0296；2026-09 的上游同步带来
 > ADR 0290 - 0305，并把 fork 的 D430 - D435、D439、D451 编号占为上游所有，
 > 因此移至 ADR 0306 - 0313 与 D622 - D629；2026-10 的上游同步又带来
-> ADR 0306 - 0321 并占用 D622 - D648，因此再次移至 ADR 0339 - 0346 与
-> D680 - D687。注意上游独立复用了决策编号 D439（窗口开关键与对话内容
-> 宽度记录）；fork 的语音听写记录是 D686。
+> ADR 0306 - 0321 并占用 D622 - D648，因此移至 ADR 0322 - 0329 与 D650 - D657；
+> 2026-11 的同步带来 ADR 0322 - 0338 并占用 D650 - D679，因此移至
+> ADR 0339 - 0347 与 D680 - D688；2026-12 的同步又带来 ADR 0339 - 0346 并占用
+> D680 - D685，因此移至 ADR 0348 - 0356 与 D686 - D694。注意上游独立复用了
+> 决策编号 D439（窗口开关键与对话内容宽度记录）；fork 的语音听写记录是 D692。
 
 ## 什么时候看 ADR
 
@@ -341,7 +347,7 @@ ADR 记录那些不应被静默改变的架构选择。中文入口与英文索�
 - ADR 告诉你为什么选择这个边界，以及哪些替代方案被放弃。
 - 决策日志记录更细的冻结条款和后续修订。
 
-前往 [英文 ADR 索引](/adr/README) 查看完整记录，或打开 [中文决策日志](/zh-CN/spec/08-meta/decisions-log) 按编号检索。
+前往 [英文 ADR 索引](/adr/README) 查看完整记录，或打开 [中文决策日志](/spec/08-meta/decisions-log) 按编号检索。
 
 ## 托盘会话快捷方式
 

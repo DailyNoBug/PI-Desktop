@@ -4,6 +4,7 @@ import {
 } from "@pi-desktop/shared";
 import type { ComposerPluginPart } from "../../../lib/composer-smart-stop";
 import type { ComposerFileReference } from "./model";
+import { fileLineLabel, type FileLineRange } from "@pi-desktop/shared";
 
 export { type ComposerFileReference } from "./model";
 
@@ -39,9 +40,12 @@ export function createFileReference(
   preferredName?: string,
   sessionId = "",
   metadata?: {
-    kind?: "image" | "file" | "session";
+    size?: number;
+    localReference?: string;
+    kind?: "image" | "file" | "session" | "directory" | "agent";
     mimeType?: string;
     token?: string;
+    lineRange?: FileLineRange;
     plugin?: ComposerPluginPart;
   },
 ): ComposerFileReference {
@@ -54,12 +58,15 @@ export function createFileReference(
     // A plugin mark's label is shown as given, and a session reference is
     // named by its conversation; neither is a path.
     name:
-      isPluginMark(metadata) || metadata?.kind === "session"
+      isPluginMark(metadata) || metadata?.kind === "session" || metadata?.kind === "agent"
         ? (preferredName ?? "")
         : fileReferenceLabel(path, preferredName),
     kind: metadata?.kind ?? (isImageFilePath(path) ? "image" : "file"),
+    ...(metadata?.size !== undefined ? { size: metadata.size } : {}),
+    ...(metadata?.localReference ? { localReference: metadata.localReference } : {}),
     ...(metadata?.mimeType ? { mimeType: metadata.mimeType } : {}),
     ...(metadata?.token ? { token: metadata.token } : {}),
+    ...(metadata?.lineRange ? { lineRange: metadata.lineRange } : {}),
     ...(metadata?.plugin ? { plugin: metadata.plugin } : {}),
   };
 }
@@ -93,10 +100,34 @@ function isChipElement(node: Node): boolean {
   );
 }
 
+const TAIL_PLACEHOLDER_ATTRIBUTE = "data-composer-tail";
+
+/** The break that keeps an empty last line laid out; the draft never reads it. */
+function buildTailPlaceholder(): HTMLBRElement {
+  const placeholder = document.createElement("br");
+  placeholder.setAttribute(TAIL_PLACEHOLDER_ATTRIBUTE, "");
+  placeholder.setAttribute("aria-hidden", "true");
+  return placeholder;
+}
+
+/** Paint the placeholder for a value whose last line is empty. */
+function paintTailPlaceholder(el: HTMLElement, value: string): void {
+  if (value.endsWith("\n")) el.appendChild(buildTailPlaceholder());
+}
+
+function isTailPlaceholder(node: Node): boolean {
+  return (
+    node.nodeType === Node.ELEMENT_NODE &&
+    (node as HTMLElement).tagName === "BR" &&
+    (node as HTMLElement).hasAttribute(TAIL_PLACEHOLDER_ATTRIBUTE)
+  );
+}
+
 /** Rendered length of a node in draft-string characters (chip = 1 char). */
 function editorNodeLength(node: Node): number {
   if (node.nodeType === Node.TEXT_NODE) return (node.nodeValue ?? "").length;
   if (isChipElement(node)) return 1;
+  if (isTailPlaceholder(node)) return 0;
   if (node.nodeType === Node.ELEMENT_NODE) {
     const element = node as HTMLElement;
     if (element.tagName === "BR") return 1;
@@ -122,6 +153,7 @@ export function readEditorValue(el: HTMLElement): string {
       out += isChipTokenChar(token) ? token : "";
       return;
     }
+    if (isTailPlaceholder(element)) return;
     if (element.tagName === "BR") {
       out += "\n";
       return;
@@ -158,6 +190,8 @@ export function editorIndexAt(
       for (const child of Array.from(parent.childNodes)) {
         if (child.nodeType === Node.TEXT_NODE) {
           total += (child.nodeValue ?? "").length;
+        } else if (isTailPlaceholder(child)) {
+          // The placeholder break is not part of the draft.
         } else if (isChipElement(child) || (child as HTMLElement).tagName === "BR") {
           total += 1;
         } else if (child.nodeType === Node.ELEMENT_NODE) {
@@ -204,6 +238,9 @@ function editorCaretPoint(el: HTMLElement, target: number): { node: Node; offset
           return true;
         }
         remaining -= length;
+      } else if (isTailPlaceholder(child)) {
+        // Not a draft position: a caret at the end goes before the placeholder.
+        continue;
       } else if (isChipElement(child) || (child as HTMLElement).tagName === "BR") {
         if (point === null && remaining <= 1) {
           point = { node: parent, offset: remaining === 0 ? index : index + 1 };
@@ -217,7 +254,9 @@ function editorCaretPoint(el: HTMLElement, target: number): { node: Node; offset
     return false;
   };
   descend(el);
-  return point ?? { node: el, offset: el.childNodes.length };
+  if (point) return point;
+  const placeholder = Array.from(el.childNodes).findIndex(isTailPlaceholder);
+  return { node: el, offset: placeholder === -1 ? el.childNodes.length : placeholder };
 }
 
 export function setEditorCaret(el: HTMLElement, index: number): void {
@@ -235,8 +274,32 @@ export function setEditorCaret(el: HTMLElement, index: number): void {
   selection.addRange(range);
 }
 
+/**
+ * Keep the empty last line laid out. Chromium has no box for a line that holds
+ * nothing, so a caret left after the final break resolves backwards and the next
+ * keystroke lands on the line above (#2433). A placeholder break gives that line
+ * a box; `readEditorValue`, `editorIndexAt` and `editorCaretPoint` all skip it,
+ * so the draft string and its indices are unchanged.
+ */
+export function syncTailPlaceholder(el: HTMLElement): void {
+  const value = readEditorValue(el);
+  const existing = Array.from(el.childNodes).find(isTailPlaceholder) ?? null;
+  if (!value.endsWith("\n")) {
+    existing?.remove();
+    return;
+  }
+  if (!existing) el.appendChild(buildTailPlaceholder());
+  // A caret after the final break is the position without a box; naming the end
+  // by draft index puts it on the placeholder side instead.
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return;
+  if (!el.contains(selection.anchorNode)) return;
+  if (editorSelectionRange(el).start === value.length) setEditorCaret(el, value.length);
+}
+
 /** One glyph per file family on attachment chips, as inline SVG strings. */
 const CHIP_ICON_SVG: Record<string, string> = {
+  dir: '<path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 9h18"/>',
   image:
     '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
   code: '<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="M14.5 4 9.5 20"/>',
@@ -253,6 +316,8 @@ const CHIP_ICON_SVG: Record<string, string> = {
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   plugin:
     '<path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>',
+  agent:
+    '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
   fold: '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
 };
 
@@ -260,6 +325,9 @@ function chipIconKey(reference: ComposerFileReference): string {
   if (reference.plugin?.kind === "mark") return "plugin";
   if (reference.plugin?.kind === "fold") return "fold";
   if (reference.kind === "session") return "session";
+  if (reference.kind === "agent") return "agent";
+  if (reference.kind === "directory") return "dir";
+  if (reference.lineRange) return "file";
   const mime = reference.mimeType ?? "";
   if (reference.kind === "image" || mime.startsWith("image/")) return "image";
   const name = reference.name;
@@ -278,7 +346,8 @@ function chipSvg(key: string, size = 13): string {
 }
 
 export function isEditableTextReference(reference: ComposerFileReference): boolean {
-  if (isPluginMark(reference)) return false;
+  if (reference.localReference || reference.lineRange) return false;
+  if (isPluginMark(reference) || reference.kind === "directory" || reference.kind === "agent") return false;
   return reference.mimeType?.toLowerCase() === "text/plain" || /\.txt$/i.test(reference.name);
 }
 
@@ -297,12 +366,17 @@ function buildChipElement(
   chip.contentEditable = "false";
   chip.dataset.token = token;
   // A mark names the plugin that put it there where a file names its path.
-  const origin = isPluginMark(reference) ? (reference.plugin?.pluginId ?? "") : reference.path;
+  const origin = isPluginMark(reference)
+    ? (reference.plugin?.pluginId ?? "")
+    : reference.kind === "agent"
+      ? `@${reference.path}`
+      : reference.path;
   if (isPluginMark(reference)) chip.dataset.pluginMark = reference.plugin?.kind;
+  if (reference.kind === "agent") chip.dataset.agent = reference.path;
   chip.title = origin;
   // An image keeps the compact chip and opens its preview, a session chip opens
   // that conversation, and only plain text expands into editable draft text.
-  const image = chipIconKey(reference) === "image";
+  const image = !reference.localReference && chipIconKey(reference) === "image";
   if (image) chip.dataset.image = "";
   const session = reference.kind === "session";
   if (session) chip.dataset.sessionId = reference.path;
@@ -315,7 +389,8 @@ function buildChipElement(
         ? () => onOpenSession(token)
         : undefined;
   chip.setAttribute("role", activate ? "button" : "listitem");
-  chip.setAttribute("aria-label", `${reference.name} — ${origin}`);
+  const label = reference.lineRange ? fileLineLabel(reference.name, reference.lineRange) : reference.name;
+  chip.setAttribute("aria-label", `${label} — ${origin}`);
   if (activate) {
     chip.tabIndex = 0;
     // Only a text reference expands into editable text; an image chip opens
@@ -337,11 +412,18 @@ function buildChipElement(
 
   const icon = document.createElement("span");
   icon.className = "composer-chip-icon";
-  icon.innerHTML = chipSvg(chipIconKey(reference));
+  icon.innerHTML = chipSvg(chipIconKey(reference), 13);
 
   const nameSpan = document.createElement("span");
   nameSpan.className = "composer-chip-name";
-  nameSpan.textContent = reference.name;
+  nameSpan.textContent = label;
+  if (reference.localReference && reference.size !== undefined) {
+    const unit = Math.min(3, Math.floor(Math.log2(Math.max(1, reference.size)) / 10));
+    const size = reference.size / 1024 ** unit;
+    nameSpan.textContent += ` · ${Number(size.toFixed(1))} ${["B", "KiB", "MiB", "GiB"][unit]}`;
+    chip.title += ` (${reference.size} B)`;
+    chip.setAttribute("aria-label", `${reference.name} — ${chip.title}`);
+  }
 
   const remove = document.createElement("button");
   remove.type = "button";
@@ -416,6 +498,7 @@ export function paintEditorValue(
     // Chromium needs at least one node for reliable caret placement.
     el.appendChild(document.createTextNode(""));
   }
+  paintTailPlaceholder(el, value);
 }
 
 export function clipboardFiles(data: DataTransfer): File[] {

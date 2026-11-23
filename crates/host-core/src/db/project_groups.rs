@@ -209,12 +209,14 @@ impl Database {
         let mut used_paths = std::collections::HashSet::new();
         let mut groups = Vec::with_capacity(stored.len() + projects.len());
 
-        for group in stored {
-            for root in &group.roots {
+        for mut group in stored {
+            for root in &mut group.roots {
                 let path = canonical_project_path(&root.path)
                     .ok_or_else(|| anyhow!("project group root path must not be blank"))?;
+                root.path = path.clone();
                 used_paths.insert(path);
             }
+            group.primary_path = group.roots[0].path.clone();
             for path in &group.detached_paths {
                 if let Some(path) = canonical_project_path(path) {
                     used_paths.insert(path);
@@ -355,6 +357,7 @@ impl Database {
             }
             return self.rename_project_group(&current.id, name);
         }
+        let transaction = self.conn.unchecked_transaction()?;
         let current_primary = canonical_project_path(&current.primary_path)
             .ok_or_else(|| anyhow!("project group primary path is invalid"))?;
         let requested_primary = primary
@@ -392,7 +395,7 @@ impl Database {
                     "the primary folder must be one of the group folders: {requested}"
                 ))
             }
-            None if selected.iter().any(|path| path == &current_primary) => current_primary,
+            None if selected.iter().any(|path| path == &current_primary) => current_primary.clone(),
             None => return Err(anyhow!("the primary folder cannot be removed")),
         };
         let mut ordered = vec![primary.clone()];
@@ -404,8 +407,41 @@ impl Database {
             .map(|root| root.path.as_str())
             .filter(|path| !ordered.iter().any(|candidate| candidate == path))
             .collect::<Vec<_>>();
+        // An edit that leaves one root is an explicit relocation only when the
+        // project being replaced no longer exists on disk; replacing a folder
+        // that still exists keeps the detach semantics below (#2469).
+        let relocation_source = if ordered.len() != 1 {
+            None
+        } else if current.roots.len() == 1 {
+            // One-save repair: the sole root is swapped for its replacement.
+            (primary != current_primary && !Path::new(&current_primary).is_dir())
+                .then(|| current_primary.clone())
+        } else {
+            // Two-step repair (#1869): the replacement was saved next to the
+            // stale root first and the stale root is dropped now. Relocate only
+            // one unambiguous stale project with data onto an empty target;
+            // otherwise the stale root detaches as before.
+            let mut stale = Vec::new();
+            for path in &removed {
+                if !Path::new(path).is_dir()
+                    && super::project_path_migration::project_path_owns_data(&self.conn, path)?
+                {
+                    stale.push(path.to_string());
+                }
+            }
+            if stale.len() == 1
+                && !super::project_path_migration::project_path_owns_data(&self.conn, &primary)?
+            {
+                stale.pop()
+            } else {
+                None
+            }
+        };
         let mut removed_without_sessions = Vec::new();
         for path in &removed {
+            if relocation_source.as_deref() == Some(*path) {
+                continue;
+            }
             let has_sessions: bool = self.conn.query_row(
                 "SELECT EXISTS(
                     SELECT 1 FROM sessions s
@@ -419,8 +455,12 @@ impl Database {
                 removed_without_sessions.push(*path);
             }
         }
-        for path in &ordered {
-            self.ensure_project(path, false)?;
+        if let Some(source) = relocation_source.as_deref() {
+            super::project_path_migration::relocate_project_path(&self.conn, source, &primary)?;
+        } else {
+            for path in &ordered {
+                self.ensure_project(path, false)?;
+            }
         }
 
         if current.legacy && ordered.len() == 1 {
@@ -429,6 +469,13 @@ impl Database {
                 .execute(params![name, primary])?;
             let mut legacy = current;
             legacy.name = name.to_string();
+            if relocation_source.is_some() {
+                legacy.id = format!("legacy:{primary}");
+                legacy.primary_path = primary.clone();
+                legacy.roots[0].path = primary.clone();
+                legacy.roots[0].name = project_display_name(&primary);
+            }
+            transaction.commit()?;
             return Ok(legacy);
         }
 
@@ -505,6 +552,7 @@ impl Database {
             }
         }
         self.kv_set(GROUP_NAMESPACE, &group.id, &serde_json::to_value(&group)?)?;
+        transaction.commit()?;
         Ok(group)
     }
 

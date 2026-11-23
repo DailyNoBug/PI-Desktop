@@ -5,7 +5,7 @@ import type {
   ProviderPublic,
   UiMessage,
 } from "@pi-desktop/shared";
-import { resolveContextWindow } from "./context-usage";
+import { DEFAULT_CONTEXT_WINDOW, resolveKnownContextWindow } from "./context-usage";
 import { getSessionMessageSnapshot } from "./session-transcript-updates";
 import { getTranscriptProjection } from "./transcript-projection";
 import { getAssistantTurnSummary } from "./transcript-summary";
@@ -14,6 +14,7 @@ export type LatestTurnContextInspector = {
   usage: MessageUsage;
   turnUsage: MessageUsage;
   contextWindow: number;
+  contextWindowEstimated?: boolean;
   tools: UiMessage[];
   responseDurationMs?: number;
   responseOutputTokens?: number;
@@ -43,6 +44,7 @@ export function latestTurnContextInspector(
   providerModels: Record<string, ModelInfo[]>,
   providers: ProviderPublic[],
   compactions?: readonly ContextCompactionMark[],
+  currentModel?: { providerId?: string; modelId?: string },
 ): LatestTurnContextInspector | undefined {
   const compaction = compactions?.at(-1);
   let latestUsageMessage: UiMessage | undefined;
@@ -59,11 +61,32 @@ export function latestTurnContextInspector(
       break;
     }
   }
-  const latestUsage = latestUsageMessage?.usage;
-  if (!latestUsage) return undefined;
+  if (!latestUsageMessage?.usage) return undefined;
+  const latestUsage = latestUsageMessage.usage;
+  const snapshot = getSessionMessageSnapshot(messages);
+  // Failed or stopped replies can report usage without entering model history.
+  // Their UI row then follows the checkpoint anchor even if /compact ran later.
+  if (!usagePredatesCompaction && compaction?.createdAt) {
+    const reply = latestUsageMessage;
+    const failedOrStopped = reply.status === "error" || reply.status === "aborted" ||
+      reply.isError || reply.error;
+    usagePredatesCompaction = reply.role === "assistant" && Boolean(failedOrStopped) &&
+      snapshot.positions.has(compaction.throughMessageId) &&
+      Date.parse(reply.createdAt) < Date.parse(compaction.createdAt);
+  }
   const compactedContextTokens = usagePredatesCompaction
     ? compaction?.contextTokens
     : undefined;
+  const windowModel = compactedContextTokens !== undefined
+    ? compaction?.providerId && compaction.modelId
+      ? compaction
+      : currentModel?.providerId && currentModel.modelId
+        ? currentModel
+        : latestUsageMessage
+    : latestUsageMessage;
+  const knownContextWindow = resolveKnownContextWindow(
+    windowModel?.providerId, windowModel?.modelId, providerModels, providers,
+  );
 
   const { entries } = getTranscriptProjection(messages, compactions);
   let latestTurn: ReturnType<typeof getAssistantTurnSummary> | undefined;
@@ -80,23 +103,20 @@ export function latestTurnContextInspector(
   const result: LatestTurnContextInspector = {
     usage: latestUsage,
     turnUsage: latestTurn?.usage ?? latestUsage,
-    contextWindow: resolveContextWindow(
-      latestUsageMessage?.providerId,
-      latestUsageMessage?.modelId,
-      providerModels,
-      providers,
-    ),
+    contextWindow: knownContextWindow ?? DEFAULT_CONTEXT_WINDOW,
+    ...(knownContextWindow === undefined ? { contextWindowEstimated: true } : {}),
     tools: latestTurn?.tools ?? [],
     responseDurationMs: latestTurn?.responseDurationMs,
     responseOutputTokens: latestTurn?.responseOutputTokens,
     responseOutputEstimated: latestTurn?.responseOutputEstimated ?? false,
     ...(compactedContextTokens !== undefined ? { compactedContextTokens } : {}),
   };
-  const owner = getSessionMessageSnapshot(messages).owner;
+  const { owner } = snapshot;
   const previous = inspectors.get(owner);
   if (previous && previous.usage === result.usage &&
     sameUsage(previous.turnUsage, result.turnUsage) &&
     previous.contextWindow === result.contextWindow &&
+    previous.contextWindowEstimated === result.contextWindowEstimated &&
     previous.compactedContextTokens === result.compactedContextTokens &&
     previous.responseDurationMs === result.responseDurationMs &&
     previous.responseOutputTokens === result.responseOutputTokens &&

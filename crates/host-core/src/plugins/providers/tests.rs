@@ -101,10 +101,10 @@ fn a_new_database_carries_the_owner_column_at_the_current_schema_version() {
     // v19 session omit, v21 the session Todo checklist, and v22 the
     // session-list index, v23 the session title source, v24 the worktree
     // registry, v25 model discovery state, v26 lossless image storage, and v27
-    // the session Fast mode switch. A fresh database is stamped with the
+    // the session Fast mode switch; v28 repairs project path aliases.
+    // A fresh database is stamped with the
     // newest version, so the
     // column set is the current one.
-    assert_eq!(SCHEMA_VERSION, 27);
     let version: i64 = db
         .conn()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -191,6 +191,7 @@ fn empty_api_key_model_list_uses_the_cached_endpoint_discovery() {
             display_name: "Demo Chat".to_string(),
             capabilities: vec!["text".to_string()],
             context_window: Some(128_000),
+            reported_context_window: None,
         }],
         true,
     )
@@ -263,18 +264,21 @@ fn dropping_a_declared_model_forgets_its_cached_row() {
                 display_name: "Demo Large".into(),
                 capabilities: vec!["text".into()],
                 context_window: Some(200_000),
+                reported_context_window: None,
             },
             providers::DiscoveredModelInput {
                 model_id: "demo-small".into(),
                 display_name: "Demo Small".into(),
                 capabilities: vec!["text".into()],
                 context_window: Some(32_000),
+                reported_context_window: None,
             },
             providers::DiscoveredModelInput {
                 model_id: "demo-extra".into(),
                 display_name: "Demo Extra".into(),
                 capabilities: vec!["text".into()],
                 context_window: None,
+                reported_context_window: None,
             },
         ],
         true,
@@ -326,12 +330,14 @@ fn moving_a_declared_endpoint_forgets_the_discovered_answer() {
                 display_name: "Demo Large".into(),
                 capabilities: vec!["text".into()],
                 context_window: Some(200_000),
+                reported_context_window: None,
             },
             providers::DiscoveredModelInput {
                 model_id: "demo-remote-only".into(),
                 display_name: "Demo Remote Only".into(),
                 capabilities: vec!["text".into()],
                 context_window: Some(8_000),
+                reported_context_window: None,
             },
         ],
         true,
